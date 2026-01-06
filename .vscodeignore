@@ -1,0 +1,26 @@
+.vscode/**
+.vscode-test/**
+out/**
+node_modules/**
+src/**
+.gitignore
+.yarnrc
+esbuild.js
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/eslint.config.mjs
+**/*.map
+**/*.ts
+**/.vscode-test.*
+
+# Dev config and tools
+.jj/**
+.github/**
+knip.json
+vitest.config.js
+vitest.config.ts
+package-lock.json
+.prettierrc
+.prettierignore
+GEMINI.md
+CHANGELOG.md

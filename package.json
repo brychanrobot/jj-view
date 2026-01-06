@@ -1,0 +1,401 @@
+{
+    "name": "good-juju",
+    "displayName": "Good Juju",
+    "description": "Integrates Jujutsu (jj) version control into VS Code.",
+    "version": "0.0.1",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/brychanrobot/good-juju"
+    },
+    "engines": {
+        "vscode": "^1.104.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "workspaceContains:.jj"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "configuration": {
+            "title": "Good Juju",
+            "properties": {
+                "good-juju.refreshDebounceMillis": {
+                    "type": "number",
+                    "default": 100,
+                    "description": "Base debounce time (ms) for SCM refresh based on file events."
+                },
+                "good-juju.refreshDebounceMaxMultiplier": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 1,
+                    "description": "Maximum multiplier for the debounce timeout when events continue to occur."
+                },
+                "good-juju.watcherIgnore": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "node_modules",
+                        ".git"
+                    ],
+                    "description": "Paths (segments) to ignore in file watcher to prevent unnecessary SCM refreshes."
+                }
+            }
+        },
+        "commands": [
+            {
+                "command": "good-juju.showCurrentChange",
+                "title": "Show Current Change",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.newMergeChange",
+                "title": "New Merge Change",
+                "category": "Good Juju",
+                "icon": "$(git-merge)"
+            },
+            {
+                "command": "good-juju.new",
+                "title": "New Change",
+                "category": "Good Juju",
+                "icon": "$(plus)"
+            },
+            {
+                "command": "good-juju.setDescription",
+                "title": "Set Description",
+                "category": "Good Juju",
+                "icon": "$(save)"
+            },
+            {
+                "command": "good-juju.commit",
+                "title": "Commit",
+                "category": "Good Juju",
+                "icon": "$(check)"
+            },
+            {
+                "command": "good-juju.refresh",
+                "title": "Refresh",
+                "category": "Good Juju",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "good-juju.restore",
+                "title": "Restore",
+                "category": "Good Juju",
+                "icon": "$(discard)"
+            },
+            {
+                "command": "good-juju.squash",
+                "title": "Squash into Parent",
+                "category": "Good Juju",
+                "icon": "$(arrow-down)"
+            },
+            {
+                "command": "good-juju.moveToChild",
+                "title": "Move to Child",
+                "category": "Good Juju",
+                "icon": "$(arrow-up)"
+            },
+            {
+                "command": "good-juju.openFile",
+                "title": "Open File",
+                "category": "Good Juju",
+                "icon": "$(go-to-file)"
+            },
+            {
+                "command": "good-juju.undo",
+                "title": "Undo",
+                "category": "Good Juju",
+                "icon": "$(discard)"
+            },
+            {
+                "command": "good-juju.duplicate",
+                "title": "Duplicate",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.abandon",
+                "title": "Abandon",
+                "category": "Good Juju",
+                "icon": "$(trash)"
+            },
+            {
+                "command": "good-juju.edit",
+                "title": "Edit",
+                "category": "Good Juju",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "good-juju.newBefore",
+                "title": "New Before",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.moveToParentInDiff",
+                "title": "Move to Parent",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.moveToChildInDiff",
+                "title": "Move to Child",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.openMergeEditor",
+                "title": "Open Merge Editor",
+                "category": "Good Juju"
+            },
+            {
+                "command": "good-juju.completeSquash",
+                "title": "Complete Squash",
+                "category": "Good Juju",
+                "icon": "$(check)"
+            },
+            {
+                "command": "good-juju.rebaseOntoSelected",
+                "title": "Rebase onto Selected",
+                "category": "Good Juju",
+                "icon": "$(git-merge)"
+            },
+            {
+                "command": "good-juju.showDetails",
+                "title": "Show Details",
+                "category": "Good Juju",
+                "icon": "$(list-selection)"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "good-juju.setDescription",
+                "key": "ctrl+s",
+                "mac": "cmd+s",
+                "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
+            },
+            {
+                "command": "good-juju.commit",
+                "key": "ctrl+enter",
+                "mac": "cmd+enter",
+                "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
+            }
+        ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "good-juju.undo",
+                    "group": "navigation",
+                    "when": "view == good-juju.logView"
+                },
+                {
+                    "command": "good-juju.abandon",
+                    "group": "navigation",
+                    "when": "view == good-juju.logView && jj.selection.allowAbandon"
+                },
+                {
+                    "command": "good-juju.newMergeChange",
+                    "group": "navigation",
+                    "when": "view == good-juju.logView && jj.selection.allowMerge"
+                }
+            ],
+            "webview/context": [
+                {
+                    "command": "good-juju.edit",
+                    "when": "webviewSection == 'commit' && canEdit",
+                    "group": "navigation"
+                },
+                {
+                    "command": "good-juju.newBefore",
+                    "when": "webviewSection == 'commit' && canEdit",
+                    "group": "navigation"
+                },
+                {
+                    "command": "good-juju.duplicate",
+                    "when": "webviewSection == 'commit' && canDuplicate",
+                    "group": "navigation"
+                },
+                {
+                    "command": "good-juju.newMergeChange",
+                    "when": "webviewSection == 'commit' && canMerge",
+                    "group": "navigation"
+                },
+                {
+                    "command": "good-juju.rebaseOntoSelected",
+                    "when": "webviewSection == 'commit' && canRebaseOnto",
+                    "group": "navigation"
+                },
+                {
+                    "command": "good-juju.abandon",
+                    "when": "webviewSection == 'commit' && canAbandon",
+                    "group": "navigation"
+                }
+            ],
+            "scm/title": [
+                {
+                    "command": "good-juju.new",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "good-juju.setDescription",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "good-juju.commit",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "good-juju.refresh",
+                    "group": "navigation@10"
+                }
+            ],
+            "scm/resourceGroup/context": [
+                {
+                    "command": "good-juju.squash",
+                    "group": "inline",
+                    "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
+                },
+                {
+                    "command": "good-juju.abandon",
+                    "group": "inline",
+                    "when": "scmResourceGroup == 'working-copy'"
+                },
+                {
+                    "command": "good-juju.showDetails",
+                    "group": "inline@1",
+                    "when": "scmResourceGroupState =~ /^jjParentGroup/"
+                },
+                {
+                    "command": "good-juju.edit",
+                    "group": "inline@2",
+                    "when": "scmResourceGroupState == 'jjParentGroup:mutable'"
+                }
+            ],
+            "scm/resourceState/context": [
+                {
+                    "command": "good-juju.restore",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjWorkingCopy'"
+                },
+                {
+                    "command": "good-juju.squash",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
+                },
+                {
+                    "command": "good-juju.moveToChild",
+                    "icon": "$(git-merge)",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjParent'"
+                },
+                {
+                    "command": "good-juju.moveToChild",
+                    "icon": "$(git-merge)",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
+                }
+            ],
+            "scm/resourceState/inline": [
+                {
+                    "command": "good-juju.restore",
+                    "group": "inline"
+                },
+                {
+                    "command": "good-juju.squash",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
+                },
+                {
+                    "command": "good-juju.moveToChild",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjParent'"
+                },
+                {
+                    "command": "good-juju.moveToChild",
+                    "group": "inline",
+                    "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
+                }
+            ],
+            "editor/title": [
+                {
+                    "command": "good-juju.completeSquash",
+                    "group": "navigation",
+                    "when": "resourceFilename == 'SQUASH_MSG'"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "good-juju.moveToParentInDiff",
+                    "group": "good-juju",
+                    "when": "isInDiffEditor && jj.parentMutable"
+                },
+                {
+                    "command": "good-juju.moveToChildInDiff",
+                    "group": "good-juju",
+                    "when": "isInDiffEditor && jj.hasChild"
+                }
+            ]
+        },
+        "views": {
+            "scm": [
+                {
+                    "id": "good-juju.logView",
+                    "name": "JJ Log",
+                    "type": "webview"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run check-types && npm run lint && node esbuild.js --production",
+        "build": "npm run check-types && npm run lint && node esbuild.js",
+        "watch": "npm-run-all -p watch:*",
+        "watch:esbuild": "node esbuild.js --watch",
+        "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+        "package": "vsce package",
+        "clean:tests": "rimraf out",
+        "build:tests": "npm run clean:tests && tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run build && npm run build:tests && npm run lint",
+        "check-types": "tsc --noEmit",
+        "lint": "eslint src && npm run check-license",
+        "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' **",
+        "format": "prettier --write .",
+        "check-format": "prettier --check .",
+        "test": "npm-run-all -p --print-label test:unit test:integration",
+        "test:integration": "npm run build:tests && vscode-test",
+        "test:unit": "vitest run"
+    },
+    "devDependencies": {
+        "@types/mocha": "^10.0.10",
+        "@types/node": "22.x",
+        "@types/react": "^19.2.7",
+        "@types/react-dom": "^19.2.3",
+        "@types/sinon": "^21.0.0",
+        "@types/vscode": "^1.104.0",
+        "@vscode/test-cli": "^0.0.12",
+        "@vscode/test-electron": "^2.5.2",
+        "@vscode/vsce": "^3.7.1",
+        "esbuild": "^0.27.1",
+        "eslint": "^9.39.1",
+        "eslint-config-prettier": "^10.1.8",
+        "npm-run-all": "^4.1.5",
+        "prettier": "^3.7.4",
+        "rimraf": "^6.1.2",
+        "sinon": "^21.0.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3",
+        "typescript-eslint": "^8.48.1",
+        "vitest": "^4.0.16"
+    },
+    "dependencies": {
+        "@dnd-kit/core": "^6.3.1",
+        "@dnd-kit/modifiers": "^9.0.0",
+        "@dnd-kit/utilities": "^3.2.2",
+        "@vscode-elements/elements": "^2.4.0",
+        "@vscode/codicons": "^0.0.44",
+        "parse-diff": "^0.11.1",
+        "react": "^19.2.3",
+        "react-dom": "^19.2.3"
+    }
+}

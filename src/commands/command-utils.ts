@@ -1,0 +1,132 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { JjResourceState } from '../jj-scm-provider';
+import * as vscode from 'vscode';
+
+// Internal type guards to keep the messy VS Code argument matching encapsulated
+
+function hasResourceUri(arg: unknown): arg is { resourceUri: vscode.Uri } {
+    return typeof arg === 'object' && arg !== null && 'resourceUri' in arg;
+}
+
+function hasResourceStates(arg: unknown): arg is { resourceStates: unknown[] } {
+    if (typeof arg !== 'object' || arg === null || !('resourceStates' in arg)) {
+        return false;
+    }
+    const obj = arg as { resourceStates: unknown };
+    return Array.isArray(obj.resourceStates);
+}
+
+function hasRevision(arg: unknown): arg is { revision: string } {
+    if (typeof arg !== 'object' || arg === null || !('revision' in arg)) {
+        return false;
+    }
+    const obj = arg as { revision: unknown };
+    return typeof obj.revision === 'string';
+}
+
+function hasCommitId(arg: unknown): arg is { commitId: string } {
+    if (typeof arg !== 'object' || arg === null || !('commitId' in arg)) {
+        return false;
+    }
+    const obj = arg as { commitId: unknown };
+    return typeof obj.commitId === 'string';
+}
+
+/**
+ * Standardizes the extraction of JjResourceStates from the various ways
+ * VS Code passes arguments to commands (command palette, context menu, etc).
+ *
+ * @param args The variadic arguments passed to the command handler
+ * @returns An array of JjResourceState objects representing the selected files/resources
+ */
+export function collectResourceStates(args: unknown[]): JjResourceState[] {
+    const resourceStates: JjResourceState[] = [];
+
+    const processArg = (arg: unknown) => {
+        if (!arg) {
+            return;
+        }
+
+        if (Array.isArray(arg)) {
+            arg.forEach(processArg);
+        } else if (hasResourceUri(arg)) {
+            // Context Menu: Resource State
+            resourceStates.push(arg as JjResourceState);
+        } else if (hasResourceStates(arg)) {
+            // Context Menu: Resource Group (e.g. "Working Copy" header)
+            arg.resourceStates.forEach(processArg);
+        }
+    };
+
+    args.forEach(processArg);
+
+    // De-duplicate by fsPath
+    const unique = new Map<string, JjResourceState>();
+    for (const state of resourceStates) {
+        unique.set(state.resourceUri.fsPath, state);
+    }
+
+    return Array.from(unique.values());
+}
+
+function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
+    return typeof arg === 'object' && arg !== null && 'id' in arg && 'label' in arg && 'resourceStates' in arg;
+}
+
+export function isWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
+    return isSourceControlResourceGroup(arg) && arg.id === 'working-copy';
+}
+
+export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
+    return isSourceControlResourceGroup(arg) && arg.id.startsWith('parent-');
+}
+
+/**
+ * Helper to check if a specific revision was passed as a string argument
+ * (often from the command palette or explicit tool calls)
+ */
+export function extractRevision(args: unknown[]): string | undefined {
+    for (const arg of args) {
+        if (typeof arg === 'string' && arg.trim().length > 0) {
+            return arg;
+        }
+
+        if (hasRevision(arg)) {
+            return arg.revision;
+        }
+
+        if (hasCommitId(arg)) {
+            return arg.commitId;
+        }
+
+        if (isWorkingCopyResourceGroup(arg)) {
+            return '@';
+        }
+
+        if (isParentResourceGroup(arg) && arg.resourceStates.length > 0) {
+            const firstState = arg.resourceStates[0] as JjResourceState;
+            return firstState.revision;
+        }
+    }
+    return undefined;
+}
+
+export function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
+}

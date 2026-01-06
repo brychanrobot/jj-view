@@ -1,0 +1,14 @@
+{
+    "entry": [
+        "src/extension.ts",
+        "src/test/**/*.ts",
+        "src/webview/index.tsx",
+        ".vscode-test.mjs",
+        "vitest.config.ts",
+        "esbuild.js",
+        "eslint.config.mjs"
+    ],
+    "project": ["src/**/*.{ts,tsx}"],
+    "ignore": ["**/*.d.ts"],
+    "ignoreDependencies": ["ts-node", "@vscode/test-electron", "@types/mocha"]
+}

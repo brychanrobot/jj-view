@@ -1,0 +1,255 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import * as vscode from 'vscode';
+import * as path from 'path';
+import { JjService } from './jj-service';
+import { JjContextKey } from './jj-context-keys';
+
+export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
+    public static readonly viewType = 'good-juju.logView';
+    private _view?: vscode.WebviewView;
+
+    constructor(
+        private readonly _extensionUri: vscode.Uri,
+        private readonly _jj: JjService,
+        private readonly _onSelectionChange?: (ids: string[]) => void,
+    ) {}
+
+    public resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        _context: vscode.WebviewViewResolveContext,
+        _token: vscode.CancellationToken,
+    ) {
+        this._view = webviewView;
+
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [this._extensionUri],
+        };
+
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        webviewView.webview.onDidReceiveMessage(async (data) => {
+            switch (data.type) {
+                case 'webviewLoaded':
+                    await this.refresh();
+                    break;
+                case 'newChild':
+                    // new(message?, parent?)
+                    await this._jj.new(undefined, data.payload.commitId);
+                    await this.refresh();
+                    break;
+                case 'squash':
+                    // Route through extension command to reuse safe squash logic (editor, etc.)
+                    // Pass the commitId string to the squash command
+                    await vscode.commands.executeCommand('good-juju.squash', data.payload.commitId);
+                    // Refresh is handled by the command event listener
+                    break;
+                case 'edit':
+                    await this._jj.edit(data.payload.commitId);
+                    await this.refresh();
+                    break;
+                case 'select':
+                    const details = await this._jj.showDetails(data.payload.commitId);
+                    const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+                    vscode.workspace.openTextDocument({ content: cleanDetails, language: 'plaintext' }).then((doc) =>
+                        vscode.window.showTextDocument(doc, {
+                            preview: true,
+                            viewColumn: vscode.ViewColumn.Beside,
+                        }),
+                    );
+                    break;
+                case 'undo':
+                    await this._jj.undo();
+                    await this.refresh();
+                    break;
+                case 'abandon':
+                    await vscode.commands.executeCommand('good-juju.abandon', data.payload);
+                    break;
+                case 'getDetails':
+                    await this.createCommitDetailsPanel(data.payload.commitId);
+                    break;
+                case 'new':
+                    await this._jj.new();
+                    await vscode.commands.executeCommand('good-juju.refresh');
+                    break;
+                case 'resolve':
+                    await this._jj.resolve(data.payload);
+                    await this.refresh();
+                    break;
+                case 'moveBookmark':
+                    await this._jj.moveBookmark(data.payload.bookmark, data.payload.targetCommitId);
+                    await this.refresh();
+                    break;
+                case 'rebaseCommit':
+                    await this._jj.rebase(data.payload.sourceCommitId, data.payload.targetCommitId, data.payload.mode);
+                    await this.refresh();
+                    break;
+                case 'selectionChange':
+                    if (data.payload.commitIds.length === 0 && this._activeDetailsPanel) {
+                        // Close details panel if selection is cleared
+                        // Must clear reference first to avoid loop with onDidDispose
+                        const panel = this._activeDetailsPanel;
+                        this._activeDetailsPanel = undefined;
+                        panel.dispose();
+                    }
+
+                    // Update Context Key for Menu visibility
+                    const count = data.payload.commitIds.length;
+                    const hasImmutable = !!data.payload.hasImmutableSelection;
+
+                    // Compute Capabilities
+                    const allowAbandon = count > 0 && !hasImmutable;
+                    const allowMerge = count > 1;
+
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowAbandon, allowAbandon);
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowMerge, allowMerge);
+
+                    if (this._onSelectionChange) {
+                        this._onSelectionChange(data.payload.commitIds);
+                    }
+                    break;
+            }
+        });
+    }
+
+    public async refresh() {
+        if (this._view) {
+            try {
+                // Default jj log (usually local heads/roots)
+                const commits = await this._jj.getLog();
+                this._view.webview.postMessage({ type: 'update', commits });
+            } catch (e) {
+                console.error('Failed to fetch log for webview', e);
+            }
+        }
+    }
+
+    private _activeDetailsPanel?: vscode.WebviewPanel;
+
+    public async createCommitDetailsPanel(commitId: string) {
+        const description = await this._jj.getDescription(commitId);
+        const changes = await this._jj.getChanges(commitId);
+
+        const initialData = {
+            view: 'details',
+            payload: {
+                commitId,
+                description,
+                files: changes,
+            },
+        };
+
+        if (this._activeDetailsPanel) {
+            this._activeDetailsPanel.title = `Commit: ${commitId.substring(0, 8)}`;
+            this._activeDetailsPanel.webview.html = this._getHtmlForWebview(
+                this._activeDetailsPanel.webview,
+                initialData,
+            );
+            this._activeDetailsPanel.reveal();
+            return;
+        }
+
+        const panel = vscode.window.createWebviewPanel(
+            'good-juju.commitDetails',
+            `Commit: ${commitId.substring(0, 8)}`,
+            vscode.ViewColumn.Active,
+            {
+                enableScripts: true,
+                localResourceRoots: [this._extensionUri],
+            },
+        );
+        this._activeDetailsPanel = panel;
+
+        panel.webview.html = this._getHtmlForWebview(panel.webview, initialData);
+
+        panel.onDidDispose(() => {
+            if (this._activeDetailsPanel === panel) {
+                this._activeDetailsPanel = undefined;
+                // Notify graph view to clear selection
+                if (this._view) {
+                    this._view.webview.postMessage({ type: 'setSelection', ids: [] });
+                }
+            }
+        });
+
+        panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.type) {
+                case 'webviewLoaded':
+                    // Panel handles its own state via initialData
+                    break;
+                case 'saveDescription':
+                    await this._jj.describe(message.payload.description, message.payload.commitId);
+                    await this.refresh(); // Refresh graph
+                    vscode.window.showInformationMessage('Description updated');
+                    break;
+                case 'openDiff':
+                    const filePath = message.payload.filePath;
+                    // Left: Parent (commitId-)
+                    // Right: Commit (commitId)
+                    // We use our custom scheme which JjDocumentContentProvider handles
+                    const parentUri = vscode.Uri.parse(`good-juju:${filePath}?revision=${commitId}-`);
+                    const childUri = vscode.Uri.parse(`good-juju:${filePath}?revision=${commitId}`);
+
+                    await vscode.commands.executeCommand(
+                        'vscode.diff',
+                        parentUri,
+                        childUri,
+                        `${path.basename(filePath)} (${commitId.substring(0, 8)})`,
+                    );
+                    break;
+            }
+        });
+    }
+
+    private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
+        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'),
+        );
+
+        const nonce = getNonce();
+        const initialDataScript = initialData ? `window.vscodeInitialData = ${JSON.stringify(initialData)};` : '';
+
+        return `<!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+                <link href="${styleUri}" rel="stylesheet">
+                <link href="${codiconsUri}" rel="stylesheet">
+                <title>JJ Log</title>
+            </head>
+            <body>
+                <div id="root"></div>
+                <script nonce="${nonce}">
+                    ${initialDataScript}
+                </script>
+                <script nonce="${nonce}" src="${scriptUri}"></script>
+            </body>
+            </html>`;
+    }
+}
+
+function getNonce() {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}

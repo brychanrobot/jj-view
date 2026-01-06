@@ -1,0 +1,119 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+body {
+    padding: 0;
+    margin: 0;
+    background-color: var(--vscode-sideBar-background);
+    /* Pane background */
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    overflow-x: hidden;
+}
+
+.commit-row {
+    transition: background-color 0.1s;
+    /* Ensure content sits above but doesn't block graph unless necessary */
+}
+
+.commit-row:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.commit-row.working-copy {
+    /* Optional: highlight working copy row slightly? */
+    font-weight: bold;
+}
+
+/* Ensure actions are visible on hover */
+.hover-actions {
+    display: none;
+}
+
+.commit-row:hover .hover-actions {
+    display: flex !important;
+}
+
+.hover-actions vscode-button {
+    background: transparent !important;
+    --vscode-button-background: transparent;
+    --vscode-button-hoverBackground: var(--vscode-toolbar-hoverBackground);
+    color: var(--vscode-foreground) !important;
+    /* Ensure icon is visible */
+    border: none !important;
+    box-shadow: none !important;
+
+    /* Strict sizing for narrow buttons */
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 20px !important;
+    /* Only enough for 16px icon + 2px padding each side */
+    height: 20px !important;
+    min-width: 0 !important;
+    line-height: 20px !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.hover-actions vscode-button:hover {
+    background: var(--vscode-toolbar-hoverBackground) !important;
+    --vscode-button-background: var(--vscode-toolbar-hoverBackground);
+    border-radius: 3px;
+    color: var(--vscode-foreground) !important;
+}
+
+/* Custom Icon Button (replaces VscodeButton for tighter control) */
+.icon-button {
+    background: transparent;
+    color: var(--vscode-foreground);
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    cursor: pointer;
+    margin: 0;
+    padding: 0;
+}
+
+.icon-button:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-button .codicon {
+    font-size: 16px !important;
+    /* Ensure icons aren't too small/large */
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--vscode-scrollbarSlider-activeBackground);
+}
