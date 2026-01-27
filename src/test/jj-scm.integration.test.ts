@@ -641,4 +641,32 @@ suite('JJ SCM Provider Integration Test', function () {
             'Bookmark should be on child now',
         );
     });
+
+    test('SCM count includes only Working Copy changes', async () => {
+        await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: { 'parent.txt': 'parent' },
+            },
+            {
+                parents: ['parent'],
+                isWorkingCopy: true,
+            },
+        ]);
+
+        repo.writeFile('wc1.txt', 'wc1');
+        repo.writeFile('wc2.txt', 'wc2');
+
+        await scmProvider.refresh();
+
+        const wcGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
+        const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+
+        assert.strictEqual(wcGroup.resourceStates.length, 2, 'Should have 2 working copy changes');
+        assert.ok(parentGroups.length > 0, 'Should have parent group');
+        assert.ok(parentGroups[0].resourceStates.length > 0, 'Parent group should have resources');
+
+        assert.strictEqual(scmProvider.sourceControl.count, 2, 'SCM Count should match Working Copy count (2)');
+    });
 });

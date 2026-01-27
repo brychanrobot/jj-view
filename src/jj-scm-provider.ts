@@ -330,6 +330,10 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Update Decoration Provider
                 this.decorationProvider.setDecorations(decorationMap);
+
+                // Update SCM Count - Only count Working Copy changes
+                // VS Code sums all groups by default if count is not set, so we must set it explicitly.
+                this._sourceControl.count = this._workingCopyGroup.resourceStates.length;
             } catch (e: unknown) {
                 const err = e as { message?: string };
                 if (
