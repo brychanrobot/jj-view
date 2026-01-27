@@ -52,7 +52,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
 
     const mockWebviewView = createMock<vscode.WebviewView>({
         webview: mockWebview,
-        viewType: 'good-juju.logView',
+        viewType: 'jj-view.logView',
         onDidChangeVisibility: () => {
             return { dispose: () => {} };
         },
@@ -68,7 +68,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
 
         // Services
         jj = new JjService(repo.path);
-        const outputChannel = vscode.window.createOutputChannel('Good Juju Test');
+        const outputChannel = vscode.window.createOutputChannel('JJ View Test');
         disposables.push(outputChannel);
 
         // We need a context for the provider, but we can mock it
@@ -92,13 +92,13 @@ suite('Webview Commands End-to-End Integration Test', function () {
         // Mock 'vscode.commands.executeCommand'
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
         executeCommandStub.callsFake(async (command: string, ...args: unknown[]) => {
-            if (command === 'good-juju.abandon') {
+            if (command === 'jj-view.abandon') {
                 return abandonCommand(scm, jj, args);
             }
-            if (command === 'good-juju.squash') {
+            if (command === 'jj-view.squash') {
                 return squashCommand(scm, jj, args);
             }
-            if (command === 'good-juju.refresh') {
+            if (command === 'jj-view.refresh') {
                 // In test, we can treat refresh as no-op or call scm.refresh if needed for internal state
                 // But for black-box testing of JJ state effects, we don't strictly need VS Code UI refresh
                 return;

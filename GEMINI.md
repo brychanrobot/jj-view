@@ -1,6 +1,6 @@
-# Good Juju Extension - Development Guidelines
+# JJ View Extension - Development Guidelines
 
-This document outlines the coding standards, testing strategies, and architectural patterns for the `good-juju` VS Code extension.
+This document outlines the coding standards, testing strategies, and architectural patterns for the `jj-view` VS Code extension.
 
 ## Code Style
 
@@ -18,7 +18,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - **Variables**: camelCase.
 - **Context Keys**: Use dot notation for namespacing context keys used in `package.json` `when` clauses.
     - **Correct**: `jj.parentMutable`, `jj.hasChild`
-    - **Incorrect**: `good-juju:parentMutable` (colons acceptable but dot notation is preferred for consistency).
+    - **Incorrect**: `jj-view:parentMutable` (colons acceptable but dot notation is preferred for consistency).
 - **Files**: Kebab-case (e.g., `jj-scm-provider.ts`).
 
 ### CLI Usage

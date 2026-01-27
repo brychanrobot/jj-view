@@ -66,7 +66,7 @@ jobs:
               run: |
                   VERSION=$(jq -r .version package.json)
                   TIMESTAMP=$(date +'%Y%m%d-%H%M')
-                  VSIX_NAME="good-juju-${VERSION}-${TIMESTAMP}.vsix"
+                  VSIX_NAME="jj-view-${VERSION}-${TIMESTAMP}.vsix"
                   echo "vsix_name=${VSIX_NAME}" >> $GITHUB_OUTPUT
 
                   # Rename the VSIX
@@ -95,7 +95,7 @@ jobs:
               if: runner.os == 'Linux'
               uses: actions/upload-artifact@v4
               with:
-                  name: good-juju-extension
+                  name: jj-view-extension
                   path: ${{ steps.release_info.outputs.vsix_name }}
 
             - name: Update Prerelease

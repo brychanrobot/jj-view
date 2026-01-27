@@ -67,7 +67,7 @@ describe('rebaseOntoSelectedCommand', () => {
         await rebaseOntoSelectedCommand(scmProvider, jj, { commitId: sourceId });
 
         expect(vscode.window.showInformationMessage).toHaveBeenCalled();
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('good-juju.refresh');
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('jj-view.refresh');
 
         // Verify rebase happened: c1 should now have p2 as parent
         const newParents = repo.getParents(sourceId);

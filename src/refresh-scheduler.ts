@@ -23,14 +23,14 @@ export class RefreshScheduler implements vscode.Disposable {
     private _disposed: boolean = false;
 
     constructor(private refreshCallback: () => void | Promise<void>) {
-        const config = vscode.workspace.getConfiguration('good-juju');
+        const config = vscode.workspace.getConfiguration('jj-view');
         this._baseDebounce = config.get<number>('refreshDebounceMillis', 100);
         this._maxMultiplier = config.get<number>('refreshDebounceMaxMultiplier', 4);
 
         // Listen for configuration changes
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('good-juju')) {
-                const newConfig = vscode.workspace.getConfiguration('good-juju');
+            if (e.affectsConfiguration('jj-view')) {
+                const newConfig = vscode.workspace.getConfiguration('jj-view');
                 this._baseDebounce = newConfig.get<number>('refreshDebounceMillis', 100);
                 this._maxMultiplier = newConfig.get<number>('refreshDebounceMaxMultiplier', 4);
             }

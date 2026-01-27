@@ -1,4 +1,4 @@
-# jj-vew
+# jj-view
 
 Integrates Jujutsu (jj) version control into VS Code.
 

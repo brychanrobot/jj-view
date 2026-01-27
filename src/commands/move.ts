@@ -91,8 +91,8 @@ async function applyMoveToParent(
         await scmProvider.refresh();
         // Invalidate the Parent content cache so the Diff Editor updates
         if (scmProvider.contentProvider) {
-            // The diff view typically uses good-juju scheme for the left side (Parent)
-            const parentUri = docUri.with({ scheme: 'good-juju', query: 'revision=@-' });
+            // The diff view typically uses jj-view scheme for the left side (Parent)
+            const parentUri = docUri.with({ scheme: 'jj-view', query: 'revision=@-' });
             scmProvider.contentProvider.update(parentUri);
         }
     }
@@ -125,7 +125,7 @@ async function applyMoveToChild(
     } finally {
         await scmProvider.refresh();
         if (scmProvider.contentProvider) {
-            const parentUri = docUri.with({ scheme: 'good-juju', query: 'revision=@-' });
+            const parentUri = docUri.with({ scheme: 'jj-view', query: 'revision=@-' });
             scmProvider.contentProvider.update(parentUri);
         }
     }

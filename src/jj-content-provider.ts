@@ -28,8 +28,8 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
     }
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-        // expected uri format: good-juju:/absolute/path/to/file?revision=xyz
-        // OR good-juju:/absolute/path/to/file (defaults to parent of working copy)
+        // expected uri format: jj-view:/absolute/path/to/file?revision=xyz
+        // OR jj-view:/absolute/path/to/file (defaults to parent of working copy)
 
         const query = new URLSearchParams(uri.query);
         const revision = query.get('revision') || '@-';

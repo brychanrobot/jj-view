@@ -38,7 +38,7 @@ vi.mock('vscode', () => {
                 scheme: 'file',
                 toString: () => `file://${path.join(base.fsPath, ...paths)}`
             }),
-            from: (obj: { path: string }) => ({ ...obj, toString: () => `good-juju:${obj.path}` }),
+            from: (obj: { path: string }) => ({ ...obj, toString: () => `jj-view:${obj.path}` }),
         },
         scm: {
             createSourceControl: vi.fn().mockReturnValue({

@@ -38,7 +38,7 @@ export async function rebaseOntoSelectedCommand(scmProvider: JjScmProvider, jj: 
         vscode.window.showInformationMessage(
             `Rebasing ${sourceId.substring(0, 8)} onto ${selectedIds.length} dest(s).`,
         );
-        await vscode.commands.executeCommand('good-juju.refresh');
+        await vscode.commands.executeCommand('jj-view.refresh');
     } catch (err: unknown) {
         vscode.window.showErrorMessage(`Error rebasing: ${getErrorMessage(err)}`);
     }

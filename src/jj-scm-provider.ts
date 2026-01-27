@@ -65,7 +65,7 @@ export class JjScmProvider implements vscode.Disposable {
 
         this._sourceControl.quickDiffProvider = this;
         this._sourceControl.inputBox.placeholder = 'Describe your changes...';
-        this._sourceControl.acceptInputCommand = { command: 'good-juju.commit', title: 'Commit (Ctrl+Enter)' };
+        this._sourceControl.acceptInputCommand = { command: 'jj-view.commit', title: 'Commit (Ctrl+Enter)' };
 
         this.disposables.push(this._sourceControl);
         this.disposables.push(this._conflictGroup);
@@ -148,7 +148,7 @@ export class JjScmProvider implements vscode.Disposable {
 
     private shouldIgnoreEvent(uri: vscode.Uri): boolean {
         const pathStr = uri.fsPath;
-        const config = vscode.workspace.getConfiguration('good-juju');
+        const config = vscode.workspace.getConfiguration('jj-view');
         const ignoredSegments = config.get<string[]>('watcherIgnore', ['node_modules', '.git']);
 
         // Check compatibility with Windows/Linux paths
@@ -437,7 +437,7 @@ export class JjScmProvider implements vscode.Disposable {
         // left: revision - 1 (parent of revision)
         // right: revision
         const leftUri = vscode.Uri.from({
-            scheme: 'good-juju',
+            scheme: 'jj-view',
             path: absoluteUri.path,
             query: `revision=${revision}-`,
         });
@@ -446,14 +446,14 @@ export class JjScmProvider implements vscode.Disposable {
             revision === '@'
                 ? absoluteUri
                 : vscode.Uri.from({
-                      scheme: 'good-juju',
+                      scheme: 'jj-view',
                       path: absoluteUri.path,
                       query: `revision=${revision}`,
                   });
 
         const command: vscode.Command = entry.conflicted
             ? {
-                  command: 'good-juju.openMergeEditor',
+                  command: 'jj-view.openMergeEditor',
                   title: 'Open 3-Way Merge',
                   arguments: [{ resourceUri: absoluteUri }], // Pass single object matching ResourceState
               }
@@ -478,7 +478,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
-        return uri.with({ scheme: 'good-juju', query: 'revision=@-' });
+        return uri.with({ scheme: 'jj-view', query: 'revision=@-' });
     }
 
     get sourceControl(): vscode.SourceControl {

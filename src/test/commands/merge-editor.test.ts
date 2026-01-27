@@ -45,7 +45,7 @@ describe('openMergeEditorCommand', () => {
         await openMergeEditorCommand(scmProvider, undefined);
 
         expect(scmProvider.openMergeEditor).not.toHaveBeenCalled();
-        expect(warnSpy).toHaveBeenCalledWith('good-juju.openMergeEditor: No valid resource states provided');
+        expect(warnSpy).toHaveBeenCalledWith('jj-view.openMergeEditor: No valid resource states provided');
 
         warnSpy.mockRestore();
     });

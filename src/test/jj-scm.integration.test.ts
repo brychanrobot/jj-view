@@ -115,7 +115,7 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.strictEqual(command.arguments?.length, 3, 'Diff command should have 3 arguments');
 
         const [leftUri, rightUri] = command.arguments;
-        assert.strictEqual((leftUri as vscode.Uri).scheme, 'good-juju', 'Left URI scheme should be good-juju');
+        assert.strictEqual((leftUri as vscode.Uri).scheme, 'jj-view', 'Left URI scheme should be jj-view');
         assert.strictEqual(
             normalize((rightUri as vscode.Uri).fsPath),
             normalize(filePath),
@@ -608,7 +608,7 @@ suite('JJ SCM Provider Integration Test', function () {
 
         const webviewView = createMock<vscode.WebviewView>({
             webview,
-            viewType: 'good-juju.logView',
+            viewType: 'jj-view.logView',
             onDidChangeVisibility: () => {
                 return { dispose: () => {} };
             },

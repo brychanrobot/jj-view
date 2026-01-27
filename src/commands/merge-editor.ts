@@ -21,7 +21,7 @@ export async function openMergeEditorCommand(scmProvider: JjScmProvider, arg: un
     const resourceStates = collectResourceStates([arg, ...rest]);
 
     if (resourceStates.length === 0) {
-        console.warn('good-juju.openMergeEditor: No valid resource states provided');
+        console.warn('jj-view.openMergeEditor: No valid resource states provided');
         return;
     }
 

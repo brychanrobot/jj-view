@@ -1,11 +1,11 @@
 {
-    "name": "good-juju",
-    "displayName": "Good Juju",
+    "name": "jj-view",
+    "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
     "version": "0.0.1",
     "repository": {
         "type": "git",
-        "url": "https://github.com/brychanrobot/good-juju"
+        "url": "https://github.com/brychanrobot/jj-view"
     },
     "engines": {
         "vscode": "^1.104.0"
@@ -19,20 +19,20 @@
     "main": "./dist/extension.js",
     "contributes": {
         "configuration": {
-            "title": "Good Juju",
+            "title": "JJ View",
             "properties": {
-                "good-juju.refreshDebounceMillis": {
+                "jj-view.refreshDebounceMillis": {
                     "type": "number",
                     "default": 100,
                     "description": "Base debounce time (ms) for SCM refresh based on file events."
                 },
-                "good-juju.refreshDebounceMaxMultiplier": {
+                "jj-view.refreshDebounceMaxMultiplier": {
                     "type": "number",
                     "default": 4,
                     "minimum": 1,
                     "description": "Maximum multiplier for the debounce timeout when events continue to occur."
                 },
-                "good-juju.watcherIgnore": {
+                "jj-view.watcherIgnore": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -47,135 +47,135 @@
         },
         "commands": [
             {
-                "command": "good-juju.showCurrentChange",
+                "command": "jj-view.showCurrentChange",
                 "title": "Show Current Change",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.newMergeChange",
+                "command": "jj-view.newMergeChange",
                 "title": "New Merge Change",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(git-merge)"
             },
             {
-                "command": "good-juju.new",
+                "command": "jj-view.new",
                 "title": "New Change",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(plus)"
             },
             {
-                "command": "good-juju.setDescription",
+                "command": "jj-view.setDescription",
                 "title": "Set Description",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(save)"
             },
             {
-                "command": "good-juju.commit",
+                "command": "jj-view.commit",
                 "title": "Commit",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(check)"
             },
             {
-                "command": "good-juju.refresh",
+                "command": "jj-view.refresh",
                 "title": "Refresh",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(refresh)"
             },
             {
-                "command": "good-juju.restore",
+                "command": "jj-view.restore",
                 "title": "Restore",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(discard)"
             },
             {
-                "command": "good-juju.squash",
+                "command": "jj-view.squash",
                 "title": "Squash into Parent",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(arrow-down)"
             },
             {
-                "command": "good-juju.moveToChild",
+                "command": "jj-view.moveToChild",
                 "title": "Move to Child",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(arrow-up)"
             },
             {
-                "command": "good-juju.openFile",
+                "command": "jj-view.openFile",
                 "title": "Open File",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(go-to-file)"
             },
             {
-                "command": "good-juju.undo",
+                "command": "jj-view.undo",
                 "title": "Undo",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(discard)"
             },
             {
-                "command": "good-juju.duplicate",
+                "command": "jj-view.duplicate",
                 "title": "Duplicate",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.abandon",
+                "command": "jj-view.abandon",
                 "title": "Abandon",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(trash)"
             },
             {
-                "command": "good-juju.edit",
+                "command": "jj-view.edit",
                 "title": "Edit",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(edit)"
             },
             {
-                "command": "good-juju.newBefore",
+                "command": "jj-view.newBefore",
                 "title": "New Before",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.moveToParentInDiff",
+                "command": "jj-view.moveToParentInDiff",
                 "title": "Move to Parent",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.moveToChildInDiff",
+                "command": "jj-view.moveToChildInDiff",
                 "title": "Move to Child",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.openMergeEditor",
+                "command": "jj-view.openMergeEditor",
                 "title": "Open Merge Editor",
-                "category": "Good Juju"
+                "category": "JJ View"
             },
             {
-                "command": "good-juju.completeSquash",
+                "command": "jj-view.completeSquash",
                 "title": "Complete Squash",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(check)"
             },
             {
-                "command": "good-juju.rebaseOntoSelected",
+                "command": "jj-view.rebaseOntoSelected",
                 "title": "Rebase onto Selected",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(git-merge)"
             },
             {
-                "command": "good-juju.showDetails",
+                "command": "jj-view.showDetails",
                 "title": "Show Details",
-                "category": "Good Juju",
+                "category": "JJ View",
                 "icon": "$(list-selection)"
             }
         ],
         "keybindings": [
             {
-                "command": "good-juju.setDescription",
+                "command": "jj-view.setDescription",
                 "key": "ctrl+s",
                 "mac": "cmd+s",
                 "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
             },
             {
-                "command": "good-juju.commit",
+                "command": "jj-view.commit",
                 "key": "ctrl+enter",
                 "mac": "cmd+enter",
                 "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
@@ -184,112 +184,112 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "good-juju.undo",
+                    "command": "jj-view.undo",
                     "group": "navigation",
-                    "when": "view == good-juju.logView"
+                    "when": "view == jj-view.logView"
                 },
                 {
-                    "command": "good-juju.abandon",
+                    "command": "jj-view.abandon",
                     "group": "navigation",
-                    "when": "view == good-juju.logView && jj.selection.allowAbandon"
+                    "when": "view == jj-view.logView && jj.selection.allowAbandon"
                 },
                 {
-                    "command": "good-juju.newMergeChange",
+                    "command": "jj-view.newMergeChange",
                     "group": "navigation",
-                    "when": "view == good-juju.logView && jj.selection.allowMerge"
+                    "when": "view == jj-view.logView && jj.selection.allowMerge"
                 }
             ],
             "webview/context": [
                 {
-                    "command": "good-juju.edit",
+                    "command": "jj-view.edit",
                     "when": "webviewSection == 'commit' && canEdit",
                     "group": "navigation"
                 },
                 {
-                    "command": "good-juju.newBefore",
+                    "command": "jj-view.newBefore",
                     "when": "webviewSection == 'commit' && canEdit",
                     "group": "navigation"
                 },
                 {
-                    "command": "good-juju.duplicate",
+                    "command": "jj-view.duplicate",
                     "when": "webviewSection == 'commit' && canDuplicate",
                     "group": "navigation"
                 },
                 {
-                    "command": "good-juju.newMergeChange",
+                    "command": "jj-view.newMergeChange",
                     "when": "webviewSection == 'commit' && canMerge",
                     "group": "navigation"
                 },
                 {
-                    "command": "good-juju.rebaseOntoSelected",
+                    "command": "jj-view.rebaseOntoSelected",
                     "when": "webviewSection == 'commit' && canRebaseOnto",
                     "group": "navigation"
                 },
                 {
-                    "command": "good-juju.abandon",
+                    "command": "jj-view.abandon",
                     "when": "webviewSection == 'commit' && canAbandon",
                     "group": "navigation"
                 }
             ],
             "scm/title": [
                 {
-                    "command": "good-juju.new",
+                    "command": "jj-view.new",
                     "group": "navigation@1"
                 },
                 {
-                    "command": "good-juju.setDescription",
+                    "command": "jj-view.setDescription",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "good-juju.commit",
+                    "command": "jj-view.commit",
                     "group": "navigation@3"
                 },
                 {
-                    "command": "good-juju.refresh",
+                    "command": "jj-view.refresh",
                     "group": "navigation@10"
                 }
             ],
             "scm/resourceGroup/context": [
                 {
-                    "command": "good-juju.squash",
+                    "command": "jj-view.squash",
                     "group": "inline",
                     "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
                 },
                 {
-                    "command": "good-juju.abandon",
+                    "command": "jj-view.abandon",
                     "group": "inline",
                     "when": "scmResourceGroup == 'working-copy'"
                 },
                 {
-                    "command": "good-juju.showDetails",
+                    "command": "jj-view.showDetails",
                     "group": "inline@1",
                     "when": "scmResourceGroupState =~ /^jjParentGroup/"
                 },
                 {
-                    "command": "good-juju.edit",
+                    "command": "jj-view.edit",
                     "group": "inline@2",
                     "when": "scmResourceGroupState == 'jjParentGroup:mutable'"
                 }
             ],
             "scm/resourceState/context": [
                 {
-                    "command": "good-juju.restore",
+                    "command": "jj-view.restore",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy'"
                 },
                 {
-                    "command": "good-juju.squash",
+                    "command": "jj-view.squash",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
                 },
                 {
-                    "command": "good-juju.moveToChild",
+                    "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline",
                     "when": "scmResourceState == 'jjParent'"
                 },
                 {
-                    "command": "good-juju.moveToChild",
+                    "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
@@ -297,41 +297,41 @@
             ],
             "scm/resourceState/inline": [
                 {
-                    "command": "good-juju.restore",
+                    "command": "jj-view.restore",
                     "group": "inline"
                 },
                 {
-                    "command": "good-juju.squash",
+                    "command": "jj-view.squash",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
                 },
                 {
-                    "command": "good-juju.moveToChild",
+                    "command": "jj-view.moveToChild",
                     "group": "inline",
                     "when": "scmResourceState == 'jjParent'"
                 },
                 {
-                    "command": "good-juju.moveToChild",
+                    "command": "jj-view.moveToChild",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
                 }
             ],
             "editor/title": [
                 {
-                    "command": "good-juju.completeSquash",
+                    "command": "jj-view.completeSquash",
                     "group": "navigation",
                     "when": "resourceFilename == 'SQUASH_MSG'"
                 }
             ],
             "editor/context": [
                 {
-                    "command": "good-juju.moveToParentInDiff",
-                    "group": "good-juju",
+                    "command": "jj-view.moveToParentInDiff",
+                    "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
                 },
                 {
-                    "command": "good-juju.moveToChildInDiff",
-                    "group": "good-juju",
+                    "command": "jj-view.moveToChildInDiff",
+                    "group": "jj-view",
                     "when": "isInDiffEditor && jj.hasChild"
                 }
             ]
@@ -339,7 +339,7 @@
         "views": {
             "scm": [
                 {
-                    "id": "good-juju.logView",
+                    "id": "jj-view.logView",
                     "name": "JJ Log",
                     "type": "webview"
                 }

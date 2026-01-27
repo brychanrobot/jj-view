@@ -46,7 +46,7 @@ suite('Webview Selection Integration Test', function () {
 
     const mockWebviewView = createMock<vscode.WebviewView>({
         webview: mockWebview,
-        viewType: 'good-juju.logView',
+        viewType: 'jj-view.logView',
         onDidChangeVisibility: () => {
             return { dispose: () => {} };
         },
@@ -65,14 +65,14 @@ suite('Webview Selection Integration Test', function () {
         provider = new JjLogWebviewProvider(extensionUri, jj);
 
         // Spy on vscode.commands.executeCommand
-        // Only call through for setContext; stub out good-juju.* commands to avoid "not found" errors
+        // Only call through for setContext; stub out jj-view.* commands to avoid "not found" errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
         executeCommandStub.callsFake(async (command: string, ...args: unknown[]) => {
             if (command === 'setContext') {
                 // Call through to real setContext
                 return asSinonStub(executeCommandStub).wrappedMethod.call(vscode.commands, command, ...args);
             }
-            // For good-juju.* commands, just record the call (don't execute)
+            // For jj-view.* commands, just record the call (don't execute)
             return undefined;
         });
 
@@ -152,9 +152,9 @@ suite('Webview Selection Integration Test', function () {
             payload,
         });
 
-        // It should call 'good-juju.abandon' with the payload
-        const calls = executeCommandStub.getCalls().filter((call) => call.args[0] === 'good-juju.abandon');
-        assert.ok(calls.length > 0, 'Should execute good-juju.abandon command');
+        // It should call 'jj-view.abandon' with the payload
+        const calls = executeCommandStub.getCalls().filter((call) => call.args[0] === 'jj-view.abandon');
+        assert.ok(calls.length > 0, 'Should execute jj-view.abandon command');
         assert.deepStrictEqual(calls[0].args[1], payload, 'Should pass payload to command');
     });
 });

@@ -21,7 +21,7 @@ export class TestRepo {
     public readonly path: string;
 
     constructor(tmpDir?: string) {
-        this.path = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'good-juju-test-'));
+        this.path = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-'));
     }
 
     dispose() {

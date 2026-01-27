@@ -47,14 +47,14 @@ import { openFileCommand } from './commands/open';
 export function activate(context: vscode.ExtensionContext) {
     // Use the console to output diagnostic information (console.log) and errors (console.error)
     // This line of code will only be executed once when your extension is activated
-    // console.log('Congratulations, your extension "good-juju" is now active!');
+    // console.log('Congratulations, your extension "jj-view" is now active!');
 
     if (!vscode.workspace.workspaceFolders) {
         return;
     }
 
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const outputChannel = vscode.window.createOutputChannel('Good Juju');
+    const outputChannel = vscode.window.createOutputChannel('JJ View');
     context.subscriptions.push(outputChannel);
 
     const jj = new JjService(workspaceRoot);
@@ -63,33 +63,33 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
 
     // Register Document Content Provider for read-only access to old file versions
-    context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('good-juju', contentProvider));
+    context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('jj-view', contentProvider));
 
-    const disposable = vscode.commands.registerCommand('good-juju.showCurrentChange', async () => {
+    const disposable = vscode.commands.registerCommand('jj-view.showCurrentChange', async () => {
         await showCurrentChangeCommand(jj);
     });
 
-    const newCmd = vscode.commands.registerCommand('good-juju.new', async (...args: unknown[]) => {
+    const newCmd = vscode.commands.registerCommand('jj-view.new', async (...args: unknown[]) => {
         await newCommand(scmProvider, jj, args);
     });
 
     const newMergeCommand = vscode.commands.registerCommand(
-        'good-juju.newMergeChange',
+        'jj-view.newMergeChange',
         async (arg: MergeCommandArg | undefined) => {
             await newMergeChangeCommand(scmProvider, jj, arg);
         },
     );
 
-    const commitCmd = vscode.commands.registerCommand('good-juju.commit', async () => {
+    const commitCmd = vscode.commands.registerCommand('jj-view.commit', async () => {
         await commitCommand(scmProvider, jj);
     });
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.abandon', async (arg: unknown) => {
+        vscode.commands.registerCommand('jj-view.abandon', async (arg: unknown) => {
             await abandonCommand(scmProvider, jj, [arg]);
         }),
         vscode.commands.registerCommand(
-            'good-juju.restore',
+            'jj-view.restore',
             async (...resourceStates: vscode.SourceControlResourceState[]) => {
                 await restoreCommand(scmProvider, jj, resourceStates);
             },
@@ -97,19 +97,19 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.squash', async (...args: unknown[]) => {
+        vscode.commands.registerCommand('jj-view.squash', async (...args: unknown[]) => {
             await squashCommand(scmProvider, jj, args);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.completeSquash', async () => {
+        vscode.commands.registerCommand('jj-view.completeSquash', async () => {
             await completeSquashCommand(scmProvider, jj);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.setDescription', async () => {
+        vscode.commands.registerCommand('jj-view.setDescription', async () => {
             const message = scmProvider.sourceControl.inputBox.value;
             await setDescriptionCommand(scmProvider, jj, message);
         }),
@@ -117,7 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            'good-juju.moveToChild',
+            'jj-view.moveToChild',
             async (...resourceStates: vscode.SourceControlResourceState[]) => {
                 await moveToChildCommand(scmProvider, jj, resourceStates);
             },
@@ -125,7 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.moveToParentInDiff', async () => {
+        vscode.commands.registerCommand('jj-view.moveToParentInDiff', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 return;
@@ -135,7 +135,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.moveToChildInDiff', async () => {
+        vscode.commands.registerCommand('jj-view.moveToChildInDiff', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 return;
@@ -145,14 +145,14 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.refresh', async () => {
+        vscode.commands.registerCommand('jj-view.refresh', async () => {
             await refreshCommand(scmProvider);
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            'good-juju.openFile',
+            'jj-view.openFile',
             async (resourceState: vscode.SourceControlResourceState) => {
                 await openFileCommand(resourceState);
             },
@@ -160,25 +160,25 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.duplicate', async (arg: unknown) => {
+        vscode.commands.registerCommand('jj-view.duplicate', async (arg: unknown) => {
             await duplicateCommand(scmProvider, jj, [arg]);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.edit', async (arg: unknown) => {
+        vscode.commands.registerCommand('jj-view.edit', async (arg: unknown) => {
             await editCommand(scmProvider, jj, [arg]);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.showDetails', async (arg: unknown) => {
+        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
             await showDetailsCommand(logWebviewProvider, [arg]);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.newBefore', async () => {
+        vscode.commands.registerCommand('jj-view.newBefore', async () => {
             vscode.window.showInformationMessage('New before not implemented yet');
         }),
     );
@@ -193,7 +193,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Make the provider accessible for refresh if possible or listen to an event.
     // Integrating refresh:
-    const refreshDisposable = vscode.commands.registerCommand('good-juju.refreshGraph', async () => {
+    const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
         await logWebviewProvider.refresh();
     });
     context.subscriptions.push(refreshDisposable);
@@ -204,16 +204,16 @@ export function activate(context: vscode.ExtensionContext) {
     scmProvider.onDidChangeStatus(() => logWebviewProvider.refresh());
 
     // For now, let's expose the refresh command to also refresh the tree
-    const refreshCmd = vscode.commands.registerCommand('good-juju.refreshLog', () => logWebviewProvider.refresh());
+    const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
     context.subscriptions.push(refreshCmd);
 
-    const undoCmd = vscode.commands.registerCommand('good-juju.undo', async () => {
+    const undoCmd = vscode.commands.registerCommand('jj-view.undo', async () => {
         await undoCommand(scmProvider, jj);
         await logWebviewProvider.refresh(); // Extra refresh for log
     });
 
     const rebaseOntoSelectedCmd = vscode.commands.registerCommand(
-        'good-juju.rebaseOntoSelected',
+        'jj-view.rebaseOntoSelected',
         async (arg: CommitMenuContext) => {
             await rebaseOntoSelectedCommand(scmProvider, jj, arg);
         },
@@ -229,7 +229,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(scmProvider);
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('good-juju.openMergeEditor', async (arg: unknown, ...rest: unknown[]) => {
+        vscode.commands.registerCommand('jj-view.openMergeEditor', async (arg: unknown, ...rest: unknown[]) => {
             await openMergeEditorCommand(scmProvider, arg, ...rest);
         }),
     );

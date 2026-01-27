@@ -18,7 +18,7 @@ import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'good-juju.logView';
+    public static readonly viewType = 'jj-view.logView';
     private _view?: vscode.WebviewView;
 
     constructor(
@@ -54,7 +54,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'squash':
                     // Route through extension command to reuse safe squash logic (editor, etc.)
                     // Pass the commitId string to the squash command
-                    await vscode.commands.executeCommand('good-juju.squash', data.payload.commitId);
+                    await vscode.commands.executeCommand('jj-view.squash', data.payload.commitId);
                     // Refresh is handled by the command event listener
                     break;
                 case 'edit':
@@ -76,14 +76,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await this.refresh();
                     break;
                 case 'abandon':
-                    await vscode.commands.executeCommand('good-juju.abandon', data.payload);
+                    await vscode.commands.executeCommand('jj-view.abandon', data.payload);
                     break;
                 case 'getDetails':
                     await this.createCommitDetailsPanel(data.payload.commitId);
                     break;
                 case 'new':
                     await this._jj.new();
-                    await vscode.commands.executeCommand('good-juju.refresh');
+                    await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
@@ -163,7 +163,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         }
 
         const panel = vscode.window.createWebviewPanel(
-            'good-juju.commitDetails',
+            'jj-view.commitDetails',
             `Commit: ${commitId.substring(0, 8)}`,
             vscode.ViewColumn.Active,
             {
@@ -200,8 +200,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Left: Parent (commitId-)
                     // Right: Commit (commitId)
                     // We use our custom scheme which JjDocumentContentProvider handles
-                    const parentUri = vscode.Uri.parse(`good-juju:${filePath}?revision=${commitId}-`);
-                    const childUri = vscode.Uri.parse(`good-juju:${filePath}?revision=${commitId}`);
+                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}-`);
+                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}`);
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',
