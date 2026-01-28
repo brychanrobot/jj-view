@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -275,46 +275,30 @@
             ],
             "scm/resourceState/context": [
                 {
+                    "command": "jj-view.openFile",
+                    "group": "inline@1",
+                    "when": "scmResourceState == 'jjWorkingCopy' || scmResourceState == 'jjParent' || scmResourceState == 'jjConflict'"
+                },
+                {
                     "command": "jj-view.restore",
-                    "group": "inline",
+                    "group": "inline@2",
                     "when": "scmResourceState == 'jjWorkingCopy'"
                 },
                 {
                     "command": "jj-view.squash",
-                    "group": "inline",
+                    "group": "inline@3",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
                 },
                 {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
-                    "group": "inline",
+                    "group": "inline@4",
                     "when": "scmResourceState == 'jjParent'"
                 },
                 {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
-                    "group": "inline",
-                    "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
-                }
-            ],
-            "scm/resourceState/inline": [
-                {
-                    "command": "jj-view.restore",
-                    "group": "inline"
-                },
-                {
-                    "command": "jj-view.squash",
-                    "group": "inline",
-                    "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
-                },
-                {
-                    "command": "jj-view.moveToChild",
-                    "group": "inline",
-                    "when": "scmResourceState == 'jjParent'"
-                },
-                {
-                    "command": "jj-view.moveToChild",
-                    "group": "inline",
+                    "group": "inline@5",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
                 }
             ],
