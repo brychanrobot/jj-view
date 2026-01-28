@@ -19,5 +19,7 @@ export async function openFileCommand(resourceState: vscode.SourceControlResourc
         return;
     }
     // Open the resourceUri (which is the file in the workspace)
-    await vscode.commands.executeCommand('vscode.open', resourceState.resourceUri);
+    // Strip query parameters to ensure we open the canonical file
+    const uri = resourceState.resourceUri.with({ query: '' });
+    await vscode.commands.executeCommand('vscode.open', uri);
 }

@@ -1,7 +1,3 @@
-<div align="center">
-  <img src="media/icon.png" alt="JJ View Icon" width="128" />
-</div>
-
 # JJ View
 
 **JJ View** brings the power of [Jujutsu (jj)](https://github.com/martinvonz/jj) version control directly into VS Code. Visualize your revision graph, manage changes, and streamline your workflow without leaving the editor.
