@@ -161,4 +161,44 @@ describe('Watcher Ignore Logic', () => {
         
         expect(refreshStub).not.toHaveBeenCalled();
     });
+
+    test('Lock file in .jj folder does NOT trigger refresh', async () => {
+        // .jj/repo/git_import_export.lock
+        const lockFile = path.join(repo.path, '.jj', 'repo', 'git_import_export.lock');
+        const uri = { fsPath: lockFile };
+
+        if (watcherCallbacks.create) {
+            watcherCallbacks.create(uri); 
+        }
+
+        if (watcherCallbacks.change) {
+            watcherCallbacks.change(uri);
+        }
+
+        if (watcherCallbacks.delete) {
+            watcherCallbacks.delete(uri);
+        }
+
+        await new Promise(r => setTimeout(r, 150));
+        expect(refreshStub).not.toHaveBeenCalled();
+    });
+
+    test('Temp files in .jj folder do NOT trigger refresh', async () => {
+        // .jj/working_copy/#14693893
+        const tempHash = path.join(repo.path, '.jj', 'working_copy', '#14693893');
+        const tempDot = path.join(repo.path, '.jj', 'working_copy', '.tmp123');
+
+        // Test hash file
+        if (watcherCallbacks.create) watcherCallbacks.create({ fsPath: tempHash });
+        if (watcherCallbacks.change) watcherCallbacks.change({ fsPath: tempHash });
+        if (watcherCallbacks.delete) watcherCallbacks.delete({ fsPath: tempHash });
+
+        // Test .tmp file
+        if (watcherCallbacks.create) watcherCallbacks.create({ fsPath: tempDot });
+        if (watcherCallbacks.change) watcherCallbacks.change({ fsPath: tempDot });
+        if (watcherCallbacks.delete) watcherCallbacks.delete({ fsPath: tempDot });
+
+        await new Promise(r => setTimeout(r, 150));
+        expect(refreshStub).not.toHaveBeenCalled();
+    });
 });

@@ -164,6 +164,18 @@ export class JjScmProvider implements vscode.Disposable {
             return true;
         }
 
+        // Ignore lock files and temp files in .jj directory to prevent refresh loops
+        const relativePath = path.relative(this.jj.workspaceRoot, pathStr);
+        if (relativePath.split(path.sep)[0] === '.jj') {
+            if (pathStr.endsWith('.lock')) {
+                return true;
+            }
+            const filename = path.basename(pathStr);
+            if (filename.startsWith('#') || filename.startsWith('.tmp')) {
+                return true;
+            }
+        }
+
         return false;
     }
 
