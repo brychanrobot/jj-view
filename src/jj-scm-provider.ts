@@ -190,17 +190,22 @@ export class JjScmProvider implements vscode.Disposable {
                 await this.jj.status();
 
                 // 1. Calculate Context Keys & Get Log with Changes
-                const [logEntry] = await this.jj.getLog('@', /*limit=*/ undefined, /*useCachedSnapshot=*/ true);
-                // alias for clarity and scope access
-                const currentEntry = logEntry;
+                const config = vscode.workspace.getConfiguration('jj-view');
+                const ancestorLimit = config.get<number>('ancestorLimit', 1);
+                
+                // Fetch @ and mutable ancestors (up to limit)
+                const limit = ancestorLimit + 1; // +1 for @
+                const revset = `::@&mutable()`;
+                const logEntries = await this.jj.getLog(revset, /*limit=*/ limit, /*useCachedSnapshot=*/ true);
 
+                const workingCopyEntry = logEntries.length > 0 ? logEntries[0] : undefined;
                 let parentMutable = false;
                 let hasChild = false;
 
-                if (currentEntry) {
-                    const parents = currentEntry.parents;
+                if (workingCopyEntry) {
+                    const parents = workingCopyEntry.parents;
                     this.outputChannel.appendLine(
-                        `Current log entry: ${currentEntry.change_id}, parents: ${JSON.stringify(parents)}`,
+                        `Current log entry: ${workingCopyEntry.change_id}, parents: ${JSON.stringify(parents)}`,
                     );
 
                     if (parents && parents.length > 0) {
@@ -211,17 +216,23 @@ export class JjScmProvider implements vscode.Disposable {
                         }
                         // Check parent mutability
                         // Try to use "parents_immutable" from the current entry if available.
-                        if (currentEntry.parents_immutable && currentEntry.parents_immutable.length > 0) {
-                            parentMutable = !currentEntry.parents_immutable[0];
+                        if (workingCopyEntry.parents_immutable && workingCopyEntry.parents_immutable.length > 0) {
+                            parentMutable = !workingCopyEntry.parents_immutable[0];
                         } else {
                             // Fallback: Fetch parent log to check mutability
-                            this.outputChannel.appendLine(`Checking parent mutability for: ${parentRev}`);
-                            const [parentLog] = await this.jj.getLog(
-                                parentRev as string,
-                                /*limit=*/ undefined,
-                                /*useCachedSnapshot=*/ true,
-                            );
-                            parentMutable = !parentLog.is_immutable;
+                            // Optimization: we might already have the parent in logEntries!
+                            const parentEntry = logEntries.find(e => e.change_id === parentRev || e.commit_id === parentRev);
+                            if (parentEntry) {
+                                parentMutable = !parentEntry.is_immutable;
+                            } else {
+                                this.outputChannel.appendLine(`Checking parent mutability for: ${parentRev}`);
+                                const [parentLog] = await this.jj.getLog(
+                                    parentRev as string,
+                                    /*limit=*/ undefined,
+                                    /*useCachedSnapshot=*/ true,
+                                );
+                                parentMutable = !parentLog.is_immutable;
+                            }
                         }
                     }
 
@@ -231,9 +242,9 @@ export class JjScmProvider implements vscode.Disposable {
                     hasChild = children.length > 0;
                 }
 
-                if (currentEntry) {
-                    const desc = currentEntry.description ? currentEntry.description.trim() : '';
-                    const commitId = currentEntry.change_id;
+                if (workingCopyEntry) {
+                    const desc = workingCopyEntry.description ? workingCopyEntry.description.trim() : '';
+                    const commitId = workingCopyEntry.change_id;
 
                     // Update input box if:
                     // 1. It's empty
@@ -261,7 +272,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // const root = this._sourceControl.rootUri?.fsPath || '';
 
                 // Working Copy Changes
-                const changes = currentEntry?.changes || [];
+                const changes = workingCopyEntry?.changes || [];
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
                     const state = this.toResourceState(c, '@');
                     decorationMap.set(state.resourceUri.toString(), c);
@@ -278,66 +289,54 @@ export class JjScmProvider implements vscode.Disposable {
                 });
                 this._conflictGroup.hideWhenEmpty = true;
 
-                // 4. Update Parent Groups (one for each parent)
-                const neededParentCount = currentEntry?.parents?.length || 0;
+                // 4. Update Ancestor Groups (Parents)
+                // We fetched 'mutable()::@'. workingCopyEntry is logEntries[0].
+                // The ancestors are logEntries[1..limit].
+                const ancestorEntries = logEntries.slice(1);
+                const neededGroupCount = ancestorEntries.length;
 
                 // Dispose excess parent groups
-                while (this._parentGroups.length > neededParentCount) {
+                while (this._parentGroups.length > neededGroupCount) {
                     const group = this._parentGroups.pop();
-                    group?.dispose();
+                    if (group) {
+                        // Clear states first to remove from view immediately? 
+                        // group.resourceStates = []; // not strictly necessary if disposed
+                        group.dispose();
+                    }
                 }
 
                 // Update or create parent groups
-                if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
-                    for (let i = 0; i < currentEntry.parents.length; i++) {
-                        let parentRef = currentEntry.parents[i];
+                for (let i = 0; i < ancestorEntries.length; i++) {
+                    const entry = ancestorEntries[i];
+                    // We need a stable identifier for the group logic, but index is fine since the stack is linear-ish.
+                    
+                    const shortId = entry.change_id.substring(0, 8);
+                    const desc = entry.description?.trim() || '(no description)';
+                    const shortDesc = desc.split('\n')[0].substring(0, 40);
+                    const label = `${shortId} - ${shortDesc}`; // Use simple ID - Desc format for ancestors
 
-                        // Normalize parent object to commit_id
-                        if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
-                            parentRef = (parentRef as { commit_id: string }).commit_id;
-                        }
-
-                        // Fetch parent log entry for description and file changes (parent list only provides IDs)
-                        const [parentEntry] = await this.jj.getLog(
-                            parentRef as string,
-                            /*limit=*/ undefined,
-                            /*useCachedSnapshot=*/ true,
-                        );
-
-                        if (parentEntry) {
-                            const shortId = parentEntry.change_id.substring(0, 8);
-                            const desc = parentEntry.description?.trim() || '(no description)';
-                            const shortDesc = desc.split('\n')[0].substring(0, 40);
-
-                            const label =
-                                currentEntry.parents.length > 1
-                                    ? `Parent ${i + 1}: ${shortId} - ${shortDesc}`
-                                    : `Parent: ${shortId} - ${shortDesc}`;
-
-                            // Reuse existing group or create new one
-                            let group: vscode.SourceControlResourceGroup;
-                            if (i < this._parentGroups.length) {
-                                group = this._parentGroups[i];
-                                group.label = label;
-                            } else {
-                                const groupId = `parent-${i}`;
-                                group = this._sourceControl.createResourceGroup(groupId, label);
-                                group.hideWhenEmpty = true;
-                                group.contextValue = parentEntry.is_immutable
-                                    ? 'jjParentGroup'
-                                    : 'jjParentGroup:mutable';
-                                this._parentGroups.push(group);
-                            }
-
-                            const parentChanges = parentEntry.changes || [];
-                            group.resourceStates = parentChanges.map((c) => {
-                                const state = this.toResourceState(c, parentRef as string);
-                                // Now we add to decorationMap. The URI query ensures uniqueness.
-                                decorationMap.set(state.resourceUri.toString(), c);
-                                return state;
-                            });
-                        }
+                    // Reuse existing group or create new one
+                    let group: vscode.SourceControlResourceGroup;
+                    if (i < this._parentGroups.length) {
+                        group = this._parentGroups[i];
+                        group.label = label;
+                    } else {
+                        const groupId = `ancestor-${i}`;
+                        group = this._sourceControl.createResourceGroup(groupId, label);
+                        group.hideWhenEmpty = false;
+                        group.contextValue = entry.is_immutable
+                            ? 'jjParentGroup'
+                            : 'jjParentGroup:mutable';
+                        this._parentGroups.push(group);
                     }
+
+                    const changes = entry.changes || [];
+                    group.resourceStates = changes.map((c) => {
+                        // Use commit_id or change_id as revision
+                        const state = this.toResourceState(c, entry.commit_id);
+                        decorationMap.set(state.resourceUri.toString(), c);
+                        return state;
+                    });
                 }
 
                 // Update Decoration Provider

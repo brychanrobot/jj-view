@@ -85,6 +85,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.refreshDebounceMillis` | `100` | Base debounce time (ms) for SCM refresh based on file events. |
 | `jj-view.refreshDebounceMaxMultiplier` | `4` | Maximum multiplier for the debounce timeout when events continue to occur. |
 | `jj-view.watcherIgnore` | `["node_modules", ".git"]` | Paths to ignore in the file watcher to prevent unnecessary refreshes. |
+| `jj-view.ancestorLimit` | `1` | Number of mutable ancestors to show in Source Control view. |
 
 ## Requirements
 

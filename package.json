@@ -28,6 +28,12 @@
                     "default": 100,
                     "description": "Base debounce time (ms) for SCM refresh based on file events."
                 },
+                "jj-view.ancestorLimit": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 0,
+                    "description": "Number of mutable ancestors to show in Source Control view."
+                },
                 "jj-view.refreshDebounceMaxMultiplier": {
                     "type": "number",
                     "default": 4,
