@@ -275,6 +275,10 @@
             ],
             "scm/resourceState/context": [
                 {
+                    "command": "jj-view.openFile",
+                    "group": "inline"
+                },
+                {
                     "command": "jj-view.restore",
                     "group": "inline",
                     "when": "scmResourceState == 'jjWorkingCopy'"
@@ -298,6 +302,10 @@
                 }
             ],
             "scm/resourceState/inline": [
+                {
+                    "command": "jj-view.openFile",
+                    "group": "inline"
+                },
                 {
                     "command": "jj-view.restore",
                     "group": "inline"
