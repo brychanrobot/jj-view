@@ -134,6 +134,7 @@ export class JjScmProvider implements vscode.Disposable {
             if (this.shouldIgnoreEvent(uri)) {
                 return;
             }
+            this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}`);
             this._refreshScheduler.trigger();
         };
 
@@ -164,10 +165,10 @@ export class JjScmProvider implements vscode.Disposable {
             return true;
         }
 
-        // Ignore lock files and temp files in .jj directory to prevent refresh loops
+        // Ignore lock, tree_state, and temp files in .jj directory to prevent refresh loops
         const relativePath = path.relative(this.jj.workspaceRoot, pathStr);
         if (relativePath.split(path.sep)[0] === '.jj') {
-            if (pathStr.endsWith('.lock')) {
+            if (pathStr.endsWith('.lock') || pathStr.endsWith('tree_state')) {
                 return true;
             }
             const filename = path.basename(pathStr);
