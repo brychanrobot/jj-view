@@ -153,6 +153,10 @@ merge-editor = "builtin"
         this.exec(['file', 'track', relativePath]);
     }
 
+    addRemote(name: string, url: string) {
+        this.exec(['git', 'remote', 'add', name, url]);
+    }
+
     getBookmarks(revision: string): string[] {
         const output = this.exec(['log', '-r', revision, '-T', "bookmarks.map(|b| b.name()).join(' ')", '--no-graph']);
         if (!output) return [];

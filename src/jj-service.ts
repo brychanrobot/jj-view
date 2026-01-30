@@ -230,6 +230,22 @@ export class JjService {
         return this.run('undo', []);
     }
 
+    async getGitRemotes(): Promise<{ name: string; url: string }[]> {
+        try {
+            const output = await this.run('git', ['remote', 'list']);
+            return output
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0)
+                .map((line) => {
+                    const parts = line.split(/\s+/);
+                    return { name: parts[0], url: parts[1] || '' };
+                });
+        } catch {
+            return [];
+        }
+    }
+
     async getChildren(revision: string = '@', useCachedSnapshot?: boolean): Promise<string[]> {
         const output = await this.run(
             'log',
@@ -410,6 +426,10 @@ export class JjService {
         return this.run('diff', ['--git', '-r', revision, relativePath]);
     }
 
+    async upload(commandArgs: string[], revision: string): Promise<string> {
+        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision]);
+    }
+
     public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
         const baseContent = await this.getFileContent(fileRelPath, '@-').catch(() => '');
         const diffOutput = await this.getDiff('@', fileRelPath);
@@ -426,7 +446,6 @@ export class JjService {
         const diffOutput = await this.getDiff('@-', fileRelPath);
 
         // Wanted Content for Parent: Grandparent + Unselected Changes
-        // (i.e. Remove Selected Changes from Parent)
         const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges, { inverse: true });
 
         // Strategy:

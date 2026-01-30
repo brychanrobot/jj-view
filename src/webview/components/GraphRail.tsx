@@ -19,18 +19,19 @@ interface GraphRailProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
     width: number; // in lanes
-    height: number; // in rows
+    height: number; // total height in pixels
+    rowOffsets: number[]; // Exact Y position for each row index
     selectedNodes?: Set<string>;
 }
 
 const W = 16;
-const H = 28;
+const ROW_HEADER_HEIGHT = 28; // The "primary" line height where the graph lives
 const CX = W / 2;
-const CY = H / 2;
+const CY_OFFSET = ROW_HEADER_HEIGHT / 2; // Graph is centered in the primary line (14px)
 const LEFT_MARGIN = 12; // Shift graph right to prevent clipping of halos
 const R = 8; // Max radius (W/2) for smooth curves
 
-export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, height, selectedNodes }) => {
+export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, height, rowOffsets, selectedNodes }) => {
     // Layering: Leftmost lanes (lower x) should be on TOP.
     // SVG renders last-child on top. So we verify lower x comes LAST.
     // Sort edges by min(x1, x2) DESCENDING.
@@ -46,9 +47,12 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
     const renderEdge = (edge: GraphEdge, index: number) => {
         const { x1, y1, x2, y2, color } = edge;
         const sx = x1 * W + CX + LEFT_MARGIN;
-        const sy = y1 * H + CY;
+        // Start Y is based on row offset + centering in header
+        const sy = (rowOffsets[y1] || 0) + CY_OFFSET; 
+        
         const ex = x2 * W + CX + LEFT_MARGIN;
-        const ey = y2 * H + CY;
+        // End Y
+        const ey = (rowOffsets[y2] || 0) + CY_OFFSET;
 
         let d = '';
 
@@ -56,9 +60,10 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             // Straight Vertical
             d = `M ${sx} ${sy} L ${ex} ${ey}`;
         } else {
-            // Rail Routing
-            // Turn at the boundary between rows (y1 + 1)
-            const midY = (y1 + 1) * H;
+            // Rail Routing: Bend at the row boundary to keep the structure clean.
+            // We use the top of the next row as the midpoint for the S-curve.
+            const nextRowY = rowOffsets[y1 + 1] || (sy + ROW_HEADER_HEIGHT);
+            const midY = nextRowY;
 
             // Direction for horizontal
             const dirX = x2 > x1 ? 1 : -1;
@@ -108,7 +113,9 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
     // Render Nodes
     const renderNode = (node: GraphNode) => {
         const cx = node.x * W + CX + LEFT_MARGIN;
-        const cy = node.y * H + CY;
+        // Node Y is strictly based on the offset table
+        const cy = (rowOffsets[node.y] || 0) + CY_OFFSET;
+        
         const isSelected = selectedNodes?.has(node.changeId);
 
         const Halo = () => (
@@ -206,7 +213,8 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
 
     // Determine graph SVG dimensions
     const svgWidth = width * W + LEFT_MARGIN + W; // Width + margin + extra buffer
-    const svgHeight = height * H;
+    // SVG Height is now passed in explicitly based on total row height
+    const svgHeight = height;
 
     return (
         <svg

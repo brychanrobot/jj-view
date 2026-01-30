@@ -16,9 +16,8 @@ import * as React from 'react';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
 import { CommitGraph } from './components/CommitGraph';
 
-// Define the vscode API from the global scope
-declare const acquireVsCodeApi: () => any;
-const vscode = acquireVsCodeApi();
+// Define the vscode API from the global scope (see global.d.ts)
+const vscode = window.acquireVsCodeApi();
 
 import { CommitDetails } from './components/CommitDetails';
 import { BookmarkPill } from './components/Bookmark';

@@ -22,5 +22,10 @@ declare global {
             view: 'graph' | 'details';
             payload?: unknown;
         };
+        acquireVsCodeApi: () => {
+            postMessage: (message: { type: string; payload?: unknown }) => void;
+            setState: (state: unknown) => void;
+            getState: () => unknown;
+        };
     }
 }

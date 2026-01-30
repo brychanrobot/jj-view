@@ -17,6 +17,7 @@ import * as vscode from 'vscode';
 import * as sinon from 'sinon';
 import { JjService } from '../jj-service';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import { GerritService } from '../gerrit-service';
 import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
 
@@ -62,10 +63,16 @@ suite('Webview Selection Integration Test', function () {
 
         jj = new JjService(repo.path);
         const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-        provider = new JjLogWebviewProvider(extensionUri, jj);
+        const gerritService = createMock<GerritService>({
+            onDidUpdate: () => { return { dispose: () => {} }; },
+            isEnabled: false,
+            startPolling: () => {},
+            stopPolling: () => {},
+            dispose: () => {},
+        });
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
 
-        // Spy on vscode.commands.executeCommand
-        // Only call through for setContext; stub out jj-view.* commands to avoid "not found" errors
+        // Spy on vscode.commands.executeCommand; stub jj-view.* to avoid errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
         executeCommandStub.callsFake(async (command: string, ...args: unknown[]) => {
             if (command === 'setContext') {

@@ -17,6 +17,16 @@ export interface JjBookmark {
     remote?: string;
 }
 
+export interface GerritClInfo {
+    changeId: string;
+    changeNumber: number;
+    status: 'NEW' | 'MERGED' | 'ABANDONED';
+    submittable: boolean;
+    url: string;
+    unresolvedComments: number;
+    currentRevision?: string;
+}
+
 export interface JjLogEntry {
     commit_id: string;
     change_id: string;
@@ -40,6 +50,7 @@ export interface JjLogEntry {
     parents_immutable?: boolean[];
     conflict?: boolean;
     changes?: JjStatusEntry[];
+    gerritCl?: GerritClInfo;
 }
 
 export interface JjStatusEntry {

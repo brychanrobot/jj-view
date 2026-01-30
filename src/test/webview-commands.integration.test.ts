@@ -19,6 +19,7 @@ import * as sinon from 'sinon';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import { GerritService } from '../gerrit-service';
 import { abandonCommand } from '../commands/abandon';
 import { squashCommand } from '../commands/squash';
 import { TestRepo } from './test-repo';
@@ -72,7 +73,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
         disposables.push(outputChannel);
 
         // We need a context for the provider, but we can mock it
-        // We need a context for the provider, but we can mock it
         const mockContext = createMock<vscode.ExtensionContext>({
             subscriptions: [],
             extensionUri: vscode.Uri.file(__dirname),
@@ -87,7 +87,14 @@ suite('Webview Commands End-to-End Integration Test', function () {
         disposables.push(scm);
 
         const extensionUri = vscode.Uri.file(__dirname);
-        provider = new JjLogWebviewProvider(extensionUri, jj);
+        const gerritService = createMock<GerritService>({
+            onDidUpdate: () => { return { dispose: () => {} }; },
+            isEnabled: false,
+            startPolling: () => {},
+            stopPolling: () => {},
+            dispose: () => {},
+        });
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
 
         // Mock 'vscode.commands.executeCommand'
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
@@ -99,8 +106,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
                 return squashCommand(scm, jj, args);
             }
             if (command === 'jj-view.refresh') {
-                // In test, we can treat refresh as no-op or call scm.refresh if needed for internal state
-                // But for black-box testing of JJ state effects, we don't strictly need VS Code UI refresh
                 return;
             }
             return asSinonStub(executeCommandStub).wrappedMethod.call(vscode.commands, command, ...args);
