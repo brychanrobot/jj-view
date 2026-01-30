@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -44,10 +44,28 @@
                         ".git"
                     ],
                     "description": "Paths (segments) to ignore in file watcher to prevent unnecessary SCM refreshes."
+                },
+                "jj-view.gerrit.host": {
+                    "type": "string",
+                    "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."
+                },
+                "jj-view.gerrit.project": {
+                    "type": "string",
+                    "description": "Gerrit project name. If not set, extension attempts to detect it from git remotes."
+                },
+                "jj-view.uploadCommand": {
+                    "type": "string",
+                    "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'."
                 }
             }
         },
         "commands": [
+            {
+                "command": "jj-view.upload",
+                "title": "Upload",
+                "category": "JJ View",
+                "icon": "$(cloud-upload)"
+            },
             {
                 "command": "jj-view.showCurrentChange",
                 "title": "Show Current Change",

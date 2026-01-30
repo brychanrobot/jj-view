@@ -17,6 +17,7 @@ import { useDroppable, useDraggable, useDndContext } from '@dnd-kit/core';
 
 import { IconButton } from './IconButton';
 import { BookmarkPill, DraggableBookmark } from './Bookmark';
+import { GerritClInfo } from '../../jj-types'; // Import GerritClInfo (needs to be available in types or duplicated)
 
 // Exported for DragOverlay in App.tsx
 export { BookmarkPill } from './Bookmark';
@@ -25,6 +26,7 @@ export { BookmarkPill } from './Bookmark';
 export interface ActionPayload {
     commitId: string;
     isImmutable?: boolean;
+    url?: string;
 }
 
 interface CommitNodeProps {
@@ -48,6 +50,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     const isImmutable = commit.is_immutable;
     const isConflict = commit.conflict;
     const isEmpty = commit.is_empty;
+    const gerritCl = commit.gerritCl as GerritClInfo | undefined;
 
     const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
         id: `commit-${commit.change_id}`,
@@ -157,170 +160,339 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             style={{
-                height: '28px',
+                minHeight: '28px',
+                height: 'auto',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'stretch',
+                flexDirection: 'row',
+                justifyContent: 'flex-start',
                 fontFamily: 'var(--vscode-editor-font-family)',
                 fontSize: 'var(--vscode-editor-font-size)',
                 cursor: 'default',
-                width: '100%', // Take remaining space
+                width: '100%',
                 backgroundColor: backgroundColor,
                 outline: outline,
-                outlineOffset: '-2px', // Pull outline inside
-                // Disable touch action to prevent scrolling while dragging, if supported
+                outlineOffset: '-2px',
                 touchAction: 'none',
-                minWidth: 0, // Allow shrinking
-                paddingLeft: '6px', // Separation between highlight edge and content
+                minWidth: 0,
+                paddingLeft: '6px',
+                paddingTop: '0',
+                paddingBottom: '0',
             }}
         >
-            <div
-                className="commit-content"
-                style={{ display: 'flex', alignItems: 'center', flex: 1, opacity: textOpacity, minWidth: 0 }}
+            {/* Left Column: ID and Actions */}
+            <span
+                className="id-actions-area"
+                style={{
+                    marginRight: '8px',
+                    flexShrink: 0,
+                    minWidth: '60px',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    height: '28px',
+                }}
             >
+                {/* Always render ID to maintain layout stability. */}
                 <span
-                    className="id-actions-area"
+                    className="commit-id"
                     style={{
-                        marginRight: '8px',
-                        flexShrink: 0,
-                        minWidth: '60px', // Reserve space for 8-char ID
-                        position: 'relative',
+                        color: isImmutable
+                            ? 'var(--vscode-descriptionForeground)'
+                            : 'var(--vscode-gitDecoration-addedResourceForeground)',
                         display: 'flex',
                         alignItems: 'center',
+                        opacity: 1,
                     }}
                 >
-                    {/* Always render ID to maintain layout stability. */}
-                    <span
-                        className="commit-id"
-                        style={{
-                            color: isImmutable
-                                ? 'var(--vscode-descriptionForeground)'
-                                : 'var(--vscode-gitDecoration-addedResourceForeground)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            opacity: 1,
-                        }}
-                    >
-                        {commit.change_id_shortest ? (
-                            <>
-                                <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
-                                <span style={{ opacity: 0.5 }}>
-                                    {commit.change_id.substring(commit.change_id_shortest.length, 8)}
-                                </span>
-                            </>
-                        ) : (
-                            commit.change_id.substring(0, 8)
-                        )}
-                    </span>
-
-                    {/* Overlay Actions */}
-                    {isHovered && !active && !(selectionCount > 1) && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                left: '0',
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                // Use background shorthand for gradients
-                                background: isSelected
-                                    ? 'linear-gradient(var(--vscode-list-inactiveSelectionBackground), var(--vscode-list-inactiveSelectionBackground)), var(--vscode-sideBar-background)'
-                                    : isConflict
-                                      ? 'linear-gradient(rgba(255, 0, 0, 0.2), rgba(255, 0, 0, 0.2)), var(--vscode-sideBar-background)'
-                                      : 'linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground)), var(--vscode-sideBar-background)',
-                                paddingRight: '20px',
-                                maskImage: 'linear-gradient(to right, black 60%, transparent 100%)',
-                                WebkitMaskImage: 'linear-gradient(to right, black 60%, transparent 100%)',
-                                zIndex: 1,
-                                height: '100%',
-                                paddingLeft: '0',
-                            }}
-                        >
-                            <IconButton
-                                title="New Child"
-                                icon="codicon-plus"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onAction('newChild', { commitId: commit.change_id });
-                                }}
-                            />
-
-                            {commit.parents_immutable &&
-                                commit.parents_immutable.length === 1 &&
-                                !commit.parents_immutable[0] && (
-                                    <IconButton
-                                        title="Move to Parent (Squash)"
-                                        icon="codicon-arrow-down"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onAction('squash', { commitId: commit.change_id });
-                                        }}
-                                    />
-                                )}
-
-                            {!isImmutable && (
-                                <IconButton
-                                    title="Abandon"
-                                    icon="codicon-trash"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onAction('abandon', { commitId: commit.change_id });
-                                    }}
-                                />
-                            )}
-                        </div>
+                    {commit.change_id_shortest ? (
+                        <>
+                            <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
+                            <span style={{ opacity: 0.5 }}>
+                                {commit.change_id.substring(commit.change_id_shortest.length, 8)}
+                            </span>
+                        </>
+                    ) : (
+                        commit.change_id.substring(0, 8)
                     )}
                 </span>
 
-                <span
-                    className="commit-desc"
-                    style={{
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        fontWeight: isWorkingCopy ? 'bold' : 'normal',
-                        color: isImmutable
-                            ? 'var(--vscode-descriptionForeground)'
-                            : isEmpty
-                              ? 'var(--vscode-testing-iconPassed)'
-                              : !commit.description
-                                ? 'var(--vscode-editorWarning-foreground)'
-                                : 'inherit',
-                        fontStyle: fontStyle,
-                        marginRight: '8px',
-                        flex: 1, // Allow description to take available space
-                    }}
-                >
-                    {displayDescription}
-                </span>
+                {/* Overlay Actions */}
+                {isHovered && !active && !(selectionCount > 1) && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: '0',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: isSelected
+                                ? 'linear-gradient(var(--vscode-list-inactiveSelectionBackground), var(--vscode-list-inactiveSelectionBackground)), var(--vscode-sideBar-background)'
+                                : isConflict
+                                  ? 'linear-gradient(rgba(255, 0, 0, 0.2), rgba(255, 0, 0, 0.2)), var(--vscode-sideBar-background)'
+                                  : 'linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground)), var(--vscode-sideBar-background)',
+                            paddingRight: '20px',
+                            maskImage: 'linear-gradient(to right, black 60%, transparent 100%)',
+                            WebkitMaskImage: 'linear-gradient(to right, black 60%, transparent 100%)',
+                            zIndex: 1,
+                            height: '100%',
+                            paddingLeft: '0',
+                        }}
+                    >
+                        <IconButton
+                            title="New Child"
+                            icon="codicon-plus"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onAction('newChild', { commitId: commit.change_id });
+                            }}
+                        />
 
-                {/* Right-aligned Bookmarks */}
-                <span style={{ display: 'flex', marginLeft: 'auto', flexShrink: 0, gap: '4px' }}>
-                    {commit.bookmarks &&
-                        commit.bookmarks.map((bookmark: any) => (
-                            <DraggableBookmark
-                                key={`${bookmark.name}-${bookmark.remote || 'local'}`}
-                                bookmark={bookmark}
-                            />
-                        ))}
+                        {commit.parents_immutable &&
+                            commit.parents_immutable.length === 1 &&
+                            !commit.parents_immutable[0] && (
+                                <IconButton
+                                    title="Move to Parent (Squash)"
+                                    icon="codicon-arrow-down"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onAction('squash', { commitId: commit.change_id });
+                                    }}
+                                />
+                            )}
 
-                    {isOver &&
-                        active?.data?.current?.type === 'bookmark' &&
-                        !commit.bookmarks?.some(
-                            (b: any) =>
-                                b.name === active.data.current?.name && b.remote === active.data.current?.remote,
-                        ) && (
-                            <BookmarkPill
-                                bookmark={{ name: active.data.current?.name, remote: active.data.current?.remote }}
-                                style={{
-                                    opacity: 0.7,
-                                    backgroundColor: 'transparent',
-                                    border: '1px dashed var(--vscode-charts-blue)',
-                                    boxShadow: 'inset 0 0 8px var(--vscode-charts-blue)',
+                        {!isImmutable && (
+                            <IconButton
+                                title="Abandon"
+                                icon="codicon-trash"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('abandon', { commitId: commit.change_id });
                                 }}
                             />
                         )}
-                </span>
+                    </div>
+                )}
+            </span>
+
+            {/* Right Column: Description, Bookmarks, Gerrit Info */}
+            <div
+                style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minWidth: 0,
+                    justifyContent: 'center',
+                }}
+            >
+                {/* Description & Bookmarks */}
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        height: '28px',
+                        lineHeight: '28px',
+                        width: '100%',
+                    }}
+                >
+                    <span
+                        className="commit-desc"
+                        style={{
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            fontWeight: isWorkingCopy ? 'bold' : 'normal',
+                            color: isImmutable
+                                ? 'var(--vscode-descriptionForeground)'
+                                : isEmpty
+                                  ? 'var(--vscode-testing-iconPassed)'
+                                  : !commit.description
+                                    ? 'var(--vscode-editorWarning-foreground)'
+                                    : 'inherit',
+                            fontStyle: fontStyle,
+                            marginRight: '8px',
+                            flex: 1,
+                            minWidth: 0, // Critical for text-overflow in flex children
+                        }}
+                    >
+                        {displayDescription}
+                    </span>
+
+                    {/* Right-aligned Bookmarks */}
+                    <span style={{ display: 'flex', marginLeft: 'auto', flexShrink: 0, gap: '4px' }}>
+                        {commit.bookmarks &&
+                            commit.bookmarks.map((bookmark: any) => (
+                                <DraggableBookmark
+                                    key={`${bookmark.name}-${bookmark.remote || 'local'}`}
+                                    bookmark={bookmark}
+                                />
+                            ))}
+
+                        {isOver &&
+                            active?.data?.current?.type === 'bookmark' &&
+                            !commit.bookmarks?.some(
+                                (b: any) =>
+                                    b.name === active.data.current?.name && b.remote === active.data.current?.remote,
+                            ) && (
+                                <BookmarkPill
+                                    bookmark={{ name: active.data.current?.name, remote: active.data.current?.remote }}
+                                    style={{
+                                        opacity: 0.7,
+                                        backgroundColor: 'transparent',
+                                        border: '1px dashed var(--vscode-charts-blue)',
+                                        boxShadow: 'inset 0 0 8px var(--vscode-charts-blue)',
+                                    }}
+                                />
+                            )}
+                    </span>
+                </div>
+
+                {/* Gerrit Info */}
+                {gerritCl && (
+                    <div
+                        className="gerrit-row"
+                        style={{
+                            fontSize: 'var(--vscode-editor-font-size)',
+                            fontFamily: 'var(--vscode-editor-font-family)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginTop: '-6px',
+                            opacity: textOpacity,
+                            overflow: 'hidden',
+                            height: '22px', 
+                        }}
+                    >
+                        {/* Status Badge */}
+                        {(gerritCl.status === 'MERGED' || gerritCl.status === 'ABANDONED') && (
+                            <span
+                                style={{
+                                    border: '1px solid',
+                                    borderColor:
+                                        gerritCl.status === 'MERGED'
+                                            ? 'var(--vscode-descriptionForeground)'
+                                            : 'var(--vscode-gitDecoration-ignoredResourceForeground)',
+                                    color:
+                                        gerritCl.status === 'MERGED'
+                                            ? 'var(--vscode-descriptionForeground)'
+                                            : 'var(--vscode-gitDecoration-ignoredResourceForeground)',
+                                    backgroundColor: 'transparent',
+                                    padding: '0px 4px',
+                                    borderRadius: '3px',
+                                    fontWeight: 'normal',
+                                    fontSize: 'inherit',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    opacity: 0.9,
+                                    height: '16px',
+                                    lineHeight: '14px',
+                                }}
+                            >
+                                {gerritCl.status}
+                            </span>
+                        )}
+
+                        {/* CL Link */}
+                        <a
+                            href={gerritCl.url}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onAction('openGerrit', {
+                                    commitId: commit.change_id,
+                                    url: gerritCl.url,
+                                });
+                            }}
+                            style={{
+                                color: 'var(--vscode-textLink-foreground)',
+                                textDecoration: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                            }}
+                            title={gerritCl.url}
+                        >
+                            <span>CL/{gerritCl.changeNumber}</span>
+                            <span className="codicon codicon-link-external" style={{ fontSize: '10px' }} />
+                        </a>
+
+                        {/* Sync Status Button or Icon */}
+                        {gerritCl.status === 'NEW' &&
+                            (gerritCl.currentRevision === commit.commit_id ? (
+                                // Synced - Non-interactive Icon
+                                <div
+                                    title="Up to date with Gerrit"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        marginLeft: '4px',
+                                        color: 'var(--vscode-descriptionForeground)',
+                                        cursor: 'default',
+                                    }}
+                                >
+                                    <span
+                                        className="codicon codicon-cloud"
+                                        style={{ fontSize: '14px' }}
+                                    />
+                                </div>
+                            ) : (
+                                // Not Synced - Interactive Upload Button
+                                <div
+                                    role="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onAction('upload', { commitId: commit.change_id });
+                                    }}
+                                    title="Local changes need upload (Click to push)"
+                                    style={{
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        marginLeft: '4px',
+                                        color: 'var(--vscode-charts-yellow)',
+                                    }}
+                                >
+                                    <span
+                                        className="codicon codicon-cloud-upload"
+                                        style={{ fontSize: '14px' }}
+                                    />
+                                </div>
+                            ))}
+
+                        {/* Attributes */}
+                        {gerritCl.unresolvedComments > 0 && (
+                            <span 
+                                title={`${gerritCl.unresolvedComments} Unresolved Comments`}
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '3px', 
+                                    color: 'var(--vscode-problemsWarningIcon-foreground)',
+                                    marginLeft: '4px'
+                                }}
+                            >
+                                <span className="codicon codicon-comment-discussion" style={{ fontSize: '11px' }} />
+                                <span>{gerritCl.unresolvedComments}</span>
+                            </span>
+                        )}
+
+                        {gerritCl.submittable && gerritCl.status === 'NEW' && (
+                            <span 
+                                title="Ready to Submit"
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    color: 'var(--vscode-testing-iconPassed)',
+                                    marginLeft: '4px'
+                                }}
+                            >
+                                <span className="codicon codicon-check" style={{ fontSize: '12px' }} />
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

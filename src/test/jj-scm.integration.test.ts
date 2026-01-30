@@ -207,9 +207,7 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.ok(parentContent.includes('C'), 'Parent should have C');
 
         // WC should be: A\nB_mod\n\n\nC_mod (preserved)
-        // We need to read from disk, but maybe wait a bit or close/reopen?
-        // Logic in provider refreshes, but file system watchers might take time.
-        // Direct fs read should be fine if method awaited.
+        // Direct fs read to verify
         const wcContent = fs.readFileSync(filePath, 'utf-8');
         // Check for presence of key parts instead of strict equality to be safe with newlines
         assert.ok(wcContent.includes('B_mod'), 'WC should have B_mod');
@@ -587,8 +585,17 @@ suite('JJ SCM Provider Integration Test', function () {
 
         // Use JjLogWebviewProvider
         const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
+        const { GerritService } = await import('../gerrit-service');
         const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-        const provider = new JjLogWebviewProvider(extensionUri, jj);
+        const gerritService = createMock<InstanceType<typeof GerritService>>({
+            onDidUpdate: () => {
+                return { dispose: () => {} };
+            },
+            isEnabled: false,
+            startPolling: () => {},
+            dispose: () => {},
+        });
+        const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
 
         // Mock Webview
         let messageHandler: (m: unknown) => void = () => {};

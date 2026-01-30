@@ -18,6 +18,7 @@ import { JjService } from './jj-service';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
+import { GerritService } from './gerrit-service';
 import { abandonCommand } from './commands/abandon';
 import { newMergeChangeCommand, MergeCommandArg } from './commands/merge';
 import { squashCommand, completeSquashCommand } from './commands/squash';
@@ -25,6 +26,7 @@ import { moveToChildCommand, moveToParentInDiffCommand, moveToChildInDiffCommand
 import { restoreCommand } from './commands/restore';
 import { setDescriptionCommand } from './commands/describe';
 import { newCommand } from './commands/new';
+import { uploadCommand } from './commands/upload';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -42,13 +44,7 @@ import { openMergeEditorCommand } from './commands/merge-editor';
 import { refreshCommand } from './commands/refresh';
 import { openFileCommand } from './commands/open';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-    // Use the console to output diagnostic information (console.log) and errors (console.error)
-    // This line of code will only be executed once when your extension is activated
-    // console.log('Congratulations, your extension "jj-view" is now active!');
-
     if (!vscode.workspace.workspaceFolders) {
         return;
     }
@@ -58,6 +54,9 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
 
     const jj = new JjService(workspaceRoot);
+    const gerritService = new GerritService(workspaceRoot, jj, outputChannel);
+    context.subscriptions.push(gerritService);
+
     const contentProvider = new JjDocumentContentProvider(jj);
     const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel);
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
@@ -183,16 +182,20 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    // Initialize provider
-    const logWebviewProvider = new JjLogWebviewProvider(context.extensionUri, jj, (ids) => {
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
+            await uploadCommand(scmProvider, jj, gerritService, revision);
+        }),
+    );
+
+    // Register view provider
+    const logWebviewProvider = new JjLogWebviewProvider(context.extensionUri, jj, gerritService, (ids) => {
         scmProvider.handleSelectionChange(ids);
-    });
+    }, outputChannel);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
     );
 
-    // Make the provider accessible for refresh if possible or listen to an event.
-    // Integrating refresh:
     const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
         await logWebviewProvider.refresh();
     });

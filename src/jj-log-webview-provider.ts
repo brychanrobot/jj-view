@@ -17,6 +17,8 @@ import * as path from 'path';
 import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 
+import { GerritService } from './gerrit-service';
+
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
     private _view?: vscode.WebviewView;
@@ -24,8 +26,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _jj: JjService,
-        private readonly _onSelectionChange?: (ids: string[]) => void,
-    ) {}
+        private readonly _gerrit: GerritService,
+        private readonly _onSelectionChange: (commits: string[]) => void,
+        private readonly _outputChannel?: vscode.OutputChannel // Optional
+    ) {
+        this._gerrit.onDidUpdate(() => this.refresh());
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -45,6 +51,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             switch (data.type) {
                 case 'webviewLoaded':
                     await this.refresh();
+                    break;
+                case 'openGerrit':
+                    if (data.payload.url) {
+                        await vscode.env.openExternal(vscode.Uri.parse(data.payload.url));
+                    }
                     break;
                 case 'newChild':
                     // new(message?, parent?)
@@ -97,6 +108,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await this._jj.rebase(data.payload.sourceCommitId, data.payload.targetCommitId, data.payload.mode);
                     await this.refresh();
                     break;
+                case 'upload':
+                    await vscode.commands.executeCommand('jj-view.upload', data.payload.commitId);
+                    break;
                 case 'selectionChange':
                     if (data.payload.commitIds.length === 0 && this._activeDetailsPanel) {
                         // Close details panel if selection is cleared
@@ -106,7 +120,6 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         panel.dispose();
                     }
 
-                    // Update Context Key for Menu visibility
                     const count = data.payload.commitIds.length;
                     const hasImmutable = !!data.payload.hasImmutableSelection;
 
@@ -130,9 +143,24 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             try {
                 // Default jj log (usually local heads/roots)
                 const commits = await this._jj.getLog();
-                this._view.webview.postMessage({ type: 'update', commits });
+                // Enrich with Gerrit status if enabled
+                if (this._gerrit.isEnabled) {
+                    this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is enabled. Fetching statuses...');
+                    this._gerrit.startPolling();
+                    await Promise.all(commits.map(async (commit) => {
+                        if (commit.commit_id) {
+                            commit.gerritCl = await this._gerrit.fetchClStatus(commit.commit_id);
+                        }
+                    }));
+                } else {
+                    this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+                }
+
+                this._view.webview.postMessage({
+                    type: 'update', commits
+                });
             } catch (e) {
-                console.error('Failed to fetch log for webview', e);
+                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log for webview: ${e}`);
             }
         }
     }
