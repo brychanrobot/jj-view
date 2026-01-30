@@ -156,8 +156,8 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.ok(command);
         const [leftUri, rightUri] = command.arguments as vscode.Uri[];
 
-        assert.ok(leftUri.query.startsWith('revision='), 'Left query should start with revision=');
-        assert.ok(leftUri.query.endsWith('-'), 'Left query revision should end with -');
+        const params = new URLSearchParams(leftUri.query);
+        assert.ok(params.get('revision')?.endsWith('-'), 'Left query revision should end with -');
 
         assert.ok(rightUri.query.startsWith('revision='), 'Right query should start with revision=');
 

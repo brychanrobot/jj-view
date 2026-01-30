@@ -33,9 +33,14 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
 
         const query = new URLSearchParams(uri.query);
         const revision = query.get('revision') || '@-';
+        const explicitPath = query.get('path');
+        
+        // Prefer explicit path from query if available (handling renames robustly)
+        // Otherwise fallback to fsPath
+        const filePath = explicitPath || uri.fsPath;
 
         try {
-            return await this.jj.cat(uri.fsPath, revision);
+            return await this.jj.cat(filePath, revision);
         } catch (e) {
             return ''; // Return empty if file not found (e.g. added file)
         }

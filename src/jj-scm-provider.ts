@@ -452,10 +452,15 @@ export class JjScmProvider implements vscode.Disposable {
 
         // left: revision - 1 (parent of revision)
         // right: revision
+        let leftPath = absoluteUri.path;
+        if ((entry.status === 'renamed' || entry.status === 'copied') && entry.oldPath) {
+            leftPath = vscode.Uri.joinPath(vscode.Uri.file(root), entry.oldPath).path;
+        }
+
         const leftUri = vscode.Uri.from({
             scheme: 'jj-view',
-            path: absoluteUri.path,
-            query: `revision=${revision}-`,
+            path: leftPath,
+            query: `revision=${revision}-&path=${encodeURIComponent(leftPath)}`,
         });
 
         const rightUri =
