@@ -44,6 +44,7 @@ export interface JjLogEntry {
 
 export interface JjStatusEntry {
     path: string;
+    oldPath?: string;
     status: 'modified' | 'added' | 'removed' | 'renamed' | 'copied' | 'deleted'; // 'deleted' is sometimes used for removed
     additions?: number;
     deletions?: number;

@@ -354,8 +354,9 @@ export class JjService {
                     currentEntry.status = 'added';
                 } else if (line.startsWith('deleted file mode')) {
                     currentEntry.status = 'deleted';
-                } else if (line.startsWith('rename from')) {
+                } else if (line.startsWith('rename from ')) {
                     currentEntry.status = 'renamed';
+                    currentEntry.oldPath = line.substring('rename from '.length).trim();
                 } else if (line.startsWith('rename to')) {
                     currentEntry.path = line.substring('rename to '.length).trim();
                 } else if (line.startsWith('+++ b/')) {

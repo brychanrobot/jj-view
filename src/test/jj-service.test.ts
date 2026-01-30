@@ -975,4 +975,69 @@ describe('JjService Unit Tests', () => {
         // Child is child of Grandparent
         expect(childLogAfter.parents[0]).toBe(grandparentLogAfter.commit_id);
     });
+
+    test('getWorkingCopyChanges detects renamed file', async () => {
+        const oldFile = 'old-rename.txt';
+        const newFile = 'new-rename.txt';
+        const content = 'line1\nline2\nline3\nline4\nline5\n'.repeat(10); // Sufficient content for similarity
+        
+        // Create file in parent
+        repo.writeFile(oldFile, content);
+        repo.describe('parent');
+        
+        // Start new change
+        await jjService.new();
+        
+        // Move file
+        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        
+        const changes = await jjService.getWorkingCopyChanges();
+        
+        // We expect jj to detect this as a rename because content is identical and large enough
+        expect(changes.length).toBe(1);
+        expect(changes[0].status).toBe('renamed');
+        expect(changes[0].path).toBe(newFile);
+        expect(changes[0].oldPath).toBe(oldFile);
+    });
+
+    test('getWorkingCopyChanges detects renamed file', async () => {
+        const oldFile = 'old-rename.txt';
+        const newFile = 'new-rename.txt';
+        const content = 'line1\nline2\nline3\nline4\nline5\n'.repeat(10); // Sufficient content for similarity
+        
+        // Create file in parent
+        repo.writeFile(oldFile, content);
+        repo.describe('parent');
+        
+        await jjService.new();
+        
+        // Move file
+        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        
+        const changes = await jjService.getWorkingCopyChanges();
+        
+        // We expect jj to detect this as a rename because content is identical and large enough
+        expect(changes.length).toBe(1);
+        expect(changes[0].status).toBe('renamed');
+        expect(changes[0].path).toBe(newFile);
+        expect(changes[0].oldPath).toBe(oldFile);
+    });
+
+    test('getLog includes oldPath for renamed files', async () => {
+        const oldFile = 'old-log-rename.txt';
+        const newFile = 'new-log-rename.txt';
+        repo.writeFile(oldFile, 'log rename content');
+        repo.describe('parent');
+        await jjService.new();
+        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        
+        const [logEntry] = await jjService.getLog('@');
+        expect(logEntry).toBeDefined();
+        
+        const changes = logEntry.changes || [];
+        const renameEntry = changes.find(c => c.path === newFile);
+        expect(renameEntry).toBeDefined();
+        expect(renameEntry?.status).toBe('renamed');
+        expect(renameEntry?.oldPath).toBe(oldFile);
+    });
 });

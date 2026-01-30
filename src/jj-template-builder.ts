@@ -117,6 +117,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
         expr: 'self.diff().files()',
         itemSchema: {
             path: { type: 'json', expr: 'item.path().display()' },
+            oldPath: { type: 'json', expr: 'item.source().path().display()' },
             status: { type: 'string', expr: 'item.status()' },
             conflicted: { type: 'raw', expr: 'item.target().conflict()' },
         },
