@@ -149,7 +149,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     this._gerrit.startPolling();
                     await Promise.all(commits.map(async (commit) => {
                         if (commit.commit_id) {
-                            commit.gerritCl = await this._gerrit.fetchClStatus(commit.commit_id);
+                            commit.gerritCl = await this._gerrit.fetchClStatus(
+                                commit.commit_id,
+                                commit.change_id,
+                                commit.description
+                            );
                         }
                     }));
                 } else {

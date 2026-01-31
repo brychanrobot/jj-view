@@ -17,7 +17,7 @@ export async function uploadCommand(
     try {
         const config = vscode.workspace.getConfiguration('jj-view');
         // Check for override
-        const customCommand = config.get<string>('jj-view.uploadCommand');
+        const customCommand = config.get<string>('uploadCommand');
         let args: string[] = [];
 
         if (customCommand && customCommand.trim().length > 0) {
