@@ -6,10 +6,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+
 import { GerritClInfo } from './jj-types';
-
 import { JjService } from './jj-service';
-
+import { convertJjChangeIdToHex } from './utils/jj-utils';
 
 export class GerritService implements vscode.Disposable {
     private poller: NodeJS.Timeout | undefined;
@@ -45,13 +45,13 @@ export class GerritService implements vscode.Disposable {
     public startPolling() {
         if (this.poller) return;
         
-        // Poll every 30 seconds
+        // Poll every 60 seconds
         this.poller = setInterval(() => {
             if (this.isEnabled && vscode.window.state.focused) {
                 this.cache.clear();
                 this._onDidUpdate.fire();
             }
-        }, 30000);
+        }, 60000);
     }
 
     public stopPolling() {
@@ -93,7 +93,6 @@ export class GerritService implements vscode.Disposable {
         // 3. Check git remotes via jj
         try {
             const remotes = await this.jjService.getGitRemotes();
-            this.outputChannel?.appendLine(`[GerritService] Found remotes: ${JSON.stringify(remotes)}`);
             
             // Prioritize 'origin', then 'gerrit', then others
             // Find specific remotes if they exist
@@ -112,9 +111,21 @@ export class GerritService implements vscode.Disposable {
             for (const { name, url } of sortedRemotes) {
                 this.outputChannel?.appendLine(`[GerritService] Checking remote '${name}' URL: '${url}'`);
 
+                let host: string | undefined;
+
                 if (url.includes('googlesource.com') || url.includes('/gerrit/')) {
-                    let host = url;
-                    
+                    host = url;
+                } else if (url.startsWith('sso://')) {
+                    // Handle sso://chromium/chromium/src.git -> https://chromium.googlesource.com/chromium/src.git
+                    // Format: sso://<host-part>/<path>
+                    // We'll treat the first segment as the subdomain for googlesource.com
+                    const match = url.match(/sso:\/\/([^\/]+)\/(.+)/);
+                    if (match) {
+                        host = `https://${match[1]}.googlesource.com/${match[2]}`;
+                    }
+                }
+
+                if (host) {
                     // Handle SSH: ssh://user@host:port/path -> https://host
                     if (host.startsWith('ssh://')) {
                          const match = host.match(/ssh:\/\/([^@]+@)?([^:\/]+)(:\d+)?\/(.+)/);
@@ -147,10 +158,15 @@ export class GerritService implements vscode.Disposable {
                         host = host.replace('.googlesource.com', '-review.googlesource.com');
                     }
                     
-                    this._gerritHost = host;
-                    this.outputChannel?.appendLine(`[GerritService] Detected host: ${this._gerritHost}`);
-                    this._onDidUpdate.fire(); // Notify listeners that we are now enabled
-                    return;
+                    // Verify if it is a Gerrit host
+                    if (await this.probeGerritHost(host)) {
+                        this._gerritHost = host;
+                        this.outputChannel?.appendLine(`[GerritService] Detected host: ${this._gerritHost}`);
+                        this._onDidUpdate.fire(); // Notify listeners that we are now enabled
+                        return;
+                    } else {
+                        this.outputChannel?.appendLine(`[GerritService] Probe failed for host: ${host}`);
+                    }
                 }
             }
         } catch (e) {
@@ -161,32 +177,75 @@ export class GerritService implements vscode.Disposable {
         this.outputChannel?.appendLine('[GerritService] No Gerrit host detected.');
     }
 
+    private async probeGerritHost(host: string): Promise<boolean> {
+        try {
+            // Check server version, which is a lightweight standard endpoint
+            const url = `${host}/config/server/version`;
+            
+            // Fast timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                 return true;
+            }
+            // Some Gerrits might not expose version, check /changes/ (might be empty but returns 200)
+            // Or check if it returns the magic prefix
+            return false;
+        } catch (e) {
+            this.outputChannel?.appendLine(`[GerritService] Probe error: ${e}`);
+            return false;
+        }
+    }
+
     public async isGerrit(): Promise<boolean> {
         return !!this._gerritHost;
     }
 
     /**
-     * Fetch CL status using Commit SHA (most robust) or Change-Id (if available).
-     * We receive the commit ID (SHA) or Change ID.
-     * By design, we should use the commit SHA: `q=commit:<sha>`
+     * Fetch CL status using Change-Id from description (highest priority),
+     * or computed Gerrit Change-Id from JJ Change-Id.
      */
-    public async fetchClStatus(commitId: string): Promise<GerritClInfo | undefined> {
-        this.outputChannel?.appendLine(`[GerritService] fetchClStatus called for ${commitId}`);
+    public async fetchClStatus(_commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
         if (!this._gerritHost) {
-            this.outputChannel?.appendLine('[GerritService] No host configured, skipping.');
             return undefined;
         }
 
-        if (this.cache.has(commitId)) {
-            this.outputChannel?.appendLine(`[GerritService] Returning cached status for ${commitId}`);
-            return this.cache.get(commitId);
+        let searchQ = '';
+
+        // 1. Check description for Change-Id
+        if (description) {
+            const match = description.match(/^Change-Id: (I[0-9a-fA-F]{40})/m);
+            if (match) {
+                searchQ = `change:${match[1]}`;
+            }
+        }
+
+        // 2. Use computed JJ Change-Id if no description ID found
+        if (!searchQ && changeId) {
+             try {
+                 const hexId = convertJjChangeIdToHex(changeId);
+                 searchQ = `change:I${hexId}`;
+             } catch (e) {
+                 this.outputChannel?.appendLine(`[GerritService] Failed to convert JJ Change-Id: ${e}`);
+             }
+        }
+
+        if (!searchQ) {
+             return undefined;
+        }
+
+        // Check cache using the resolved Change-Id (extracted from searchQ 'change:I...')
+        const cacheKey = searchQ.replace('change:', '');
+        if (this.cache.has(cacheKey)) {
+            return this.cache.get(cacheKey);
         }
 
         try {
-            // Query by commit SHA
-            // o=CURRENT_REVISION: to Get the standard SHA of the latest patchset
-            const url = `${this._gerritHost}/changes/?q=commit:${commitId}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION`;
-            this.outputChannel?.appendLine(`[GerritService] Querying URL: ${url}`);
+            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION`;
             
             const response = await fetch(url);
             if (!response.ok) {
@@ -198,15 +257,13 @@ export class GerritService implements vscode.Disposable {
             // Gerrit API returns ")]}'" prefix
             const jsonStr = text.replace(/^\)]}'\n/, '');
             const data = JSON.parse(jsonStr);
-            this.outputChannel?.appendLine(`[GerritService] Received data: ${JSON.stringify(data)}`);
 
             // Search returns an array of changes
             if (!Array.isArray(data) || data.length === 0) {
-                this.outputChannel?.appendLine(`[GerritService] No changes found for commit ${commitId}`);
                 return undefined;
             }
 
-            // Use the first match (usually only one for a specific commit SHA)
+            // Use the first match (typically the most relevant or only one)
             const change = data[0];
 
             const info: GerritClInfo = {
@@ -219,11 +276,11 @@ export class GerritService implements vscode.Disposable {
                 currentRevision: change.current_revision
             };
 
-            this.cache.set(commitId, info);
+            this.cache.set(cacheKey, info);
             return info;
 
         } catch (error) {
-            this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${commitId}: ${error}`);
+            this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${changeId}: ${error}`);
             return undefined;
         }
     }

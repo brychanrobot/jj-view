@@ -1,0 +1,66 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { uploadCommand } from '../../commands/upload';
+import { JjService } from '../../jj-service';
+import { JjScmProvider } from '../../jj-scm-provider';
+import { GerritService } from '../../gerrit-service';
+
+// Mock dependencies
+const mockConfig = {
+    get: vi.fn(),
+};
+
+vi.mock('vscode', () => ({
+    workspace: {
+        getConfiguration: vi.fn((section) => {
+            if (section === 'jj-view') return mockConfig;
+            return { get: vi.fn() };
+        }),
+    },
+    ProgressLocation: { Notification: 15 },
+    window: {
+        showErrorMessage: vi.fn(),
+        withProgress: vi.fn((_opts, task) => task()),
+        setStatusBarMessage: vi.fn(),
+    },
+}));
+
+describe('uploadCommand', () => {
+    let jjService: JjService;
+    let scmProvider: JjScmProvider;
+    let gerritService: GerritService;
+
+    beforeEach(() => {
+        jjService = { upload: vi.fn() } as unknown as JjService;
+        scmProvider = { refresh: vi.fn() } as unknown as JjScmProvider;
+        gerritService = { isGerrit: vi.fn().mockResolvedValue(false) } as unknown as GerritService;
+        mockConfig.get.mockReset();
+    });
+
+    test('uses custom upload command when configured (correctly)', async () => {
+        // Setup config to return 'git push --force' ONLY when queried for 'uploadCommand'
+        // The current bug queries 'jj-view.uploadCommand', which should return undefined here
+        mockConfig.get.mockImplementation((key: string) => {
+            if (key === 'uploadCommand') return 'git push --force';
+            return undefined;
+        });
+
+        await uploadCommand(scmProvider, jjService, gerritService, 'rev-123');
+
+        // Should use the custom command
+        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push', '--force'], 'rev-123');
+    });
+
+    test('falls back to default when custom command is empty', async () => {
+        mockConfig.get.mockReturnValue(undefined);
+        
+        await uploadCommand(scmProvider, jjService, gerritService, 'rev-123');
+        
+        // Default for non-Gerrit is git push
+        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');
+    });
+});
