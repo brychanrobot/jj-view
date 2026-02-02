@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -185,6 +185,18 @@
                 "title": "Show Details",
                 "category": "JJ View",
                 "icon": "$(list-selection)"
+            },
+            {
+                "command": "jj-view.discardChange",
+                "title": "Discard Change",
+                "category": "JJ View",
+                "icon": "$(discard)"
+            },
+            {
+                "command": "jj-view.squashChange",
+                "title": "Squash Change to Parent",
+                "category": "JJ View",
+                "icon": "$(repo-pull)"
             }
         ],
         "keybindings": [
@@ -318,6 +330,18 @@
                     "icon": "$(git-merge)",
                     "group": "inline@5",
                     "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
+                }
+            ],
+            "scm/change/title": [
+                {
+                    "command": "jj-view.discardChange",
+                    "group": "navigation",
+                    "when": "originalResourceScheme == 'jj-view'"
+                },
+                {
+                    "command": "jj-view.squashChange",
+                    "group": "navigation",
+                    "when": "originalResourceScheme == 'jj-view' && jj.parentMutable"
                 }
             ],
             "editor/title": [

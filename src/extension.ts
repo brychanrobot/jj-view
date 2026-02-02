@@ -27,6 +27,8 @@ import { restoreCommand } from './commands/restore';
 import { setDescriptionCommand } from './commands/describe';
 import { newCommand } from './commands/new';
 import { uploadCommand } from './commands/upload';
+import { discardChangeCommand } from './commands/discard-change';
+import { squashChangeCommand } from './commands/squash-change';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -186,6 +188,24 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
             await uploadCommand(scmProvider, jj, gerritService, revision);
         }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'jj-view.discardChange',
+            async (uri: vscode.Uri, changes: unknown, index: number) => {
+                await discardChangeCommand(scmProvider, uri, changes, index);
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'jj-view.squashChange',
+            async (uri: vscode.Uri, changes: unknown, index: number) => {
+                await squashChangeCommand(scmProvider, jj, uri, changes, index);
+            },
+        ),
     );
 
     // Register view provider
