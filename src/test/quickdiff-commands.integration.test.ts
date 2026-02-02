@@ -105,8 +105,8 @@ suite('Quick Diff Commands Integration Test', function () {
         // Verify final state on disk
         const finalContent = fs.readFileSync(filePath, 'utf-8');
         assert.strictEqual(
-            finalContent.trim(),
-            fileContentOriginal.trim(),
+            finalContent,
+            fileContentOriginal,
             'File content should match original after discard',
         );
     });
@@ -148,8 +148,8 @@ suite('Quick Diff Commands Integration Test', function () {
 
         // Verify Parent has modified content
         const parentContent = repo.getFileContent('@-', fileName);
-        // repo.getFileContent trims the output, so we expect trimmed content
-        assert.strictEqual(parentContent, fileContentModified.trim(), 'Parent should have modified content');
+        // repo.getFileContent no longer trims the output
+        assert.strictEqual(parentContent, fileContentModified, 'Parent should have modified content');
 
         // Verify WC still has modified content (implicit, but good to check)
         const wcContent = fs.readFileSync(filePath, 'utf-8');

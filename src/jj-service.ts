@@ -329,7 +329,7 @@ export class JjService {
 
     async cat(path: string, revision: string = '@-'): Promise<string> {
         const relativePath = this.toRelative(path);
-        return this.run('file', ['show', '-r', revision, relativePath]);
+        return this.run('file', ['show', '-r', revision, relativePath], { trim: false });
     }
 
     async status(useCachedSnapshot?: boolean): Promise<string> {

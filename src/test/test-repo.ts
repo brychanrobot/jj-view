@@ -35,14 +35,13 @@ export class TestRepo {
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
-    private exec(args: string[]) {
+    private exec(args: string[], options: { trim?: boolean } = {}) {
         try {
-            return cp
-                .execFileSync('jj', ['--quiet', ...args], {
-                    cwd: this.path,
-                    encoding: 'utf-8',
-                })
-                .trim();
+            const output = cp.execFileSync('jj', ['--quiet', ...args], {
+                cwd: this.path,
+                encoding: 'utf-8',
+            });
+            return options.trim !== false ? output.trim() : output;
         } catch (e: unknown) {
             // Re-throw with stdout/stderr for easier debugging
             const err = e as { stdout?: Buffer; stderr?: Buffer };
@@ -117,7 +116,7 @@ merge-editor = "builtin"
     }
 
     getFileContent(revision: string, relativePath: string): string {
-        return this.exec(['file', 'show', '-r', revision, relativePath]);
+        return this.exec(['file', 'show', '-r', revision, relativePath], { trim: false });
     }
 
     getChangeId(revision: string): string {

@@ -230,6 +230,15 @@ describe('JjService Unit Tests', () => {
         const content = await jjService.cat('file.txt', '@-');
         expect(content).toBe('version 1');
     });
+
+    test('cat command preserves trailing newline', async () => {
+        repo.writeFile('newline.txt', 'line\n');
+        repo.describe('newline');
+        
+        const content = await jjService.cat('newline.txt', '@');
+        expect(content).toBe('line\n');
+    });
+
     test('restore command reverts changes', async () => {
         const filePath = path.join(repo.path, 'file.txt');
         await buildGraph(repo, [
@@ -704,10 +713,10 @@ describe('JjService Unit Tests', () => {
         repo.writeFile('content-test.txt', 'v2');
 
         const contentV1 = await jjService.getFileContent('content-test.txt', v1ChangeId);
-        expect(contentV1.trim()).toBe('v1');
+        expect(contentV1).toBe('v1');
 
         const contentV2 = await jjService.getFileContent('content-test.txt', '@');
-        expect(contentV2.trim()).toBe('v2');
+        expect(contentV2).toBe('v2');
     });
 
     test('movePartialToParent handles new files (not in parent)', async () => {
@@ -724,7 +733,7 @@ describe('JjService Unit Tests', () => {
         await jjService.movePartialToParent(fileName, ranges);
 
         const parentContent = repo.getFileContent('@-', fileName);
-        expect(parentContent.trim()).toBe(content.trim());
+        expect(parentContent).toBe(content);
 
         const diskContent = fs.readFileSync(filePath, 'utf8');
         expect(diskContent).toBe(content);
@@ -871,9 +880,9 @@ describe('JjService Unit Tests', () => {
         // Now we have a conflict in conflict.txt
         const parts = await jjService.getConflictParts(fileName);
 
-        expect(parts.base.trim()).toBe('base content');
-        expect(parts.left.trim()).toBe('left content');
-        expect(parts.right.trim()).toBe('right content');
+        expect(parts.base).toBe('base content\n');
+        expect(parts.left).toBe('left content\n');
+        expect(parts.right).toBe('right content\n');
     });
 
     test('getLog returns file changes with statuses', async () => {
