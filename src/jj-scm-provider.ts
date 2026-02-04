@@ -191,7 +191,7 @@ export class JjScmProvider implements vscode.Disposable {
                 await this.jj.status();
 
                 // 1. Calculate Context Keys & Get Log with Changes
-                const [logEntry] = await this.jj.getLog('@', /*limit=*/ undefined, /*useCachedSnapshot=*/ true);
+                const [logEntry] = await this.jj.getLog({ revision: '@', useCachedSnapshot: true });
                 // alias for clarity and scope access
                 const currentEntry = logEntry;
 
@@ -217,11 +217,10 @@ export class JjScmProvider implements vscode.Disposable {
                         } else {
                             // Fallback: Fetch parent log to check mutability
                             this.outputChannel.appendLine(`Checking parent mutability for: ${parentRev}`);
-                            const [parentLog] = await this.jj.getLog(
-                                parentRev as string,
-                                /*limit=*/ undefined,
-                                /*useCachedSnapshot=*/ true,
-                            );
+                            const [parentLog] = await this.jj.getLog({
+                                revision: parentRev as string,
+                                useCachedSnapshot: true,
+                            });
                             parentMutable = !parentLog.is_immutable;
                         }
                     }
@@ -299,11 +298,10 @@ export class JjScmProvider implements vscode.Disposable {
                         }
 
                         // Fetch parent log entry for description and file changes (parent list only provides IDs)
-                        const [parentEntry] = await this.jj.getLog(
-                            parentRef as string,
-                            /*limit=*/ undefined,
-                            /*useCachedSnapshot=*/ true,
-                        );
+                        const [parentEntry] = await this.jj.getLog({
+                            revision: parentRef as string,
+                            useCachedSnapshot: true,
+                        });
 
                         if (parentEntry) {
                             const shortId = parentEntry.change_id.substring(0, 8);

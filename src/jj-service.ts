@@ -20,6 +20,12 @@ import { JjLogEntry, JjStatusEntry } from './jj-types';
 import { PatchHelper, SelectionRange } from './patch-helper';
 import { buildLogTemplate, LOG_ENTRY_SCHEMA } from './jj-template-builder';
 
+export interface JjLogOptions {
+    revision?: string;
+    limit?: number;
+    useCachedSnapshot?: boolean;
+}
+
 export class JjService {
     constructor(public readonly workspaceRoot: string) {}
 
@@ -67,7 +73,8 @@ export class JjService {
         return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards']);
     }
 
-    async getLog(revision?: string, limit?: number, useCachedSnapshot?: boolean): Promise<JjLogEntry[]> {
+    async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
+        const { revision, limit, useCachedSnapshot } = options;
         const args = ['-T', buildLogTemplate(LOG_ENTRY_SCHEMA)];
         if (revision) {
             args.push('-r', revision);

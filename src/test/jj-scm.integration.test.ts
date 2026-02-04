@@ -642,7 +642,7 @@ suite('JJ SCM Provider Integration Test', function () {
         });
 
         // Verify Bookmark Moved
-        const [childLog] = await jj.getLog('@');
+        const [childLog] = await jj.getLog({ revision: '@' });
         assert.ok(
             childLog.bookmarks?.some((b) => b.name === 'integrated-bookmark'),
             'Bookmark should be on child now',

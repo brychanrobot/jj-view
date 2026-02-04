@@ -34,7 +34,7 @@ describe('JjService Unit Tests', () => {
     });
 
     test('getLog returns valid log entry', async () => {
-        const [log] = await jjService.getLog('@');
+        const [log] = await jjService.getLog({ revision: '@' });
         expect(log.change_id).toBeTruthy();
         expect(log.commit_id).toBeTruthy();
     });
@@ -368,7 +368,7 @@ describe('JjService Unit Tests', () => {
         repo.describe('parent');
         repo.new(['@'], 'child');
 
-        const [logEntry] = await jjService.getLog('@');
+        const [logEntry] = await jjService.getLog({ revision: '@' });
         expect(logEntry.parents).toBeDefined();
         expect(Array.isArray(logEntry.parents)).toBe(true);
         expect(logEntry.parents.length).toBeGreaterThan(0);
@@ -423,7 +423,7 @@ describe('JjService Unit Tests', () => {
 
     test('getLog parses extended fields', async () => {
         repo.describe('test fields');
-        const [log] = await jjService.getLog('@');
+        const [log] = await jjService.getLog({ revision: '@' });
 
         expect(log.change_id_shortest).toBeDefined();
         expect(log.is_immutable).toBeDefined();
@@ -442,24 +442,24 @@ describe('JjService Unit Tests', () => {
         fs.writeFileSync(filePath, 'content');
 
         repo.describe('not empty');
-        const [log] = await jjService.getLog('@');
+        const [log] = await jjService.getLog({ revision: '@' });
         expect(log.is_empty).toBe(false);
 
         repo.new(['@'], 'empty child');
-        const [emptyLog] = await jjService.getLog('@');
+        const [emptyLog] = await jjService.getLog({ revision: '@' });
         expect(emptyLog.is_empty).toBe(true);
     });
 
     test('getLog parses parents_immutable correctly', async () => {
         repo.describe('child of root');
-        const [child] = await jjService.getLog('@');
+        const [child] = await jjService.getLog({ revision: '@' });
 
         expect(child.parents_immutable).toBeDefined();
         expect(child.parents_immutable!.length).toBeGreaterThan(0);
         expect(child.parents_immutable![0]).toBe(true);
 
         repo.new(['@'], 'grandchild');
-        const [grandchild] = await jjService.getLog('@');
+        const [grandchild] = await jjService.getLog({ revision: '@' });
 
         expect(grandchild.parents_immutable).toBeDefined();
         expect(grandchild.parents_immutable![0]).toBe(false);
@@ -467,7 +467,7 @@ describe('JjService Unit Tests', () => {
 
     test('getLog parses author and committer with full details', async () => {
         repo.describe('author test');
-        const [log] = await jjService.getLog('@');
+        const [log] = await jjService.getLog({ revision: '@' });
 
         // Verify author structure (values may come from global jj config, not repo-local)
         expect(typeof log.author).toBe('object');
@@ -901,7 +901,7 @@ describe('JjService Unit Tests', () => {
         repo.writeFile('modified.txt', 'modified'); // Modified
         fs.rmSync(file3); // Deleted
 
-        const [log] = await jjService.getLog('@');
+        const [log] = await jjService.getLog({ revision: '@' });
         expect(log.changes).toBeDefined();
         const changes = log.changes!;
 
@@ -925,13 +925,13 @@ describe('JjService Unit Tests', () => {
 
         // Create a new commit (child)
         await jjService.new('child');
-        const [child] = await jjService.getLog('@');
+        const [child] = await jjService.getLog({ revision: '@' });
 
         // Move bookmark to child
         await jjService.moveBookmark('test-bookmark', child.change_id);
 
         // Verify bookmark moved
-        const [childLog] = await jjService.getLog('@');
+        const [childLog] = await jjService.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(
             expect.arrayContaining([expect.objectContaining({ name: 'test-bookmark' })]),
         );
@@ -958,10 +958,10 @@ describe('JjService Unit Tests', () => {
 
         await jjService.rebase(parentId, targetId, 'revision');
 
-        const [parentLog] = await jjService.getLog(parentId);
-        const [targetLog] = await jjService.getLog(targetId);
-        const [childLog] = await jjService.getLog(childId);
-        const [grandparentLog] = await jjService.getLog(grantparentId);
+        const [parentLog] = await jjService.getLog({ revision: parentId });
+        const [targetLog] = await jjService.getLog({ revision: targetId });
+        const [childLog] = await jjService.getLog({ revision: childId });
+        const [grandparentLog] = await jjService.getLog({ revision: grantparentId });
 
         // Parent is child of Target
         expect(parentLog.parents[0]).toBe(targetLog.commit_id);
@@ -974,9 +974,9 @@ describe('JjService Unit Tests', () => {
 
         await jjService.rebase(grantparentId, rootId, 'source');
 
-        const [grandparentLogAfter] = await jjService.getLog(grantparentId);
-        const [childLogAfter] = await jjService.getLog(childId);
-        const [rootLog] = await jjService.getLog(rootId);
+        const [grandparentLogAfter] = await jjService.getLog({ revision: grantparentId });
+        const [childLogAfter] = await jjService.getLog({ revision: childId });
+        const [rootLog] = await jjService.getLog({ revision: rootId });
 
         // Grandparent is child of Root
         expect(grandparentLogAfter.parents[0]).toBe(rootLog.commit_id);
@@ -1040,7 +1040,7 @@ describe('JjService Unit Tests', () => {
         await jjService.new();
         fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
         
-        const [logEntry] = await jjService.getLog('@');
+        const [logEntry] = await jjService.getLog({ revision: '@' });
         expect(logEntry).toBeDefined();
         
         const changes = logEntry.changes || [];

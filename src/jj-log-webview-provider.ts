@@ -142,7 +142,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         if (this._view) {
             try {
                 // Default jj log (usually local heads/roots)
-                const commits = await this._jj.getLog();
+                const commits = await this._jj.getLog({ useCachedSnapshot: true });
                 // Enrich with Gerrit status if enabled
                 if (this._gerrit.isEnabled) {
                     this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is enabled. Fetching statuses...');
