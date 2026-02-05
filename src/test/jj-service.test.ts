@@ -1029,4 +1029,21 @@ describe('JjService Unit Tests', () => {
         expect(renameEntry?.status).toBe('renamed');
         expect(renameEntry?.oldPath).toBe(oldFile);
     });
+
+    test('commit runs jj commit', async () => {
+        // Setup state: Make a change
+        repo.writeFile('file.txt', 'content');
+        
+        await jjService.commit('my commit message');
+
+        // Verification:
+        // 1. Current working copy (@) should be empty/new
+        // 2. Parent (@-) should have the message "my commit message"
+        
+        const [head] = await jjService.getLog({ revision: '@' });
+        const [parent] = await jjService.getLog({ revision: '@-' });
+
+        expect(head.description).toBe('');
+        expect(parent.description.trim()).toBe('my commit message');
+    });
 });

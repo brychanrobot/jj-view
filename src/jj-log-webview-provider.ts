@@ -16,6 +16,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
+import { JjLogEntry } from './jj-types';
 
 import { GerritService } from './gerrit-service';
 
@@ -59,8 +60,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'newChild':
                     // new(message?, parent?)
-                    await this._jj.new(undefined, data.payload.commitId);
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.new', data.payload.commitId);
                     break;
                 case 'squash':
                     // Route through extension command to reuse safe squash logic (editor, etc.)
@@ -69,8 +69,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Refresh is handled by the command event listener
                     break;
                 case 'edit':
-                    await this._jj.edit(data.payload.commitId);
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.edit', data.payload.commitId);
                     break;
                 case 'select':
                     const details = await this._jj.showDetails(data.payload.commitId);
@@ -83,8 +82,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     );
                     break;
                 case 'undo':
-                    await this._jj.undo();
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.undo');
                     break;
                 case 'abandon':
                     await vscode.commands.executeCommand('jj-view.abandon', data.payload);
@@ -93,20 +91,19 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await this.createCommitDetailsPanel(data.payload.commitId);
                     break;
                 case 'new':
-                    await this._jj.new();
-                    await vscode.commands.executeCommand('jj-view.refresh');
+                    await vscode.commands.executeCommand('jj-view.new');
                     break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'moveBookmark':
                     await this._jj.moveBookmark(data.payload.bookmark, data.payload.targetCommitId);
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'rebaseCommit':
                     await this._jj.rebase(data.payload.sourceCommitId, data.payload.targetCommitId, data.payload.mode);
-                    await this.refresh();
+                    await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload.commitId);
@@ -140,33 +137,69 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
     public async refresh() {
         if (this._view) {
+            const start = performance.now();
+            let commits: JjLogEntry[] = [];
+            
             try {
+                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
                 // Default jj log (usually local heads/roots)
-                const commits = await this._jj.getLog({});
-                // Enrich with Gerrit status if enabled
-                if (this._gerrit.isEnabled) {
-                    this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is enabled. Fetching statuses...');
-                    this._gerrit.startPolling();
-                    await Promise.all(commits.map(async (commit) => {
-                        if (commit.commit_id) {
-                            commit.gerritCl = await this._gerrit.fetchClStatus(
-                                commit.commit_id,
-                                commit.change_id,
-                                commit.description
-                            );
-                        }
-                    }));
-                } else {
-                    this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
-                }
+                const logStart = performance.now();
+                commits = await this._jj.getLog({});
+                const logDuration = performance.now() - logStart;
+                this._outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
 
-                this._view.webview.postMessage({
-                    type: 'update', commits
-                });
+                this._renderCommits(commits);
+                
+                const initialRenderDuration = performance.now() - start;
+                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
             } catch (e) {
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log for webview: ${e}`);
+                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
+                return;
+            }
+
+            // Background Fetch gerrit commits needed
+            if (this._gerrit.isEnabled && commits.length > 0) {
+                try {
+                    this._gerrit.startPolling();
+                    
+                    const gerritStart = performance.now();
+                    const hasChanges = await this._gerrit.ensureFreshStatuses(commits.map(c => ({
+                        commitId: c.commit_id ?? '',
+                        changeId: c.change_id,
+                        description: c.description
+                    })));
+
+                    const gerritDuration = performance.now() - gerritStart;
+                    this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit background fetch took ${gerritDuration.toFixed(0)}ms`);
+
+                    if (hasChanges) {
+                            this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, sending phase 2 update.');
+                            this._renderCommits(commits);
+                    }
+                } catch (e) {
+                    this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch gerrit status: ${e}`);
+                }
             }
         }
+    }
+
+    private _renderCommits(commits: JjLogEntry[]) {
+        if (this._gerrit.isEnabled) {
+            for (const commit of commits) {
+                if (commit.commit_id) {
+                    commit.gerritCl = this._gerrit.getCachedClStatus(
+                        commit.change_id,
+                        commit.description
+                    );
+                }
+            }
+        } else {
+            this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+        }
+        
+        this._view?.webview.postMessage({
+            type: 'update', commits
+        });
     }
 
     private _activeDetailsPanel?: vscode.WebviewPanel;
@@ -223,8 +256,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Panel handles its own state via initialData
                     break;
                 case 'saveDescription':
-                    await this._jj.describe(message.payload.description, message.payload.commitId);
-                    await this.refresh(); // Refresh graph
+                    await vscode.commands.executeCommand(
+                        'jj-view.setDescription',
+                        message.payload.description,
+                        message.payload.commitId,
+                    );
                     vscode.window.showInformationMessage('Description updated');
                     break;
                 case 'openDiff':

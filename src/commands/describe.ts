@@ -33,7 +33,7 @@ export async function setDescriptionCommand(
 
     try {
         await jj.describe(description, revision);
-        await scmProvider.refresh();
+        await scmProvider.refresh({ reason: 'after describe' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error setting description: ${getErrorMessage(e)}`);
     }

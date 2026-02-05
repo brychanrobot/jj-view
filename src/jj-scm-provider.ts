@@ -182,20 +182,32 @@ export class JjScmProvider implements vscode.Disposable {
             return;
         }
 
+        // Suppress redundant refreshes:
+        // 1. If a JJ write operation is currently running.
+        // 2. If a JJ write operation finished recently (last 500ms) - handles FS event latency.
+        if (this.jj.hasActiveWriteOps || (Date.now() - this.jj.lastWriteTime < 500)) {
+            // this.outputChannel.appendLine(`Ignoring file change (suppressed): ${path.basename(uri.fsPath)}`);
+            return;
+        }
+
         // If change is in .jj, we don't need a snapshot (repo state updated by jj CLI)
         // If change is in workspace (outside .jj), we need a snapshot to see working copy changes
         const isJjInternal = uri.fsPath.includes('/.jj/');
-        this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}, forceSnapshot: ${!isJjInternal}`);
-        this._refreshScheduler.trigger({ forceSnapshot: !isJjInternal });
+        // this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}, forceSnapshot: ${!isJjInternal}`);
+        const relative = path.relative(this.jj.workspaceRoot, uri.fsPath);
+        const firstSegment = relative.split(path.sep)[0];
+        this._refreshScheduler.trigger({ forceSnapshot: !isJjInternal, reason: `file change (${firstSegment})` });
     }
 
     private _refreshMutex: Promise<void> = Promise.resolve();
 
-    async refresh(options: { forceSnapshot?: boolean } = {}): Promise<void> {
+    async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
         // Chain the refresh execution to ensure serial execution
         this._refreshMutex = this._refreshMutex.then(async () => {
-            const { forceSnapshot } = options;
-            this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${forceSnapshot})...`);
+            const { forceSnapshot, reason } = options;
+            const reasonStr = reason ? ` (reason: ${reason})` : '';
+            this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${!!forceSnapshot})${reasonStr}...`);
+            const start = performance.now();
             try {
                 // 0. Force a snapshot if requested
                 if (forceSnapshot) {
@@ -213,9 +225,6 @@ export class JjScmProvider implements vscode.Disposable {
 
                 if (currentEntry) {
                     const parents = currentEntry.parents;
-                    this.outputChannel.appendLine(
-                        `Current log entry: ${currentEntry.change_id}, parents: ${JSON.stringify(parents)}`,
-                    );
 
                     if (parents && parents.length > 0) {
                         // Normalize parent to string if needed
@@ -239,7 +248,6 @@ export class JjScmProvider implements vscode.Disposable {
 
                     // Check for children
                     const children = await this.jj.getChildren('@');
-                    this.outputChannel.appendLine(`Children count: ${children.length}`);
                     hasChild = children.length > 0;
                 }
 
@@ -262,10 +270,7 @@ export class JjScmProvider implements vscode.Disposable {
                     }
                 }
 
-                this.outputChannel.appendLine(`Setting context jj.parentMutable to ${parentMutable}`);
                 await vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, parentMutable);
-
-                this.outputChannel.appendLine(`Setting context jj.hasChild to ${hasChild}`);
                 await vscode.commands.executeCommand('setContext', JjContextKey.HasChild, hasChild);
 
                 // 2. Update Resource Groups & Collect Decorations
@@ -365,10 +370,12 @@ export class JjScmProvider implements vscode.Disposable {
                 ) {
                     this.outputChannel.appendLine(`Ignored transient error during refresh: ${getErrorMessage(e)}`);
                 } else {
-                    this.outputChannel.appendLine(`Failed to refresh JJ SCM: ${getErrorMessage(e)}`);
-                    console.error('Failed to refresh JJ SCM:', e);
+                    this.outputChannel.appendLine(`Error refreshing JJ SCM: ${getErrorMessage(e)}`);
+                    console.error('Error refreshing JJ SCM:', e);
                 }
             } finally {
+                const duration = performance.now() - start;
+                this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
                 this._onDidChangeStatus.fire();
             }
         });

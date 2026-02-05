@@ -209,41 +209,107 @@ export class GerritService implements vscode.Disposable {
      * Fetch CL status using Change-Id from description (highest priority),
      * or computed Gerrit Change-Id from JJ Change-Id.
      */
-    public async fetchClStatus(_commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
+    public getCachedClStatus(changeId?: string, description?: string): GerritClInfo | undefined {
         if (!this._gerritHost) {
             return undefined;
         }
 
-        let searchQ = '';
+        const cacheKey = this.resolveCacheKey(changeId, description);
+        if (cacheKey && this.cache.has(cacheKey)) {
+            return this.cache.get(cacheKey);
+        }
+        return undefined;
+    }
 
+    private resolveCacheKey(changeId?: string, description?: string): string | undefined {
         // 1. Check description for Change-Id
         if (description) {
             const match = description.match(/^Change-Id: (I[0-9a-fA-F]{40})/m);
             if (match) {
-                searchQ = `change:${match[1]}`;
+                return match[1];
             }
         }
 
         // 2. Use computed JJ Change-Id if no description ID found
-        if (!searchQ && changeId) {
+        if (changeId) {
              try {
                  const hexId = convertJjChangeIdToHex(changeId);
-                 searchQ = `change:I${hexId}`;
+                 return `I${hexId}`;
              } catch (e) {
                  this.outputChannel?.appendLine(`[GerritService] Failed to convert JJ Change-Id: ${e}`);
              }
         }
+        return undefined;
+    }
 
-        if (!searchQ) {
-             return undefined;
+    /**
+     * Fetches status from network (bypass cache read), updates cache, and returns new value.
+     */
+    public async forceFetchAndCacheStatus(_commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
+        if (!this._gerritHost) {
+            return undefined;
         }
 
-        // Check cache using the resolved Change-Id (extracted from searchQ 'change:I...')
-        const cacheKey = searchQ.replace('change:', '');
-        if (this.cache.has(cacheKey)) {
-            return this.cache.get(cacheKey);
+        const cacheKey = this.resolveCacheKey(changeId, description);
+        if (!cacheKey) {
+            return undefined;
         }
 
+        const info = await this._fetchFromNetwork(cacheKey);
+        if (info) {
+             this.cache.set(cacheKey, info);
+        }
+        return info;
+    }
+
+    /**
+     * Batch ensures fresh statuses for a list of items.
+     * Returns true if any status changed from what was in the cache.
+     */
+    public async ensureFreshStatuses(items: { commitId: string, changeId?: string, description?: string }[]): Promise<boolean> {
+        if (!this._gerritHost) return false;
+
+        const results = await Promise.all(items.map(async (item) => {
+             const key = this.resolveCacheKey(item.changeId, item.description);
+             if (!key) return false;
+
+             const oldStatus = this.cache.get(key);
+             const newStatus = await this.forceFetchAndCacheStatus(item.commitId, item.changeId, item.description);
+             
+             // Check for change
+             return JSON.stringify(oldStatus) !== JSON.stringify(newStatus);
+        }));
+
+        return results.some(changed => changed);
+    }
+
+    public async fetchAndCacheStatus(_commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
+        if (!this._gerritHost) {
+            return undefined;
+        }
+
+        const cacheKey = this.resolveCacheKey(changeId, description);
+        if (!cacheKey) {
+            return undefined;
+        }
+
+        const existing = this.getCachedClStatus(changeId, description);
+        if (existing) {
+             return existing;
+        }
+        
+        // If not pending, fetch
+        const info = await this._fetchFromNetwork(cacheKey);
+        if (info) {
+             this.cache.set(cacheKey, info);
+        }
+        return info;
+    }
+
+    private async _fetchFromNetwork(cacheKey: string): Promise<GerritClInfo | undefined> {
+        if (!this._gerritHost) return undefined;
+        
+        const searchQ = `change:${cacheKey}`;
         try {
             const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION`;
             
@@ -275,12 +341,9 @@ export class GerritService implements vscode.Disposable {
                 unresolvedComments: change.unresolved_comment_count || 0,
                 currentRevision: change.current_revision
             };
-
-            this.cache.set(cacheKey, info);
             return info;
-
         } catch (error) {
-            this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${changeId}: ${error}`);
+            this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${cacheKey}: ${error}`);
             return undefined;
         }
     }

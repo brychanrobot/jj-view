@@ -35,7 +35,7 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
 
     try {
         await jj.new(undefined, revision ? [revision] : undefined);
-        await scmProvider.refresh();
+        await scmProvider.refresh({ reason: 'after new' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error creating new commit: ${getErrorMessage(e)}`);
     }

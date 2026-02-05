@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel('JJ View');
     context.subscriptions.push(outputChannel);
 
-    const jj = new JjService(workspaceRoot);
+    const jj = new JjService(workspaceRoot, (msg) => outputChannel.appendLine(msg));
     const gerritService = new GerritService(workspaceRoot, jj, outputChannel);
     context.subscriptions.push(gerritService);
 
@@ -110,9 +110,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.setDescription', async () => {
-            const message = scmProvider.sourceControl.inputBox.value;
-            await setDescriptionCommand(scmProvider, jj, message);
+        vscode.commands.registerCommand('jj-view.setDescription', async (messageArg?: string, revision?: string) => {
+            const message = messageArg ?? scmProvider.sourceControl.inputBox.value;
+            await setDescriptionCommand(scmProvider, jj, message, revision ? [revision] : undefined);
         }),
     );
 
@@ -225,8 +225,6 @@ export function activate(context: vscode.ExtensionContext) {
     
     // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
     scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
-    // Also refresh when full status changes
-    scmProvider.onDidChangeStatus(() => logWebviewProvider.refresh());
 
     // For now, let's expose the refresh command to also refresh the tree
     const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());

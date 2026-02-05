@@ -23,8 +23,9 @@ export class RefreshScheduler implements vscode.Disposable {
     private _disposed: boolean = false;
 
     private _pendingForceSnapshot: boolean = false;
+    private _pendingReasons: Set<string> = new Set();
 
-    constructor(private refreshCallback: (options: { forceSnapshot: boolean }) => void | Promise<void>) {
+    constructor(private refreshCallback: (options: { forceSnapshot: boolean; reason?: string }) => void | Promise<void>) {
         const config = vscode.workspace.getConfiguration('jj-view');
         this._baseDebounce = config.get<number>('refreshDebounceMillis', 100);
         this._maxMultiplier = config.get<number>('refreshDebounceMaxMultiplier', 4);
@@ -39,7 +40,7 @@ export class RefreshScheduler implements vscode.Disposable {
         });
     }
 
-    public trigger(options: { forceSnapshot?: boolean } = {}) {
+    public trigger(options: { forceSnapshot?: boolean; reason?: string } = {}) {
         if (this._disposed) {
             return;
         }
@@ -47,6 +48,9 @@ export class RefreshScheduler implements vscode.Disposable {
         this._hasNewEvents = true;
         if (options.forceSnapshot) {
             this._pendingForceSnapshot = true;
+        }
+        if (options.reason) {
+            this._pendingReasons.add(options.reason);
         }
 
         // If loop is already running (timer exists), just marking hasNewEvents is enough.
@@ -73,9 +77,12 @@ export class RefreshScheduler implements vscode.Disposable {
                 this._hasNewEvents = false;
                 const forceSnapshot = this._pendingForceSnapshot;
                 this._pendingForceSnapshot = false;
+                
+                const reasons = Array.from(this._pendingReasons).join(', ');
+                this._pendingReasons.clear();
 
                 try {
-                    await this.refreshCallback({ forceSnapshot });
+                    await this.refreshCallback({ forceSnapshot, reason: reasons || undefined });
                 } catch (e) {
                     console.error('Refresh failed in scheduler:', e);
                 }

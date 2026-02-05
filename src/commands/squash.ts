@@ -104,7 +104,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
         await jj.squash(paths, revision, parentRev, undefined, true);
     }
 
-    await scmProvider.refresh();
+    await scmProvider.refresh({ reason: 'after squash' });
 }
 
 async function openSquashDescriptionEditor(jj: JjService, paths: string[], revision: string, parentRev: string) {
@@ -190,7 +190,7 @@ export async function completeSquashCommand(scmProvider: JjScmProvider, jj: JjSe
         await fs.unlink(metaPath).catch(() => {});
         await fs.unlink(msgPath).catch(() => {});
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ reason: 'after complete squash' });
         vscode.window.showInformationMessage('Squash completed.');
     } catch (e: unknown) {
         const err = e as { code?: string; message: string };

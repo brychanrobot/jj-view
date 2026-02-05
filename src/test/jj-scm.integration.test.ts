@@ -576,77 +576,84 @@ suite('JJ SCM Provider Integration Test', function () {
         }
     });
     test('Webview moveBookmark message updates bookmark', async () => {
-        // Setup: Bookmark on Parent, Move to Child
-        repo.describe('parent');
-        repo.bookmark('integrated-bookmark', '@');
+        // Register mock command
+        const refreshDisposable = vscode.commands.registerCommand('jj-view.refresh', async () => {});
 
-        repo.new([], 'child');
-        const childId = repo.getChangeId('@');
+        try {
+            // Setup: Bookmark on Parent, Move to Child
+            repo.describe('parent');
+            repo.bookmark('integrated-bookmark', '@');
 
-        // Use JjLogWebviewProvider
-        const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
-        const { GerritService } = await import('../gerrit-service');
-        const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-        const gerritService = createMock<InstanceType<typeof GerritService>>({
-            onDidUpdate: () => {
-                return { dispose: () => {} };
-            },
-            isEnabled: false,
-            startPolling: () => {},
-            dispose: () => {},
-        });
-        const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+            repo.new([], 'child');
+            const childId = repo.getChangeId('@');
 
-        // Mock Webview
-        let messageHandler: (m: unknown) => void = () => {};
-        const webview = createMock<vscode.Webview>({
-            options: {},
-            html: '',
-            onDidReceiveMessage: (handler: (m: unknown) => void) => {
-                messageHandler = handler;
-                return { dispose: () => {} };
-            },
-            asWebviewUri: (uri: vscode.Uri) => uri,
-            cspSource: '',
-            postMessage: async () => {
-                return true;
-            },
-        });
+            // Use JjLogWebviewProvider
+            const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
+            const { GerritService } = await import('../gerrit-service');
+            const extensionUri = vscode.Uri.file(__dirname); // Mock URI
+            const gerritService = createMock<InstanceType<typeof GerritService>>({
+                onDidUpdate: () => {
+                    return { dispose: () => {} };
+                },
+                isEnabled: false,
+                startPolling: () => {},
+                dispose: () => {},
+            });
+            const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
 
-        const webviewView = createMock<vscode.WebviewView>({
-            webview,
-            viewType: 'jj-view.logView',
-            onDidChangeVisibility: () => {
-                return { dispose: () => {} };
-            },
-            onDidDispose: () => {
-                return { dispose: () => {} };
-            },
-            visible: true,
-        });
+            // Mock Webview
+            let messageHandler: (m: unknown) => void = () => {};
+            const webview = createMock<vscode.Webview>({
+                options: {},
+                html: '',
+                onDidReceiveMessage: (handler: (m: unknown) => void) => {
+                    messageHandler = handler;
+                    return { dispose: () => {} };
+                },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: '',
+                postMessage: async () => {
+                    return true;
+                },
+            });
 
-        // Resolve (binds handler)
-        provider.resolveWebviewView(
-            webviewView,
-            createMock<vscode.WebviewViewResolveContext>({}),
-            createMock<vscode.CancellationToken>({}),
-        );
+            const webviewView = createMock<vscode.WebviewView>({
+                webview,
+                viewType: 'jj-view.logView',
+                onDidChangeVisibility: () => {
+                    return { dispose: () => {} };
+                },
+                onDidDispose: () => {
+                    return { dispose: () => {} };
+                },
+                visible: true,
+            });
 
-        // Simulate Message
-        await messageHandler({
-            type: 'moveBookmark',
-            payload: {
-                bookmark: 'integrated-bookmark',
-                targetCommitId: childId,
-            },
-        });
+            // Resolve (binds handler)
+            provider.resolveWebviewView(
+                webviewView,
+                createMock<vscode.WebviewViewResolveContext>({}),
+                createMock<vscode.CancellationToken>({}),
+            );
 
-        // Verify Bookmark Moved
-        const [childLog] = await jj.getLog({ revision: '@' });
-        assert.ok(
-            childLog.bookmarks?.some((b) => b.name === 'integrated-bookmark'),
-            'Bookmark should be on child now',
-        );
+            // Simulate Message
+            await messageHandler({
+                type: 'moveBookmark',
+                payload: {
+                    bookmark: 'integrated-bookmark',
+                    targetCommitId: childId,
+                },
+            });
+
+            // Verify Bookmark Moved
+            const [childLog] = await jj.getLog({ revision: '@' });
+            assert.ok(
+                childLog.bookmarks?.some((b) => b.name === 'integrated-bookmark'),
+                'Bookmark should be on child now',
+            );
+        } finally {
+            refreshDisposable.dispose();
+        }
     });
 
     test('SCM count includes only Working Copy changes', async () => {

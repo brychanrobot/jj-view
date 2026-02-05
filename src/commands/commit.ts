@@ -25,11 +25,10 @@ export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
     }
 
     try {
-        await jj.describe(message);
-        await jj.new(); // "Closing" the change by creating a new one
+        await jj.commit(message);
         scmProvider.sourceControl.inputBox.value = '';
         vscode.window.showInformationMessage('Committed change');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
         vscode.window.showErrorMessage(`Error committing change: ${getErrorMessage(err)}`);
     }

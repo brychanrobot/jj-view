@@ -25,8 +25,24 @@ export interface JjLogOptions {
     limit?: number;
 }
 
+
+
 export class JjService {
-    constructor(public readonly workspaceRoot: string) {}
+    private _writeOperationCount = 0;
+    private _lastWriteTime = 0;
+
+    constructor(
+        public readonly workspaceRoot: string,
+        public readonly logger: (message: string) => void = () => {},
+    ) {}
+
+    get hasActiveWriteOps(): boolean {
+        return this._writeOperationCount > 0;
+    }
+
+    get lastWriteTime(): number {
+        return this._lastWriteTime;
+    }
 
     private toRelative(filePath: string): string {
         if (path.isAbsolute(filePath)) {
@@ -41,19 +57,37 @@ export class JjService {
     private async run(
         command: string,
         args: string[],
-        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean } = {},
+        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean } = {},
     ): Promise<string> {
-        return new Promise((resolve, reject) => {
+        if (options.isMutation) {
+            this._writeOperationCount++;
+        }
+
+        const finalArgs = [...args];
+        if (options.useCachedSnapshot) {
+            finalArgs.push('--ignore-working-copy');
+        }
+        
+        const start = performance.now();
+        // Truncate for readability: jj <command> <arg1>...
+        const allArgs = [command, ...finalArgs];
+        const displayArgs = allArgs.slice(0, 2);
+        const commandStr = `jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
+        
+        return new Promise<string>((resolve, reject) => {
             const finalOptions = {
                 cwd: this.workspaceRoot,
                 env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
+                // Default maxBuffer to 100MB to support large logs/diffs
+                maxBuffer: 100 * 1024 * 1024, 
                 ...options,
             };
-            const finalArgs = [...args];
-            if (options.useCachedSnapshot) {
-                finalArgs.push('--ignore-working-copy');
-            }
+
             cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout) => {
+                const duration = performance.now() - start;
+                const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
+                this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
+                
                 if (err) {
                     reject(err);
                     return;
@@ -65,11 +99,16 @@ export class JjService {
                     resolve(shouldTrim ? stdout.toString().trim() : stdout.toString());
                 }
             });
+        }).finally(() => {
+            if (options.isMutation) {
+                this._writeOperationCount--;
+                this._lastWriteTime = Date.now();
+            }
         });
     }
 
     async moveBookmark(name: string, toRevision: string): Promise<string> {
-        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards']);
+        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], { isMutation: true });
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
@@ -80,9 +119,12 @@ export class JjService {
         }
         if (limit) {
             args.push('-n', limit.toString());
+        } else if (!revision) {
+            // Safety: If no revision is specified (default view), limit to 200 entries
+            // to prevent buffer overflows and UI performance issues on huge repos.
+            args.push('-n', '200');
         }
 
-        // Always use cached snapshot for logs
         const output = await this.run('log', args, { useCachedSnapshot: true });
         const entries: JjLogEntry[] = [];
 
@@ -114,7 +156,7 @@ export class JjService {
         if (from) {
             cmdArgs.push('--from', from);
         }
-        await this.run('restore', cmdArgs);
+        await this.run('restore', cmdArgs, { isMutation: true });
     }
     /**
      * Get the base, left (ours), and right (theirs) content for a conflicted file.
@@ -148,7 +190,6 @@ export class JjService {
             const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
             try {
-                // normalize path before calling run? done in toRelative
                 await this.run(
                     'resolve',
                     [
@@ -207,7 +248,7 @@ export class JjService {
         if (relativePaths.length > 0) {
             args.push(...relativePaths);
         }
-        await this.run('squash', args);
+        await this.run('squash', args, { isMutation: true });
     }
 
     async rebase(
@@ -226,20 +267,20 @@ export class JjService {
             // Rebase revision (cherry-pick like behavior)
             args.push('-r', source);
         }
-        return this.run('rebase', args);
+        return this.run('rebase', args, { isMutation: true });
     }
 
     async duplicate(revision: string): Promise<string> {
-        return this.run('duplicate', [revision]);
+        return this.run('duplicate', [revision], { isMutation: true });
     }
 
     async abandon(revisions: string | string[]): Promise<string> {
         const revs = Array.isArray(revisions) ? revisions : [revisions];
-        return this.run('abandon', revs);
+        return this.run('abandon', revs, { isMutation: true });
     }
 
     async undo(): Promise<string> {
-        return this.run('undo', []);
+        return this.run('undo', [], { isMutation: true });
     }
 
     async getGitRemotes(): Promise<{ name: string; url: string }[]> {
@@ -289,7 +330,7 @@ export class JjService {
                 args.push(parents);
             }
         }
-        await this.run('new', args);
+        await this.run('new', args, { isMutation: true });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {
             useCachedSnapshot: true,
         });
@@ -310,7 +351,7 @@ export class JjService {
     }
 
     async resolve(revision: string): Promise<void> {
-        await this.run('new', [revision]);
+        await this.run('new', [revision], { isMutation: true });
     }
 
     async getConflictedFiles(): Promise<string[]> {
@@ -332,7 +373,11 @@ export class JjService {
         if (revision) {
             cmdArgs.push(revision);
         }
-        await this.run('describe', cmdArgs);
+        await this.run('describe', cmdArgs, { isMutation: true });
+    }
+
+    async commit(message: string): Promise<void> {
+        await this.run('commit', ['-m', message], { isMutation: true });
     }
 
     async getDescription(revision: string): Promise<string> {
@@ -426,7 +471,7 @@ export class JjService {
     }
 
     async edit(revision: string): Promise<string> {
-        return this.run('edit', [revision]);
+        return this.run('edit', [revision], { isMutation: true });
     }
 
     async showDetails(revision: string): Promise<string> {
@@ -439,7 +484,7 @@ export class JjService {
     }
 
     async upload(commandArgs: string[], revision: string): Promise<string> {
-        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision]);
+        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], { isMutation: true });
     }
 
     public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
@@ -470,11 +515,11 @@ export class JjService {
         // Capture the exact commit ID of the child to restore from later
         const oldChildId = (await this.run('log', ['-r', '@', '--no-graph', '-T', 'commit_id'])).trim();
 
-        await this.run('bookmark', ['create', tmpBookmark, '-r', '@']);
+        await this.run('bookmark', ['create', tmpBookmark, '-r', '@'], { isMutation: true });
 
         try {
             // Create temp commit on top of Parent
-            await this.run('new', ['@-']);
+            await this.run('new', ['@-'], { isMutation: true });
 
             // Write wanted content
             const absPath = path.join(this.workspaceRoot, fileRelPath);
@@ -482,15 +527,15 @@ export class JjService {
 
             // Squash into Parent
             // Note: 'squash' without args squashes @ into @-.
-            await this.run('squash', []);
+            await this.run('squash', [], { isMutation: true });
         } finally {
             // Return to Child (which has been rebased)
-            await this.run('edit', [tmpBookmark]);
+            await this.run('edit', [tmpBookmark], { isMutation: true });
             // Restore Child to its previous state (content-wise)
             // This ensures that changes removed from Parent appear as local changes in Child.
-            await this.run('restore', ['--from', oldChildId, fileRelPath]);
+            await this.run('restore', ['--from', oldChildId, fileRelPath], { isMutation: true });
 
-            await this.run('bookmark', ['delete', tmpBookmark]);
+            await this.run('bookmark', ['delete', tmpBookmark], { isMutation: true });
         }
     }
 
@@ -534,7 +579,7 @@ export class JjService {
                 fileRelPath,
             ];
 
-            await this.run('squash', args.slice(1));
+            await this.run('squash', args.slice(1), { isMutation: true });
         } finally {
             await fs.rm(tmpDir, { recursive: true, force: true });
         }

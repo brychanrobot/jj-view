@@ -22,6 +22,9 @@ import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
 import { abandonCommand } from '../commands/abandon';
 import { squashCommand } from '../commands/squash';
+import { newCommand } from '../commands/new';
+import { editCommand } from '../commands/edit';
+import { undoCommand } from '../commands/undo';
 import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
 
@@ -104,6 +107,15 @@ suite('Webview Commands End-to-End Integration Test', function () {
             }
             if (command === 'jj-view.squash') {
                 return squashCommand(scm, jj, args);
+            }
+            if (command === 'jj-view.new') {
+                return newCommand(scm, jj, args);
+            }
+            if (command === 'jj-view.edit') {
+                return editCommand(scm, jj, args);
+            }
+            if (command === 'jj-view.undo') {
+                return undoCommand(scm, jj);
             }
             if (command === 'jj-view.refresh') {
                 return;

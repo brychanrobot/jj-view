@@ -27,7 +27,7 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
     const paths = resourceStates.map((r) => r.resourceUri.fsPath);
     try {
         await jj.restore(paths);
-        await scmProvider.refresh();
+        await scmProvider.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error restoring files: ${getErrorMessage(e)}`);
     }

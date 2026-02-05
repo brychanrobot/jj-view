@@ -239,7 +239,6 @@ describe('squashChangeCommand', () => {
         repo.new();
         repo.writeFile(fileName, 'line1\nline2\n');
 
-
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
 
         const changes = [
