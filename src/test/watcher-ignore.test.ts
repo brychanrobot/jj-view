@@ -66,6 +66,9 @@ vi.mock('vscode', () => {
         ThemeColor: class {},
         Range: class {},
         Selection: class {},
+        RelativePattern: class {
+            constructor(public base: string, public pattern: string) {}
+        },
     };
 });
 

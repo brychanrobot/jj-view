@@ -44,6 +44,9 @@ export class JjScmProvider implements vscode.Disposable {
     private _onDidChangeStatus = new vscode.EventEmitter<void>();
     readonly onDidChangeStatus: vscode.Event<void> = this._onDidChangeStatus.event;
 
+    private _onRepoStateReady = new vscode.EventEmitter<void>();
+    readonly onRepoStateReady: vscode.Event<void> = this._onRepoStateReady.event;
+
     private _refreshScheduler: RefreshScheduler;
     public decorationProvider: JjDecorationProvider;
 
@@ -56,7 +59,7 @@ export class JjScmProvider implements vscode.Disposable {
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));
         this.decorationProvider = new JjDecorationProvider();
-        this._refreshScheduler = new RefreshScheduler(() => this.refresh());
+        this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
 
         // Create groups in order of display
         this._conflictGroup = this._sourceControl.createResourceGroup('conflicts', 'Merge Conflicts');
@@ -129,22 +132,16 @@ export class JjScmProvider implements vscode.Disposable {
         // Note: Generic commands are registered in extension.ts. Context menu commands requiring specific arguments are handled here.
 
         // Watch for file changes to trigger refresh
-        const watcher = vscode.workspace.createFileSystemWatcher('**/*');
-        const changeHandler = (uri: vscode.Uri) => {
-            if (this.shouldIgnoreEvent(uri)) {
-                return;
-            }
-            this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}`);
-            this._refreshScheduler.trigger();
-        };
+        const rootPath = this.jj.workspaceRoot;
+        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(rootPath, '**/*'));
+        watcher.onDidChange((uri) => this.onFileChange(uri));
+        watcher.onDidCreate((uri) => this.onFileChange(uri));
+        watcher.onDidDelete((uri) => this.onFileChange(uri));
 
-        this.disposables.push(watcher.onDidChange(changeHandler));
-        this.disposables.push(watcher.onDidCreate(changeHandler));
-        this.disposables.push(watcher.onDidDelete(changeHandler));
         this.disposables.push(watcher);
 
         // Initial refresh
-        this.refresh();
+        this.refresh({ forceSnapshot: true });
     }
 
     private shouldIgnoreEvent(uri: vscode.Uri): boolean {
@@ -180,18 +177,34 @@ export class JjScmProvider implements vscode.Disposable {
         return false;
     }
 
+    private async onFileChange(uri: vscode.Uri) {
+        if (this.shouldIgnoreEvent(uri)) {
+            return;
+        }
+
+        // If change is in .jj, we don't need a snapshot (repo state updated by jj CLI)
+        // If change is in workspace (outside .jj), we need a snapshot to see working copy changes
+        const isJjInternal = uri.fsPath.includes('/.jj/');
+        this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}, forceSnapshot: ${!isJjInternal}`);
+        this._refreshScheduler.trigger({ forceSnapshot: !isJjInternal });
+    }
+
     private _refreshMutex: Promise<void> = Promise.resolve();
 
-    async refresh(): Promise<void> {
+    async refresh(options: { forceSnapshot?: boolean } = {}): Promise<void> {
         // Chain the refresh execution to ensure serial execution
         this._refreshMutex = this._refreshMutex.then(async () => {
-            this.outputChannel.appendLine('Refreshing JJ SCM...');
+            const { forceSnapshot } = options;
+            this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${forceSnapshot})...`);
             try {
-                // 0. Force a snapshot first
-                await this.jj.status();
+                // 0. Force a snapshot if requested
+                if (forceSnapshot) {
+                    await this.jj.status();
+                }
+                this._onRepoStateReady.fire();
 
                 // 1. Calculate Context Keys & Get Log with Changes
-                const [logEntry] = await this.jj.getLog({ revision: '@', useCachedSnapshot: true });
+                const [logEntry] = await this.jj.getLog({ revision: '@' });
                 // alias for clarity and scope access
                 const currentEntry = logEntry;
 
@@ -219,14 +232,13 @@ export class JjScmProvider implements vscode.Disposable {
                             this.outputChannel.appendLine(`Checking parent mutability for: ${parentRev}`);
                             const [parentLog] = await this.jj.getLog({
                                 revision: parentRev as string,
-                                useCachedSnapshot: true,
                             });
                             parentMutable = !parentLog.is_immutable;
                         }
                     }
 
                     // Check for children
-                    const children = await this.jj.getChildren('@', /*useCachedSnapshot=*/ true);
+                    const children = await this.jj.getChildren('@');
                     this.outputChannel.appendLine(`Children count: ${children.length}`);
                     hasChild = children.length > 0;
                 }
@@ -269,7 +281,7 @@ export class JjScmProvider implements vscode.Disposable {
                 });
 
                 // 3. Update Conflict Group
-                const conflictedPaths = await this.jj.getConflictedFiles(/*useCachedSnapshot=*/ true);
+                const conflictedPaths = await this.jj.getConflictedFiles();
                 this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                     const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
                     const state = this.toResourceState(entry, '@');
@@ -300,7 +312,6 @@ export class JjScmProvider implements vscode.Disposable {
                         // Fetch parent log entry for description and file changes (parent list only provides IDs)
                         const [parentEntry] = await this.jj.getLog({
                             revision: parentRef as string,
-                            useCachedSnapshot: true,
                         });
 
                         if (parentEntry) {

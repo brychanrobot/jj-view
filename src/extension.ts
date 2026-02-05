@@ -222,8 +222,10 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(refreshDisposable);
 
     context.subscriptions.push(scmProvider);
-
-    // Refresh tree when SCM refreshes
+    
+    // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
+    scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
+    // Also refresh when full status changes
     scmProvider.onDidChangeStatus(() => logWebviewProvider.refresh());
 
     // For now, let's expose the refresh command to also refresh the tree

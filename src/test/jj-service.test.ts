@@ -61,26 +61,9 @@ describe('JjService Unit Tests', () => {
     });
 
     test('getWorkingCopyChanges handles empty working copy', async () => {
+        repo.snapshot();
         const changes = await jjService.getWorkingCopyChanges();
         expect(changes.length).toBe(0);
-    });
-
-    test('getWorkingCopyChanges respects useCachedSnapshot', async () => {
-        // 1. Establish baseline snapshot (clean)
-        await jjService.status();
-
-        // 2. Create new file
-        repo.writeFile('ignored-file.txt', 'content');
-
-        // 3. With useCachedSnapshot=true, it should use previous snapshot (empty)
-        // Note: For this to work in test, we must ensure jj doesn't auto-snapshot due to some other trigger.
-        const changesIgnored = await jjService.getWorkingCopyChanges(true);
-        expect(changesIgnored.length).toBe(0);
-
-        // 4. With useCachedSnapshot=false (default), it should see the file
-        const changes = await jjService.getWorkingCopyChanges(false);
-        expect(changes.length).toBe(1);
-        expect(changes[0].path).toBe('ignored-file.txt');
     });
 
     describe('new command', () => {
@@ -805,7 +788,6 @@ describe('JjService Unit Tests', () => {
         const fileName = 'partial-child.txt';
 
         // Setup: Grandparent
-        // Use more buffer to ensure separate hunks
         repo.writeFile(fileName, 'A\nB\nB2\nB3\nB4\nC\n');
         repo.describe('grandparent');
 
@@ -886,7 +868,6 @@ describe('JjService Unit Tests', () => {
     });
 
     test('getLog returns file changes with statuses', async () => {
-        const file3 = path.join(repo.path, 'deleted.txt');
         await buildGraph(repo, [
             {
                 label: 'setup',
@@ -899,7 +880,7 @@ describe('JjService Unit Tests', () => {
         // Operations
         repo.writeFile('added.txt', 'new'); // Added
         repo.writeFile('modified.txt', 'modified'); // Modified
-        fs.rmSync(file3); // Deleted
+        repo.deleteFile('deleted.txt'); // Deleted
 
         const [log] = await jjService.getLog({ revision: '@' });
         expect(log.changes).toBeDefined();
@@ -997,8 +978,7 @@ describe('JjService Unit Tests', () => {
         // Start new change
         await jjService.new();
         
-        // Move file
-        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        repo.moveFile(oldFile, newFile);
         
         const changes = await jjService.getWorkingCopyChanges();
         
@@ -1021,7 +1001,7 @@ describe('JjService Unit Tests', () => {
         await jjService.new();
         
         // Move file
-        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        repo.moveFile(oldFile, newFile);
         
         const changes = await jjService.getWorkingCopyChanges();
         
@@ -1038,7 +1018,7 @@ describe('JjService Unit Tests', () => {
         repo.writeFile(oldFile, 'log rename content');
         repo.describe('parent');
         await jjService.new();
-        fs.renameSync(path.join(repo.path, oldFile), path.join(repo.path, newFile));
+        repo.moveFile(oldFile, newFile);
         
         const [logEntry] = await jjService.getLog({ revision: '@' });
         expect(logEntry).toBeDefined();

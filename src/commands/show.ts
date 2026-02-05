@@ -18,7 +18,7 @@ import { getErrorMessage } from './command-utils';
 
 export async function showCurrentChangeCommand(jj: JjService) {
     try {
-        const [logEntry] = await jj.getLog({ revision: '@', useCachedSnapshot: true });
+        const [logEntry] = await jj.getLog({ revision: '@' });
         if (logEntry) {
             vscode.window.showInformationMessage(`Current Change ID: ${logEntry.change_id}`);
         } else {

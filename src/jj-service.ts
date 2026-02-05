@@ -23,7 +23,6 @@ import { buildLogTemplate, LOG_ENTRY_SCHEMA } from './jj-template-builder';
 export interface JjLogOptions {
     revision?: string;
     limit?: number;
-    useCachedSnapshot?: boolean;
 }
 
 export class JjService {
@@ -74,7 +73,7 @@ export class JjService {
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
-        const { revision, limit, useCachedSnapshot } = options;
+        const { revision, limit } = options;
         const args = ['-T', buildLogTemplate(LOG_ENTRY_SCHEMA)];
         if (revision) {
             args.push('-r', revision);
@@ -83,7 +82,8 @@ export class JjService {
             args.push('-n', limit.toString());
         }
 
-        const output = await this.run('log', args, { useCachedSnapshot });
+        // Always use cached snapshot for logs
+        const output = await this.run('log', args, { useCachedSnapshot: true });
         const entries: JjLogEntry[] = [];
 
         for (const line of output.trim().split('\n')) {
@@ -148,13 +148,18 @@ export class JjService {
             const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
             try {
-                await this.run('resolve', [
-                    '--tool',
-                    'vscode-capture',
-                    `--config=merge-tools.vscode-capture.program="node"`,
-                    `--config=merge-tools.vscode-capture.merge-args=["-e", "${escapedScript}", "$base", "$left", "$right", "$output"]`,
-                    relativePath,
-                ]);
+                // normalize path before calling run? done in toRelative
+                await this.run(
+                    'resolve',
+                    [
+                        '--tool',
+                        'vscode-capture',
+                        `--config=merge-tools.vscode-capture.program="node"`,
+                        `--config=merge-tools.vscode-capture.merge-args=["-e", "${escapedScript}", "$base", "$left", "$right", "$output"]`,
+                        relativePath,
+                    ],
+                    { useCachedSnapshot: true },
+                );
             } catch {
                 // Expected: jj returns error because our tool exits with 1
             }
@@ -253,11 +258,11 @@ export class JjService {
         }
     }
 
-    async getChildren(revision: string = '@', useCachedSnapshot?: boolean): Promise<string[]> {
+    async getChildren(revision: string = '@'): Promise<string[]> {
         const output = await this.run(
             'log',
             ['-r', `children(${revision})`, '--no-graph', '-T', 'change_id ++ "\\n"'],
-            { useCachedSnapshot },
+            { useCachedSnapshot: true },
         );
         return output
             .trim()
@@ -308,9 +313,9 @@ export class JjService {
         await this.run('new', [revision]);
     }
 
-    async getConflictedFiles(useCachedSnapshot?: boolean): Promise<string[]> {
+    async getConflictedFiles(): Promise<string[]> {
         try {
-            const output = await this.run('resolve', ['--list'], { useCachedSnapshot });
+            const output = await this.run('resolve', ['--list'], { useCachedSnapshot: true });
             return output
                 .split('\n')
                 .map((line) => line.trim())
@@ -331,20 +336,20 @@ export class JjService {
     }
 
     async getDescription(revision: string): Promise<string> {
-        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description']);
+        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description'], { useCachedSnapshot: true });
     }
 
     async cat(path: string, revision: string = '@-'): Promise<string> {
         const relativePath = this.toRelative(path);
-        return this.run('file', ['show', '-r', revision, relativePath], { trim: false });
+        return this.run('file', ['show', '-r', revision, relativePath], { trim: false, useCachedSnapshot: true });
     }
 
-    async status(useCachedSnapshot?: boolean): Promise<string> {
-        return this.run('status', [], { useCachedSnapshot });
+    async status(): Promise<string> {
+        return this.run('status', [], { useCachedSnapshot: false });
     }
 
-    async getChanges(revision: string, useCachedSnapshot?: boolean): Promise<JjStatusEntry[]> {
-        const output = await this.run('diff', ['--git', '-r', revision], { useCachedSnapshot });
+    async getChanges(revision: string): Promise<JjStatusEntry[]> {
+        const output = await this.run('diff', ['--git', '-r', revision], { useCachedSnapshot: true });
         const entries: JjStatusEntry[] = [];
 
         const lines = output.split('\n');
@@ -416,8 +421,8 @@ export class JjService {
         return entries;
     }
 
-    async getWorkingCopyChanges(useCachedSnapshot?: boolean): Promise<JjStatusEntry[]> {
-        return this.getChanges('@', useCachedSnapshot);
+    async getWorkingCopyChanges(): Promise<JjStatusEntry[]> {
+        return this.getChanges('@');
     }
 
     async edit(revision: string): Promise<string> {
@@ -425,12 +430,12 @@ export class JjService {
     }
 
     async showDetails(revision: string): Promise<string> {
-        return this.run('show', ['-r', revision, '--stat', '--color', 'always']);
+        return this.run('show', ['-r', revision, '--stat', '--color', 'always'], { useCachedSnapshot: true });
     }
 
     async getDiff(revision: string, file: string): Promise<string> {
         const relativePath = this.toRelative(file);
-        return this.run('diff', ['--git', '-r', revision, relativePath]);
+        return this.run('diff', ['--git', '-r', revision, relativePath], { useCachedSnapshot: true });
     }
 
     async upload(commandArgs: string[], revision: string): Promise<string> {

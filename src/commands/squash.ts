@@ -26,7 +26,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
     let revision = extractRevision(args) || '@';
 
     // Check if we have multiple parents
-    const [currentEntry] = await jj.getLog({ revision, useCachedSnapshot: true });
+    const [currentEntry] = await jj.getLog({ revision });
     if (!currentEntry) {
         return;
     }
@@ -41,7 +41,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
                 parentRef = (parentRef as { commit_id: string }).commit_id;
             }
 
-            const [parentEntry] = await jj.getLog({ revision: parentRef as string, useCachedSnapshot: true });
+            const [parentEntry] = await jj.getLog({ revision: parentRef as string });
             if (parentEntry) {
                 const shortId = parentEntry.change_id.substring(0, 8);
                 const desc = parentEntry.description?.trim() || '(no description)';
@@ -65,7 +65,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
 
         // Squash from working copy into selected parent
         const hasCurrentDesc = currentEntry.description && currentEntry.description.trim().length > 0;
-        const [parentEntry] = await jj.getLog({ revision: selected.detail!, useCachedSnapshot: true });
+        const [parentEntry] = await jj.getLog({ revision: selected.detail! });
         const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
 
         // Only open editor if squashing ALL changes (paths empty) AND both have descriptions.
@@ -91,7 +91,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
         }
 
         const hasCurrentDesc = currentEntry && currentEntry.description && currentEntry.description.trim().length > 0;
-        const [parentEntry] = await jj.getLog({ revision: parentRev, useCachedSnapshot: true });
+        const [parentEntry] = await jj.getLog({ revision: parentRev });
         // Be safe with parent entry check (could be root)
         const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
 
@@ -109,8 +109,8 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
 
 async function openSquashDescriptionEditor(jj: JjService, paths: string[], revision: string, parentRev: string) {
     // 1. Get descriptions
-    const [currentLog] = await jj.getLog({ revision, useCachedSnapshot: true });
-    const [parentLog] = await jj.getLog({ revision: parentRev, useCachedSnapshot: true });
+    const [currentLog] = await jj.getLog({ revision });
+    const [parentLog] = await jj.getLog({ revision: parentRev });
 
     const currentDesc = currentLog.description || '';
     const parentDesc = parentLog.description || '';

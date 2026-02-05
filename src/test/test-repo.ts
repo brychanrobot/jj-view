@@ -109,6 +109,19 @@ merge-editor = "builtin"
         const fullPath = path.join(this.path, relativePath);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
         fs.writeFileSync(fullPath, content);
+        this.snapshot();
+    }
+
+    moveFile(oldPath: string, newPath: string) {
+        const fullOldPath = path.join(this.path, oldPath);
+        const fullNewPath = path.join(this.path, newPath);
+        fs.renameSync(fullOldPath, fullNewPath);
+        this.snapshot();
+    }
+
+    deleteFile(relativePath: string) {
+        fs.rmSync(path.join(this.path, relativePath));
+        this.snapshot();
     }
 
     readFile(relativePath: string): string {

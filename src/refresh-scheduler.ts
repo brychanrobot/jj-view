@@ -22,7 +22,9 @@ export class RefreshScheduler implements vscode.Disposable {
     private _hasNewEvents: boolean = false;
     private _disposed: boolean = false;
 
-    constructor(private refreshCallback: () => void | Promise<void>) {
+    private _pendingForceSnapshot: boolean = false;
+
+    constructor(private refreshCallback: (options: { forceSnapshot: boolean }) => void | Promise<void>) {
         const config = vscode.workspace.getConfiguration('jj-view');
         this._baseDebounce = config.get<number>('refreshDebounceMillis', 100);
         this._maxMultiplier = config.get<number>('refreshDebounceMaxMultiplier', 4);
@@ -37,12 +39,15 @@ export class RefreshScheduler implements vscode.Disposable {
         });
     }
 
-    public trigger() {
+    public trigger(options: { forceSnapshot?: boolean } = {}) {
         if (this._disposed) {
             return;
         }
 
         this._hasNewEvents = true;
+        if (options.forceSnapshot) {
+            this._pendingForceSnapshot = true;
+        }
 
         // If loop is already running (timer exists), just marking hasNewEvents is enough.
         // It will be picked up when the current timer fires.
@@ -66,8 +71,11 @@ export class RefreshScheduler implements vscode.Disposable {
 
             if (this._hasNewEvents) {
                 this._hasNewEvents = false;
+                const forceSnapshot = this._pendingForceSnapshot;
+                this._pendingForceSnapshot = false;
+
                 try {
-                    await this.refreshCallback();
+                    await this.refreshCallback({ forceSnapshot });
                 } catch (e) {
                     console.error('Refresh failed in scheduler:', e);
                 }

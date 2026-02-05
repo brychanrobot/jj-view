@@ -73,7 +73,7 @@ suite('JJ SCM Provider Integration Test', function () {
         const filePath = path.join(repo.path, 'test.txt');
         repo.writeFile('test.txt', 'content');
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
 
@@ -99,7 +99,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
         ]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
@@ -138,7 +138,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
         ]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
         assert.ok(parentGroups && parentGroups.length > 0, 'Should have at least one parent group');
@@ -166,7 +166,7 @@ suite('JJ SCM Provider Integration Test', function () {
         repo.new([], 'child commit');
 
         repo.edit('@-');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
     });
     test('Partial Move to Parent moves selected changes', async () => {
         const filePath = path.join(repo.path, 'partial-move.txt');
@@ -192,7 +192,7 @@ suite('JJ SCM Provider Integration Test', function () {
         const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
         const editor = await vscode.window.showTextDocument(document);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const range = new vscode.Range(1, 0, 1, 5);
         editor.selection = new vscode.Selection(range.start, range.end);
@@ -249,7 +249,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
         ]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         const conflictGroup = accessPrivate(scmProvider, '_conflictGroup') as vscode.SourceControlResourceGroup;
         assert.ok(conflictGroup.resourceStates.length > 0, 'Should have conflicted file');
 
@@ -329,7 +329,7 @@ suite('JJ SCM Provider Integration Test', function () {
         ]);
 
         // Refresh to get resource state
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
@@ -343,7 +343,7 @@ suite('JJ SCM Provider Integration Test', function () {
         const parentContent = repo.getFileContent('@-', 'squash-test.txt');
         assert.strictEqual(parentContent, 'child content', 'Parent should have squashed content');
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         assert.strictEqual(workingCopyGroup.resourceStates.length, 0, 'Working copy should be clean after squash');
     });
 
@@ -361,7 +361,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
         ]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         const group = (scmProvider as unknown as { _workingCopyGroup: vscode.SourceControlResourceGroup })
             ._workingCopyGroup;
         assert.strictEqual(group.resourceStates.length, 2);
@@ -369,7 +369,7 @@ suite('JJ SCM Provider Integration Test', function () {
         // Call command directly
         await squashCommand(scmProvider, jj, [group]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         assert.strictEqual(group.resourceStates.length, 0);
 
         const p1 = repo.getFileContent('@-', 'f1.txt');
@@ -383,7 +383,7 @@ suite('JJ SCM Provider Integration Test', function () {
         repo.describe('initial description');
 
         // Refresh triggers description fetch
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         assert.strictEqual(scmProvider.sourceControl.inputBox.value, 'initial description');
 
@@ -404,20 +404,20 @@ suite('JJ SCM Provider Integration Test', function () {
     test('Input box updates when switching commits', async () => {
         // 1. Start on commit A with desc A
         repo.describe('desc A');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         assert.strictEqual(scmProvider.sourceControl.inputBox.value, 'desc A');
 
         // 2. Create new commit B
         repo.new();
         // Refresh
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Input box should now be empty (desc of new commit)
         assert.strictEqual(scmProvider.sourceControl.inputBox.value, '');
 
         // 3. Go back to commit A
         repo.edit('@-');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
         assert.strictEqual(scmProvider.sourceControl.inputBox.value, 'desc A');
     });
 
@@ -434,7 +434,7 @@ suite('JJ SCM Provider Integration Test', function () {
                 isWorkingCopy: true,
             },
         ]);
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         await squashCommand(scmProvider, jj, [{ id: 'working-copy' }]);
 
@@ -454,7 +454,7 @@ suite('JJ SCM Provider Integration Test', function () {
         repo.describe('Intermediate Parent');
         repo.new([], 'Child 2');
         repo.writeFile('file.txt', 'content');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Mock resource state validation
         const group = (scmProvider as unknown as { _workingCopyGroup: vscode.SourceControlResourceGroup })
@@ -485,7 +485,7 @@ suite('JJ SCM Provider Integration Test', function () {
         // Just verify no editor.
         repo.new([], ''); // Child 3 (no desc)
         repo.writeFile('f3.txt', 'f3');
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         await squashCommand(scmProvider, jj, [{ id: 'working-copy' }]); // Full squash
         assert.ok(!require('fs').existsSync(squashMsgPath), 'SQUASH_MSG should NOT be created if child desc empty');
@@ -534,7 +534,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
         ]);
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
@@ -551,7 +551,7 @@ suite('JJ SCM Provider Integration Test', function () {
         // "Move to Child" on a Parent Item means "Move this change from Parent to Working Copy/Child".
         // i.e. Remove from Parent, Apply to Child.
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Get parent group
         const parentGroup = (accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[])[0];
@@ -665,7 +665,7 @@ suite('JJ SCM Provider Integration Test', function () {
         repo.writeFile('wc1.txt', 'wc1');
         repo.writeFile('wc2.txt', 'wc2');
 
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const wcGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
