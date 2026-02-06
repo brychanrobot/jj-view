@@ -332,4 +332,36 @@ describe('GerritService Detection', () => {
         expect(fetchMock).toHaveBeenCalled();
         expect(hasChanges).toBe(false);
     });
+
+    test('startPolling clears cache and fires onDidUpdate', async () => {
+        vi.useFakeTimers();
+        
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await vi.advanceTimersByTimeAsync(50);
+
+        // Pre-populate cache
+        const cacheKey = 'I123';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const serviceWithCache = service as any;
+        serviceWithCache.cache.set(cacheKey, { changeId: cacheKey, status: 'NEW' });
+        expect(serviceWithCache.cache.size).toBe(1);
+
+        // Track onDidUpdate calls
+        const fireSpy = vi.spyOn(serviceWithCache._onDidUpdate, 'fire');
+
+        // Start polling
+        service.startPolling();
+
+        // Advance past the polling interval (60 seconds)
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        // Cache should be cleared
+        expect(serviceWithCache.cache.size).toBe(0);
+        
+        // onDidUpdate should have been fired to notify listeners to re-fetch
+        expect(fireSpy).toHaveBeenCalled();
+
+        vi.useRealTimers();
+    });
 });

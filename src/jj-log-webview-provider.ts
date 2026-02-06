@@ -23,6 +23,7 @@ import { GerritService } from './gerrit-service';
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
     private _view?: vscode.WebviewView;
+    private _cachedCommits: JjLogEntry[] = [];
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -31,7 +32,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _onSelectionChange: (commits: string[]) => void,
         private readonly _outputChannel?: vscode.OutputChannel // Optional
     ) {
-        this._gerrit.onDidUpdate(() => this.refresh());
+        // Gerrit updates only need to re-render, not re-fetch jj log
+        this._gerrit.onDidUpdate(() => this.refreshGerrit());
     }
 
     public resolveWebviewView(
@@ -148,6 +150,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 const logDuration = performance.now() - logStart;
                 this._outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
 
+                this._cachedCommits = commits;
                 this._renderCommits(commits);
                 
                 const initialRenderDuration = performance.now() - start;
@@ -157,29 +160,35 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            // Background Fetch gerrit commits needed
-            if (this._gerrit.isEnabled && commits.length > 0) {
-                try {
-                    this._gerrit.startPolling();
-                    
-                    const gerritStart = performance.now();
-                    const hasChanges = await this._gerrit.ensureFreshStatuses(commits.map(c => ({
-                        commitId: c.commit_id ?? '',
-                        changeId: c.change_id,
-                        description: c.description
-                    })));
+            // Background fetch Gerrit status for commits
+            await this.refreshGerrit();
+        }
+    }
 
-                    const gerritDuration = performance.now() - gerritStart;
-                    this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit background fetch took ${gerritDuration.toFixed(0)}ms`);
+    /** Re-fetch Gerrit data for cached commits and re-render. */
+    private async refreshGerrit() {
+        if (!this._view || this._cachedCommits.length === 0) return;
+        if (!this._gerrit.isEnabled) return;
+        
+        try {
+            this._gerrit.startPolling();
+            
+            const gerritStart = performance.now();
+            const hasChanges = await this._gerrit.ensureFreshStatuses(this._cachedCommits.map(c => ({
+                commitId: c.commit_id ?? '',
+                changeId: c.change_id,
+                description: c.description
+            })));
 
-                    if (hasChanges) {
-                            this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, sending phase 2 update.');
-                            this._renderCommits(commits);
-                    }
-                } catch (e) {
-                    this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch gerrit status: ${e}`);
-                }
+            const gerritDuration = performance.now() - gerritStart;
+            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
+
+            if (hasChanges) {
+                this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
+                this._renderCommits(this._cachedCommits);
             }
+        } catch (e) {
+            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
         }
     }
 

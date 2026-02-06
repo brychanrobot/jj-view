@@ -45,7 +45,8 @@ export class GerritService implements vscode.Disposable {
     public startPolling() {
         if (this.poller) return;
         
-        // Poll every 60 seconds
+        // Invalidate cache and notify listeners every 60 seconds when focused.
+        // Listeners will re-fetch Gerrit data for their cached commits.
         this.poller = setInterval(() => {
             if (this.isEnabled && vscode.window.state.focused) {
                 this.cache.clear();
