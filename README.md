@@ -81,7 +81,6 @@ Customize **JJ View** behavior in VS Code settings.
 | :--- | :--- | :--- |
 | `jj-view.refreshDebounceMillis` | `100` | Base debounce time (ms) for SCM refresh based on file events. |
 | `jj-view.refreshDebounceMaxMultiplier` | `4` | Maximum multiplier for the debounce timeout when events continue to occur. |
-| `jj-view.watcherIgnore` | `["node_modules", ".git"]` | Paths to ignore in the file watcher to prevent unnecessary refreshes. |
 | `jj-view.gerrit.host` | `null` | Gerrit host URL (e.g., https://experiment-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes. |
 | `jj-view.gerrit.project` | `null` | Gerrit project name. If not set, extension attempts to detect it from git remotes. |
 | `jj-view.uploadCommand` | `null` | Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'. |

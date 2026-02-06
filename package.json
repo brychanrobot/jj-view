@@ -34,17 +34,6 @@
                     "minimum": 1,
                     "description": "Maximum multiplier for the debounce timeout when events continue to occur."
                 },
-                "jj-view.watcherIgnore": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "default": [
-                        "node_modules",
-                        ".git"
-                    ],
-                    "description": "Paths (segments) to ignore in file watcher to prevent unnecessary SCM refreshes."
-                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."

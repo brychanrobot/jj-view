@@ -24,6 +24,10 @@ export class RefreshScheduler implements vscode.Disposable {
 
     private _pendingForceSnapshot: boolean = false;
     private _pendingReasons: Set<string> = new Set();
+    
+    // Single shared promise for all callers of trigger() in current cycle
+    private _pendingPromise: Promise<void> | undefined;
+    private _pendingResolve: (() => void) | undefined;
 
     constructor(private refreshCallback: (options: { forceSnapshot: boolean; reason?: string }) => void | Promise<void>) {
         const config = vscode.workspace.getConfiguration('jj-view');
@@ -40,9 +44,9 @@ export class RefreshScheduler implements vscode.Disposable {
         });
     }
 
-    public trigger(options: { forceSnapshot?: boolean; reason?: string } = {}) {
+    public trigger(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
         if (this._disposed) {
-            return;
+            return Promise.resolve();
         }
 
         this._hasNewEvents = true;
@@ -53,18 +57,27 @@ export class RefreshScheduler implements vscode.Disposable {
             this._pendingReasons.add(options.reason);
         }
 
-        // If loop is already running (timer exists), just marking hasNewEvents is enough.
-        // It will be picked up when the current timer fires.
-        if (this._debounceTimer) {
-            return;
+        // Return existing promise if one is already pending
+        if (this._pendingPromise) {
+            return this._pendingPromise;
         }
 
-        // Start the loop
-        this._scheduleNextRun();
+        // Create a new shared promise for this refresh cycle
+        this._pendingPromise = new Promise<void>((resolve) => {
+            this._pendingResolve = resolve;
+        });
+
+        // Start the loop if not already running
+        if (!this._debounceTimer) {
+            this._scheduleNextRun();
+        }
+
+        return this._pendingPromise;
     }
 
     private _scheduleNextRun() {
         if (this._disposed) {
+            this._resolvePending();
             return;
         }
 
@@ -87,12 +100,24 @@ export class RefreshScheduler implements vscode.Disposable {
                     console.error('Refresh failed in scheduler:', e);
                 }
 
+                // Resolve all waiting promises
+                this._resolvePending();
+
                 this._multiplier = Math.min(this._multiplier + 1, this._maxMultiplier);
                 this._scheduleNextRun();
             } else {
                 this._multiplier = 1;
+                this._resolvePending();
             }
         }, timeoutMs);
+    }
+
+    private _resolvePending() {
+        if (this._pendingResolve) {
+            this._pendingResolve();
+            this._pendingResolve = undefined;
+            this._pendingPromise = undefined;
+        }
     }
 
     public dispose() {

@@ -120,4 +120,61 @@ describe('RefreshScheduler', () => {
         await vi.advanceTimersByTimeAsync(1000);
         expect(refreshFn).not.toHaveBeenCalled();
     });
+
+    test('trigger should return a promise that resolves after refresh completes', async () => {
+        let resolved = false;
+        const promise = scheduler.trigger();
+        promise.then(() => {
+            resolved = true;
+        });
+
+        // Not resolved yet
+        expect(resolved).toBe(false);
+
+        // Advance time to trigger refresh
+        await vi.advanceTimersByTimeAsync(100);
+
+        // Promise should now be resolved
+        expect(resolved).toBe(true);
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+    });
+
+    test('multiple trigger calls should return the same shared promise', async () => {
+        const promise1 = scheduler.trigger({ reason: 'first' });
+        const promise2 = scheduler.trigger({ reason: 'second' });
+
+        // Same promise instance
+        expect(promise1).toBe(promise2);
+
+        // Both resolve together
+        let resolved1 = false;
+        let resolved2 = false;
+        promise1.then(() => {
+            resolved1 = true;
+        });
+        promise2.then(() => {
+            resolved2 = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(resolved1).toBe(true);
+        expect(resolved2).toBe(true);
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+    });
+
+    test('trigger after previous cycle completes should return new promise', async () => {
+        const promise1 = scheduler.trigger({ reason: 'first' });
+        await vi.advanceTimersByTimeAsync(100);
+
+        // First cycle complete, wait for scheduler to go idle
+        await vi.advanceTimersByTimeAsync(200);
+
+        // New trigger should get a new promise
+        const promise2 = scheduler.trigger({ reason: 'second' });
+        expect(promise2).not.toBe(promise1);
+
+        await vi.advanceTimersByTimeAsync(100);
+        expect(refreshFn).toHaveBeenCalledTimes(2);
+    });
 });

@@ -48,6 +48,7 @@ export class JjScmProvider implements vscode.Disposable {
     readonly onRepoStateReady: vscode.Event<void> = this._onRepoStateReady.event;
 
     private _refreshScheduler: RefreshScheduler;
+    private _pollTimer: ReturnType<typeof setTimeout> | undefined;
     public decorationProvider: JjDecorationProvider;
 
     constructor(
@@ -129,74 +130,73 @@ export class JjScmProvider implements vscode.Disposable {
             }),
         );
 
-        // Note: Generic commands are registered in extension.ts. Context menu commands requiring specific arguments are handled here.
+        // File Change Detection
+        // 1. Watch .jj/repo/op_heads for jj operation changes
+        const opHeadsPattern = new vscode.RelativePattern(
+            vscode.Uri.file(path.join(this.jj.workspaceRoot, '.jj', 'repo', 'op_heads')),
+            '**/*',
+        );
+        const opHeadsWatcher = vscode.workspace.createFileSystemWatcher(opHeadsPattern);
+        opHeadsWatcher.onDidChange(() => this.onJjRepoChange());
+        opHeadsWatcher.onDidCreate(() => this.onJjRepoChange());
+        opHeadsWatcher.onDidDelete(() => this.onJjRepoChange());
+        this.disposables.push(opHeadsWatcher);
 
-        // Watch for file changes to trigger refresh
-        const rootPath = this.jj.workspaceRoot;
-        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(rootPath, '**/*'));
-        watcher.onDidChange((uri) => this.onFileChange(uri));
-        watcher.onDidCreate((uri) => this.onFileChange(uri));
-        watcher.onDidDelete((uri) => this.onFileChange(uri));
+        // 2. Watch for editor saves to trigger refresh (catches user edits)
+        this.disposables.push(
+            vscode.workspace.onDidSaveTextDocument((doc) => {
+                // Ignore saves to virtual documents or .jj internal files
+                if (doc.uri.scheme !== 'file') return;
+                if (doc.uri.fsPath.includes('/.jj/')) return;
+                this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'file saved' });
+            }),
+        );
 
-        this.disposables.push(watcher);
+        // 3. Poll for external changes (catches agent/external tool edits)
+        // Uses 5s gap between polls, not fixed interval, to avoid overlap on slow repos
+        this._pollTimer = this.startPolling();
+        this.disposables.push(
+            vscode.window.onDidChangeWindowState((state) => {
+                if (state.focused) {
+                    // Resume polling when window gains focus
+                    if (!this._pollTimer) {
+                        this._pollTimer = this.startPolling();
+                    }
+                } else {
+                    // Stop polling when window loses focus
+                    if (this._pollTimer) {
+                        clearTimeout(this._pollTimer);
+                        this._pollTimer = undefined;
+                    }
+                }
+            }),
+        );
 
         // Initial refresh
         this.refresh({ forceSnapshot: true });
     }
 
-    private shouldIgnoreEvent(uri: vscode.Uri): boolean {
-        const pathStr = uri.fsPath;
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const ignoredSegments = config.get<string[]>('watcherIgnore', ['node_modules', '.git']);
-
-        // Check compatibility with Windows/Linux paths
-        const parts = pathStr.split(path.sep);
-
-        // Check if any part of the path is in the ignored list
-        if (parts.some((p) => ignoredSegments.includes(p))) {
-            return true;
+    private onJjRepoChange() {
+        // Triggered when .jj/repo/op_heads changes (jj operation completed)
+        // No snapshot needed - jj already updated repo state
+        if (this.jj.hasActiveWriteOps || Date.now() - this.jj.lastWriteTime < 500) {
+            this.outputChannel.appendLine('Repo change suppressed due to active write operation');
+            return;
         }
-
-        // Also ignore specific files
-        if (path.basename(pathStr) === '.DS_Store') {
-            return true;
-        }
-
-        // Ignore lock, tree_state, and temp files in .jj directory to prevent refresh loops
-        const relativePath = path.relative(this.jj.workspaceRoot, pathStr);
-        if (relativePath.split(path.sep)[0] === '.jj') {
-            if (pathStr.endsWith('.lock') || pathStr.endsWith('tree_state')) {
-                return true;
-            }
-            const filename = path.basename(pathStr);
-            if (filename.startsWith('#') || filename.startsWith('.tmp')) {
-                return true;
-            }
-        }
-
-        return false;
+        this._refreshScheduler.trigger({ forceSnapshot: false, reason: 'jj operation' });
     }
 
-    private async onFileChange(uri: vscode.Uri) {
-        if (this.shouldIgnoreEvent(uri)) {
-            return;
-        }
-
-        // Suppress redundant refreshes:
-        // 1. If a JJ write operation is currently running.
-        // 2. If a JJ write operation finished recently (last 500ms) - handles FS event latency.
-        if (this.jj.hasActiveWriteOps || (Date.now() - this.jj.lastWriteTime < 500)) {
-            this.outputChannel.appendLine(`File change suppressed due to active write operation: ${uri.fsPath}`);
-            return;
-        }
-
-        // If change is in .jj, we don't need a snapshot (repo state updated by jj CLI)
-        // If change is in workspace (outside .jj), we need a snapshot to see working copy changes
-        const isJjInternal = uri.fsPath.includes('/.jj/');
-        // this.outputChannel.appendLine(`File change triggering refresh: ${uri.fsPath}, forceSnapshot: ${!isJjInternal}`);
-        const relative = path.relative(this.jj.workspaceRoot, uri.fsPath);
-        const firstSegment = relative.split(path.sep)[0];
-        this._refreshScheduler.trigger({ forceSnapshot: !isJjInternal, reason: `file change (${firstSegment})` });
+    private startPolling(): ReturnType<typeof setTimeout> {
+        const poll = async () => {
+            // Skip if a write operation is in progress or just finished
+            if (!this.jj.hasActiveWriteOps && Date.now() - this.jj.lastWriteTime >= 500) {
+                await this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'poll' });
+            }
+            // Schedule next poll after 5s gap (not fixed interval)
+            this._pollTimer = setTimeout(poll, 5000);
+        };
+        // Start first poll after 5s
+        return setTimeout(poll, 5000);
     }
 
     private _refreshMutex: Promise<void> = Promise.resolve();
@@ -526,6 +526,9 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     dispose() {
+        if (this._pollTimer) {
+            clearTimeout(this._pollTimer);
+        }
         this.disposables.forEach((d) => d.dispose());
     }
 }
