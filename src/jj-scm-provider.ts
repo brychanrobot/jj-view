@@ -186,6 +186,7 @@ export class JjScmProvider implements vscode.Disposable {
         // 1. If a JJ write operation is currently running.
         // 2. If a JJ write operation finished recently (last 500ms) - handles FS event latency.
         if (this.jj.hasActiveWriteOps || (Date.now() - this.jj.lastWriteTime < 500)) {
+            this.outputChannel.appendLine(`File change suppressed due to active write operation: ${uri.fsPath}`);
             return;
         }
 
