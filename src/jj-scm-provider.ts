@@ -214,13 +214,17 @@ export class JjScmProvider implements vscode.Disposable {
                 }
                 this._onRepoStateReady.fire();
 
-                // 1. Calculate Context Keys & Get Log with Changes
-                const [logEntry] = await this.jj.getLog({ revision: '@' });
-                // alias for clarity and scope access
+                // 1. Fetch data in parallel for performance
+                const [logResult, children, conflictedPaths] = await Promise.all([
+                    this.jj.getLog({ revision: '@' }),
+                    this.jj.getChildren('@'),
+                    this.jj.getConflictedFiles(),
+                ]);
+                const [logEntry] = logResult;
                 const currentEntry = logEntry;
 
                 let parentMutable = false;
-                let hasChild = false;
+                const hasChild = children.length > 0;
 
                 if (currentEntry) {
                     const parents = currentEntry.parents;
@@ -244,10 +248,6 @@ export class JjScmProvider implements vscode.Disposable {
                             parentMutable = !parentLog.is_immutable;
                         }
                     }
-
-                    // Check for children
-                    const children = await this.jj.getChildren('@');
-                    hasChild = children.length > 0;
                 }
 
                 if (currentEntry) {
@@ -284,8 +284,7 @@ export class JjScmProvider implements vscode.Disposable {
                     return state;
                 });
 
-                // 3. Update Conflict Group
-                const conflictedPaths = await this.jj.getConflictedFiles();
+                // 3. Update Conflict Group (conflictedPaths fetched above)
                 this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                     const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
                     const state = this.toResourceState(entry, '@');
@@ -303,20 +302,23 @@ export class JjScmProvider implements vscode.Disposable {
                     group?.dispose();
                 }
 
-                // Update or create parent groups
+                // Fetch all parent entries in parallel
                 if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
-                    for (let i = 0; i < currentEntry.parents.length; i++) {
-                        let parentRef = currentEntry.parents[i];
-
-                        // Normalize parent object to commit_id
+                    const parentRefs = currentEntry.parents.map((parentRef) => {
                         if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
-                            parentRef = (parentRef as { commit_id: string }).commit_id;
+                            return (parentRef as { commit_id: string }).commit_id;
                         }
+                        return parentRef as string;
+                    });
 
-                        // Fetch parent log entry for description and file changes (parent list only provides IDs)
-                        const [parentEntry] = await this.jj.getLog({
-                            revision: parentRef as string,
-                        });
+                    const parentEntries = await Promise.all(
+                        parentRefs.map((ref) => this.jj.getLog({ revision: ref })),
+                    );
+
+                    // Process fetched parent entries
+                    for (let i = 0; i < parentEntries.length; i++) {
+                        const [parentEntry] = parentEntries[i];
+                        const parentRef = parentRefs[i];
 
                         if (parentEntry) {
                             const shortId = parentEntry.change_id.substring(0, 8);
@@ -345,7 +347,7 @@ export class JjScmProvider implements vscode.Disposable {
 
                             const parentChanges = parentEntry.changes || [];
                             group.resourceStates = parentChanges.map((c) => {
-                                const state = this.toResourceState(c, parentRef as string);
+                                const state = this.toResourceState(c, parentRef);
                                 // Now we add to decorationMap. The URI query ensures uniqueness.
                                 decorationMap.set(state.resourceUri.toString(), c);
                                 return state;
