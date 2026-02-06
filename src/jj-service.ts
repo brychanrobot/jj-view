@@ -27,9 +27,14 @@ export interface JjLogOptions {
 
 
 
+// Safety timeout: if a mutation takes longer than this, unblock file watcher
+const MUTATION_TIMEOUT_MS = 60_000;
+
 export class JjService {
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
+    private _operationTimeouts = new Map<number, NodeJS.Timeout>();
+    private _nextOpId = 0;
 
     constructor(
         public readonly workspaceRoot: string,
@@ -38,6 +43,10 @@ export class JjService {
 
     get hasActiveWriteOps(): boolean {
         return this._writeOperationCount > 0;
+    }
+
+    get writeOpCount(): number {
+        return this._writeOperationCount;
     }
 
     get lastWriteTime(): number {
@@ -59,9 +68,7 @@ export class JjService {
         args: string[],
         options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean } = {},
     ): Promise<string> {
-        if (options.isMutation) {
-            this._writeOperationCount++;
-        }
+        const opId = this._nextOpId++;
 
         const finalArgs = [...args];
         if (options.useCachedSnapshot) {
@@ -75,6 +82,15 @@ export class JjService {
         const commandStr = `jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
         
         return new Promise<string>((resolve, reject) => {
+            if (options.isMutation) {
+                this._writeOperationCount++;
+                // Safety timeout: if operation takes too long, reject to unblock file watcher
+                const timeout = setTimeout(() => {
+                    reject(new Error(`Mutation operation timed out after ${MUTATION_TIMEOUT_MS}ms`));
+                }, MUTATION_TIMEOUT_MS);
+                this._operationTimeouts.set(opId, timeout);
+            }
+
             const finalOptions = {
                 cwd: this.workspaceRoot,
                 env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
@@ -101,6 +117,11 @@ export class JjService {
             });
         }).finally(() => {
             if (options.isMutation) {
+                const timeout = this._operationTimeouts.get(opId);
+                if (timeout) {
+                    clearTimeout(timeout);
+                    this._operationTimeouts.delete(opId);
+                }
                 this._writeOperationCount--;
                 this._lastWriteTime = Date.now();
             }
