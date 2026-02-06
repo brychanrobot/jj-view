@@ -31,11 +31,13 @@ vi.mock('vscode', () => ({
         showWarningMessage: vi.fn(),
         showErrorMessage: vi.fn(),
         showTextDocument: vi.fn(),
+        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
     },
     workspace: {
         openTextDocument: vi.fn(),
         textDocuments: [],
     },
+    ProgressLocation: { Notification: 15 },
 }));
 
 describe('squashCommand', () => {

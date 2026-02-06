@@ -16,11 +16,11 @@ import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
 
-import { getErrorMessage } from './command-utils';
+import { getErrorMessage, withDelayedProgress } from './command-utils';
 
 export async function undoCommand(scmProvider: JjScmProvider, jj: JjService) {
     try {
-        await jj.undo();
+        await withDelayedProgress('Undoing...', jj.undo());
         await scmProvider.refresh();
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error undoing: ${getErrorMessage(e)}`);

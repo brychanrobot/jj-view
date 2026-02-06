@@ -130,3 +130,42 @@ export function getErrorMessage(error: unknown): string {
     }
     return String(error);
 }
+
+/**
+ * Wraps a promise with a delayed progress notification.
+ * If the promise resolves within 100ms, no notification is shown.
+ * If it takes longer, a progress notification appears until the promise resolves.
+ */
+export async function withDelayedProgress<T>(title: string, promise: Promise<T>): Promise<T> {
+    const DELAY_MS = 100;
+
+    let notificationResolver: (value?: unknown) => void;
+    // Promise that resolves when the notification is dismissed (by the task finishing)
+    const notificationComplete = new Promise((resolve) => {
+        notificationResolver = resolve;
+    });
+
+    const timer = setTimeout(() => {
+        vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: title,
+                cancellable: false,
+            },
+            async () => {
+                // Wait for the original task to complete
+                await notificationComplete;
+            }
+        );
+    }, DELAY_MS);
+
+    try {
+        return await promise;
+    } finally {
+        clearTimeout(timer);
+        // Signal the progress window to close if it was opened
+        if (notificationResolver!) {
+            notificationResolver();
+        }
+    }
+}

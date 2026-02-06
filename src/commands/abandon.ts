@@ -14,7 +14,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, isWorkingCopyResourceGroup } from './command-utils';
+import { extractRevision, isWorkingCopyResourceGroup, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
@@ -59,7 +59,7 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
     }
 
     try {
-        await jj.abandon(revisions);
+        await withDelayedProgress('Abandoning...', jj.abandon(revisions));
         await scmProvider.refresh();
         vscode.window.showInformationMessage(`Abandoned ${revisions.length} change(s).`);
     } catch (e: unknown) {

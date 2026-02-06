@@ -27,7 +27,9 @@ vi.mock('vscode', () => ({
         showInformationMessage: vi.fn(),
         showWarningMessage: vi.fn(),
         showInputBox: vi.fn(),
+        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
     },
+    ProgressLocation: { Notification: 15 },
 }));
 
 describe('abandonCommand', () => {

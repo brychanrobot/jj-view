@@ -15,7 +15,7 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage } from './command-utils';
+import { getErrorMessage, withDelayedProgress } from './command-utils';
 
 export interface CommitMenuContext {
     commitId: string;
@@ -34,7 +34,7 @@ export async function rebaseOntoSelectedCommand(scmProvider: JjScmProvider, jj: 
     }
 
     try {
-        await jj.rebase(sourceId, selectedIds, 'source');
+        await withDelayedProgress('Rebasing...', jj.rebase(sourceId, selectedIds, 'source'));
         vscode.window.showInformationMessage(
             `Rebasing ${sourceId.substring(0, 8)} onto ${selectedIds.length} dest(s).`,
         );

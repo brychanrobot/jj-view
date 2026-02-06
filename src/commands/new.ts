@@ -14,7 +14,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage } from './command-utils';
+import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args?: unknown[]) {
@@ -34,7 +34,7 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
     }
 
     try {
-        await jj.new(undefined, revision ? [revision] : undefined);
+        await withDelayedProgress('Creating new change...', jj.new(undefined, revision ? [revision] : undefined));
         await scmProvider.refresh({ reason: 'after new' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error creating new commit: ${getErrorMessage(e)}`);

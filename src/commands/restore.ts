@@ -15,7 +15,7 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { collectResourceStates, getErrorMessage } from './command-utils';
+import { collectResourceStates, getErrorMessage, withDelayedProgress } from './command-utils';
 
 export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
@@ -26,7 +26,7 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
 
     const paths = resourceStates.map((r) => r.resourceUri.fsPath);
     try {
-        await jj.restore(paths);
+        await withDelayedProgress('Restoring files...', jj.restore(paths));
         await scmProvider.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error restoring files: ${getErrorMessage(e)}`);

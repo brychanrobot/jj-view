@@ -14,7 +14,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage } from './command-utils';
+import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function setDescriptionCommand(
@@ -32,7 +32,7 @@ export async function setDescriptionCommand(
     }
 
     try {
-        await jj.describe(description, revision);
+        await withDelayedProgress('Setting description...', jj.describe(description, revision));
         await scmProvider.refresh({ reason: 'after describe' });
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error setting description: ${getErrorMessage(e)}`);

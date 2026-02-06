@@ -14,7 +14,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage } from './command-utils';
+import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function editCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
@@ -24,7 +24,7 @@ export async function editCommand(scmProvider: JjScmProvider, jj: JjService, arg
     }
 
     try {
-        await jj.edit(revision);
+        await withDelayedProgress('Editing revision...', jj.edit(revision));
         await scmProvider.refresh();
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Error editing commit: ${getErrorMessage(e)}`);

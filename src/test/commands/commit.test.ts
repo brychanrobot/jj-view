@@ -25,7 +25,9 @@ vi.mock('vscode', () => ({
         showInformationMessage: vi.fn(),
         showErrorMessage: vi.fn(),
         showWarningMessage: vi.fn(),
+        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
     },
+    ProgressLocation: { Notification: 15 },
 }));
 
 describe('commitCommand', () => {

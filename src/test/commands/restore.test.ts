@@ -24,7 +24,11 @@ import * as vscode from 'vscode';
 
 vi.mock('vscode', () => ({
     Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: { showErrorMessage: vi.fn() },
+    window: {
+        showErrorMessage: vi.fn(),
+        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
+    },
+    ProgressLocation: { Notification: 15 },
 }));
 
 describe('restoreCommand', () => {
