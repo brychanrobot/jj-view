@@ -52,15 +52,21 @@ export class TestRepo {
         }
     }
 
+    config(name: string, value: string, suppressStderr?: boolean) {
+        this.exec(['config', 'set', '--repo', name, value], { suppressStderr });
+    }
+
     init() {
         this.exec(['git', 'init']);
 
-        // Configure repo-local settings using CLI to ensure compatibility with modern jj (0.38+)
-        // which stores repo config externally. Use suppressStderr to hide "future commits" warnings.
-        this.exec(['config', 'set', '--repo', 'user.name', 'Test User'], { suppressStderr: true });
-        this.exec(['config', 'set', '--repo', 'user.email', 'test@example.com'], { suppressStderr: true });
+        // Configure repo-local settings using CLI to ensure compatibility
+        // with modern jj (0.38+) which stores repo config externally.
+        // Use suppressStderr to the user settings to hide "future commits" warnings.
+        this.config('user.name', 'Test User', /*suppressStderr=*/ true);
+        this.config('user.email', 'test@example.com', /*suppressStderr=*/ true);
         this.exec(['metaedit', '--update-author']);
-        this.exec(['config', 'set', '--repo', 'ui.merge-editor', 'builtin'], { suppressStderr: true });
+
+        this.config('ui.merge-editor', 'builtin');
     }
 
     new(parents?: string[], message?: string) {
