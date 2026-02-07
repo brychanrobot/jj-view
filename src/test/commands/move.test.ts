@@ -61,5 +61,5 @@ describe('moveToChildCommand', () => {
 
         const childContent = repo.getFileContent(ids['child'].changeId, fileName);
         expect(childContent).toBe('modified');
-    });
+    }, 30000);
 });

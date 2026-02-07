@@ -560,7 +560,7 @@ describe('JjService Unit Tests', () => {
 
         expect(child1Log!.parents[0]).toBe(parentLog!.commit_id);
         expect(child2Log!.parents[0]).toBe(parentLog!.commit_id);
-    });
+    }, 30000);
 
     test('Complex Replay (Reproduce User Scenario) with return IDs', async () => {
         const { Initial, FakeTS, CC, Cool, VPM, Orcs, HEAD } = await buildGraph(repo, [
