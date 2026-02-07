@@ -35,11 +35,12 @@ export class TestRepo {
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
-    private exec(args: string[], options: { trim?: boolean } = {}) {
+    private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
         try {
             const output = cp.execFileSync('jj', ['--quiet', ...args], {
                 cwd: this.path,
                 encoding: 'utf-8',
+                stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
             });
             return options.trim !== false ? output.trim() : output;
         } catch (e: unknown) {
@@ -54,20 +55,12 @@ export class TestRepo {
     init() {
         this.exec(['git', 'init']);
 
-        // Configure repo-local settings to avoid global process.env pollution
-        const configPath = path.join(this.path, '.jj', 'repo', 'config.toml');
-        const configDir = path.dirname(configPath);
-        fs.mkdirSync(configDir, { recursive: true });
-
-        const configContent = `
-[user]
-name = "Test User"
-email = "test@example.com"
-
-[ui]
-merge-editor = "builtin"
-`;
-        fs.writeFileSync(configPath, configContent);
+        // Configure repo-local settings using CLI to ensure compatibility with modern jj (0.38+)
+        // which stores repo config externally. Use suppressStderr to hide "future commits" warnings.
+        this.exec(['config', 'set', '--repo', 'user.name', 'Test User'], { suppressStderr: true });
+        this.exec(['config', 'set', '--repo', 'user.email', 'test@example.com'], { suppressStderr: true });
+        this.exec(['metaedit', '--update-author']);
+        this.exec(['config', 'set', '--repo', 'ui.merge-editor', 'builtin'], { suppressStderr: true });
     }
 
     new(parents?: string[], message?: string) {
