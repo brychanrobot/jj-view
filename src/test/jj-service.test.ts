@@ -1037,4 +1037,19 @@ describe('JjService Unit Tests', () => {
         expect(head.description).toBe('');
         expect(parent.description.trim()).toBe('my commit message');
     });
+
+    test('getBookmarks returns bookmark names', async () => {
+        repo.bookmark('feature-a', '@');
+        repo.bookmark('feature-b', '@');
+        
+        const bookmarks = await jjService.getBookmarks();
+        
+        expect(bookmarks).toContain('feature-a');
+        expect(bookmarks).toContain('feature-b');
+        // We expect unique names. 
+        // Note: We cannot easily simulate duplicates (remote vs local) in this simple test setup 
+        // without valid remote fetching, but the implementation uses Set to guarantee uniqueness.
+        const uniqueBookmarks = new Set(bookmarks);
+        expect(bookmarks.length).toBe(uniqueBookmarks.size);
+    });
 });

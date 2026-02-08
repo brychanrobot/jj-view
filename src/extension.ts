@@ -20,6 +20,7 @@ import { newCommand } from './commands/new';
 import { uploadCommand } from './commands/upload';
 import { discardChangeCommand } from './commands/discard-change';
 import { squashChangeCommand } from './commands/squash-change';
+import { setBookmarkCommand } from './commands/bookmark';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -197,6 +198,12 @@ export function activate(context: vscode.ExtensionContext) {
                 await squashChangeCommand(scmProvider, jj, uri, changes, index);
             },
         ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.setBookmark', async (arg: { commitId: string }) => {
+            await setBookmarkCommand(scmProvider, jj, arg);
+        }),
     );
 
     // Register view provider

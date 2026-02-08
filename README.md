@@ -59,6 +59,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Restore`: Restore files in the working copy.
 - `JJ View: Set Description`: Edit the description of the current change.
 - `JJ View: Upload`: Upload the current change (runs configured upload command).
+- `JJ View: Set Bookmark`: Create or move a bookmark to a specific revision.
 - `JJ View: Open File`: Open the file associated with a change.
 
 ### History & Merging

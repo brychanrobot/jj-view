@@ -119,6 +119,12 @@ export class JjService {
         });
     }
 
+    async getBookmarks(): Promise<string[]> {
+        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], { useCachedSnapshot: true });
+        const lines = output.trim().split('\n').filter((line) => line.length > 0);
+        return Array.from(new Set(lines));
+    }
+
     async moveBookmark(name: string, toRevision: string): Promise<string> {
         return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], { isMutation: true });
     }
