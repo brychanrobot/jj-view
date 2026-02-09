@@ -55,9 +55,30 @@ export class TestRepo {
         // Use suppressStderr to the user settings to hide "future commits" warnings.
         this.config('user.name', 'Test User', /*suppressStderr=*/ true);
         this.config('user.email', 'test@example.com', /*suppressStderr=*/ true);
+        this.config('ui.merge-editor', 'builtin');
+
+        // Disable signing for this repo (do not rely on .jj/repo/config.toml)
+        this.config('signing.backend', 'none');
+
         this.exec(['metaedit', '--update-author']);
 
         this.config('ui.merge-editor', 'builtin');
+
+        // Configure repo-local settings to avoid global process.env pollution
+        const configPath = path.join(this.path, '.jj', 'repo', 'config.toml');
+        const configDir = path.dirname(configPath);
+        fs.mkdirSync(configDir, { recursive: true });
+
+        const configContent = `
+[user]
+name = "Test User"
+email = "test@example.com"
+
+[ui]
+merge-editor = "builtin"
+`;
+        fs.writeFileSync(configPath, configContent);
+
     }
 
     new(parents?: string[], message?: string) {
