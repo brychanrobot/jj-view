@@ -117,8 +117,22 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     const allowAbandon = count > 0 && !hasImmutable;
                     const allowMerge = count > 1;
 
+                    // Calculate parent mutability for absorb command
+                    // Only applicable for single selection where parents are mutable
+                    let parentMutable = false;
+                    if (count === 1) {
+                        const selectedCommit = this._cachedCommits.find((c) => c.change_id === data.payload.commitIds[0]);
+                        if (selectedCommit && selectedCommit.parents_immutable) {
+                            // If any parent is NOT immutable (i.e. is mutable), then we can absorb
+                            parentMutable = selectedCommit.parents_immutable.some((immutable) => !immutable);
+                        } else if (selectedCommit) {
+                            parentMutable = false;
+                        }
+                    }
+
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowAbandon, allowAbandon);
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowMerge, allowMerge);
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionParentMutable, parentMutable);
 
                     if (this._onSelectionChange) {
                         this._onSelectionChange(data.payload.commitIds);

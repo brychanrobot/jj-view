@@ -31,7 +31,12 @@ This document outlines the coding standards, testing strategies, and architectur
 
 ## Testing Strategy
 
-This project employs a split testing strategy to ensure both logic correctness and integration validity. Tests should never mock JjService. They should use TestRepo to create a temporary repository on disk and JjService to interact with it. Test verifications should use TestRepo and not try to verify using JjService.
+This project employs a split testing strategy to ensure both logic correctness and integration validity. 
+
+**CRITICAL RULE**: Tests should **NEVER** mock `JjService` methods. 
+- Always use `TestRepo` to set up a real temporary repository on disk.
+- Use a real `JjService` instance to operate on it. 
+- Use `TestRepo` methods to verify outcomes (e.g. file content, log history), rather than spying on `JjService` calls.
 
 ### 1. Unit Tests
 
@@ -42,6 +47,7 @@ This project employs a split testing strategy to ensure both logic correctness a
 - **Scope**:
     - Test individual classes and functions in isolation.
     - **Mock all external dependencies**, especially the `vscode` module and file system operations.
+    - **EXCEPTION**: Do NOT mock `JjService` methods (e.g. `jj.absorb`). Instead, use `TestRepo` to create a real temporary repo and use a real `JjService` instance to interact with it.
     - Fast feedback loop, run frequently.
 - **Example**: Testing `JjService` log parsing logic or `JjScmProvider` state calculations without starting VS Code.
 

@@ -319,6 +319,69 @@ describe('JjService Unit Tests', () => {
         expect(content2).toBe('child2');
     });
 
+    test('absorb command moves changes to mutable parent', async () => {
+        const fileName = 'absorb.txt';
+        await buildGraph(repo, [
+            { label: 'parent', description: 'parent', files: { [fileName]: 'line1\nline2\n' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                // Modify line 2. jj absorb should figure out it belongs to parent
+                files: { [fileName]: 'line1\nline2 modified\n' },
+                isWorkingCopy: true,
+            },
+        ]);
+
+        // Absorb changes from working copy into parent
+        await jjService.absorb();
+
+        // Verify parent has the change
+        const parentContent = repo.getFileContent('@-', fileName);
+        expect(parentContent).toBe('line1\nline2 modified\n');
+
+        // Verify working copy is clean (same as parent)
+        const childContent = repo.readFile(fileName);
+        expect(childContent).toBe('line1\nline2 modified\n');
+    });
+
+    test('absorb command from specific revision', async () => {
+        const fileName = 'absorb-rev.txt';
+        const ids = await buildGraph(repo, [
+            { label: 'root', description: 'root', files: { [fileName]: 'base\n' } },
+            {
+                label: 'A', // Mutable parent
+                parents: ['root'],
+                description: 'A',
+                files: { [fileName]: 'base\nlineA\n' },
+            },
+            {
+                label: 'B', // Source of change
+                parents: ['A'],
+                description: 'B',
+                files: { [fileName]: 'base\nlineA modified\n' },
+            },
+            {
+                label: 'C', // Working copy
+                parents: ['B'],
+                description: 'C',
+                isWorkingCopy: true,
+            },
+        ]);
+
+        // Absorb changes from B into A
+        // B modifies lineA which was introduced in A.
+        await jjService.absorb({ fromRevision: ids['B'].changeId });
+
+        // Verify A has the change
+        const contentA = repo.getFileContent(ids['A'].changeId, fileName);
+        expect(contentA).toBe('base\nlineA modified\n');
+
+        // B should be empty of changes but still exist as it has a description
+        const contentB = repo.getFileContent(ids['B'].changeId, fileName);
+        expect(contentB).toBe('base\nlineA modified\n');
+    });
+
     test('getChildren returns correct children', async () => {
         // Setup: Parent -> Child1
         //                -> Child2

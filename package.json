@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -192,6 +192,12 @@
                 "title": "Set Bookmark",
                 "category": "JJ View",
                 "icon": "$(bookmark)"
+            },
+            {
+                "command": "jj-view.absorb",
+                "title": "Absorb",
+                "category": "JJ View",
+                "icon": "$(magnet)"
             }
         ],
         "keybindings": [
@@ -261,6 +267,11 @@
                     "command": "jj-view.setBookmark",
                     "when": "webviewSection == 'commit'",
                     "group": "navigation"
+                },
+                {
+                    "command": "jj-view.absorb",
+                    "when": "webviewSection == 'commit' && canAbsorb",
+                    "group": "navigation"
                 }
             ],
             "scm/title": [
@@ -283,23 +294,28 @@
             ],
             "scm/resourceGroup/context": [
                 {
-                    "command": "jj-view.squash",
+                    "command": "jj-view.absorb",
                     "group": "inline",
                     "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
                 },
                 {
                     "command": "jj-view.abandon",
-                    "group": "inline",
+                    "group": "inline@1",
                     "when": "scmResourceGroup == 'working-copy'"
                 },
                 {
+                    "command": "jj-view.squash",
+                    "group": "inline@2",
+                    "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
+                },
+                {
                     "command": "jj-view.showDetails",
-                    "group": "inline@1",
+                    "group": "inline@3",
                     "when": "scmResourceGroupState =~ /^jjParentGroup/"
                 },
                 {
                     "command": "jj-view.edit",
-                    "group": "inline@2",
+                    "group": "inline@4",
                     "when": "scmResourceGroupState == 'jjParentGroup:mutable'"
                 }
             ],

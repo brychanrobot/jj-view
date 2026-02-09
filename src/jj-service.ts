@@ -602,4 +602,19 @@ export class JjService {
             await fs.rm(tmpDir, { recursive: true, force: true });
         }
     }
+    async absorb(options: { paths?: string[]; fromRevision?: string } = {}): Promise<string> {
+        const { paths, fromRevision } = options;
+        const args: string[] = ['--no-pager'];
+
+        if (fromRevision) {
+            args.push('--from', fromRevision);
+        }
+        if (paths && paths.length > 0) {
+            // Check if paths are relative or absolute, assume toRelative handles it
+            const relativePaths = paths.map((p) => this.toRelative(p));
+            args.push(...relativePaths);
+        }
+
+        return this.run('absorb', args, { isMutation: true });
+    }
 }

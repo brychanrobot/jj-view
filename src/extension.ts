@@ -21,6 +21,7 @@ import { uploadCommand } from './commands/upload';
 import { discardChangeCommand } from './commands/discard-change';
 import { squashChangeCommand } from './commands/squash-change';
 import { setBookmarkCommand } from './commands/bookmark';
+import { absorbCommand } from './commands/absorb';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -252,6 +253,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.openMergeEditor', async (arg: unknown, ...rest: unknown[]) => {
             await openMergeEditorCommand(scmProvider, arg, ...rest);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.absorb', async (...args: unknown[]) => {
+            await absorbCommand(scmProvider, jj, args);
         }),
     );
 

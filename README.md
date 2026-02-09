@@ -41,6 +41,7 @@ Support for common and advanced `jj` operations:
 - **Navigation**: Move to parent or child revisions easily.
 - **Undo**: Quickly undo `jj` operations.
 - **Squashing**: Squash changes into the parent revision.
+- **Absorbing**: Automatically move changes into the mutable ancestor where they were introduced.
 - **Rebasing**: Rebase changes onto other revisions.
 
 ## Commands
@@ -64,6 +65,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 
 ### History & Merging
 - `JJ View: Squash into Parent`: Squash the current change into its parent.
+- `JJ View: Absorb`: Move changes into the mutable ancestor where they belong.
 - `JJ View: Complete Squash`: Finish a squash operation (e.g., from the editor title).
 - `JJ View: New Merge Change`: Create a merge commit.
 - `JJ View: Open Merge Editor`: Open the merge editor for conflicted files.

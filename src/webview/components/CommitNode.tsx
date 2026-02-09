@@ -142,6 +142,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 // Merge requires multiple items selected
                 canMerge: isSelected && selectionCount > 1,
 
+                // Absorb requires at least one mutable parent and single-item context
+                canAbsorb: commit.parents_immutable?.some((immutable: boolean) => !immutable) && (!isSelected || selectionCount <= 1),
+
                 preventDefaultContextMenuItems: true,
             })}
             onClick={(e) => {

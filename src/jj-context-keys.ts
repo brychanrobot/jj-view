@@ -19,4 +19,7 @@ export enum JjContextKey {
 
     /** True when log selection allows merge (2+ items selected) */
     SelectionAllowMerge = 'jj.selection.allowMerge',
+
+    /** True when selected commit(s) have at least one mutable parent */
+    SelectionParentMutable = 'jj.selection.parentMutable',
 }
