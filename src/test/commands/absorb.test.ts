@@ -12,22 +12,9 @@ import { JjScmProvider } from '../../jj-scm-provider';
 import { TestRepo, buildGraph } from '../test-repo';
 import { createMock } from '../test-utils';
 
-// Mock vscode
-vi.mock('vscode', () => {
-    return {
-        ProgressLocation: { Notification: 15 },
-        window: {
-            showErrorMessage: vi.fn(),
-            withProgress: vi.fn((_options, task) => task()),
-            setStatusBarMessage: vi.fn(),
-        },
-        Uri: {
-            file: (path: string) => ({ fsPath: path }),
-        },
-        workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/root' } }],
-        },
-    };
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
 });
 
 describe('absorbCommand', () => {

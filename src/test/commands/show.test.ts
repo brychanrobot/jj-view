@@ -9,12 +9,10 @@ import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    window: {
-        showInformationMessage: vi.fn(),
-        showErrorMessage: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('showCurrentChangeCommand', () => {
     let repo: TestRepo;

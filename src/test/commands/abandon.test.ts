@@ -11,17 +11,12 @@ import { TestRepo, buildGraph } from '../test-repo';
 import { JjScmProvider } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showErrorMessage: vi.fn(),
-        showInformationMessage: vi.fn(),
-        showWarningMessage: vi.fn(),
-        showInputBox: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    ProgressLocation: { Notification: 15 },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        window: { showInputBox: vi.fn() },
+    });
+});
 
 describe('abandonCommand', () => {
     let jj: JjService;

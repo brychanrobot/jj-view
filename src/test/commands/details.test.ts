@@ -10,10 +10,10 @@ import { JjLogWebviewProvider } from '../../jj-log-webview-provider';
 import { JjResourceState } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: { showErrorMessage: vi.fn() },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('showDetailsCommand', () => {
     let mockProvider: JjLogWebviewProvider;

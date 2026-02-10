@@ -9,11 +9,10 @@ import { refreshCommand } from '../../commands/refresh';
 import { JjScmProvider } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    window: {
-        showErrorMessage: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('refreshCommand', () => {
     let scmProvider: JjScmProvider;

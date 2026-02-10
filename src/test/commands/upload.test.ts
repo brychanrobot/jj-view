@@ -14,20 +14,17 @@ const mockConfig = {
     get: vi.fn(),
 };
 
-vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: vi.fn((section) => {
-            if (section === 'jj-view') return mockConfig;
-            return { get: vi.fn() };
-        }),
-    },
-    ProgressLocation: { Notification: 15 },
-    window: {
-        showErrorMessage: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-        setStatusBarMessage: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        workspace: {
+            getConfiguration: vi.fn((section) => {
+                if (section === 'jj-view') return mockConfig;
+                return { get: vi.fn() };
+            }),
+        },
+    });
+});
 
 describe('uploadCommand', () => {
     let jjService: JjService;

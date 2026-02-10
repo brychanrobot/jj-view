@@ -11,15 +11,10 @@ import { JjScmProvider } from '../../jj-scm-provider';
 import { TestRepo } from '../test-repo';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    window: {
-        showInformationMessage: vi.fn(),
-        showErrorMessage: vi.fn(),
-        showWarningMessage: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    ProgressLocation: { Notification: 15 },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('commitCommand', () => {
     let repo: TestRepo;

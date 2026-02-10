@@ -49,6 +49,17 @@ This project employs a split testing strategy to ensure both logic correctness a
     - **Mock all external dependencies**, especially the `vscode` module and file system operations.
     - **EXCEPTION**: Do NOT mock `JjService` methods (e.g. `jj.absorb`). Instead, use `TestRepo` to create a real temporary repo and use a real `JjService` instance to interact with it.
     - Fast feedback loop, run frequently.
+    - **Mocking VS Code**: Use the shared `createVscodeMock` helper with dynamic import to avoid hoisting issues.
+        ```typescript
+        // Correct pattern
+        vi.mock('vscode', async () => {
+            const { createVscodeMock } = await import('../vscode-mock');
+            return createVscodeMock({
+                // Overrides
+                window: { showErrorMessage: vi.fn() },
+            });
+        });
+        ```
 - **Example**: Testing `JjService` log parsing logic or `JjScmProvider` state calculations without starting VS Code.
 
 ### 2. Integration Tests
