@@ -371,9 +371,15 @@ export class JjScmProvider implements vscode.Disposable {
                     console.error('Error refreshing JJ SCM:', e);
                 }
             } finally {
-                const duration = performance.now() - start;
-                this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
-                this._onDidChangeStatus.fire();
+                if (!this._disposed) {
+                    const duration = performance.now() - start;
+                    try {
+                        this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
+                    } catch {
+                        // Ignore channel closed errors
+                    }
+                    this._onDidChangeStatus.fire();
+                }
             }
         });
 
