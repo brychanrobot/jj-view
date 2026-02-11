@@ -20,8 +20,6 @@ import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scm: JjScmProvider;
     let provider: JjLogWebviewProvider;

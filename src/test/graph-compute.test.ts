@@ -172,7 +172,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         if (p1Node!.y === p2Node!.y) {
             expect(p1Node!.x).not.toBe(p2Node!.x);
         }
-    }, 20000);
+    });
 
     test('Complex Replay (Reproduce User Scenario)', async () => {
         // Reproduce:

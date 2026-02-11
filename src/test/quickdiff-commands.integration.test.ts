@@ -16,8 +16,6 @@ import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Quick Diff Commands Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let repo: TestRepo;

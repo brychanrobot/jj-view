@@ -58,7 +58,7 @@ describe('absorbCommand', () => {
         
         expect(scmProvider.refresh).toHaveBeenCalled();
         expect(vscode.window.setStatusBarMessage).toHaveBeenCalledWith('Absorb completed.', 3000);
-    }, 20000);
+    });
 
     it('should absorb from specific revision', async () => {
         const fileName = 'rev-absorb.txt';
@@ -89,5 +89,5 @@ describe('absorbCommand', () => {
         expect(contentA).toBe('base\nlineA modified\n');
         
         expect(scmProvider.refresh).toHaveBeenCalled();
-    }, 20000);
+    });
 });

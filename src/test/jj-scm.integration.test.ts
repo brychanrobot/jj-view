@@ -15,8 +15,6 @@ import { TestRepo, buildGraph } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
 

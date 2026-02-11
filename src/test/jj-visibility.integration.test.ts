@@ -11,8 +11,6 @@ import { TestRepo } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.OutputChannel;

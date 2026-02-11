@@ -13,8 +13,6 @@ import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
 
 suite('Webview Selection Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let provider: JjLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;

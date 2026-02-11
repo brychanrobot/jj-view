@@ -12,8 +12,6 @@ import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Button Visibility Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let executeCommandStub: sinon.SinonStub;

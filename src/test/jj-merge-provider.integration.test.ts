@@ -11,8 +11,6 @@ import { JjMergeContentProvider } from '../jj-merge-provider';
 import { TestRepo } from './test-repo';
 
 suite('JJ Merge Provider Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let provider: JjMergeContentProvider;
     let registration: vscode.Disposable;

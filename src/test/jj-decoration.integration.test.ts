@@ -12,9 +12,6 @@ import { TestRepo } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
 suite('JJ Decoration Integration Test', function () {
-    // Use function to allow this.timeout
-    this.timeout(20000);
-
     let scmProvider: JjScmProvider;
     let jjService: JjService;
     let repo: TestRepo;
