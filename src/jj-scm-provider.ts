@@ -23,6 +23,7 @@ export interface JjResourceState extends vscode.SourceControlResourceState {
 }
 
 export class JjScmProvider implements vscode.Disposable {
+    private _disposed = false;
     private disposables: vscode.Disposable[] = [];
     private _sourceControl: vscode.SourceControl;
     private _workingCopyGroup: vscode.SourceControlResourceGroup;
@@ -195,6 +196,9 @@ export class JjScmProvider implements vscode.Disposable {
     async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
         // Chain the refresh execution to ensure serial execution
         this._refreshMutex = this._refreshMutex.then(async () => {
+            if (this._disposed) {
+                return;
+            }
             const { forceSnapshot, reason } = options;
             const reasonStr = reason ? ` (reason: ${reason})` : '';
             this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${!!forceSnapshot})${reasonStr}...`);
@@ -517,6 +521,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     dispose() {
+        this._disposed = true;
         if (this._pollTimer) {
             clearTimeout(this._pollTimer);
         }

@@ -54,7 +54,7 @@ suite('JJ SCM Provider Integration Test', function () {
         if (scmProvider) {
             scmProvider.dispose();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Detects added file in working copy', async () => {

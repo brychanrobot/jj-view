@@ -25,10 +25,10 @@ suite('JJ Merge Provider Integration Test', function () {
         registration = vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', provider);
     });
 
-    teardown(() => {
+    teardown(async () => {
         registration.dispose();
         provider.clearCache();
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Provider resolves conflict content', async () => {

@@ -82,11 +82,11 @@ suite('Webview Selection Integration Test', function () {
         await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
-    teardown(() => {
+    teardown(async () => {
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Selection Change updates Context Keys', async () => {

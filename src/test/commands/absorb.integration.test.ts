@@ -34,7 +34,7 @@ suite('Absorb Integration Test', function () {
 
     teardown(async () => {
         scmProvider.dispose();
-        await repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('absorb working copy changes into parent', async () => {

@@ -46,13 +46,13 @@ suite('Button Visibility Integration Test', function () {
         executeCommandStub.callThrough(); // Call original for other commands
     });
 
-    teardown(() => {
+    teardown(async () => {
         // Cleanup
         scmProvider.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Sets jj.parentMutable to true when parent is mutable', async () => {

@@ -43,11 +43,11 @@ suite('JJ Decoration Integration Test', function () {
         scmProvider = new JjScmProvider(context, jjService, repo.path, outputChannel);
     });
 
-    teardown(() => {
+    teardown(async () => {
         if (scmProvider) {
             scmProvider.dispose();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Decorations show Correct Status for Working Copy', async () => {

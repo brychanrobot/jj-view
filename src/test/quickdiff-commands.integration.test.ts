@@ -58,7 +58,7 @@ suite('Quick Diff Commands Integration Test', function () {
         if (scmProvider) {
             scmProvider.dispose();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Discard Change reverts file content on disk', async () => {

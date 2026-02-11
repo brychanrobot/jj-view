@@ -129,7 +129,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
         }
         disposables.forEach((d) => d.dispose());
         disposables = [];
-        await repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Abandon command flows from Webview -> Command -> JJ CLI', async () => {
