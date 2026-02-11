@@ -78,8 +78,6 @@ suite('Webview Selection Integration Test', function () {
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
-        // Wait for potential initial refresh
-        await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     teardown(async () => {

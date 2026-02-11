@@ -118,9 +118,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
-
-        // Wait for setup
-        await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     teardown(async () => {
@@ -145,8 +142,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             },
         });
 
-        await new Promise((r) => setTimeout(r, 500));
-
         // After abandon, the working copy should involve a new commit (or parent)
         const newHeadId = repo.getChangeId('@');
         assert.notStrictEqual(newHeadId, commitToAbandonId, 'Working copy should not be the abandoned commit');
@@ -168,8 +163,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             payload: {},
         });
 
-        await new Promise((r) => setTimeout(r, 500));
-
         const newHead = repo.getChangeId('@');
         assert.notStrictEqual(newHead, initialHead, 'Should have a new head');
 
@@ -185,8 +178,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             type: 'newChild',
             payload: { commitId: parentId },
         });
-
-        await new Promise((r) => setTimeout(r, 500));
 
         const childId = repo.getChangeId('@');
         assert.notStrictEqual(childId, parentId);
@@ -215,8 +206,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             payload: { commitId: targetId },
         });
 
-        await new Promise((r) => setTimeout(r, 500));
-
         // Verify working copy is now targetId
         const newWcId = repo.getChangeId('@');
         assert.strictEqual(newWcId, targetId, 'Working copy should match target ID');
@@ -238,8 +227,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             type: 'undo',
             payload: {},
         });
-
-        await new Promise((r) => setTimeout(r, 1000));
 
         const wcId = repo.getChangeId('@');
         assert.strictEqual(wcId, id1, 'Should undo back to first commit');
@@ -289,8 +276,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
             },
         });
 
-        await new Promise((r) => setTimeout(r, 500));
-
         bookmarksA = repo.getBookmarks(commitA);
         assert.strictEqual(bookmarksA.includes('my-bookmark'), false, 'Bookmark should NOT be on A');
 
@@ -319,8 +304,6 @@ suite('Webview Commands End-to-End Integration Test', function () {
                 mode: 'source',
             },
         });
-
-        await new Promise((r) => setTimeout(r, 1000));
 
         // 4. Verify B's parent is now A
         const parents = repo.getParents(idB);

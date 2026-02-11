@@ -57,9 +57,7 @@ describe('setBookmarkCommand', () => {
     test('fetches bookmarks and shows quick pick', async () => {
         repo.bookmark('feature-a', '@');
         
-        setBookmarkCommand(scmProvider, jj, { commitId: 'some-id' });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId: 'some-id' });
         
         expect(mockQuickPick.show).toHaveBeenCalled();
         expect(mockQuickPick.items).toEqual(expect.arrayContaining([
@@ -76,9 +74,7 @@ describe('setBookmarkCommand', () => {
             return { dispose: () => {} };
         });
 
-        setBookmarkCommand(scmProvider, jj, { commitId: repo.getChangeId('@') });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId: repo.getChangeId('@') });
 
         mockQuickPick.selectedItems = [{ label: 'feature-a' }];
         await acceptCallback();
@@ -95,9 +91,7 @@ describe('setBookmarkCommand', () => {
         });
 
         const commitId = repo.getChangeId('@');
-        setBookmarkCommand(scmProvider, jj, { commitId });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId });
 
         mockQuickPick.selectedItems = [];
         mockQuickPick.value = 'new-feature';

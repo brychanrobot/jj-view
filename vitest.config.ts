@@ -11,5 +11,6 @@ export default defineConfig({
         exclude: ['src/test/**/*.integration.test.ts'], // Exclude integration tests
         globals: true,
         testTimeout: 20000,
+        hookTimeout: 20000,
     },
 });

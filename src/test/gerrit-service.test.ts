@@ -73,9 +73,7 @@ describe('GerritService Detection', () => {
         });
 
         service = new GerritService(repo.path, jjService);
-        
-        // Wait for async detection
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         expect(service.isEnabled).toBe(true);
         expect(getGerritHost(service)).toBe('https://setting-host.com');
@@ -86,7 +84,7 @@ describe('GerritService Detection', () => {
         await fs.promises.writeFile(gitreviewPath, '[gerrit]\nhost=gitreview-host.com\n');
 
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         expect(getGerritHost(service)).toBe('https://gitreview-host.com');
     });
@@ -95,7 +93,7 @@ describe('GerritService Detection', () => {
         repo.addRemote('origin', 'https://chromium.googlesource.com/chromium/src.git');
 
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await service.awaitReady();
 
         // Should convert to -review and strip path
         expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
@@ -105,7 +103,7 @@ describe('GerritService Detection', () => {
         repo.addRemote('origin', 'https://chromium-review.googlesource.com/chromium/src');
 
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await service.awaitReady();
 
         expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
     });
@@ -114,7 +112,7 @@ describe('GerritService Detection', () => {
         repo.addRemote('origin', 'https://git.eclipse.org/gerrit/p/platform.git');
 
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await service.awaitReady();
 
         // existing logic for non-googlesource just does replace .git and ensures https.
         expect(getGerritHost(service)).toBe('https://git.eclipse.org/gerrit/p/platform');
@@ -124,7 +122,7 @@ describe('GerritService Detection', () => {
          repo.addRemote('origin', 'ssh://user@gerrit.googlesource.com:29418/repo');
  
          service = new GerritService(repo.path, jjService);
-         await new Promise(resolve => setTimeout(resolve, 200));
+         await service.awaitReady();
  
          // Should strip repo path
          expect(getGerritHost(service)).toBe('https://gerrit-review.googlesource.com');
@@ -143,7 +141,7 @@ describe('GerritService Detection', () => {
         }) as any;
 
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await service.awaitReady();
 
         expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
     });
@@ -151,7 +149,7 @@ describe('GerritService Detection', () => {
     test('fetchAndCacheStatus prioritizes Description Change-Id', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -170,7 +168,7 @@ describe('GerritService Detection', () => {
     test('fetchAndCacheStatus falls back to Computed Change-Id', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -194,7 +192,7 @@ describe('GerritService Detection', () => {
     test('fetchAndCacheStatus ignores commit SHA if Change-Id logic fails (or just returns undefined)', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn(); // Should not be called
         global.fetch = fetchMock;
@@ -207,7 +205,7 @@ describe('GerritService Detection', () => {
     test('fetchAndCacheStatus handles invalid JJ Change-Id gracefully', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn(); // Should not be called
         global.fetch = fetchMock;
@@ -222,7 +220,7 @@ describe('GerritService Detection', () => {
     test('fetchAndCacheStatus caches by Change-Id', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -242,7 +240,7 @@ describe('GerritService Detection', () => {
     test('forceFetchAndCacheStatus bypasses cache and updates it', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -264,7 +262,7 @@ describe('GerritService Detection', () => {
     test('ensureFreshStatuses detects changes', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         // 1. Setup Cache with OLD data
         const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
@@ -298,7 +296,7 @@ describe('GerritService Detection', () => {
     test('ensureFreshStatuses returns false if no changes', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await service.awaitReady();
 
         const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
         
@@ -338,7 +336,7 @@ describe('GerritService Detection', () => {
         
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
-        await vi.advanceTimersByTimeAsync(50);
+        await service.awaitReady();
 
         // Pre-populate cache
         const cacheKey = 'I123';

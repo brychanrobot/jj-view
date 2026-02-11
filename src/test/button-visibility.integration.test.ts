@@ -60,8 +60,6 @@ suite('Button Visibility Integration Test', function () {
         repo.describe('parent');
         repo.new([], 'child');
 
-        await new Promise((r) => setTimeout(r, 100));
-
         await scmProvider.refresh();
 
         // Verify setContext was called with 'jj.parentMutable', true

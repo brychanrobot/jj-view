@@ -18,12 +18,14 @@ export class GerritService implements vscode.Disposable {
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
+    private _initPromise: Promise<void>;
+
     constructor(
         private workspaceRoot: string,
         private jjService: JjService,
         private outputChannel?: vscode.OutputChannel // Optional for easier testing
     ) {
-        this.detectGerritHost();
+        this._initPromise = this.detectGerritHost();
         
         // Listen for config changes
         vscode.workspace.onDidChangeConfiguration(e => {
@@ -31,6 +33,11 @@ export class GerritService implements vscode.Disposable {
                 this.detectGerritHost();
             }
         });
+    }
+
+    /** For testing only: wait for initialization to complete */
+    public async awaitReady(): Promise<void> {
+        return this._initPromise;
     }
 
     dispose() {
