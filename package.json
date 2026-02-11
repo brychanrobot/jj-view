@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"

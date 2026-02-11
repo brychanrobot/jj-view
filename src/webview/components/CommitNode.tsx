@@ -160,8 +160,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 alignItems: 'stretch',
                 flexDirection: 'row',
                 justifyContent: 'flex-start',
-                fontFamily: 'var(--vscode-editor-font-family)',
-                fontSize: 'var(--vscode-editor-font-size)',
+                paddingBottom: '0',
                 cursor: 'default',
                 width: '100%',
                 backgroundColor: backgroundColor,
@@ -171,7 +170,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 minWidth: 0,
                 paddingLeft: '6px',
                 paddingTop: '0',
-                paddingBottom: '0',
             }}
         >
             {/* Left Column: ID and Actions */}
@@ -347,8 +345,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     <div
                         className="gerrit-row"
                         style={{
-                            fontSize: 'var(--vscode-editor-font-size)',
-                            fontFamily: 'var(--vscode-editor-font-family)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
