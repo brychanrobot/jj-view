@@ -317,14 +317,13 @@ export class JjScmProvider implements vscode.Disposable {
                         const parentRef = parentRefs[i];
 
                         if (parentEntry) {
-                            const shortId = parentEntry.change_id.substring(0, 8);
+                            const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
                             const desc = parentEntry.description?.trim() || '(no description)';
-                            const shortDesc = desc.split('\n')[0].substring(0, 40);
 
                             const label =
                                 currentEntry.parents.length > 1
-                                    ? `Parent ${i + 1}: ${shortId} - ${shortDesc}`
-                                    : `Parent: ${shortId} - ${shortDesc}`;
+                                    ? `Parent ${i + 1}: ${shortId} - ${desc}`
+                                    : `Parent: ${shortId} - ${desc}`;
 
                             // Reuse existing group or create new one
                             let group: vscode.SourceControlResourceGroup;
