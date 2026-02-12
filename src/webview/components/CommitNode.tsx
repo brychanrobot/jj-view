@@ -27,6 +27,7 @@ interface CommitNodeProps {
     isSelected?: boolean;
     selectionCount: number;
     hasImmutableSelection: boolean;
+    idDisplayLength?: number;
 }
 
 export const CommitNode: React.FC<CommitNodeProps> = ({
@@ -36,6 +37,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     isSelected,
     selectionCount,
     hasImmutableSelection,
+    idDisplayLength = 8, // Default fallback
 }) => {
     const isWorkingCopy = commit.is_working_copy;
     const isImmutable = commit.is_immutable;
@@ -178,7 +180,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 style={{
                     marginRight: '8px',
                     flexShrink: 0,
-                    minWidth: '60px',
+                    width: `${idDisplayLength}ch`,
+                    minWidth: `${idDisplayLength}ch`,
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
@@ -195,17 +198,18 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         opacity: 1,
+                        fontFamily: 'monospace', // Ensure ch units align with text
                     }}
                 >
                     {commit.change_id_shortest ? (
                         <>
                             <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
                             <span style={{ opacity: 0.5 }}>
-                                {commit.change_id.substring(commit.change_id_shortest.length, 8)}
+                                {commit.change_id.substring(commit.change_id_shortest.length, idDisplayLength)}
                             </span>
                         </>
                     ) : (
-                        commit.change_id.substring(0, 8)
+                        commit.change_id.substring(0, idDisplayLength)
                     )}
                 </span>
 
