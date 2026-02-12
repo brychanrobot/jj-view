@@ -38,8 +38,26 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [this._extensionUri],
         };
+        
+        // Update the HTML when the view becomes hidden so that when it is restored,
+        // it uses the latest cached data instead of the initial stale data.
+        webviewView.onDidChangeVisibility(() => {
+            if (!webviewView.visible) {
+                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
+                    view: 'graph',
+                    payload: {
+                        commits: this._cachedCommits,
+                    },
+                });
+            }
+        });
 
-        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
+            view: 'graph',
+            payload: {
+                commits: this._cachedCommits,
+            },
+        });
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {

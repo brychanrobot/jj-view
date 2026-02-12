@@ -22,14 +22,14 @@ const App: React.FC = () => {
     const initialView = initialData?.view || 'graph';
 
     const [view] = React.useState<'graph' | 'details'>(initialView);
-    const [commits, setCommits] = React.useState<any[]>([]);
+    const [commits, setCommits] = React.useState<any[]>((initialData?.payload as any)?.commits || []);
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
         commitsRef.current = commits;
     }, [commits]);
 
-    const [loading, setLoading] = React.useState(initialView === 'graph'); // Only load graph if in graph mode
+    const [loading, setLoading] = React.useState(initialView === 'graph' && !((initialData?.payload as any)?.commits?.length > 0)); // Only load graph if in graph mode and no initial commits
     const [selectedCommitIds, setSelectedCommitIds] = React.useState<Set<string>>(new Set());
 
     // Details State
