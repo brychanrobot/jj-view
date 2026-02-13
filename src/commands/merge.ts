@@ -19,13 +19,6 @@ export async function newMergeChangeCommand(
     jj: JjService,
     ...args: (MergeCommandArg | undefined)[]
 ) {
-    // We expect up to 2 revisions selected.
-    // Logic:
-    // 1. If args are passed, use them.
-    // 2. If < 2 args, verify current selection in webview?
-    //    Actually, commands are usually triggered from the webview context menu or palette.
-    //    If palette, we might need a quickpick.
-
     const revisions: string[] = [];
     for (const arg of args) {
         if (arg?.revision) {
@@ -57,7 +50,7 @@ export async function newMergeChangeCommand(
     }
 
     try {
-        await jj.new(undefined, revisions);
+        await jj.new({ parents: revisions });
         await scmProvider.refresh();
     } catch (e: unknown) {
         vscode.window.showErrorMessage(`Failed to create merge: ${getErrorMessage(e)}`);

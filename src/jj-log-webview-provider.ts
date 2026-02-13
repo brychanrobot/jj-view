@@ -104,6 +104,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'new':
                     await vscode.commands.executeCommand('jj-view.new');
                     break;
+                case 'newBefore':
+                    await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.commitIds || []));
+                    break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
                     await vscode.commands.executeCommand('jj-view.refresh');
@@ -134,6 +137,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Compute Capabilities
                     const allowAbandon = count > 0 && !hasImmutable;
                     const allowMerge = count > 1;
+                    const allowNewBefore = count > 0 && !hasImmutable;
 
                     // Calculate parent mutability for absorb command
                     // Only applicable for single selection where parents are mutable
@@ -150,6 +154,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowAbandon, allowAbandon);
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowMerge, allowMerge);
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowNewBefore, allowNewBefore);
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionParentMutable, parentMutable);
 
                     if (this._onSelectionChange) {

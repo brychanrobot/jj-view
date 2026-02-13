@@ -22,4 +22,7 @@ export enum JjContextKey {
 
     /** True when selected commit(s) have at least one mutable parent */
     SelectionParentMutable = 'jj.selection.parentMutable',
+
+    /** True when any number of commits are selected (create new commit before them) */
+    SelectionAllowNewBefore = 'jj.selection.allowNewBefore',
 }

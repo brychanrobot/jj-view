@@ -137,6 +137,13 @@ suite('Webview Selection Integration Test', function () {
         // Verify jj.selection.allowAbandon -> false
         calls = getContextCalls('jj.selection.allowAbandon');
         assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
+        // Verify jj.selection.allowAbandon -> false
+        calls = getContextCalls('jj.selection.allowAbandon');
+        assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
+
+        // Verify jj.selection.allowNewBefore -> false
+        calls = getContextCalls('jj.selection.allowNewBefore');
+        assert.strictEqual(calls.at(-1)?.args[2], false, 'allowNewBefore should be false for immutable selection');
     });
 
     test('Abandon command from webview triggers extension command', async () => {

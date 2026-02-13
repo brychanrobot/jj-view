@@ -22,6 +22,7 @@ import { discardChangeCommand } from './commands/discard-change';
 import { squashChangeCommand } from './commands/squash-change';
 import { setBookmarkCommand } from './commands/bookmark';
 import { absorbCommand } from './commands/absorb';
+import { newBeforeCommand } from './commands/new-before';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -172,8 +173,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.newBefore', async () => {
-            vscode.window.showInformationMessage('New before not implemented yet');
+        vscode.commands.registerCommand('jj-view.newBefore', async (...args: unknown[]) => {
+            await newBeforeCommand(scmProvider, jj, args);
         }),
     );
 

@@ -334,20 +334,26 @@ export class JjService {
         await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths]);
     }
 
-    async new(message?: string, parents?: string | string[], insertBefore?: string): Promise<string> {
+    async new(options: { message?: string; parents?: string[]; insertBefore?: string[] } = {}): Promise<string> {
+        const { message, parents = [], insertBefore = [] } = options;
         const args: string[] = [];
         if (message) {
             args.push('-m', message);
         }
-        if (insertBefore) {
-            args.push('--insert-before', insertBefore);
-        } else if (parents) {
-            if (Array.isArray(parents)) {
-                args.push(...parents);
-            } else {
-                args.push(parents);
-            }
+        for (const rev of insertBefore) {
+            args.push('--insert-before', rev);
         }
+        
+        if (insertBefore.length > 0) {
+            // When insertBefore is used, parents must be specified with --insert-after
+            for (const rev of parents) {
+                args.push('--insert-after', rev);
+            }
+        } else {
+            // Standard usage: parents are positional arguments
+            args.push(...parents);
+        }
+
         await this.run('new', args, { isMutation: true });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {
             useCachedSnapshot: true,

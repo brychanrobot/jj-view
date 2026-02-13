@@ -61,7 +61,7 @@ describe('JjService Unit Tests', () => {
         test('creates a new change', async () => {
             const oldChangeId = repo.getChangeId('@');
 
-            await jjService.new('message');
+            await jjService.new({ message: 'message' });
 
             const newChangeId = repo.getChangeId('@');
             const description = repo.getDescription('@');
@@ -81,7 +81,7 @@ describe('JjService Unit Tests', () => {
             // Move somewhere else first to ensure we are jumping
             repo.new(['root()'], 'unrelated');
 
-            await jjService.new(undefined, parentChangeId);
+            await jjService.new({ parents: [parentChangeId] });
 
             const parents = repo.getParents('@');
             expect(parents[0]).toBe(parentChangeId);
@@ -91,7 +91,7 @@ describe('JjService Unit Tests', () => {
             repo.describe('target parent');
             const parentChangeId = repo.getChangeId('@');
 
-            await jjService.new('custom message', parentChangeId);
+            await jjService.new({ message: 'custom message', parents: [parentChangeId] });
 
             const description = repo.getDescription('@');
             const parents = repo.getParents('@');
@@ -116,7 +116,7 @@ describe('JjService Unit Tests', () => {
             ]);
             // Insert 'Middle' before 'Child'
             // Expected: Parent -> Middle -> Child
-            await jjService.new('Middle', undefined, ids['Child'].changeId);
+            await jjService.new({ message: 'Middle', insertBefore: [ids['Child'].changeId] });
 
             // Child(@) should now have Middle as parent
             const childParents = repo.getParents(ids['Child'].changeId);
@@ -145,7 +145,7 @@ describe('JjService Unit Tests', () => {
             const p2Id = ids['p2'].changeId;
 
             // Create merge commit on top of p1 and p2
-            await jjService.new('merge commit', [p1Id, p2Id]);
+            await jjService.new({ message: 'merge commit', parents: [p1Id, p2Id] });
 
             const description = repo.getDescription('@');
             const parents = repo.getParents('@');
@@ -157,11 +157,70 @@ describe('JjService Unit Tests', () => {
             expect(parents).toContain(p1Id);
             expect(parents).toContain(p2Id);
         });
+
+        test('creates change inserted before multiple revisions', async () => {
+             // Setup: Parent -> Child1
+             //               -> Child2
+            const ids = await buildGraph(repo, [
+                { label: 'parent', description: 'parent' },
+                { label: 'child1', parents: ['parent'], description: 'child1' },
+                { label: 'child2', parents: ['parent'], description: 'child2' },
+            ]);
+            
+            // Insert 'Middle' before Child1 and Child2
+            // Expected: Parent -> Middle -> Child1
+            //                            -> Child2
+            await jjService.new({ 
+                message: 'Middle', 
+                insertBefore: [ids['child1'].changeId, ids['child2'].changeId] 
+            });
+
+            const userLog = await jjService.getLog();
+            const middle = userLog.find(l => l.description.includes('Middle'));
+            expect(middle).toBeDefined();
+
+            const c1Parents = repo.getParents(ids['child1'].changeId);
+            const c2Parents = repo.getParents(ids['child2'].changeId);
+
+            expect(c1Parents[0]).toBe(middle!.change_id);
+            expect(c2Parents[0]).toBe(middle!.change_id);
+        });
+
+        test('creates change with parents AND insertBefore', async () => {
+            // Setup: Root -> Parent -> Child
+            // We want to insert 'Middle' between Parent and Child, but also have 'Root' as a parent (merge)
+            // Expected: (Root, Parent) -> Middle -> Child
+            const ids = await buildGraph(repo, [
+                { label: 'root', description: 'root' },
+                { label: 'parent', parents: ['root'], description: 'parent' },
+                { label: 'child', parents: ['parent'], description: 'child' },
+            ]);
+
+            await jjService.new({
+                message: 'Middle',
+                parents: [ids['root'].changeId, ids['parent'].changeId],
+                insertBefore: [ids['child'].changeId]
+            });
+
+            const userLog = await jjService.getLog();
+            const middle = userLog.find(l => l.description.includes('Middle'));
+            expect(middle).toBeDefined();
+
+            // Check parents of Middle
+            const middleParents = repo.getParents(middle!.change_id);
+            expect(middleParents).toHaveLength(2);
+            expect(middleParents).toContain(ids['root'].changeId);
+            expect(middleParents).toContain(ids['parent'].changeId);
+
+            // Check parent of Child (should be Middle)
+            const childParents = repo.getParents(ids['child'].changeId);
+            expect(childParents[0]).toBe(middle!.change_id);
+        });
     });
 
     test('new command creates a new change (integration)', async () => {
         const logBeforeChangeId = repo.getChangeId('@');
-        await jjService.new('test new change');
+        await jjService.new({ message: 'test new change' });
         const logAfterChangeId = repo.getChangeId('@');
 
         expect(logAfterChangeId).not.toBe(logBeforeChangeId);
@@ -175,7 +234,7 @@ describe('JjService Unit Tests', () => {
         repo.new(['@'], 'child1');
 
         // Create child 2 on root (fork)
-        await jjService.new('child2', rootChangeId);
+        await jjService.new({ message: 'child2', parents: [rootChangeId] });
 
         const child2Parents = repo.getParents('@');
         const child2Desc = repo.getDescription('@');
@@ -557,14 +616,14 @@ describe('JjService Unit Tests', () => {
         repo.describe('initial');
         const initialChangeId = repo.getChangeId('@');
 
-        const childId = await jjService.new(undefined, initialChangeId);
+        const childId = await jjService.new({ parents: [initialChangeId] });
 
         const childParents = repo.getParents(childId);
         expect(childParents[0]).toBe(initialChangeId);
 
         repo.writeFile('file.txt', 'child content');
 
-        const grandchildId = await jjService.new(undefined, childId);
+        const grandchildId = await jjService.new({ parents: [childId] });
         const grandchildParents = repo.getParents(grandchildId);
         expect(grandchildParents[0]).toBe(childId);
 
@@ -959,7 +1018,7 @@ describe('JjService Unit Tests', () => {
         repo.bookmark('test-bookmark', '@');
 
         // Create a new commit (child)
-        await jjService.new('child');
+        await jjService.new({ message: 'child' });
         const [child] = await jjService.getLog({ revision: '@' });
 
         // Move bookmark to child
