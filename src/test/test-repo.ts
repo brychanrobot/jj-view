@@ -58,6 +58,10 @@ export class TestRepo {
         this.exec(['metaedit', '--update-author']);
 
         this.config('ui.merge-editor', 'builtin');
+        
+        // Ensure that tests don't fail if the user has configured signing globally (e.g.
+        // signing.sign-all = true). Background processes in tests can't prompt for passphrases.
+        this.config('signing.backend', 'none');
     }
 
     new(parents?: string[], message?: string) {
