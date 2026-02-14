@@ -50,10 +50,13 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 
 ### General
 - `JJ View: Refresh`: Refresh the current status and log.
+- `JJ View: Show Current Change`: Focus the graph on the current working copy change.
+- `JJ View: Show Details`: Open a dedicated panel with full details of the selected commit.
 - `JJ View: Undo`: Undo the last `jj` operation.
 
 ### Change Management
 - `JJ View: New Change`: Create a new empty change at the current head.
+- `JJ View: New Before`: Create a new change *before* the current revisions (inserts a new parent).
 - `JJ View: Edit`: Edit a specific revision.
 - `JJ View: Duplicate`: Duplicate a change.
 - `JJ View: Abandon`: Abandon (delete) a change.
@@ -61,7 +64,9 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Set Description`: Edit the description of the current change.
 - `JJ View: Upload`: Upload the current change (runs configured upload command).
 - `JJ View: Set Bookmark`: Create or move a bookmark to a specific revision.
+- `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
 - `JJ View: Open File`: Open the file associated with a change.
+- `JJ View: Show Multi-File Diff`: Open a multi-file diff view for the selected revision.
 
 ### History & Merging
 - `JJ View: Squash into Parent`: Squash the current change into its parent.
@@ -75,6 +80,23 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Move to Child`: Move the working copy to a child revision.
 - `JJ View: Move to Parent (Diff)`: Navigate to the parent revision while viewing a diff.
 - `JJ View: Move to Child (Diff)`: Navigate to the child revision while viewing a diff.
+
+## Features & Integration
+
+### ⌨️ Keybindings
+- **Commit**: `Ctrl+Enter` (or `Cmd+Enter` on macOS) in the SCM input box to commit changes.
+- **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box to save the description without finishing the commit.
+
+### 🔄 Automatic Refresh
+The extension automatically refreshes the view when:
+- File changes are detected in the workspace.
+- `jj` operations are performed via the CLI (external changes are polled).
+- You switch focus back to the VS Code window.
+
+### 🤖 Gerrit Integration
+If you use Gerrit, **JJ View** provides enhanced integration:
+- Shows the current **Gerrit Status** (e.g., Active, Merged) and provides a link to the CL.
+- Configuration: Set `jj-view.gerrit.host` and `jj-view.gerrit.project` if they aren't automatically detected.
 
 ## Extension Settings
 
