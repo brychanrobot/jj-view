@@ -199,6 +199,12 @@
                 "title": "Absorb",
                 "category": "JJ View",
                 "icon": "$(magnet)"
+            },
+            {
+                "command": "jj-view.showMultiFileDiff",
+                "title": "Show Multi-File Diff",
+                "category": "JJ View",
+                "icon": "$(diff-multiple)"
             }
         ],
         "keybindings": [
@@ -278,6 +284,11 @@
                     "command": "jj-view.absorb",
                     "when": "webviewSection == 'commit' && canAbsorb",
                     "group": "navigation"
+                },
+                {
+                    "command": "jj-view.showMultiFileDiff",
+                    "when": "webviewSection == 'commit'",
+                    "group": "navigation"
                 }
             ],
             "scm/title": [
@@ -305,23 +316,28 @@
                     "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
                 },
                 {
-                    "command": "jj-view.abandon",
+                    "command": "jj-view.showMultiFileDiff",
                     "group": "inline@1",
+                    "when": "scmResourceGroupState =~ /^jjParentGroup/ || scmResourceGroup == 'working-copy'"
+                },
+                {
+                    "command": "jj-view.abandon",
+                    "group": "inline@2",
                     "when": "scmResourceGroup == 'working-copy'"
                 },
                 {
                     "command": "jj-view.squash",
-                    "group": "inline@2",
+                    "group": "inline@3",
                     "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
                 },
                 {
                     "command": "jj-view.showDetails",
-                    "group": "inline@3",
+                    "group": "inline@4",
                     "when": "scmResourceGroupState =~ /^jjParentGroup/"
                 },
                 {
                     "command": "jj-view.edit",
-                    "group": "inline@4",
+                    "group": "inline@5",
                     "when": "scmResourceGroupState == 'jjParentGroup:mutable'"
                 }
             ],

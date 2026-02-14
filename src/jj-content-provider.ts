@@ -32,8 +32,27 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
 
         try {
             return await this.jj.cat(filePath, revision);
-        } catch (e) {
-            return ''; // Return empty if file not found (e.g. added file)
+        } catch {
+            // For merge commits, `revision-` resolves to multiple commits and
+            // fails. Fall back to trying each parent individually (analogous to
+            // git's "diff against first parent" convention).
+            if (revision.endsWith('-')) {
+                const baseRevision = revision.slice(0, -1);
+                try {
+                    const entries = await this.jj.getLog({ revision: `parents(${baseRevision})` });
+                    for (const entry of entries) {
+                        try {
+                            return await this.jj.cat(filePath, entry.commit_id);
+                        } catch {
+                            continue;
+                        }
+                    }
+                } catch {
+                    // Failed to resolve parents
+                }
+            }
+            return ''; // File doesn't exist in any parent (truly new file)
         }
     }
 }
+

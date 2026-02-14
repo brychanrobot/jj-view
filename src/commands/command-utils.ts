@@ -112,6 +112,12 @@ export function extractRevision(args: unknown[]): string | undefined {
             return firstState.revision;
         }
     }
+    // 5. Webview Context (generic object with commitId)
+    const arg0 = args[0];
+    if (arg0 && typeof arg0 === 'object' && 'commitId' in arg0) {
+        return (arg0 as any).commitId;
+    }
+
     return undefined;
 }
 

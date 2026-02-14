@@ -16,17 +16,57 @@ import { vi } from 'vitest';
 export function createVscodeMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
-        Uri: { file: (path: string) => ({ fsPath: path }) },
+        Uri: { 
+            file: (fsPath: string) => {
+                return { 
+                    fsPath, 
+                    path: fsPath, 
+                    scheme: 'file',
+                    query: '',
+                    with: function(change: { query?: string }) {
+                        return { ...this, ...change };
+                    }
+                };
+            },
+            from: (components: { scheme: string; path: string; query?: string }) => {
+                return {
+                    scheme: components.scheme,
+                    path: components.path,
+                    query: components.query || '',
+                    fsPath: components.path,
+                    with: function(change: { query?: string }) {
+                        return { ...this, ...change };
+                    }
+                };
+            },
+            joinPath: (base: { path: string, scheme: string }, ...paths: string[]) => {
+                // formatted join
+                const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
+                return {
+                    scheme: base.scheme,
+                    path: combined,
+                    fsPath: combined,
+                    query: '',
+                    with: function(change: { query?: string }) {
+                        return { ...this, ...change };
+                    }
+                };
+            }
+        },
         window: {
             showErrorMessage: vi.fn(),
             showInformationMessage: vi.fn(),
             showWarningMessage: vi.fn(),
             withProgress: vi.fn().mockImplementation(async (_: unknown, task: () => Promise<unknown>) => task()),
             setStatusBarMessage: vi.fn(),
+            createOutputChannel: vi.fn().mockReturnValue({ appendLine: vi.fn() }),
         },
         workspace: {
             workspaceFolders: [{ uri: { fsPath: '/root' } }],
         },
+        commands: {
+            executeCommand: vi.fn(),
+        }
     };
 
     // Shallow merge each top-level key so overrides extend rather than replace namespaces

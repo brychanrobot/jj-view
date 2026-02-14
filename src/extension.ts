@@ -39,6 +39,7 @@ import { rebaseOntoSelectedCommand, CommitMenuContext } from './commands/rebase'
 import { openMergeEditorCommand } from './commands/merge-editor';
 import { refreshCommand } from './commands/refresh';
 import { openFileCommand } from './commands/open';
+import { showMultiFileDiffCommand } from './commands/multi-diff';
 
 export function activate(context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders) {
@@ -260,6 +261,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.absorb', async (...args: unknown[]) => {
             await absorbCommand(scmProvider, jj, args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
+            await showMultiFileDiffCommand(jj, ...args);
         }),
     );
 

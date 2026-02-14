@@ -17,6 +17,7 @@ import { JjContextKey } from './jj-context-keys';
 import { completeSquashCommand } from './commands/squash';
 import { getErrorMessage } from './commands/command-utils';
 import { RefreshScheduler } from './refresh-scheduler';
+import { createDiffUris } from './uri-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     revision: string;
@@ -274,8 +275,13 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
+                // For merge commits (2+ parents), pass an explicit parent to avoid
+                // ambiguous `@-` which resolves to multiple commits.
+                const wcParentRevision = (currentEntry?.parents?.length ?? 0) > 1
+                    ? String(currentEntry!.parents[0])
+                    : undefined;
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
-                    const state = this.toResourceState(c, '@');
+                    const state = this.toResourceState(c, '@', wcParentRevision);
                     decorationMap.set(state.resourceUri.toString(), c);
                     return state;
                 });
@@ -341,9 +347,12 @@ export class JjScmProvider implements vscode.Disposable {
                             }
 
                             const parentChanges = parentEntry.changes || [];
+                            // For merge parents, pass explicit first grandparent
+                            const explicitParentRev = (parentEntry.parents?.length ?? 0) > 1
+                                ? String(parentEntry.parents[0])
+                                : undefined;
                             group.resourceStates = parentChanges.map((c) => {
-                                const state = this.toResourceState(c, parentRef);
-                                // Now we add to decorationMap. The URI query ensures uniqueness.
+                                const state = this.toResourceState(c, parentRef, explicitParentRev);
                                 decorationMap.set(state.resourceUri.toString(), c);
                                 return state;
                             });
@@ -459,43 +468,15 @@ export class JjScmProvider implements vscode.Disposable {
         }
     }
 
-    private toResourceState(entry: JjStatusEntry, revision: string = '@'): JjResourceState {
+    private toResourceState(entry: JjStatusEntry, revision: string = '@', parentRevision?: string): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
-        let absoluteUri = vscode.Uri.joinPath(vscode.Uri.file(root), entry.path);
-
-        // If not working copy, add query to make URI unique for DecorationProvider
-        // This ensures SCM view gets decorations for parents, but Explorer (which uses file uri) does not get confused.
-        if (revision !== '@') {
-            absoluteUri = absoluteUri.with({ query: `jj-revision=${revision}` });
-        }
-
-        // left: revision - 1 (parent of revision)
-        // right: revision
-        let leftPath = absoluteUri.path;
-        if ((entry.status === 'renamed' || entry.status === 'copied') && entry.oldPath) {
-            leftPath = vscode.Uri.joinPath(vscode.Uri.file(root), entry.oldPath).path;
-        }
-
-        const leftUri = vscode.Uri.from({
-            scheme: 'jj-view',
-            path: leftPath,
-            query: `revision=${revision}-&path=${encodeURIComponent(leftPath)}`,
-        });
-
-        const rightUri =
-            revision === '@'
-                ? absoluteUri
-                : vscode.Uri.from({
-                      scheme: 'jj-view',
-                      path: absoluteUri.path,
-                      query: `revision=${revision}`,
-                  });
+        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, parentRevision);
 
         const command: vscode.Command = entry.conflicted
             ? {
                   command: 'jj-view.openMergeEditor',
                   title: 'Open 3-Way Merge',
-                  arguments: [{ resourceUri: absoluteUri }], // Pass single object matching ResourceState
+                  arguments: [{ resourceUri }],
               }
             : {
                   command: 'vscode.diff',
@@ -503,9 +484,8 @@ export class JjScmProvider implements vscode.Disposable {
                   arguments: [leftUri, rightUri, `${entry.path} (${revision === '@' ? 'Working Copy' : revision})`],
               };
 
-        // Note: We populate SourceControlResourceDescorations too, but badges (letters) come from FileDecorationProvider
         return {
-            resourceUri: absoluteUri,
+            resourceUri,
             command: command,
             decorations: {
                 tooltip: entry.conflicted ? 'Conflicted' : entry.status,
