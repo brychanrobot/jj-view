@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as sinon from 'sinon';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { TestRepo } from './test-repo';
+import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Button Visibility Integration Test', function () {
@@ -56,11 +56,17 @@ suite('Button Visibility Integration Test', function () {
     });
 
     test('Sets jj.parentMutable to true when parent is mutable', async () => {
-        // Create a parent commit (by default new repo has root as parent, which is immutable)
-        repo.describe('parent');
-        repo.new([], 'child');
+        // Create a graph: grandparent -> parent -> child
+        await buildGraph(repo, [
+            { label: 'grandparent', description: 'grandparent' },
+            { label: 'parent', description: 'parent', parents: ['grandparent'] },
+            { label: 'child', description: 'child', parents: ['parent'], isWorkingCopy: true },
+        ]);
 
-        await scmProvider.refresh();
+        // Verify structure: grandparent -> parent -> child (@)
+        // Parent should be mutable because it's not root and not immutable-head
+        
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Verify setContext was called with 'jj.parentMutable', true
         const setContextCalls = executeCommandStub

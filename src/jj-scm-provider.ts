@@ -211,6 +211,9 @@ export class JjScmProvider implements vscode.Disposable {
                 }
                 this._onRepoStateReady.fire();
 
+                // Invalidate diff content cache so stale content is never served
+                this.contentProvider?.invalidateCache();
+
                 // 1. Fetch data in parallel for performance
                 const [logResult, children, conflictedPaths] = await Promise.all([
                     this.jj.getLog({ revision: '@' }),
@@ -275,13 +278,8 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
-                // For merge commits (2+ parents), pass an explicit parent to avoid
-                // ambiguous `@-` which resolves to multiple commits.
-                const wcParentRevision = (currentEntry?.parents?.length ?? 0) > 1
-                    ? String(currentEntry!.parents[0])
-                    : undefined;
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
-                    const state = this.toResourceState(c, '@', wcParentRevision);
+                    const state = this.toResourceState(c, '@');
                     decorationMap.set(state.resourceUri.toString(), c);
                     return state;
                 });
@@ -347,12 +345,8 @@ export class JjScmProvider implements vscode.Disposable {
                             }
 
                             const parentChanges = parentEntry.changes || [];
-                            // For merge parents, pass explicit first grandparent
-                            const explicitParentRev = (parentEntry.parents?.length ?? 0) > 1
-                                ? String(parentEntry.parents[0])
-                                : undefined;
                             group.resourceStates = parentChanges.map((c) => {
-                                const state = this.toResourceState(c, parentRef, explicitParentRev);
+                                const state = this.toResourceState(c, parentRef);
                                 decorationMap.set(state.resourceUri.toString(), c);
                                 return state;
                             });
@@ -468,9 +462,9 @@ export class JjScmProvider implements vscode.Disposable {
         }
     }
 
-    private toResourceState(entry: JjStatusEntry, revision: string = '@', parentRevision?: string): JjResourceState {
+    private toResourceState(entry: JjStatusEntry, revision: string = '@'): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
-        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, parentRevision);
+        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root);
 
         const command: vscode.Command = entry.conflicted
             ? {
@@ -498,7 +492,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
-        return uri.with({ scheme: 'jj-view', query: 'revision=@-' });
+        return uri.with({ scheme: 'jj-view', query: 'base=@&side=left' });
     }
 
     get sourceControl(): vscode.SourceControl {

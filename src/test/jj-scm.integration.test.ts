@@ -146,9 +146,12 @@ suite('JJ SCM Provider Integration Test', function () {
         const [leftUri, rightUri] = command.arguments as vscode.Uri[];
 
         const params = new URLSearchParams(leftUri.query);
-        assert.ok(params.get('revision')?.endsWith('-'), 'Left query revision should end with -');
+        assert.ok(params.get('base'), 'Left query should have base param');
+        assert.strictEqual(params.get('side'), 'left', 'Left query should have side=left');
 
-        assert.ok(rightUri.query.startsWith('revision='), 'Right query should start with revision=');
+        const rightParams = new URLSearchParams(rightUri.query);
+        assert.ok(rightParams.get('base'), 'Right query should have base param');
+        assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
 
         assert.strictEqual(parentGroup.resourceStates[0].contextValue, 'jjParent');
 

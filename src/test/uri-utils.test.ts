@@ -1,3 +1,8 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, it, expect, vi } from 'vitest';
 
 import { createDiffUris } from '../uri-utils';
@@ -20,16 +25,17 @@ describe('createDiffUris', () => {
             status: 'modified',
         };
         const revision = 'rev1';
-
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
         expect(leftUri.scheme).toBe('jj-view');
         expect(leftUri.path).toBe('/root/file.txt');
-        expect(leftUri.query).toContain('revision=rev1-');
+        expect(leftUri.query).toContain('base=rev1');
+        expect(leftUri.query).toContain('side=left');
 
         expect(rightUri.scheme).toBe('jj-view');
         expect(rightUri.path).toBe('/root/file.txt');
-        expect(rightUri.query).toBe('revision=rev1');
+        expect(rightUri.query).toContain('base=rev1');
+        expect(rightUri.query).toContain('side=right');
     });
 
     it('creates correct URIs for working copy (rev=@)', () => {
@@ -43,7 +49,8 @@ describe('createDiffUris', () => {
 
         expect(leftUri.scheme).toBe('jj-view');
         expect(leftUri.path).toBe('/root/file.txt');
-        expect(leftUri.query).toContain('revision=@-');
+        expect(leftUri.query).toContain('base=@');
+        expect(leftUri.query).toContain('side=left');
 
         // Working copy should use file scheme for right side
         expect(rightUri.scheme).toBe('file');
@@ -62,10 +69,12 @@ describe('createDiffUris', () => {
 
         // Left side should use old path
         expect(leftUri.path).toBe('/root/old.txt');
-        expect(leftUri.query).toContain('revision=rev1-');
+        expect(leftUri.query).toContain('base=rev1');
+        expect(leftUri.query).toContain('side=left');
         
         // Right side should use new path
         expect(rightUri.path).toBe('/root/new.txt');
-        expect(rightUri.query).toBe('revision=rev1');
+        expect(rightUri.query).toContain('base=rev1');
+        expect(rightUri.query).toContain('side=right');
     });
 });

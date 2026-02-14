@@ -234,6 +234,82 @@ export class JjService {
     }
 
     /**
+     * Get the left (auto-merged parents) and right (revision) content for a file's diff.
+     * Uses `jj diffedit --tool` to correctly compute the auto-merged left side,
+     * which handles merge commits (multiple parents) properly.
+     */
+    async getDiffContent(revision: string, filePath: string): Promise<{ left: string; right: string }> {
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-diff-'));
+        const relativePath = this.toRelative(filePath);
+
+        try {
+            const tempDirNormalized = tempDir.split(path.sep).join('/');
+            const leftPath = `${tempDirNormalized}/left`;
+            const rightPath = `${tempDirNormalized}/right`;
+
+            // Normalize filePath separators for safe injection into JS script string
+            const normalizedFilePath = relativePath.split(path.sep).join('/');
+
+            // Script copies $left/<file> and $right/<file> to temp dir.
+            // Uses try/catch for each side to handle new files (no left) and deleted files (no right).
+            // Exits with 1 to prevent jj from modifying the revision.
+            const script = `
+                const fs = require('fs');
+                const path = require('path');
+                const [left, right] = process.argv.slice(1);
+                try { fs.copyFileSync(path.join(left, '${normalizedFilePath}'), '${leftPath}'); } catch(e) {}
+                try { fs.copyFileSync(path.join(right, '${normalizedFilePath}'), '${rightPath}'); } catch(e) {}
+                process.exit(1);
+            `
+                .replace(/\n/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+            try {
+                await this.run(
+                    'diffedit',
+                    [
+                        '-r', revision,
+                        '--tool', 'vscode-diff-capture',
+                        `--config=merge-tools.vscode-diff-capture.program="node"`,
+                        `--config=merge-tools.vscode-diff-capture.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                        relativePath,
+                    ],
+                    { useCachedSnapshot: true },
+                );
+            } catch {
+                // Expected: jj returns error because our tool exits with 1
+            }
+
+            // Check if output files were created
+            const leftExists = await fs.access(leftPath).then(() => true).catch(() => false);
+            const rightExists = await fs.access(rightPath).then(() => true).catch(() => false);
+
+            if (!leftExists && !rightExists) {
+                // If diffedit didn't run the tool, it means there are no differences for this file
+                // relative to the parent(s). Fallback to fetching file content directly.
+                // This handles "Quick Diff" on unchanged files where we need the base content.
+                try {
+                    const content = await this.getFileContent(filePath, revision);
+                    return { left: content, right: content };
+                } catch {
+                    // If file doesn't exist in revision, return empty
+                    return { left: '', right: '' };
+                }
+            }
+
+            const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
+            const right = rightExists ? await fs.readFile(rightPath, 'utf8') : '';
+
+            return { left, right };
+        } finally {
+            await fs.rm(tempDir, { recursive: true }).catch(() => {});
+        }
+    }
+
+    /**
      * Squash changes into parent.
      * @param paths - specific files to squash (empty = all)
      * @param revision - if provided, squash this revision into its parent (-r flag)

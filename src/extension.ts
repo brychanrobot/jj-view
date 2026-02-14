@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(gerritService);
 
     const contentProvider = new JjDocumentContentProvider(jj);
-    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel);
+    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider);
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
 
     // Register Document Content Provider for read-only access to old file versions

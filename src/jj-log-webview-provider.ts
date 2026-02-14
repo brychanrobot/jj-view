@@ -302,11 +302,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openDiff':
                     const filePath = message.payload.filePath;
-                    // Left: Parent (commitId-)
-                    // Right: Commit (commitId)
-                    // We use our custom scheme which JjDocumentContentProvider handles
-                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}-`);
-                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}`);
+                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=left`);
+                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=right`);
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',

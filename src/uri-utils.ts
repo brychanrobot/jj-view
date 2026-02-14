@@ -1,3 +1,8 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import * as vscode from 'vscode';
 import { JjStatusEntry } from './jj-types';
 
@@ -5,7 +10,6 @@ export function createDiffUris(
     entry: JjStatusEntry,
     revision: string,
     root: string,
-    parentRevision?: string
 ): { leftUri: vscode.Uri; rightUri: vscode.Uri; resourceUri: vscode.Uri } {
     const resourceUri = revision === '@'
         ? vscode.Uri.joinPath(vscode.Uri.file(root), entry.path)
@@ -17,13 +21,10 @@ export function createDiffUris(
         leftPath = vscode.Uri.joinPath(vscode.Uri.file(root), entry.oldPath).path;
     }
 
-    // For the left side, use explicit parentRevision if provided (required for merge commits,
-    // where `revision-` resolves to multiple commits and causes `jj file show` to fail).
-    const leftRevision = parentRevision ?? `${revision}-`;
     const leftUri = vscode.Uri.from({
         scheme: 'jj-view',
         path: leftPath,
-        query: `revision=${leftRevision}&path=${encodeURIComponent(leftPath)}`,
+        query: `base=${revision}&side=left&path=${encodeURIComponent(leftPath)}`,
     });
 
     const rightUri =
@@ -32,7 +33,7 @@ export function createDiffUris(
             : vscode.Uri.from({
                   scheme: 'jj-view',
                   path: resourceUri.path,
-                  query: `revision=${revision}`,
+                  query: `base=${revision}&side=right`,
               });
 
     return { leftUri, rightUri, resourceUri };

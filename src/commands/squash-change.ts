@@ -131,10 +131,6 @@ export async function squashChangeCommand(
 
         // Only refresh on success
         await scmProvider.refresh();
-        if (scmProvider.contentProvider) {
-            const parentUri = uri.with({ scheme: 'jj-view', query: 'revision=@-' });
-            scmProvider.contentProvider.update(parentUri);
-        }
         // Force Quick Diff refresh by closing and reopening the editor
         // This is the only reliable way to force VS Code to recompute quick diff decorations
         const activeEditor = vscode.window.activeTextEditor;

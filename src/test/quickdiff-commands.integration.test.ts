@@ -50,7 +50,7 @@ suite('Quick Diff Commands Integration Test', function () {
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
-             return uri.with({ scheme: 'jj-view-test', query: 'revision=@-' });
+             return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
         };
     });
 
