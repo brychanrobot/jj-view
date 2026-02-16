@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.11.2",
+    "version": "1.12.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -33,6 +33,19 @@
                     "default": 4,
                     "minimum": 1,
                     "description": "Maximum multiplier for the debounce timeout when events continue to occur."
+                },
+                "jj-view.fileWatcherMode": {
+                    "type": "string",
+                    "default": "polling",
+                    "enum": [
+                        "polling",
+                        "watch"
+                    ],
+                    "enumDescriptions": [
+                        "Use periodic status checks (default).",
+                        "Use a file watcher (parcel-watcher) for efficient updates (only on changes)."
+                    ],
+                    "description": "Controls how the extension detects external file changes."
                 },
                 "jj-view.gerrit.host": {
                     "type": "string",
@@ -441,6 +454,7 @@
         "@playwright/test": "^1.58.0",
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
+        "@types/parcel__watcher": "^2.0.5",
         "@types/react": "^19.2.7",
         "@types/react-dom": "^19.2.3",
         "@types/sinon": "^21.0.0",
@@ -466,6 +480,7 @@
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/modifiers": "^9.0.0",
         "@dnd-kit/utilities": "^3.2.2",
+        "@parcel/watcher": "^2.5.6",
         "@vscode-elements/elements": "^2.4.0",
         "@vscode/codicons": "^0.0.44",
         "parse-diff": "^0.11.1",

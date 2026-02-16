@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { JjService } from './jj-service';
 import { JjStatusEntry } from './jj-types';
+import { ChangeDetectionManager } from './change-detection-manager';
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -41,7 +42,7 @@ export class JjScmProvider implements vscode.Disposable {
     readonly onRepoStateReady: vscode.Event<void> = this._onRepoStateReady.event;
 
     private _refreshScheduler: RefreshScheduler;
-    private _pollTimer: ReturnType<typeof setTimeout> | undefined;
+    private _fileWatcher: ChangeDetectionManager;
     public decorationProvider: JjDecorationProvider;
 
     constructor(
@@ -123,73 +124,19 @@ export class JjScmProvider implements vscode.Disposable {
             }),
         );
 
-        // File Change Detection
-        // 1. Watch .jj/repo/op_heads for jj operation changes
-        const opHeadsPattern = new vscode.RelativePattern(
-            vscode.Uri.file(path.join(this.jj.workspaceRoot, '.jj', 'repo', 'op_heads')),
-            '**/*',
+        // Initialize file watcher
+        this._fileWatcher = new ChangeDetectionManager(
+            workspaceRoot, 
+            this.jj, 
+            this.outputChannel,
+            async (options) => {
+                await this._refreshScheduler.trigger(options);
+            }
         );
-        const opHeadsWatcher = vscode.workspace.createFileSystemWatcher(opHeadsPattern);
-        opHeadsWatcher.onDidChange(() => this.onJjRepoChange());
-        opHeadsWatcher.onDidCreate(() => this.onJjRepoChange());
-        opHeadsWatcher.onDidDelete(() => this.onJjRepoChange());
-        this.disposables.push(opHeadsWatcher);
-
-        // 2. Watch for editor saves to trigger refresh (catches user edits)
-        this.disposables.push(
-            vscode.workspace.onDidSaveTextDocument((doc) => {
-                // Ignore saves to virtual documents or .jj internal files
-                if (doc.uri.scheme !== 'file') return;
-                if (doc.uri.fsPath.includes('/.jj/')) return;
-                this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'file saved' });
-            }),
-        );
-
-        // 3. Poll for external changes (catches agent/external tool edits)
-        // Uses 5s gap between polls, not fixed interval, to avoid overlap on slow repos
-        this._pollTimer = this.startPolling();
-        this.disposables.push(
-            vscode.window.onDidChangeWindowState((state) => {
-                if (state.focused) {
-                    // Resume polling when window gains focus
-                    if (!this._pollTimer) {
-                        this._pollTimer = this.startPolling();
-                    }
-                } else {
-                    // Stop polling when window loses focus
-                    if (this._pollTimer) {
-                        clearTimeout(this._pollTimer);
-                        this._pollTimer = undefined;
-                    }
-                }
-            }),
-        );
+        this.disposables.push(this._fileWatcher);
 
         // Initial refresh
         this.refresh({ forceSnapshot: true });
-    }
-
-    private onJjRepoChange() {
-        // Triggered when .jj/repo/op_heads changes (jj operation completed)
-        // No snapshot needed - jj already updated repo state
-        if (this.jj.hasActiveWriteOps || Date.now() - this.jj.lastWriteTime < 500) {
-            this.outputChannel.appendLine('Repo change suppressed due to active write operation');
-            return;
-        }
-        this._refreshScheduler.trigger({ forceSnapshot: false, reason: 'jj operation' });
-    }
-
-    private startPolling(): ReturnType<typeof setTimeout> {
-        const poll = async () => {
-            // Skip if a write operation is in progress or just finished
-            if (!this.jj.hasActiveWriteOps && Date.now() - this.jj.lastWriteTime >= 500) {
-                await this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'poll' });
-            }
-            // Schedule next poll after 5s gap (not fixed interval)
-            this._pollTimer = setTimeout(poll, 5000);
-        };
-        // Start first poll after 5s
-        return setTimeout(poll, 5000);
     }
 
     private _refreshMutex: Promise<void> = Promise.resolve();
@@ -501,9 +448,6 @@ export class JjScmProvider implements vscode.Disposable {
 
     dispose() {
         this._disposed = true;
-        if (this._pollTimer) {
-            clearTimeout(this._pollTimer);
-        }
         this.disposables.forEach((d) => d.dispose());
     }
 }

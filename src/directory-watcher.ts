@@ -1,0 +1,91 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import * as vscode from 'vscode';
+import { subscribe, AsyncSubscription, Event, BackendType } from '@parcel/watcher';
+
+export type DirectoryWatcherCallback = (events: Event[]) => void;
+
+export class DirectoryWatcher implements vscode.Disposable {
+    private _subscription: AsyncSubscription | undefined;
+    private _startPromise: Promise<void> | undefined;
+    private _disposed = false;
+
+    constructor(
+        private readonly path: string,
+        private readonly callback: DirectoryWatcherCallback,
+        private readonly outputChannel: vscode.OutputChannel,
+        private readonly name: string = 'DirectoryWatcher',
+        private readonly backend?: BackendType
+    ) {}
+
+    async start(ignores: string[] = []) {
+        if (this._startPromise) {
+            return this._startPromise;
+        }
+
+        this._startPromise = (async () => {
+            if (this._subscription || this._disposed) {
+                return;
+            }
+
+            try {
+                this.outputChannel.appendLine(`[${this.name}] Starting watcher on: ${this.path}`);
+                
+                const sub = await subscribe(
+                    this.path,
+                    (err, events) => {
+                        if (err) {
+                            this.outputChannel.appendLine(`[${this.name}] Error: ${err}`);
+                            return;
+                        }
+                        if (events.length > 0) {
+                            this.outputChannel.appendLine(`[${this.name}] Event received: ${JSON.stringify(events)}`);
+                            this.callback(events);
+                        }
+                    },
+                    { ignore: ignores, backend: this.backend }
+                );
+
+                if (this._disposed) {
+                    await sub.unsubscribe();
+                    return;
+                }
+
+                this._subscription = sub;
+                this.outputChannel.appendLine(`[${this.name}] Started.`);
+            } catch (err) {
+                this.outputChannel.appendLine(`[${this.name}] Failed to start: ${err}`);
+                throw err;
+            }
+        })();
+
+        return this._startPromise;
+    }
+
+    async stop() {
+        if (this._startPromise) {
+            await this._startPromise.catch(() => {});
+            this._startPromise = undefined;
+        }
+
+        if (this._subscription) {
+            try {
+                await this._subscription.unsubscribe();
+            } catch (err) {
+                this.outputChannel.appendLine(`[${this.name}] Failed to unsubscribe: ${err}`);
+            }
+            this._subscription = undefined;
+        }
+    }
+
+    async dispose() {
+        if (this._disposed) {
+            return;
+        }
+        this._disposed = true;
+        await this.stop();
+    }
+}
