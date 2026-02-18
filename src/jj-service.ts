@@ -699,4 +699,49 @@ export class JjService {
 
         return this.run('absorb', args, { isMutation: true });
     }
+
+    async getGitBlobHashes(commitId: string, filePaths: string[]): Promise<Map<string, string>> {
+        if (filePaths.length === 0) {
+            return new Map();
+        }
+
+        // We use raw git command because jj doesn't expose ls-tree
+        return new Promise((resolve) => {
+             cp.execFile('git', ['ls-tree', commitId, '--', ...filePaths], {
+                cwd: this.workspaceRoot,
+                maxBuffer: 10 * 1024 * 1024
+            }, (err, stdout) => {
+                if (err) {
+                    // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
+                    // This is expected fallback behavior
+                    resolve(new Map());
+                    return;
+                }
+
+                const resultMap = new Map<string, string>();
+                // Output format: <mode> blob <sha> <tab><path>
+                // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
+                
+                const lines = stdout.toString().trim().split('\n');
+                for (const line of lines) {
+                    if (!line) continue;
+                    
+                    // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
+                    // Git ls-tree output is fairly standard: mode type sha\tpath
+                    const parts = line.split(/\s+/); 
+                    if (parts.length >= 4 && parts[1] === 'blob') {
+                        const sha = parts[2];
+                        const pathPart = line.substring(line.indexOf('\t') + 1);
+                        // Remove quotes if present (git ls-tree quotes paths with spaces/unusual chars)
+                        const cleanPath = pathPart.startsWith('"') && pathPart.endsWith('"') 
+                            ? JSON.parse(pathPart) 
+                            : pathPart;
+                            
+                        resultMap.set(cleanPath, sha);
+                    }
+                }
+                resolve(resultMap);
+            });
+        });
+    }
 }

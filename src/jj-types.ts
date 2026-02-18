@@ -16,6 +16,8 @@ export interface GerritClInfo {
     url: string;
     unresolvedComments: number;
     currentRevision?: string;
+    files?: Record<string, { newSha?: string; status?: string }>;
+    synced?: boolean;
 }
 
 export interface JjLogEntry {

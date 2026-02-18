@@ -361,5 +361,32 @@ describe('GerritService Detection', () => {
         expect(fireSpy).toHaveBeenCalled();
 
         vi.useRealTimers();
+        vi.useRealTimers();
+    });
+
+    test('fetchAndCacheStatus parses changed files', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
+        const currentRev = 'commit-sha-on-gerrit';
+        
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            text: () => Promise.resolve(`)]}'\n[{"change_id":"${changeId}","_number":123,"status":"NEW","current_revision":"${currentRev}","revisions":{"${currentRev}":{"files":{"file1.txt":{"status":"M","new_sha":"abc"},"file2.txt":{"status":"A","new_sha":"def"},"deleted.txt":{"status":"D"},"/COMMIT_MSG":{"status":"A"}}}}}]`)
+        });
+        global.fetch = fetchMock;
+
+        const result = await service.fetchAndCacheStatus('local-sha', changeId, `Change-Id: ${changeId}`);
+
+        expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('o=CURRENT_FILES'));
+        expect(result?.files).toBeDefined();
+        expect(result?.files?.['file1.txt']).toEqual({ status: 'M', newSha: 'abc' });
+        expect(result?.files?.['file2.txt']).toEqual({ status: 'A', newSha: 'def' });
+        // Deleted file has no newSha
+        expect(result?.files?.['deleted.txt']).toEqual({ status: 'D', newSha: undefined });
+        // Magic file should be filtered out
+        expect(result?.files?.['/COMMIT_MSG']).toBeUndefined();
     });
 });

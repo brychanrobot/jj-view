@@ -6,6 +6,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as cp from 'child_process';
 import { JjService } from '../jj-service';
 import { TestRepo, buildGraph } from './test-repo';
 
@@ -1173,5 +1174,27 @@ describe('JjService Unit Tests', () => {
         // without valid remote fetching, but the implementation uses Set to guarantee uniqueness.
         const uniqueBookmarks = new Set(bookmarks);
         expect(bookmarks.length).toBe(uniqueBookmarks.size);
+    });
+
+    test('getGitBlobHashes returns correct blob hashes', async () => {
+        const fileName = 'blob.txt';
+        const fileContent = 'blob content';
+        
+        // Create a file and commit it
+        repo.writeFile(fileName, fileContent);
+        repo.describe('blob test');
+        const commitId = repo.getCommitId('@');
+        
+        // Calculate expected Git hash
+        // Git blob hash is SHA-1 of "blob <size>\0<content>"
+        // For 'blob content', size is 12.
+        // echo -n "blob content" | git hash-object --stdin
+        // We can use the repo's git command to get the hash of the file content
+        const expectedHash = cp.execFileSync('git', ['hash-object', path.join(repo.path, fileName)], { cwd: repo.path }).toString().trim();
+        
+        const hashes = await jjService.getGitBlobHashes(commitId, [fileName]);
+        
+        expect(hashes.size).toBe(1);
+        expect(hashes.get(fileName)).toBe(expectedHash);
     });
 });
