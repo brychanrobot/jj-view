@@ -48,7 +48,7 @@ async function main() {
         sourcesContent: false,
         platform: 'node',
         outfile: 'dist/extension.js',
-        external: ['vscode'],
+        external: ['vscode', '@parcel/watcher'],
         logLevel: 'silent',
         plugins: [esbuildProblemMatcherPlugin],
     });
@@ -116,8 +116,45 @@ async function copyAssets() {
     }
 }
 
-// Run copyAssets and generateMenuActions before main logic
-copyAssets()
+/**
+ * Install all platform-specific @parcel/watcher binaries so the VSIX is universal.
+ * npm only installs the optional dep for the current platform, so we use
+ * `npm pack` to download tarballs for missing platforms and extract them.
+ */
+async function installNativeDeps() {
+    const fs = require('fs');
+    const path = require('path');
+
+    const watcherPkg = require('@parcel/watcher/package.json');
+    const optionalDeps = watcherPkg.optionalDependencies || {};
+
+    for (const [name, version] of Object.entries(optionalDeps)) {
+        const destDir = path.join(__dirname, 'node_modules', name);
+        if (fs.existsSync(destDir)) {
+            continue;
+        }
+
+        const spec = `${name}@${version}`;
+        console.log(`[build] Installing ${spec}...`);
+        try {
+            const tarball = execSync(`npm pack ${spec} --pack-destination /tmp`, {
+                encoding: 'utf-8',
+            }).trim();
+            const tarballPath = path.join('/tmp', tarball);
+            fs.mkdirSync(destDir, { recursive: true });
+            execSync(`tar xzf "${tarballPath}" --strip-components=1 -C "${destDir}"`, {
+                stdio: 'inherit',
+            });
+            fs.unlinkSync(tarballPath);
+            console.log(`[build] Installed ${spec}`);
+        } catch (e) {
+            console.warn(`[build] Failed to install ${spec}: ${e.message}`);
+        }
+    }
+}
+
+// Run copyAssets and installNativeDeps before main build
+Promise.all([copyAssets(), installNativeDeps()])
     .then(main)
     .catch((e) => {
         console.error(e);
