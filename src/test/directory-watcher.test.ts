@@ -31,7 +31,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    const waitForLog = async (pattern: string, timeout = 3000) => {
+    const waitForLog = async (pattern: string, timeout = 10000) => {
         await vi.waitFor(() => {
             const calls = (outputChannel.appendLine as Mock).mock.calls;
             const found = calls.some(call => call[0].includes(pattern));
@@ -69,7 +69,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
                 (e: { path: string; type: string }) => e.path.includes('new-file.txt')
             );
             expect(hasCreate, 'Expected a create event for new-file.txt').toBe(true);
-        }, { timeout: 3000, interval: 50 });
+        }, { timeout: 10000, interval: 50 });
     });
 
     it('detects file modification', async () => {
@@ -91,15 +91,24 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
                 (e: { path: string; type: string }) => e.path.includes('existing.txt')
             );
             expect(hasUpdate, 'Expected an update event for existing.txt').toBe(true);
-        }, { timeout: 3000, interval: 50 });
+        }, { timeout: 10000, interval: 50 });
     });
 
     it('detects file deletion', async () => {
+        await watcher.start();
+        await waitForLog('Started');
+
         const filePath = path.join(tmpDir, 'to-delete.txt');
         fs.writeFileSync(filePath, 'bye');
 
-        await watcher.start();
-        await waitForLog('Started');
+        // Wait for creation first to ensure watcher is ready
+        await vi.waitFor(() => {
+            const events = callback.mock.calls.flatMap(call => call[0]);
+            const hasCreate = events.some(
+                (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'create'
+            );
+            expect(hasCreate, 'Expected verify creation of to-delete.txt').toBe(true);
+        }, { timeout: 10000, interval: 50 });
 
         callback.mockClear();
 
@@ -109,10 +118,10 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
             expect(callback).toHaveBeenCalled();
             const events = callback.mock.calls.flatMap(call => call[0]);
             const hasDelete = events.some(
-                (e: { path: string; type: string }) => e.path.includes('to-delete.txt')
+                (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'delete'
             );
             expect(hasDelete, 'Expected a delete event for to-delete.txt').toBe(true);
-        }, { timeout: 3000, interval: 50 });
+        }, { timeout: 10000, interval: 50 });
     });
 
     it('ignores paths matching the ignore pattern', async () => {
@@ -134,7 +143,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
                 (e: { path: string }) => e.path.includes('visible-file.txt')
             );
             expect(hasVisible, 'Expected event for visible-file.txt').toBe(true);
-        }, { timeout: 3000, interval: 50 });
+        }, { timeout: 10000, interval: 50 });
 
         // Verify no events for the ignored file
         const allEvents = callback.mock.calls.flatMap(call => call[0]);

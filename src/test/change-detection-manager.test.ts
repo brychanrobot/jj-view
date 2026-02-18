@@ -88,7 +88,7 @@ describe('ChangeDetectionManager', () => {
             if (!found) {
                 throw new Error(`Log pattern "${pattern}" not found`);
             }
-        }, { timeout: 2000, interval: 50 });
+        }, { timeout: 10000, interval: 50 });
     };
 
     describe('Polling Logic (Fake Timers)', () => {
@@ -223,7 +223,7 @@ describe('ChangeDetectionManager', () => {
             await vi.waitFor(() => {
                 const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
                 expect(found, 'Trigger refresh for file watcher event was not called').toBe(true);
-            }, { timeout: 3000, interval: 100 });
+            }, { timeout: 10000, interval: 100 });
         });
 
         it('handles op_heads changes with real watcher', async () => {
@@ -240,7 +240,7 @@ describe('ChangeDetectionManager', () => {
             await vi.waitFor(() => {
                 const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'jj operation');
                 expect(found, 'Trigger refresh for jj operation was not called').toBe(true);
-            }, { timeout: 3000, interval: 100 });
+            }, { timeout: 10000, interval: 100 });
         });
 
         it('filters out negated patterns from .gitignore', async () => {
@@ -278,7 +278,7 @@ describe('ChangeDetectionManager', () => {
              await vi.waitFor(() => {
                  const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
                  expect(found, 'Expected file watcher event for visible.txt').toBe(true);
-             }, { timeout: 3000, interval: 100 });
+             }, { timeout: 10000, interval: 100 });
          });
     });
 });

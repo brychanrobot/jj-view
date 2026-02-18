@@ -32,17 +32,17 @@ export class DirectoryWatcher implements vscode.Disposable {
             }
 
             try {
-                this.outputChannel.appendLine(`[${this.name}] Starting watcher on: ${this.path}`);
+                this.log(`[${this.name}] Starting watcher on: ${this.path}`);
                 
                 const sub = await subscribe(
                     this.path,
                     (err, events) => {
                         if (err) {
-                            this.outputChannel.appendLine(`[${this.name}] Error: ${err}`);
+                            this.log(`[${this.name}] Error: ${err}`);
                             return;
                         }
                         if (events.length > 0) {
-                            this.outputChannel.appendLine(`[${this.name}] Event received: ${JSON.stringify(events)}`);
+                            this.log(`[${this.name}] Event received: ${JSON.stringify(events)}`);
                             this.callback(events);
                         }
                     },
@@ -55,9 +55,9 @@ export class DirectoryWatcher implements vscode.Disposable {
                 }
 
                 this._subscription = sub;
-                this.outputChannel.appendLine(`[${this.name}] Started.`);
+                this.log(`[${this.name}] Started.`);
             } catch (err) {
-                this.outputChannel.appendLine(`[${this.name}] Failed to start: ${err}`);
+                this.log(`[${this.name}] Failed to start: ${err}`);
                 throw err;
             }
         })();
@@ -75,7 +75,7 @@ export class DirectoryWatcher implements vscode.Disposable {
             try {
                 await this._subscription.unsubscribe();
             } catch (err) {
-                this.outputChannel.appendLine(`[${this.name}] Failed to unsubscribe: ${err}`);
+                this.log(`[${this.name}] Failed to unsubscribe: ${err}`);
             }
             this._subscription = undefined;
         }
@@ -88,4 +88,16 @@ export class DirectoryWatcher implements vscode.Disposable {
         this._disposed = true;
         await this.stop();
     }
+
+    private log(message: string) {
+        if (this._disposed) {
+            return;
+        }
+        try {
+            this.outputChannel.appendLine(message);
+        } catch {
+            // Ignore errors if channel is closed/disposed
+        }
+    }
+
 }
