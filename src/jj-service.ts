@@ -19,7 +19,9 @@ export interface JjLogOptions {
 
 
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
-const MUTATION_TIMEOUT_MS = 60_000;
+const ONE_MINUTE = 60_000;
+const MUTATION_TIMEOUT_MS = ONE_MINUTE;
+const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
 export class JjService {
     private _writeOperationCount = 0;
@@ -76,9 +78,10 @@ export class JjService {
             if (options.isMutation) {
                 this._writeOperationCount++;
                 // Safety timeout: if operation takes too long, reject to unblock file watcher
+                const duration = options.timeout ?? MUTATION_TIMEOUT_MS;
                 const timeout = setTimeout(() => {
-                    reject(new Error(`Mutation operation timed out after ${MUTATION_TIMEOUT_MS}ms`));
-                }, MUTATION_TIMEOUT_MS);
+                    reject(new Error(`Mutation operation timed out after ${duration / 1000}s`));
+                }, duration);
                 this._operationTimeouts.set(opId, timeout);
             }
 
@@ -584,7 +587,10 @@ export class JjService {
     }
 
     async upload(commandArgs: string[], revision: string): Promise<string> {
-        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], { isMutation: true });
+        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], {
+            isMutation: true,
+            timeout: UPLOAD_TIMEOUT_MS,
+        });
     }
 
     public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
