@@ -181,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
-            await uploadCommand(scmProvider, jj, gerritService, revision);
+            await uploadCommand(jj, gerritService, revision);
         }),
     );
 
@@ -288,14 +288,11 @@ export function handleTerminalExecution(
     commandLine: string,
     gerritService: GerritService,
     outputChannel: vscode.OutputChannel,
-    scheduleFn: (callback: () => void, delay: number) => void = setTimeout,
 ): boolean {
     const cmd = commandLine.trim();
     if (cmd.startsWith('jj') && cmd.includes('upload')) {
         outputChannel.appendLine(`[Extension] Detected terminal upload: "${cmd}"`);
-        for (const delay of [2000, 3000, 5000, 10000]) {
-            scheduleFn(() => gerritService.forceRefresh(), delay);
-        }
+        gerritService.requestRefreshWithBackoffs();
         return true;
     }
     return false;

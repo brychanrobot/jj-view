@@ -441,4 +441,32 @@ describe('GerritService Detection', () => {
         // Should be not synced because file2.txt is extra locally
         expect(result?.synced).toBeFalsy();
     });
+
+    test('requestRefreshWithBackoffs schedules multiple refreshes', async () => {
+        vi.useFakeTimers();
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const forceRefreshSpy = vi.spyOn(service, 'forceRefresh');
+        
+        // Mock scheduler to verify delays
+        const scheduler = vi.fn().mockImplementation((fn, delay) => {
+            setTimeout(fn, delay);
+        });
+
+        service.requestRefreshWithBackoffs(scheduler);
+
+        expect(scheduler).toHaveBeenCalledTimes(4);
+        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 2000);
+        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 3000);
+        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 5000);
+        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 10000);
+
+        // Advance time to trigger all refreshes
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(forceRefreshSpy).toHaveBeenCalledTimes(4);
+
+        vi.useRealTimers();
+    });
 });

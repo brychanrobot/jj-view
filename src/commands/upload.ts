@@ -5,19 +5,17 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { JjScmProvider } from '../jj-scm-provider';
+
 import { GerritService } from '../gerrit-service';
 import { withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
-    scmProvider: JjScmProvider,
     jj: JjService,
     gerrit: GerritService,
     revision: string
 ): Promise<void> {
     try {
         const config = vscode.workspace.getConfiguration('jj-view');
-        // Check for override
         const customCommand = config.get<string>('uploadCommand');
         let args: string[] = [];
 
@@ -42,8 +40,7 @@ export async function uploadCommand(
             jj.upload(args, revision)
         );
 
-        // Refresh view
-        await scmProvider.refresh();
+        gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);
     } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : String(e);

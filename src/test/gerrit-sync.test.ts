@@ -58,7 +58,6 @@ describe('Gerrit Sync Verification', () => {
                 };
                 return Promise.resolve(`)]}'\n${JSON.stringify([change])}`);
             }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as unknown as typeof fetch;
     }
 

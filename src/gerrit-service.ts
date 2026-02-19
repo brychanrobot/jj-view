@@ -97,6 +97,23 @@ export class GerritService implements vscode.Disposable {
         }
     }
 
+    /**
+     * Schedules multiple force refreshes with backoff delays to catch updates (e.g. CI, Merge status)
+     * that might have latency after an upload.
+     */
+    public requestRefreshWithBackoffs(scheduleFn: (callback: () => void, delay: number) => void = setTimeout) {
+        if (!this.isEnabled) {
+            return;
+        }
+
+        const delays = [2000, 3000, 5000, 10000];
+        this.outputChannel?.appendLine(`[GerritService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
+        
+        for (const delay of delays) {
+            scheduleFn(() => this.forceRefresh(), delay);
+        }
+    }
+
     private async detectGerritHost() {
         // 1. Check extension setting
         const config = vscode.workspace.getConfiguration('jj-view');

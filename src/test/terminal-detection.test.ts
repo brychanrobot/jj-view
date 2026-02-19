@@ -15,16 +15,16 @@ import type { GerritService } from '../gerrit-service';
 import type * as vscode from 'vscode';
 
 describe('handleTerminalExecution', () => {
-    let gerritService: { forceRefresh: ReturnType<typeof vi.fn> };
+    let gerritService: { forceRefresh: ReturnType<typeof vi.fn>; requestRefreshWithBackoffs: ReturnType<typeof vi.fn> };
     let outputChannel: { appendLine: ReturnType<typeof vi.fn> };
-    let scheduledCallbacks: { callback: () => void; delay: number }[];
-    let scheduleFn: (callback: () => void, delay: number) => void;
+
 
     beforeEach(() => {
-        gerritService = { forceRefresh: vi.fn() };
+        gerritService = { 
+            forceRefresh: vi.fn(),
+            requestRefreshWithBackoffs: vi.fn(),
+        };
         outputChannel = { appendLine: vi.fn() };
-        scheduledCallbacks = [];
-        scheduleFn = (callback, delay) => scheduledCallbacks.push({ callback, delay });
     });
 
     it('detects "jj upload" and schedules staggered refreshes', () => {
@@ -32,18 +32,11 @@ describe('handleTerminalExecution', () => {
             'jj upload',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(result).toBe(true);
-        expect(scheduledCallbacks).toHaveLength(4);
-        expect(scheduledCallbacks.map(s => s.delay)).toEqual([2000, 3000, 5000, 10000]);
 
-        // Execute all scheduled callbacks
-        for (const { callback } of scheduledCallbacks) {
-            callback();
-        }
-        expect(gerritService.forceRefresh).toHaveBeenCalledTimes(4);
+        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     it('detects "jj gerrit upload" with arguments', () => {
@@ -51,11 +44,10 @@ describe('handleTerminalExecution', () => {
             'jj gerrit upload --change abc123',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(result).toBe(true);
-        expect(scheduledCallbacks).toHaveLength(4);
+        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     it('ignores non-jj commands', () => {
@@ -63,11 +55,10 @@ describe('handleTerminalExecution', () => {
             'git push origin main',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(result).toBe(false);
-        expect(scheduledCallbacks).toHaveLength(0);
+        expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
         expect(gerritService.forceRefresh).not.toHaveBeenCalled();
     });
 
@@ -76,11 +67,10 @@ describe('handleTerminalExecution', () => {
             'jj log --revisions @',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(result).toBe(false);
-        expect(scheduledCallbacks).toHaveLength(0);
+        expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
     });
 
     it('handles leading whitespace in command', () => {
@@ -88,11 +78,10 @@ describe('handleTerminalExecution', () => {
             '  jj upload  ',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(result).toBe(true);
-        expect(scheduledCallbacks).toHaveLength(4);
+        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     it('logs detected upload command', () => {
@@ -100,7 +89,6 @@ describe('handleTerminalExecution', () => {
             'jj upload',
             gerritService as unknown as GerritService,
             outputChannel as unknown as vscode.OutputChannel,
-            scheduleFn,
         );
 
         expect(outputChannel.appendLine).toHaveBeenCalledWith(
