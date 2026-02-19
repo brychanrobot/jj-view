@@ -278,16 +278,17 @@ export class JjScmProvider implements vscode.Disposable {
 
                             // Reuse existing group or create new one
                             let group: vscode.SourceControlResourceGroup;
+                            const contextValue = parentEntry.is_immutable ? 'jjParentGroup' : 'jjParentGroup:mutable';
+
                             if (i < this._parentGroups.length) {
                                 group = this._parentGroups[i];
                                 group.label = label;
+                                group.contextValue = contextValue;
                             } else {
                                 const groupId = `parent-${i}`;
                                 group = this._sourceControl.createResourceGroup(groupId, label);
                                 group.hideWhenEmpty = true;
-                                group.contextValue = parentEntry.is_immutable
-                                    ? 'jjParentGroup'
-                                    : 'jjParentGroup:mutable';
+                                group.contextValue = contextValue;
                                 this._parentGroups.push(group);
                             }
 

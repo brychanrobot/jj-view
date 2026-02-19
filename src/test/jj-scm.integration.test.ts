@@ -675,4 +675,32 @@ suite('JJ SCM Provider Integration Test', function () {
 
         assert.strictEqual(scmProvider.sourceControl.count, 2, 'SCM Count should match Working Copy count (2)');
     });
+
+    test('Parent group context value updates when switching between immutable and mutable parents', async () => {
+        // Scenario:
+        // 1. Edit C1 (Parent is Root). Root is Immutable. Group should be 'jjParentGroup'.
+        // 2. Edit C2 (Parent is C1). C1 is Mutable. Group should be 'jjParentGroup:mutable'.
+        
+        // 1. Create C1 on top of root
+        repo.new(['root()'], 'C1'); 
+        // Current working copy (@) is C1. Parent is Root.
+        
+        await scmProvider.refresh();
+        let parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        // Root is immutable, so parent group should be immutable
+        assert.strictEqual(parentGroups[0].contextValue, 'jjParentGroup', 'Parent (Root) should be immutable');
+        
+        // 2. Create C2 on top of C1
+        repo.new([], 'C2');     
+        // Current working copy (@) is C2. Parent is C1.
+        // C1 is a normal commit, so it is mutable.
+        
+        await scmProvider.refresh();
+        parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        assert.strictEqual(parentGroups.length, 1);
+        
+        // This is the key assertion: Did the reused group update its context value?
+        assert.strictEqual(parentGroups[0].contextValue, 'jjParentGroup:mutable', 'Parent (C1) should be mutable');
+        assert.ok(parentGroups[0].label.includes('C1'), 'Group should be C1');
+    });
 });
