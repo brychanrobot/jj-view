@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "module": "commonjs",
-        "target": "ES2022",
-        "lib": ["ES2022", "DOM"],
+        "target": "ESNext",
+        "lib": ["ESNext", "DOM"],
         "jsx": "react",
         "sourceMap": true,
         "rootDir": "src",

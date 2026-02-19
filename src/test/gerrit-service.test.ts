@@ -361,7 +361,27 @@ describe('GerritService Detection', () => {
         expect(fireSpy).toHaveBeenCalled();
 
         vi.useRealTimers();
-        vi.useRealTimers();
+    });
+
+    test('forceRefresh clears cache and fires onDidUpdate', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        // Pre-populate cache
+        const cacheKey = 'I456';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const serviceWithCache = service as any;
+        serviceWithCache.cache.set(cacheKey, { changeId: cacheKey, status: 'NEW' });
+        expect(serviceWithCache.cache.size).toBe(1);
+
+        // Track onDidUpdate calls
+        const fireSpy = vi.spyOn(serviceWithCache._onDidUpdate, 'fire');
+
+        service.forceRefresh();
+
+        expect(serviceWithCache.cache.size).toBe(0);
+        expect(fireSpy).toHaveBeenCalledOnce();
     });
 
     test('fetchAndCacheStatus parses changed files', async () => {
@@ -388,5 +408,37 @@ describe('GerritService Detection', () => {
         expect(result?.files?.['deleted.txt']).toEqual({ status: 'D', newSha: undefined });
         // Magic file should be filtered out
         expect(result?.files?.['/COMMIT_MSG']).toBeUndefined();
+    });
+
+    test('fetchAndCacheStatus detects extra local files as not synced', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        // 1. Create a commit with 2 files locally
+        repo.writeFile('file1.txt', 'content1');
+        repo.writeFile('file2.txt', 'content2');
+        await jjService.describe('commit with 2 files');
+        
+        // Get commit ID of @ (which has the files)
+        const commitId = repo.getCommitId('@').trim();
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+
+        // 2. Mock Gerrit response knowing ONLY about file1.txt
+        const currentRev = 'commit-sha-on-gerrit';
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            text: () => Promise.resolve(`)]}'\n[{"change_id":"${changeId}","_number":123,"status":"NEW","current_revision":"${currentRev}","revisions":{"${currentRev}":{"files":{"file1.txt":{"status":"A","new_sha":"abc"}}}}}]`)
+        });
+        global.fetch = fetchMock;
+
+        // 3. Trigger fetch
+        const result = await service.fetchAndCacheStatus(commitId, changeId, `Change-Id: ${changeId}`);
+
+        // 4. Verify
+        expect(fetchMock).toHaveBeenCalled();
+        expect(result).toBeDefined();
+        // Should be not synced because file2.txt is extra locally
+        expect(result?.synced).toBeFalsy();
     });
 });

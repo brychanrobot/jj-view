@@ -227,6 +227,13 @@ export function activate(context: vscode.ExtensionContext) {
     // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
     scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
 
+    // Detect terminal 'jj upload' commands and trigger immediate Gerrit refresh
+    context.subscriptions.push(
+        vscode.window.onDidEndTerminalShellExecution((event) => {
+            handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel);
+        })
+    );
+
     // For now, let's expose the refresh command to also refresh the tree
     const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
     context.subscriptions.push(refreshCmd);
@@ -274,6 +281,24 @@ export function activate(context: vscode.ExtensionContext) {
         scmProvider,
         jj,
     };
+}
+
+/** Checks if a terminal command is a jj upload and triggers staggered Gerrit refreshes. */
+export function handleTerminalExecution(
+    commandLine: string,
+    gerritService: GerritService,
+    outputChannel: vscode.OutputChannel,
+    scheduleFn: (callback: () => void, delay: number) => void = setTimeout,
+): boolean {
+    const cmd = commandLine.trim();
+    if (cmd.startsWith('jj') && cmd.includes('upload')) {
+        outputChannel.appendLine(`[Extension] Detected terminal upload: "${cmd}"`);
+        for (const delay of [2000, 3000, 5000, 10000]) {
+            scheduleFn(() => gerritService.forceRefresh(), delay);
+        }
+        return true;
+    }
+    return false;
 }
 
 // This method is called when your extension is deactivated

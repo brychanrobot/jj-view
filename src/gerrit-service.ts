@@ -88,6 +88,15 @@ export class GerritService implements vscode.Disposable {
         }
     }
 
+    /** Immediately clears cache and notifies listeners to re-fetch Gerrit data. */
+    public forceRefresh() {
+        if (this.isEnabled) {
+            this.outputChannel?.appendLine('[GerritService] Force refresh triggered');
+            this.cache.clear();
+            this._onDidUpdate.fire();
+        }
+    }
+
     private async detectGerritHost() {
         // 1. Check extension setting
         const config = vscode.workspace.getConfiguration('jj-view');
@@ -408,30 +417,38 @@ export class GerritService implements vscode.Disposable {
 
         const gerritFiles = info.files;
         try {
-            const pathsToCheck = Object.keys(gerritFiles);
-            const localHashes = await this.jjService.getGitBlobHashes(commitId, pathsToCheck);
+            // 1. Get filtered sets of "active" files (non-deleted)
+            const localChanges = await this.jjService.getChanges(commitId);
+            const localPaths = new Set(
+                localChanges
+                    .filter(c => c.status !== 'deleted')
+                    .map(c => c.path)
+            );
 
-            let allMatch = true;
-            for (const file of pathsToCheck) {
-                const gerritFile = gerritFiles[file];
-                const localSha = localHashes.get(file);
+            const gerritPaths = Object.keys(gerritFiles).filter(p => gerritFiles[p].status !== 'D');
+            const gerritPathSet = new Set(gerritPaths);
 
-                if (gerritFile.status === 'D') {
-                    if (localSha) {
-                        allMatch = false;
-                        break;
-                    }
-                } else {
+            // 2. Compare sets using ES2024 Set.difference
+            // Check for strict equality of sets: A.difference(B) must be empty AND B.difference(A) must be empty
+            if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
+                return;
+            }
+
+            // 3. Sets match 1:1, so we only need to verify content hashes
+            if (gerritPaths.length > 0) {
+                const localHashes = await this.jjService.getGitBlobHashes(commitId, gerritPaths);
+                
+                for (const file of gerritPaths) {
+                    const gerritFile = gerritFiles[file];
+                    const localSha = localHashes.get(file);
+
                     if (!localSha || localSha !== gerritFile.newSha) {
-                        allMatch = false;
-                        break;
+                        return;
                     }
                 }
             }
 
-            if (allMatch) {
-                info.synced = true;
-            }
+            info.synced = true;
         } catch (e) {
             this.outputChannel?.appendLine(`[GerritService] Sync verification failed for ${commitId}: ${e}`);
         }
