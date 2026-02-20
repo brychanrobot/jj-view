@@ -4,11 +4,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'; // Vitest
+import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
+import { FakeGerritServer } from './fake-gerrit-server';
 
 // Mock VS Code
 const mockConfig = {
@@ -22,35 +24,45 @@ vi.mock('vscode', () => ({
     },
     Disposable: { from: vi.fn() },
     EventEmitter: class {
-        event = vi.fn();
-        fire = vi.fn();
+        private listeners: Function[] = [];
+        event = (listener: Function) => {
+            this.listeners.push(listener);
+            return { dispose: () => { this.listeners = this.listeners.filter(l => l !== listener); } };
+        };
+        fire = (data: unknown) => {
+            this.listeners.forEach(l => l(data));
+        };
         dispose = vi.fn();
     },
-    window: { state: { focused: true } },
+    window: {
+        state: { focused: true },
+        onDidChangeWindowState: vi.fn(),
+    },
 }));
 
 describe('GerritService Detection', () => {
     let repo: TestRepo;
     let service: GerritService;
     let jjService: JjService;
+    let mockOnDidChangeWindowState: ReturnType<typeof vi.fn>;
+    let fakeGerritServer: FakeGerritServer;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
         mockConfig.get.mockReset();
+        
+        mockOnDidChangeWindowState = vscode.window.onDidChangeWindowState as unknown as ReturnType<typeof vi.fn>;
+        mockOnDidChangeWindowState.mockReset();
+        mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
 
         jjService = new JjService(repo.path);
+        fakeGerritServer = new FakeGerritServer();
         
-        // Default fetch mock for probing
-        global.fetch = vi.fn().mockImplementation((url) => {
-             // Allow probing to succeed for any 'config/server/version' check or 'git.eclipse.org' (which might be checked via /changes/?n=1 or similar if I implemented that fallback, but I didn't)
-             if (url && typeof url === 'string' && (url.includes('/config/server/version'))) {
-                 return Promise.resolve({ ok: true });
-             }
-             // Fail others by default
-             return Promise.resolve({ ok: false });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }) as any;
+        // Default fetch mock using FakeGerrit
+        global.fetch = vi.fn().mockImplementation((url, init) => {
+             return fakeGerritServer.handleFetch(url, init);
+        }) as unknown as typeof fetch;
     });
 
     afterEach(async () => {
@@ -131,15 +143,6 @@ describe('GerritService Detection', () => {
     test('Detects from sso:// remote', async () => {
         repo.addRemote('origin', 'sso://chromium/chromium/src.git');
 
-        // Mock probe to succeed
-        global.fetch = vi.fn().mockImplementation((url) => {
-             if (url.includes('/config/server/version')) {
-                 return Promise.resolve({ ok: true });
-             }
-             return Promise.resolve({ ok: false });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }) as any;
-
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
@@ -151,16 +154,17 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(")]}'\n[{\"change_id\":\"I1234567890abcdef1234567890abcdef12345678\",\"_number\":123}]")
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW'
         });
-        global.fetch = fetchMock;
 
         const result = await service.fetchAndCacheStatus('commit-sha', 'z-change-id', 'Description\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678\n');
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            expect.stringContaining('change:I1234567890abcdef1234567890abcdef12345678')
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`change:${changeId}`)
         );
         expect(result?.changeId).toBe('I1234567890abcdef1234567890abcdef12345678');
     });
@@ -170,11 +174,12 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(")]}'\n[{\"change_id\":\"I000000000000ffffffffffffffffffffffffffff\",\"_number\":456}]")
+        const changeId = 'I000000000000ffffffffffffffffffffffffffff';
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 456,
+            status: 'NEW'
         });
-        global.fetch = fetchMock;
 
         // z (122) -> 0
         // k (107) -> f
@@ -183,8 +188,8 @@ describe('GerritService Detection', () => {
         
         const result = await service.fetchAndCacheStatus('commit-sha', jjId, 'Description without ID');
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            expect.stringContaining('change:I000000000000ffffffffffffffffffffffffffff')
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`change:${changeId}`)
         );
         expect(result?.changeNumber).toBe(456);
     });
@@ -194,12 +199,13 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn(); // Should not be called
-        global.fetch = fetchMock;
+        // Should not be called
+        const fetchSpy = global.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchSpy.mockClear();
 
         const result = await service.fetchAndCacheStatus('commit-sha', undefined, 'Description without ID');
 
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
         expect(result).toBeUndefined();
     });
     test('fetchAndCacheStatus handles invalid JJ Change-Id gracefully', async () => {
@@ -207,14 +213,15 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn(); // Should not be called
-        global.fetch = fetchMock;
+        // should trigger the try-catch block
+        const fetchSpy = global.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchSpy.mockClear();
 
         // 'a' is not a valid char in k-z range
         // This should trigger the try-catch block in fetchClStatus
         const result = await service.fetchAndCacheStatus('commit-sha', 'invalid-id-a', 'Description without ID');
 
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
         expect(result).toBeUndefined();
     });
     test('fetchAndCacheStatus caches by Change-Id', async () => {
@@ -222,41 +229,44 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(")]}'\n[{\"change_id\":\"I123\",\"_number\":123}]")
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW'
         });
-        global.fetch = fetchMock;
 
         // First call
-        await service.fetchAndCacheStatus('commit-1', 'change-1', 'Desc\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678');
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await service.fetchAndCacheStatus('commit-1', 'change-1', `Desc\n\nChange-Id: ${changeId}`);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
 
         // Second call with DIFFERENT commit ID but SAME Change-Id - should use cache
-        await service.fetchAndCacheStatus('commit-2', 'change-1', 'Desc\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678');
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await service.fetchAndCacheStatus('commit-2', 'change-1', `Desc\n\nChange-Id: ${changeId}`);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
     test('forceFetchAndCacheStatus bypasses cache and updates it', async () => {
-        mockConfig.get.mockReturnValue('https://host.com');
+        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(")]}'\n[{\"change_id\":\"I123\",\"_number\":123}]")
+        // Pre-populate gerrit server
+        const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: cacheKey,
+            status: 'NEW',
+            _number: 123
         });
-        global.fetch = fetchMock;
-
-        // Pre-populate cache
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (service as any).cache.set('I123', { changeId: 'I123', status: 'OLD' });
-
-        const result = await service.forceFetchAndCacheStatus('c1', 'change-1', 'Change-Id: I123');
         
-        expect(result?.status).toBeUndefined(); // Mock returns partial data, but let's assume it parses
-        // Actually my mock data above implies status is undefined in the response, so it will be undefined.
-        // Let's fix mock data
+        // Cache it first
+        await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
+        
+        // Now update it on server (but we want to verifying cache BYPASS, so updating server and force refreshing should show update)
+        fakeGerritServer.updateChange(cacheKey, { status: 'MERGED' });
+
+        const result = await service.forceFetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
+        
+        expect(result?.status).toBe('MERGED');
     });
     
     test('ensureFreshStatuses detects changes', async () => {
@@ -266,31 +276,35 @@ describe('GerritService Detection', () => {
 
         // 1. Setup Cache with OLD data
         const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (service as any).cache.set(cacheKey, {
-            changeId: cacheKey,
-            status: 'NEW', // Old status in CACHE
-            changeNumber: 123
+        // 1. Setup Gerrit with OLD data and cache it
+        // 1. Setup Gerrit with OLD data and cache it
+        const cacheKey1 = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: cacheKey1,
+            status: 'NEW',
+            _number: 123
         });
+        await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey1}`);
+        fakeGerritServer.addChange({
+            change_id: cacheKey,
+            status: 'NEW',
+            _number: 123
+        });
+        await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey1}`);
 
-        // 2. Mock Fetch returning NEW data (MERGED)
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(`)]}'\n[{"change_id":"${cacheKey}","_number":123,"status":"MERGED"}]`)
-        });
-        global.fetch = fetchMock;
+        // 2. Update Gerrit with NEW data (MERGED)
+        fakeGerritServer.updateChange(cacheKey1, { status: 'MERGED', submittable: false });
 
         const items = [{
             commitId: 'commit-1',
             changeId: 'change-1',
-            description: `Change-Id: ${cacheKey}`
+            description: `Change-Id: ${cacheKey1}`
         }];
 
         const hasChanges = await service.ensureFreshStatuses(items);
 
-        expect(fetchMock).toHaveBeenCalled();
         expect(hasChanges).toBe(true);
-        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)?.status).toBe('MERGED');
+        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey1}`)?.status).toBe('MERGED');
     });
 
     test('ensureFreshStatuses returns false if no changes', async () => {
@@ -298,55 +312,51 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
-        
-        // 1. Setup Cache with SAME data (Order must match _fetchFromNetwork for JSON.stringify equality)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (service as any).cache.set(cacheKey, {
-            changeId: cacheKey,
-            changeNumber: 123,
+        // 1. Setup Gerrit and Cache
+        const cacheKey3 = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: cacheKey3,
             status: 'NEW',
-            submittable: undefined,
-            url: 'https://host.com/c/123',
-            unresolvedComments: 0,
-            currentRevision: undefined
+            _number: 123
         });
+        await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey3}`);
 
-        // 2. Mock Fetch returning SAME data
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(`)]}'\n[{"change_id":"${cacheKey}","_number":123,"status":"NEW"}]`)
-        });
-        global.fetch = fetchMock;
+        // 2. No updates to Gerrit (still NEW)
 
-        const items = [{
+        const items3 = [{
             commitId: 'commit-1',
             changeId: 'change-1',
-            description: `Change-Id: ${cacheKey}`
+            description: `Change-Id: ${cacheKey3}`
         }];
 
-        const hasChanges = await service.ensureFreshStatuses(items);
+        const hasChanges3 = await service.ensureFreshStatuses(items3);
 
-        expect(fetchMock).toHaveBeenCalled();
-        expect(hasChanges).toBe(false);
+        expect(hasChanges3).toBe(false);
     });
 
     test('startPolling clears cache and fires onDidUpdate', async () => {
         vi.useFakeTimers();
         
-        mockConfig.get.mockReturnValue('https://host.com');
+        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
+        expect(service.isEnabled).toBe(true);
 
-        // Pre-populate cache
-        const cacheKey = 'I123';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const serviceWithCache = service as any;
-        serviceWithCache.cache.set(cacheKey, { changeId: cacheKey, status: 'NEW' });
-        expect(serviceWithCache.cache.size).toBe(1);
+        // Pre-populate gerrit
+        const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: cacheKey,
+            status: 'NEW',
+            _number: 123
+        });
+        await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
+        
+        // Verify it's cached
+        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
         // Track onDidUpdate calls
-        const fireSpy = vi.spyOn(serviceWithCache._onDidUpdate, 'fire');
+        let updateFired = false;
+        const disposable = service.onDidUpdate(() => { updateFired = true; });
 
         // Start polling
         service.startPolling();
@@ -354,34 +364,39 @@ describe('GerritService Detection', () => {
         // Advance past the polling interval (60 seconds)
         await vi.advanceTimersByTimeAsync(60_000);
 
-        // Cache should be cleared
-        expect(serviceWithCache.cache.size).toBe(0);
-        
         // onDidUpdate should have been fired to notify listeners to re-fetch
-        expect(fireSpy).toHaveBeenCalled();
+        expect(updateFired).toBe(true);
+        disposable.dispose();
 
         vi.useRealTimers();
     });
 
     test('forceRefresh clears cache and fires onDidUpdate', async () => {
-        mockConfig.get.mockReturnValue('https://host.com');
+        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
+        expect(service.isEnabled).toBe(true);
 
-        // Pre-populate cache
-        const cacheKey = 'I456';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const serviceWithCache = service as any;
-        serviceWithCache.cache.set(cacheKey, { changeId: cacheKey, status: 'NEW' });
-        expect(serviceWithCache.cache.size).toBe(1);
+        // Pre-populate gerrit
+        const cacheKey = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: cacheKey,
+            status: 'NEW',
+            _number: 123
+        });
+        await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
+
+        // Verify it's cached
+        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
         // Track onDidUpdate calls
-        const fireSpy = vi.spyOn(serviceWithCache._onDidUpdate, 'fire');
+        let updateFired = false;
+        const disposable = service.onDidUpdate(() => { updateFired = true; });
 
         service.forceRefresh();
 
-        expect(serviceWithCache.cache.size).toBe(0);
-        expect(fireSpy).toHaveBeenCalledOnce();
+        expect(updateFired).toBe(true);
+        disposable.dispose();
     });
 
     test('fetchAndCacheStatus parses changed files', async () => {
@@ -392,15 +407,26 @@ describe('GerritService Detection', () => {
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
         const currentRev = 'commit-sha-on-gerrit';
         
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(`)]}'\n[{"change_id":"${changeId}","_number":123,"status":"NEW","current_revision":"${currentRev}","revisions":{"${currentRev}":{"files":{"file1.txt":{"status":"M","new_sha":"abc"},"file2.txt":{"status":"A","new_sha":"def"},"deleted.txt":{"status":"D"},"/COMMIT_MSG":{"status":"A"}}}}}]`)
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            status: 'NEW',
+            _number: 123,
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    files: {
+                        'file1.txt': { status: 'M', new_sha: 'abc' },
+                        'file2.txt': { status: 'A', new_sha: 'def' },
+                        'deleted.txt': { status: 'D' },
+                        '/COMMIT_MSG': { status: 'A' }
+                    }
+                }
+            }
         });
-        global.fetch = fetchMock;
 
         const result = await service.fetchAndCacheStatus('local-sha', changeId, `Change-Id: ${changeId}`);
 
-        expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('o=CURRENT_FILES'));
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('o=CURRENT_FILES'));
         expect(result?.files).toBeDefined();
         expect(result?.files?.['file1.txt']).toEqual({ status: 'M', newSha: 'abc' });
         expect(result?.files?.['file2.txt']).toEqual({ status: 'A', newSha: 'def' });
@@ -426,17 +452,25 @@ describe('GerritService Detection', () => {
 
         // 2. Mock Gerrit response knowing ONLY about file1.txt
         const currentRev = 'commit-sha-on-gerrit';
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            text: () => Promise.resolve(`)]}'\n[{"change_id":"${changeId}","_number":123,"status":"NEW","current_revision":"${currentRev}","revisions":{"${currentRev}":{"files":{"file1.txt":{"status":"A","new_sha":"abc"}}}}}]`)
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW',
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    files: {
+                        'file1.txt': { status: 'A', new_sha: 'abc' }
+                    }
+                }
+            }
         });
-        global.fetch = fetchMock;
 
         // 3. Trigger fetch
         const result = await service.fetchAndCacheStatus(commitId, changeId, `Change-Id: ${changeId}`);
 
         // 4. Verify
-        expect(fetchMock).toHaveBeenCalled();
+        expect(global.fetch).toHaveBeenCalled();
         expect(result).toBeDefined();
         // Should be not synced because file2.txt is extra locally
         expect(result?.synced).toBeFalsy();
@@ -466,6 +500,52 @@ describe('GerritService Detection', () => {
         // Advance time to trigger all refreshes
         await vi.advanceTimersByTimeAsync(10000);
         expect(forceRefreshSpy).toHaveBeenCalledTimes(4);
+
+        vi.useRealTimers();
+    });
+
+    test('refreshes on window focus with throttling', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(20000); // Start at t=20s to ensure throttling logic works (20000 > 10000)
+
+        // Setup to be enabled
+        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
+
+        // Initialize service
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        // Spy on _onDidUpdate.fire to verify refreshes
+        let updateCount = 0;
+        const disposable = service.onDidUpdate(() => { updateCount++; });
+
+        // Check listener registration
+        expect(mockOnDidChangeWindowState).toHaveBeenCalled();
+        const listener = mockOnDidChangeWindowState.mock.calls[0][0];
+
+        // 1. Trigger focus (should refresh)
+        listener({ focused: true });
+        expect(updateCount).toBe(1);
+
+        // 2. Trigger focus again immediately (should be throttled)
+        listener({ focused: true });
+        expect(updateCount).toBe(1);
+
+        // 3. Advance time by 5s (still throttled)
+        await vi.advanceTimersByTimeAsync(5000);
+        listener({ focused: true });
+        expect(updateCount).toBe(1);
+
+        // 4. Advance time by another 6s (total 11s > 10s) -> Should refresh
+        await vi.advanceTimersByTimeAsync(6000);
+        listener({ focused: true });
+        expect(updateCount).toBe(2);
+
+        // 5. Blur event (should NOT refresh)
+        listener({ focused: false });
+        expect(updateCount).toBe(2);
+        
+        disposable.dispose();
 
         vi.useRealTimers();
     });

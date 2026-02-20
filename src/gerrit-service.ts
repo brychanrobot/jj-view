@@ -20,7 +20,7 @@ interface GerritRevision {
     files?: Record<string, GerritFile>;
 }
 
-interface GerritChange {
+export interface GerritChange {
     change_id: string;
     _number: number;
     status: 'NEW' | 'MERGED' | 'ABANDONED';
@@ -28,6 +28,15 @@ interface GerritChange {
     unresolved_comment_count?: number;
     current_revision?: string;
     revisions?: Record<string, GerritRevision>;
+    project?: string;
+    branch?: string;
+    subject?: string;
+    created?: string;
+    updated?: string;
+    mergeable?: boolean;
+    insertions?: number;
+    deletions?: number;
+    owner?: { _account_id: number };
 }
 
 export class GerritService implements vscode.Disposable {
@@ -38,6 +47,8 @@ export class GerritService implements vscode.Disposable {
     public readonly onDidUpdate = this._onDidUpdate.event;
 
     private _initPromise: Promise<void>;
+
+    private lastRefreshTime: number = 0;
 
     constructor(
         private workspaceRoot: string,
@@ -50,6 +61,16 @@ export class GerritService implements vscode.Disposable {
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('jj-view.gerrit')) {
                 this.detectGerritHost();
+            }
+        });
+
+        // Refresh when window gains focus (throttled to 10s)
+        vscode.window.onDidChangeWindowState(state => {
+            if (state.focused && this.isEnabled) {
+                const now = Date.now();
+                if (now - this.lastRefreshTime > 10000) {
+                    this._refresh('Window focus');
+                }
             }
         });
     }
@@ -75,8 +96,7 @@ export class GerritService implements vscode.Disposable {
         // Listeners will re-fetch Gerrit data for their cached commits.
         this.poller = setInterval(() => {
             if (this.isEnabled && vscode.window.state.focused) {
-                this.cache.clear();
-                this._onDidUpdate.fire();
+                this._refresh();
             }
         }, 60000);
     }
@@ -90,10 +110,17 @@ export class GerritService implements vscode.Disposable {
 
     /** Immediately clears cache and notifies listeners to re-fetch Gerrit data. */
     public forceRefresh() {
+        this._refresh('Force refresh');
+    }
+
+    private _refresh(reason?: string) {
         if (this.isEnabled) {
-            this.outputChannel?.appendLine('[GerritService] Force refresh triggered');
+            if (reason) {
+                this.outputChannel?.appendLine(`[GerritService] ${reason} triggered`);
+            }
             this.cache.clear();
             this._onDidUpdate.fire();
+            this.lastRefreshTime = Date.now();
         }
     }
 

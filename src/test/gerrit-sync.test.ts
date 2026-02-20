@@ -21,7 +21,10 @@ vi.mock('vscode', () => ({
         fire = vi.fn();
         dispose = vi.fn();
     },
-    window: { state: { focused: true } },
+    window: { 
+        state: { focused: true },
+        onDidChangeWindowState: vi.fn(),
+    },
 }));
 
 describe('Gerrit Sync Verification', () => {
