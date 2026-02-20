@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage, withDelayedProgress } from './command-utils';
+import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
     const message = scmProvider.sourceControl.inputBox.value;
@@ -21,6 +21,6 @@ export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
         vscode.window.showInformationMessage('Committed change');
         await scmProvider.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
-        vscode.window.showErrorMessage(`Error committing change: ${getErrorMessage(err)}`);
+        showJjError(err, 'Error committing change', scmProvider.outputChannel);
     }
 }

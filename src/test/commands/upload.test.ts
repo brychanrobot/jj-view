@@ -7,6 +7,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { uploadCommand } from '../../commands/upload';
 import { JjService } from '../../jj-service';
 import { GerritService } from '../../gerrit-service';
+import * as vscode from 'vscode';
 
 // Mock dependencies
 const mockConfig = {
@@ -29,6 +30,7 @@ describe('uploadCommand', () => {
     let jjService: JjService;
 
     let gerritService: GerritService;
+    let mockOutputChannel: vscode.OutputChannel;
 
     beforeEach(() => {
         jjService = { upload: vi.fn() } as unknown as JjService;
@@ -36,6 +38,7 @@ describe('uploadCommand', () => {
             isGerrit: vi.fn().mockResolvedValue(false),
             requestRefreshWithBackoffs: vi.fn()
         } as unknown as GerritService;
+        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
         mockConfig.get.mockReset();
     });
 
@@ -47,7 +50,7 @@ describe('uploadCommand', () => {
             return undefined;
         });
 
-        await uploadCommand(jjService, gerritService, 'rev-123');
+        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
 
         // Should use the custom command
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push', '--force'], 'rev-123');
@@ -57,7 +60,7 @@ describe('uploadCommand', () => {
     test('falls back to default when custom command is empty', async () => {
         mockConfig.get.mockReturnValue(undefined);
         
-        await uploadCommand(jjService, gerritService, 'rev-123');
+        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
         
         // Default for non-Gerrit is git push
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');

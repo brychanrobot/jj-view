@@ -591,7 +591,7 @@ suite('JJ SCM Provider Integration Test', function () {
                 startPolling: () => {},
                 dispose: () => {},
             });
-            const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+            const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, scmProvider.outputChannel);
 
             // Mock Webview
             let messageHandler: (m: unknown) => void = () => {};

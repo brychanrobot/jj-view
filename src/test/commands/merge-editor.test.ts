@@ -56,6 +56,7 @@ describe('openMergeEditorCommand', () => {
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Error opening merge editor: boom'),
+            'Show Log'
         );
     });
 });

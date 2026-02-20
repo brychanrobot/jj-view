@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function setDescriptionCommand(
@@ -26,6 +25,6 @@ export async function setDescriptionCommand(
         await withDelayedProgress('Setting description...', jj.describe(description, revision));
         await scmProvider.refresh({ reason: 'after describe' });
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error setting description: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error setting description', scmProvider.outputChannel);
     }
 }

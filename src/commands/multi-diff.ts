@@ -7,10 +7,11 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { createDiffUris } from '../uri-utils';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function showMultiFileDiffCommand(
     jj: JjService,
+    outputChannel: vscode.OutputChannel,
     ...args: unknown[]
 ): Promise<void> {
     try {
@@ -52,7 +53,6 @@ export async function showMultiFileDiffCommand(
         })());
 
     } catch (err) {
-        vscode.window.showErrorMessage(`Failed to open multi-file diff: ${getErrorMessage(err)}`);
+        showJjError(err, 'Failed to open multi-file diff', outputChannel);
     }
 }
-

@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args?: unknown[]) {
@@ -31,6 +30,6 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
         await withDelayedProgress('Creating new change...', jj.new({ parents }));
         await scmProvider.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error creating new commit: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error creating new commit', scmProvider.outputChannel);
     }
 }

@@ -9,6 +9,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - All code should be written in **TypeScript**.
 - Strict type checking is enabled (`"strict": true` in `tsconfig.json`).
 - **Forbidden**: `any` type usage. Use strict types or `unknown` if absolute necessary.
+- **Forbidden**: disabling the `any` type check for a line or block. `// @ts-ignore` or `// eslint-disable-line` are not allowed.
 - **Forbidden**: `as unknown as Type` double casting. Use `createMock` utility or proper type narrowing instead.
 
 ### Naming Conventions

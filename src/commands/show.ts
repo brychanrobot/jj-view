@@ -5,9 +5,9 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { getErrorMessage } from './command-utils';
+import { showJjError } from './command-utils';
 
-export async function showCurrentChangeCommand(jj: JjService) {
+export async function showCurrentChangeCommand(jj: JjService, outputChannel: vscode.OutputChannel) {
     try {
         const [logEntry] = await jj.getLog({ revision: '@' });
         if (logEntry) {
@@ -16,6 +16,6 @@ export async function showCurrentChangeCommand(jj: JjService) {
             vscode.window.showErrorMessage('No log entry found for current revision.');
         }
     } catch (err: unknown) {
-        vscode.window.showErrorMessage(`Error getting jj log: ${getErrorMessage(err)}`);
+        showJjError(err, 'Error getting jj log', outputChannel);
     }
 }

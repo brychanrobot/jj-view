@@ -11,17 +11,22 @@ import { TestRepo } from '../test-repo';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
+    return createVscodeMock({
+        commands: { executeCommand: vi.fn() },
+        window: { showInformationMessage: vi.fn(), showErrorMessage: vi.fn() },
+    });
 });
 
 describe('showMultiFileDiffCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
+    let mockOutputChannel: vscode.OutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path);
+        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
     });
 
     afterEach(() => {
@@ -35,7 +40,7 @@ describe('showMultiFileDiffCommand', () => {
         repo.describe('test commit description');
         const changeId = repo.getChangeId('@');
 
-        await showMultiFileDiffCommand(jj, changeId);
+        await showMultiFileDiffCommand(jj, mockOutputChannel, changeId);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalled();
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
@@ -74,7 +79,7 @@ describe('showMultiFileDiffCommand', () => {
         repo.writeFile('file.txt', 'content');
         const changeId = repo.getChangeId('@');
 
-        await showMultiFileDiffCommand(jj, '@');
+        await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
             c => c[0] === 'vscode.changes'
@@ -95,7 +100,7 @@ describe('showMultiFileDiffCommand', () => {
         repo.writeFile('file1.txt', 'A');
         const commitId = repo.getCommitId('@');
 
-        await showMultiFileDiffCommand(jj, { commitId });
+        await showMultiFileDiffCommand(jj, mockOutputChannel, { commitId });
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
             c => c[0] === 'vscode.changes'
@@ -107,7 +112,7 @@ describe('showMultiFileDiffCommand', () => {
     });
 
     it('shows info message when no changes found', async () => {
-        await showMultiFileDiffCommand(jj, '@');
+        await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
 
         expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
             expect.stringContaining('No changes found')

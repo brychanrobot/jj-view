@@ -62,7 +62,10 @@ suite('Webview Initialization Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+        const outputChannel = createMock<vscode.OutputChannel>({
+            appendLine: () => {},
+        });
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
     });
 
     teardown(async () => {

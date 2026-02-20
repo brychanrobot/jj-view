@@ -49,7 +49,7 @@ export class JjScmProvider implements vscode.Disposable {
         _context: vscode.ExtensionContext,
         private jj: JjService,
         workspaceRoot: string,
-        private outputChannel: vscode.OutputChannel,
+        public readonly outputChannel: vscode.OutputChannel,
         public readonly contentProvider?: JjDocumentContentProvider,
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));

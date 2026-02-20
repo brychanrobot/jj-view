@@ -59,7 +59,10 @@ suite('Webview Selection Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+        const outputChannel = createMock<vscode.OutputChannel>({
+            appendLine: () => {},
+        });
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
 
         // Spy on vscode.commands.executeCommand; stub jj-view.* to avoid errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');

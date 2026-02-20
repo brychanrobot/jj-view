@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function editCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
@@ -18,6 +17,6 @@ export async function editCommand(scmProvider: JjScmProvider, jj: JjService, arg
         await withDelayedProgress('Editing revision...', jj.edit(revision));
         await scmProvider.refresh();
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error editing commit: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error editing commit', scmProvider.outputChannel);
     }
 }

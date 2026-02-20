@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newBeforeCommand(
@@ -46,6 +46,6 @@ export async function newBeforeCommand(
         );
         scmProvider.refresh();
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error creating new commit before ${revisions.join(', ')}: ${getErrorMessage(e)}`);
+        showJjError(e, `Error creating new commit before ${revisions.join(', ')}`, scmProvider.outputChannel);
     }
 }

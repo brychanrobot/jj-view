@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { collectResourceStates, getErrorMessage, withDelayedProgress } from './command-utils';
+import { collectResourceStates, showJjError, withDelayedProgress } from './command-utils';
 
 export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
@@ -20,6 +19,6 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
         await withDelayedProgress('Restoring files...', jj.restore(paths));
         await scmProvider.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error restoring files: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error restoring files', scmProvider.outputChannel);
     }
 }

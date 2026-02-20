@@ -11,17 +11,24 @@ import * as vscode from 'vscode';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
+    return createVscodeMock({
+        window: {
+            showInformationMessage: vi.fn(),
+            showErrorMessage: vi.fn(),
+        },
+    });
 });
 
 describe('showCurrentChangeCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
+    let mockOutputChannel: vscode.OutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path);
+        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
     });
 
     afterEach(() => {
@@ -32,7 +39,7 @@ describe('showCurrentChangeCommand', () => {
     test('shows information message with change id', async () => {
         const currentId = repo.getChangeId('@').trim();
 
-        await showCurrentChangeCommand(jj);
+        await showCurrentChangeCommand(jj, mockOutputChannel);
 
         expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(`Current Change ID: ${currentId}`);
     });

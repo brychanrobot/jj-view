@@ -181,6 +181,7 @@ describe('discardChangeCommand', () => {
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Failed to discard change'),
+            'Show Log'
         );
     });
 

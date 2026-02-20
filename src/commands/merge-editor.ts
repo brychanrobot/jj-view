@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage, collectResourceStates } from './command-utils';
+import { collectResourceStates, showJjError } from './command-utils';
 
 export async function openMergeEditorCommand(scmProvider: JjScmProvider, arg: unknown, ...rest: unknown[]) {
     // Handle both: direct object { resourceUri } from command.arguments OR array from menu context
@@ -19,6 +18,6 @@ export async function openMergeEditorCommand(scmProvider: JjScmProvider, arg: un
     try {
         await scmProvider.openMergeEditor(resourceStates);
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error opening merge editor: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error opening merge editor', scmProvider.outputChannel);
     }
 }

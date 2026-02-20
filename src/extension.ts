@@ -62,7 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('jj-view', contentProvider));
 
     const disposable = vscode.commands.registerCommand('jj-view.showCurrentChange', async () => {
-        await showCurrentChangeCommand(jj);
+        await showCurrentChangeCommand(jj, outputChannel);
     });
 
     const newCmd = vscode.commands.registerCommand('jj-view.new', async (...args: unknown[]) => {
@@ -168,12 +168,6 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
-            await showDetailsCommand(logWebviewProvider, [arg]);
-        }),
-    );
-
-    context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.newBefore', async (...args: unknown[]) => {
             await newBeforeCommand(scmProvider, jj, args);
         }),
@@ -181,7 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
-            await uploadCommand(jj, gerritService, revision);
+            await uploadCommand(jj, gerritService, revision, outputChannel);
         }),
     );
 
@@ -215,6 +209,12 @@ export function activate(context: vscode.ExtensionContext) {
     }, outputChannel);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
+            await showDetailsCommand(logWebviewProvider, [arg]);
+        }),
     );
 
     const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
@@ -273,7 +273,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
-            await showMultiFileDiffCommand(jj, ...args);
+            await showMultiFileDiffCommand(jj, outputChannel, ...args);
         }),
     );
 

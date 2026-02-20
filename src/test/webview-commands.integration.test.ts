@@ -86,7 +86,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, scm.outputChannel);
 
         // Mock 'vscode.commands.executeCommand'
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');

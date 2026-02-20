@@ -5,14 +5,12 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-
 import { JjScmProvider } from '../jj-scm-provider';
+import { showJjError } from './command-utils';
 
 export interface MergeCommandArg {
     revision: string;
 }
-
-import { getErrorMessage } from './command-utils';
 
 export async function newMergeChangeCommand(
     scmProvider: JjScmProvider,
@@ -53,6 +51,6 @@ export async function newMergeChangeCommand(
         await jj.new({ parents: revisions });
         await scmProvider.refresh();
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Failed to create merge: ${getErrorMessage(e)}`);
+        showJjError(e, 'Failed to create merge', scmProvider.outputChannel);
     }
 }

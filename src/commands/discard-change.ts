@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage } from './command-utils';
+import { showJjError } from './command-utils';
 
 export interface LineChange {
     readonly originalStartLineNumber: number;
@@ -91,6 +91,6 @@ export async function discardChangeCommand(
         await vscode.workspace.applyEdit(workspaceEdit);
         await modifiedDoc.save();
     } catch (e) {
-        vscode.window.showErrorMessage(`Failed to discard change: ${getErrorMessage(e)}`);
+        showJjError(e, 'Failed to discard change', scmProvider.outputChannel);
     }
 }

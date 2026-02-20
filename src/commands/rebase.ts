@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage, withDelayedProgress } from './command-utils';
+import { showJjError, withDelayedProgress } from './command-utils';
 
 export interface CommitMenuContext {
     commitId: string;
@@ -31,6 +31,6 @@ export async function rebaseOntoSelectedCommand(scmProvider: JjScmProvider, jj: 
         );
         await vscode.commands.executeCommand('jj-view.refresh');
     } catch (err: unknown) {
-        vscode.window.showErrorMessage(`Error rebasing: ${getErrorMessage(err)}`);
+        showJjError(err, 'Error rebasing', scmProvider.outputChannel);
     }
 }

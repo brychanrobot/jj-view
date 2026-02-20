@@ -7,12 +7,13 @@ import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 
 import { GerritService } from '../gerrit-service';
-import { withDelayedProgress } from './command-utils';
+import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
     jj: JjService,
     gerrit: GerritService,
-    revision: string
+    revision: string,
+    outputChannel: vscode.OutputChannel
 ): Promise<void> {
     try {
         const config = vscode.workspace.getConfiguration('jj-view');
@@ -43,7 +44,6 @@ export async function uploadCommand(
         gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);
     } catch (e: unknown) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Upload failed: ${errorMessage}`);
+        showJjError(e, 'Upload failed', outputChannel);
     }
 }

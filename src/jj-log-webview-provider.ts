@@ -21,7 +21,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _jj: JjService,
         private readonly _gerrit: GerritService,
         private readonly _onSelectionChange: (commits: string[]) => void,
-        private readonly _outputChannel?: vscode.OutputChannel // Optional
+        public readonly outputChannel?: vscode.OutputChannel // Optional
     ) {
         // Gerrit updates only need to re-render, not re-fetch jj log
         this._gerrit.onDidUpdate(() => this.refreshGerrit());
@@ -171,20 +171,20 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             let commits: JjLogEntry[] = [];
             
             try {
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
                 // Default jj log (usually local heads/roots)
                 const logStart = performance.now();
                 commits = await this._jj.getLog({});
                 const logDuration = performance.now() - logStart;
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
 
                 this._cachedCommits = commits;
                 this._renderCommits(commits);
                 
                 const initialRenderDuration = performance.now() - start;
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
             } catch (e) {
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
                 return;
             }
 
@@ -209,14 +209,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             })));
 
             const gerritDuration = performance.now() - gerritStart;
-            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
 
             if (hasChanges) {
-                this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
                 this._renderCommits(this._cachedCommits);
             }
         } catch (e) {
-            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
         }
     }
 
@@ -231,7 +231,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 }
             }
         } else {
-            this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
         }
         
         this._view?.webview.postMessage({

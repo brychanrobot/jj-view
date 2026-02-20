@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { getErrorMessage, withDelayedProgress } from './command-utils';
+import { showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjService, context: { commitId: string }) {
@@ -33,7 +33,7 @@ export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjServi
                     await withDelayedProgress(`Setting bookmark ${name}...`, jj.moveBookmark(name, commitId));
                     await scmProvider.refresh({ reason: 'after bookmark set' });
                 } catch (e: unknown) {
-                    vscode.window.showErrorMessage(`Error setting bookmark: ${getErrorMessage(e)}`);
+                    showJjError(e, 'Error setting bookmark', scmProvider.outputChannel);
                 }
             }
         });
@@ -41,6 +41,6 @@ export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjServi
         quickPick.show();
 
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error checking bookmarks: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error checking bookmarks', scmProvider.outputChannel);
     }
 }
