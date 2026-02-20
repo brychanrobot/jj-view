@@ -39,6 +39,9 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                     }
                 };
             },
+            parse: (uriString: string) => {
+                return { _isUriBaseCtorMock: true, value: uriString };
+            },
             joinPath: (base: { path: string, scheme: string }, ...paths: string[]) => {
                 // formatted join
                 const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
@@ -52,6 +55,9 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                     }
                 };
             }
+        },
+        env: {
+            openExternal: vi.fn(),
         },
         window: {
             showErrorMessage: vi.fn(),

@@ -11,6 +11,21 @@ import { DirectoryWatcher } from '../directory-watcher';
 import { createMock } from './test-utils';
 import type { OutputChannel } from 'vscode';
 
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('./vscode-mock');
+    return createVscodeMock();
+});
+
+import * as parcelWatcher from '@parcel/watcher';
+
+vi.mock('@parcel/watcher', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@parcel/watcher')>();
+    return {
+        ...actual,
+        subscribe: vi.fn(actual.subscribe),
+    };
+});
+
 describe('DirectoryWatcher (real @parcel/watcher)', () => {
     let tmpDir: string;
     let outputChannel: OutputChannel;
@@ -191,5 +206,25 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         fs.writeFileSync(path.join(tmpDir, 'after-race.txt'), 'nope');
         await new Promise(resolve => setTimeout(resolve, 500));
         expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('shows warning message and links to README on ENOSPC inotify error', async () => {
+        const vscode = await import('vscode');
+        const showWarningMock = vscode.window.showWarningMessage as Mock;
+        showWarningMock.mockResolvedValue('Open README');
+        const openExternalMock = vscode.env.openExternal as Mock;
+
+        const fakeError = new Error("inotify_add_watch on '/some/path' failed: No space left on device (ENOSPC)");
+        vi.mocked(parcelWatcher.subscribe).mockRejectedValueOnce(fakeError);
+
+        await expect(watcher.start()).rejects.toThrow(fakeError);
+
+        expect(showWarningMock).toHaveBeenCalledWith(
+            expect.stringContaining('inotify watch limit reached'),
+            'Open README'
+        );
+        expect(openExternalMock).toHaveBeenCalledWith(
+             vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode')
+        );
     });
 });
