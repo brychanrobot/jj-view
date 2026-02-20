@@ -171,12 +171,15 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
  * Displays an error message to the user and logs full details to the output channel.
  * The message is shown as a non-modal (toast) notification which persists until dismissed.
  * A "Show Log" button is included to open the output channel.
+ * 
+ * @returns The label of the button clicked by the user, or undefined if dismissed.
  */
 export async function showJjError(
     error: unknown,
     prefix: string,
-    outputChannel?: vscode.OutputChannel
-): Promise<void> {
+    outputChannel?: vscode.OutputChannel,
+    extraActions: string[] = []
+): Promise<string | undefined> {
     const message = getErrorMessage(error);
     const fullMessage = `${prefix}: ${message}`;
 
@@ -187,9 +190,10 @@ export async function showJjError(
     }
 
     const SHOW_LOG = 'Show Log';
-    const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG);
+    const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);
     
     if (selection === SHOW_LOG) {
         outputChannel?.show();
     }
+    return selection;
 }

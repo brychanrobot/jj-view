@@ -66,4 +66,56 @@ describe('uploadCommand', () => {
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
+
+    test('suggests configuration when upload fails and no custom command set', async () => {
+        mockConfig.get.mockReturnValue(undefined);
+        const error = new Error('upload failed');
+        vi.mocked(jjService.upload).mockRejectedValue(error);
+        
+        // Use a typed alias to help Vitest pick the right overload
+        const showErrorMessage = vscode.window.showErrorMessage as (
+            message: string,
+            ...items: string[]
+        ) => Thenable<string | undefined>;
+        vi.mocked(showErrorMessage).mockResolvedValue('Configure Upload...');
+
+        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            expect.stringContaining('Upload failed: upload failed'),
+            'Show Log',
+            'Configure Upload...'
+        );
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'workbench.action.openSettings',
+            'jj-view.uploadCommand'
+        );
+    });
+
+    test('does not suggest configuration when custom command is already set', async () => {
+        mockConfig.get.mockImplementation((key: string) => {
+            if (key === 'uploadCommand') return 'custom-cmd';
+            return undefined;
+        });
+        const error = new Error('upload failed');
+        vi.mocked(jjService.upload).mockRejectedValue(error);
+        
+        const showErrorMessage = vscode.window.showErrorMessage as (
+            message: string,
+            ...items: string[]
+        ) => Thenable<string | undefined>;
+        vi.mocked(showErrorMessage).mockResolvedValue('Show Log');
+
+        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            expect.stringContaining('Upload failed: upload failed'),
+            'Show Log'
+            // No "Configure Upload..." button
+        );
+        // Verify it wasn't called with the extra button
+        const calls = vi.mocked(vscode.window.showErrorMessage).mock.calls;
+        const lastCall = calls[calls.length - 1];
+        expect(lastCall).not.toContain('Configure Upload...');
+    });
 });
