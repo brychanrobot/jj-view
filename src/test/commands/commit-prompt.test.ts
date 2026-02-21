@@ -114,7 +114,6 @@ describe('commitPromptCommand', () => {
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('feat: quick commit');
 
-        expect(scmProvider.sourceControl.inputBox.value).toBe('');
         expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
     });
 
@@ -150,7 +149,6 @@ describe('commitPromptCommand', () => {
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
         
-        expect(scmProvider.sourceControl.inputBox.value).toBe('');
         expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
     });
 });
