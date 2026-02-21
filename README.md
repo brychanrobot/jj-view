@@ -65,6 +65,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Upload`: Upload the current change (runs configured upload command).
 - `JJ View: Set Bookmark`: Create or move a bookmark to a specific revision.
 - `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
+- `JJ View: Commit (Prompt)`: Commit the current changes in the working copy, prompting for a description message first.
 - `JJ View: Open File`: Open the file associated with a change.
 - `JJ View: Show Multi-File Diff`: Open a multi-file diff view for the selected revision.
 
