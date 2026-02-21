@@ -3,11 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
-import { extractRevision, getErrorMessage } from './command-utils';
+
+import { extractRevision, showJjError } from './command-utils';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 
-export async function showDetailsCommand(logWebviewProvider: JjLogWebviewProvider, args: unknown[]) {
+export async function showDetailsCommand(
+    logWebviewProvider: JjLogWebviewProvider, 
+    args: unknown[]
+) {
     const revision = extractRevision(args);
     if (!revision) {
         return;
@@ -16,6 +19,6 @@ export async function showDetailsCommand(logWebviewProvider: JjLogWebviewProvide
     try {
         await logWebviewProvider.createCommitDetailsPanel(revision);
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error showing details: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error showing details', logWebviewProvider.outputChannel);
     }
 }

@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { JjService } from './jj-service';
 import { JjStatusEntry } from './jj-types';
+import { ChangeDetectionManager } from './change-detection-manager';
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -17,12 +18,14 @@ import { JjContextKey } from './jj-context-keys';
 import { completeSquashCommand } from './commands/squash';
 import { getErrorMessage } from './commands/command-utils';
 import { RefreshScheduler } from './refresh-scheduler';
+import { createDiffUris } from './uri-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     revision: string;
 }
 
 export class JjScmProvider implements vscode.Disposable {
+    private _disposed = false;
     private disposables: vscode.Disposable[] = [];
     private _sourceControl: vscode.SourceControl;
     private _workingCopyGroup: vscode.SourceControlResourceGroup;
@@ -39,14 +42,14 @@ export class JjScmProvider implements vscode.Disposable {
     readonly onRepoStateReady: vscode.Event<void> = this._onRepoStateReady.event;
 
     private _refreshScheduler: RefreshScheduler;
-    private _pollTimer: ReturnType<typeof setTimeout> | undefined;
+    private _fileWatcher: ChangeDetectionManager;
     public decorationProvider: JjDecorationProvider;
 
     constructor(
         _context: vscode.ExtensionContext,
         private jj: JjService,
         workspaceRoot: string,
-        private outputChannel: vscode.OutputChannel,
+        public readonly outputChannel: vscode.OutputChannel,
         public readonly contentProvider?: JjDocumentContentProvider,
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));
@@ -121,73 +124,19 @@ export class JjScmProvider implements vscode.Disposable {
             }),
         );
 
-        // File Change Detection
-        // 1. Watch .jj/repo/op_heads for jj operation changes
-        const opHeadsPattern = new vscode.RelativePattern(
-            vscode.Uri.file(path.join(this.jj.workspaceRoot, '.jj', 'repo', 'op_heads')),
-            '**/*',
+        // Initialize file watcher
+        this._fileWatcher = new ChangeDetectionManager(
+            workspaceRoot, 
+            this.jj, 
+            this.outputChannel,
+            async (options) => {
+                await this._refreshScheduler.trigger(options);
+            }
         );
-        const opHeadsWatcher = vscode.workspace.createFileSystemWatcher(opHeadsPattern);
-        opHeadsWatcher.onDidChange(() => this.onJjRepoChange());
-        opHeadsWatcher.onDidCreate(() => this.onJjRepoChange());
-        opHeadsWatcher.onDidDelete(() => this.onJjRepoChange());
-        this.disposables.push(opHeadsWatcher);
-
-        // 2. Watch for editor saves to trigger refresh (catches user edits)
-        this.disposables.push(
-            vscode.workspace.onDidSaveTextDocument((doc) => {
-                // Ignore saves to virtual documents or .jj internal files
-                if (doc.uri.scheme !== 'file') return;
-                if (doc.uri.fsPath.includes('/.jj/')) return;
-                this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'file saved' });
-            }),
-        );
-
-        // 3. Poll for external changes (catches agent/external tool edits)
-        // Uses 5s gap between polls, not fixed interval, to avoid overlap on slow repos
-        this._pollTimer = this.startPolling();
-        this.disposables.push(
-            vscode.window.onDidChangeWindowState((state) => {
-                if (state.focused) {
-                    // Resume polling when window gains focus
-                    if (!this._pollTimer) {
-                        this._pollTimer = this.startPolling();
-                    }
-                } else {
-                    // Stop polling when window loses focus
-                    if (this._pollTimer) {
-                        clearTimeout(this._pollTimer);
-                        this._pollTimer = undefined;
-                    }
-                }
-            }),
-        );
+        this.disposables.push(this._fileWatcher);
 
         // Initial refresh
         this.refresh({ forceSnapshot: true });
-    }
-
-    private onJjRepoChange() {
-        // Triggered when .jj/repo/op_heads changes (jj operation completed)
-        // No snapshot needed - jj already updated repo state
-        if (this.jj.hasActiveWriteOps || Date.now() - this.jj.lastWriteTime < 500) {
-            this.outputChannel.appendLine('Repo change suppressed due to active write operation');
-            return;
-        }
-        this._refreshScheduler.trigger({ forceSnapshot: false, reason: 'jj operation' });
-    }
-
-    private startPolling(): ReturnType<typeof setTimeout> {
-        const poll = async () => {
-            // Skip if a write operation is in progress or just finished
-            if (!this.jj.hasActiveWriteOps && Date.now() - this.jj.lastWriteTime >= 500) {
-                await this._refreshScheduler.trigger({ forceSnapshot: true, reason: 'poll' });
-            }
-            // Schedule next poll after 5s gap (not fixed interval)
-            this._pollTimer = setTimeout(poll, 5000);
-        };
-        // Start first poll after 5s
-        return setTimeout(poll, 5000);
     }
 
     private _refreshMutex: Promise<void> = Promise.resolve();
@@ -195,6 +144,9 @@ export class JjScmProvider implements vscode.Disposable {
     async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
         // Chain the refresh execution to ensure serial execution
         this._refreshMutex = this._refreshMutex.then(async () => {
+            if (this._disposed) {
+                return;
+            }
             const { forceSnapshot, reason } = options;
             const reasonStr = reason ? ` (reason: ${reason})` : '';
             this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${!!forceSnapshot})${reasonStr}...`);
@@ -205,6 +157,9 @@ export class JjScmProvider implements vscode.Disposable {
                     await this.jj.status();
                 }
                 this._onRepoStateReady.fire();
+
+                // Invalidate diff content cache so stale content is never served
+                this.contentProvider?.invalidateCache();
 
                 // 1. Fetch data in parallel for performance
                 const [logResult, children, conflictedPaths] = await Promise.all([
@@ -313,34 +268,33 @@ export class JjScmProvider implements vscode.Disposable {
                         const parentRef = parentRefs[i];
 
                         if (parentEntry) {
-                            const shortId = parentEntry.change_id.substring(0, 8);
+                            const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
                             const desc = parentEntry.description?.trim() || '(no description)';
-                            const shortDesc = desc.split('\n')[0].substring(0, 40);
 
                             const label =
                                 currentEntry.parents.length > 1
-                                    ? `Parent ${i + 1}: ${shortId} - ${shortDesc}`
-                                    : `Parent: ${shortId} - ${shortDesc}`;
+                                    ? `Parent ${i + 1}: ${shortId} - ${desc}`
+                                    : `Parent: ${shortId} - ${desc}`;
 
                             // Reuse existing group or create new one
                             let group: vscode.SourceControlResourceGroup;
+                            const contextValue = parentEntry.is_immutable ? 'jjParentGroup' : 'jjParentGroup:mutable';
+
                             if (i < this._parentGroups.length) {
                                 group = this._parentGroups[i];
                                 group.label = label;
+                                group.contextValue = contextValue;
                             } else {
                                 const groupId = `parent-${i}`;
                                 group = this._sourceControl.createResourceGroup(groupId, label);
                                 group.hideWhenEmpty = true;
-                                group.contextValue = parentEntry.is_immutable
-                                    ? 'jjParentGroup'
-                                    : 'jjParentGroup:mutable';
+                                group.contextValue = contextValue;
                                 this._parentGroups.push(group);
                             }
 
                             const parentChanges = parentEntry.changes || [];
                             group.resourceStates = parentChanges.map((c) => {
                                 const state = this.toResourceState(c, parentRef);
-                                // Now we add to decorationMap. The URI query ensures uniqueness.
                                 decorationMap.set(state.resourceUri.toString(), c);
                                 return state;
                             });
@@ -367,9 +321,15 @@ export class JjScmProvider implements vscode.Disposable {
                     console.error('Error refreshing JJ SCM:', e);
                 }
             } finally {
-                const duration = performance.now() - start;
-                this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
-                this._onDidChangeStatus.fire();
+                if (!this._disposed) {
+                    const duration = performance.now() - start;
+                    try {
+                        this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
+                    } catch {
+                        // Ignore channel closed errors
+                    }
+                    this._onDidChangeStatus.fire();
+                }
             }
         });
 
@@ -452,41 +412,13 @@ export class JjScmProvider implements vscode.Disposable {
 
     private toResourceState(entry: JjStatusEntry, revision: string = '@'): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
-        let absoluteUri = vscode.Uri.joinPath(vscode.Uri.file(root), entry.path);
-
-        // If not working copy, add query to make URI unique for DecorationProvider
-        // This ensures SCM view gets decorations for parents, but Explorer (which uses file uri) does not get confused.
-        if (revision !== '@') {
-            absoluteUri = absoluteUri.with({ query: `jj-revision=${revision}` });
-        }
-
-        // left: revision - 1 (parent of revision)
-        // right: revision
-        let leftPath = absoluteUri.path;
-        if ((entry.status === 'renamed' || entry.status === 'copied') && entry.oldPath) {
-            leftPath = vscode.Uri.joinPath(vscode.Uri.file(root), entry.oldPath).path;
-        }
-
-        const leftUri = vscode.Uri.from({
-            scheme: 'jj-view',
-            path: leftPath,
-            query: `revision=${revision}-&path=${encodeURIComponent(leftPath)}`,
-        });
-
-        const rightUri =
-            revision === '@'
-                ? absoluteUri
-                : vscode.Uri.from({
-                      scheme: 'jj-view',
-                      path: absoluteUri.path,
-                      query: `revision=${revision}`,
-                  });
+        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root);
 
         const command: vscode.Command = entry.conflicted
             ? {
                   command: 'jj-view.openMergeEditor',
                   title: 'Open 3-Way Merge',
-                  arguments: [{ resourceUri: absoluteUri }], // Pass single object matching ResourceState
+                  arguments: [{ resourceUri }],
               }
             : {
                   command: 'vscode.diff',
@@ -494,9 +426,8 @@ export class JjScmProvider implements vscode.Disposable {
                   arguments: [leftUri, rightUri, `${entry.path} (${revision === '@' ? 'Working Copy' : revision})`],
               };
 
-        // Note: We populate SourceControlResourceDescorations too, but badges (letters) come from FileDecorationProvider
         return {
-            resourceUri: absoluteUri,
+            resourceUri,
             command: command,
             decorations: {
                 tooltip: entry.conflicted ? 'Conflicted' : entry.status,
@@ -509,7 +440,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
-        return uri.with({ scheme: 'jj-view', query: 'revision=@-' });
+        return uri.with({ scheme: 'jj-view', query: 'base=@&side=left' });
     }
 
     get sourceControl(): vscode.SourceControl {
@@ -517,9 +448,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     dispose() {
-        if (this._pollTimer) {
-            clearTimeout(this._pollTimer);
-        }
+        this._disposed = true;
         this.disposables.forEach((d) => d.dispose());
     }
 }

@@ -24,15 +24,12 @@ const { mockQuickPick } = vi.hoisted(() => ({
     }
 }));
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showErrorMessage: vi.fn(),
-        createQuickPick: vi.fn(() => mockQuickPick),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    ProgressLocation: { Notification: 15 },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        window: { createQuickPick: vi.fn(() => mockQuickPick) },
+    });
+});
 
 describe('setBookmarkCommand', () => {
     let jj: JjService;
@@ -60,9 +57,7 @@ describe('setBookmarkCommand', () => {
     test('fetches bookmarks and shows quick pick', async () => {
         repo.bookmark('feature-a', '@');
         
-        setBookmarkCommand(scmProvider, jj, { commitId: 'some-id' });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId: 'some-id' });
         
         expect(mockQuickPick.show).toHaveBeenCalled();
         expect(mockQuickPick.items).toEqual(expect.arrayContaining([
@@ -79,9 +74,7 @@ describe('setBookmarkCommand', () => {
             return { dispose: () => {} };
         });
 
-        setBookmarkCommand(scmProvider, jj, { commitId: repo.getChangeId('@') });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId: repo.getChangeId('@') });
 
         mockQuickPick.selectedItems = [{ label: 'feature-a' }];
         await acceptCallback();
@@ -98,9 +91,7 @@ describe('setBookmarkCommand', () => {
         });
 
         const commitId = repo.getChangeId('@');
-        setBookmarkCommand(scmProvider, jj, { commitId });
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await setBookmarkCommand(scmProvider, jj, { commitId });
 
         mockQuickPick.selectedItems = [];
         mockQuickPick.value = 'new-feature';

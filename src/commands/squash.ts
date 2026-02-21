@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { collectResourceStates, extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
@@ -22,7 +22,8 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
         return;
     }
 
-    if (currentEntry.parents && currentEntry.parents.length > 1) {
+    try {
+        if (currentEntry.parents && currentEntry.parents.length > 1) {
         // Multiple parents - prompt for selection
         const parentOptions: vscode.QuickPickItem[] = [];
 
@@ -95,7 +96,10 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
         await withDelayedProgress('Squashing...', jj.squash(paths, revision, parentRev, undefined, true));
     }
 
-    await scmProvider.refresh({ reason: 'after squash' });
+        await scmProvider.refresh({ reason: 'after squash' });
+    } catch (e: unknown) {
+        showJjError(e, 'Error squashing', scmProvider.outputChannel);
+    }
 }
 
 async function openSquashDescriptionEditor(jj: JjService, paths: string[], revision: string, parentRev: string) {
@@ -188,7 +192,7 @@ export async function completeSquashCommand(scmProvider: JjScmProvider, jj: JjSe
         if (err.code === 'ENOENT') {
             vscode.window.showErrorMessage('No pending squash operation found.');
         } else {
-            vscode.window.showErrorMessage(`Failed to complete squash: ${getErrorMessage(e)}`);
+            showJjError(e, 'Failed to complete squash', scmProvider.outputChannel);
         }
     }
 }

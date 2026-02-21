@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function duplicateCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
@@ -18,6 +17,6 @@ export async function duplicateCommand(scmProvider: JjScmProvider, jj: JjService
         await withDelayedProgress('Duplicating revision...', jj.duplicate(revision));
         await scmProvider.refresh();
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error duplicating commit: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error duplicating commit', scmProvider.outputChannel);
     }
 }

@@ -16,8 +16,6 @@ import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Quick Diff Commands Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let repo: TestRepo;
@@ -52,7 +50,7 @@ suite('Quick Diff Commands Integration Test', function () {
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
-             return uri.with({ scheme: 'jj-view-test', query: 'revision=@-' });
+             return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
         };
     });
 
@@ -60,7 +58,7 @@ suite('Quick Diff Commands Integration Test', function () {
         if (scmProvider) {
             scmProvider.dispose();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Discard Change reverts file content on disk', async () => {

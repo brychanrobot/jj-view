@@ -21,7 +21,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _jj: JjService,
         private readonly _gerrit: GerritService,
         private readonly _onSelectionChange: (commits: string[]) => void,
-        private readonly _outputChannel?: vscode.OutputChannel // Optional
+        public readonly outputChannel?: vscode.OutputChannel // Optional
     ) {
         // Gerrit updates only need to re-render, not re-fetch jj log
         this._gerrit.onDidUpdate(() => this.refreshGerrit());
@@ -38,8 +38,26 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [this._extensionUri],
         };
+        
+        // Update the HTML when the view becomes hidden so that when it is restored,
+        // it uses the latest cached data instead of the initial stale data.
+        webviewView.onDidChangeVisibility(() => {
+            if (!webviewView.visible) {
+                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
+                    view: 'graph',
+                    payload: {
+                        commits: this._cachedCommits,
+                    },
+                });
+            }
+        });
 
-        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
+            view: 'graph',
+            payload: {
+                commits: this._cachedCommits,
+            },
+        });
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
@@ -86,6 +104,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'new':
                     await vscode.commands.executeCommand('jj-view.new');
                     break;
+                case 'newBefore':
+                    await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.commitIds || []));
+                    break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
                     await vscode.commands.executeCommand('jj-view.refresh');
@@ -116,9 +137,25 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Compute Capabilities
                     const allowAbandon = count > 0 && !hasImmutable;
                     const allowMerge = count > 1;
+                    const allowNewBefore = count > 0 && !hasImmutable;
+
+                    // Calculate parent mutability for absorb command
+                    // Only applicable for single selection where parents are mutable
+                    let parentMutable = false;
+                    if (count === 1) {
+                        const selectedCommit = this._cachedCommits.find((c) => c.change_id === data.payload.commitIds[0]);
+                        if (selectedCommit && selectedCommit.parents_immutable) {
+                            // If any parent is NOT immutable (i.e. is mutable), then we can absorb
+                            parentMutable = selectedCommit.parents_immutable.some((immutable) => !immutable);
+                        } else if (selectedCommit) {
+                            parentMutable = false;
+                        }
+                    }
 
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowAbandon, allowAbandon);
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowMerge, allowMerge);
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionAllowNewBefore, allowNewBefore);
+                    vscode.commands.executeCommand('setContext', JjContextKey.SelectionParentMutable, parentMutable);
 
                     if (this._onSelectionChange) {
                         this._onSelectionChange(data.payload.commitIds);
@@ -134,20 +171,20 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             let commits: JjLogEntry[] = [];
             
             try {
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
                 // Default jj log (usually local heads/roots)
                 const logStart = performance.now();
                 commits = await this._jj.getLog({});
                 const logDuration = performance.now() - logStart;
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
 
                 this._cachedCommits = commits;
                 this._renderCommits(commits);
                 
                 const initialRenderDuration = performance.now() - start;
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
             } catch (e) {
-                this._outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
                 return;
             }
 
@@ -172,14 +209,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             })));
 
             const gerritDuration = performance.now() - gerritStart;
-            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
 
             if (hasChanges) {
-                this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
                 this._renderCommits(this._cachedCommits);
             }
         } catch (e) {
-            this._outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
         }
     }
 
@@ -194,7 +231,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 }
             }
         } else {
-            this._outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
         }
         
         this._view?.webview.postMessage({
@@ -265,11 +302,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openDiff':
                     const filePath = message.payload.filePath;
-                    // Left: Parent (commitId-)
-                    // Right: Commit (commitId)
-                    // We use our custom scheme which JjDocumentContentProvider handles
-                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}-`);
-                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?revision=${commitId}`);
+                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=left`);
+                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=right`);
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',

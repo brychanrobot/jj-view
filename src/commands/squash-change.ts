@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { getErrorMessage } from './command-utils';
+import { showJjError } from './command-utils';
 
 interface LineChange {
     readonly originalStartLineNumber: number;
@@ -131,10 +131,6 @@ export async function squashChangeCommand(
 
         // Only refresh on success
         await scmProvider.refresh();
-        if (scmProvider.contentProvider) {
-            const parentUri = uri.with({ scheme: 'jj-view', query: 'revision=@-' });
-            scmProvider.contentProvider.update(parentUri);
-        }
         // Force Quick Diff refresh by closing and reopening the editor
         // This is the only reliable way to force VS Code to recompute quick diff decorations
         const activeEditor = vscode.window.activeTextEditor;
@@ -144,6 +140,6 @@ export async function squashChangeCommand(
             await vscode.window.showTextDocument(uri, { viewColumn, preview: false });
         }
     } catch (e) {
-        vscode.window.showErrorMessage(`Failed to squash change: ${getErrorMessage(e)}`);
+        showJjError(e, 'Failed to squash change', scmProvider.outputChannel);
     }
 }

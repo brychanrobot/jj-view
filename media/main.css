@@ -10,6 +10,7 @@ body {
     /* Pane background */
     color: var(--vscode-editor-foreground);
     font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
     overflow-x: hidden;
 }
 

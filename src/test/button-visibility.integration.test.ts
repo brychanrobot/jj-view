@@ -8,12 +8,10 @@ import * as vscode from 'vscode';
 import * as sinon from 'sinon';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { TestRepo } from './test-repo';
+import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Button Visibility Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let executeCommandStub: sinon.SinonStub;
@@ -48,23 +46,27 @@ suite('Button Visibility Integration Test', function () {
         executeCommandStub.callThrough(); // Call original for other commands
     });
 
-    teardown(() => {
+    teardown(async () => {
         // Cleanup
         scmProvider.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Sets jj.parentMutable to true when parent is mutable', async () => {
-        // Create a parent commit (by default new repo has root as parent, which is immutable)
-        repo.describe('parent');
-        repo.new([], 'child');
+        // Create a graph: grandparent -> parent -> child
+        await buildGraph(repo, [
+            { label: 'grandparent', description: 'grandparent' },
+            { label: 'parent', description: 'parent', parents: ['grandparent'] },
+            { label: 'child', description: 'child', parents: ['parent'], isWorkingCopy: true },
+        ]);
 
-        await new Promise((r) => setTimeout(r, 100));
-
-        await scmProvider.refresh();
+        // Verify structure: grandparent -> parent -> child (@)
+        // Parent should be mutable because it's not root and not immutable-head
+        
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Verify setContext was called with 'jj.parentMutable', true
         const setContextCalls = executeCommandStub

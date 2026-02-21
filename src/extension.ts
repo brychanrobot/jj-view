@@ -21,6 +21,8 @@ import { uploadCommand } from './commands/upload';
 import { discardChangeCommand } from './commands/discard-change';
 import { squashChangeCommand } from './commands/squash-change';
 import { setBookmarkCommand } from './commands/bookmark';
+import { absorbCommand } from './commands/absorb';
+import { newBeforeCommand } from './commands/new-before';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -33,10 +35,12 @@ import { editCommand } from './commands/edit';
 import { showDetailsCommand } from './commands/details';
 import { showCurrentChangeCommand } from './commands/show';
 import { commitCommand } from './commands/commit';
+import { commitPromptCommand } from './commands/commit-prompt';
 import { rebaseOntoSelectedCommand, CommitMenuContext } from './commands/rebase';
 import { openMergeEditorCommand } from './commands/merge-editor';
 import { refreshCommand } from './commands/refresh';
 import { openFileCommand } from './commands/open';
+import { showMultiFileDiffCommand } from './commands/multi-diff';
 
 export function activate(context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders) {
@@ -52,14 +56,14 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(gerritService);
 
     const contentProvider = new JjDocumentContentProvider(jj);
-    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel);
+    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider);
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
 
     // Register Document Content Provider for read-only access to old file versions
     context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('jj-view', contentProvider));
 
     const disposable = vscode.commands.registerCommand('jj-view.showCurrentChange', async () => {
-        await showCurrentChangeCommand(jj);
+        await showCurrentChangeCommand(jj, outputChannel);
     });
 
     const newCmd = vscode.commands.registerCommand('jj-view.new', async (...args: unknown[]) => {
@@ -75,6 +79,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     const commitCmd = vscode.commands.registerCommand('jj-view.commit', async () => {
         await commitCommand(scmProvider, jj);
+    });
+
+    const commitPromptCmd = vscode.commands.registerCommand('jj-view.commitPrompt', async () => {
+        await commitPromptCommand(scmProvider, jj);
     });
 
     context.subscriptions.push(
@@ -165,20 +173,14 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
-            await showDetailsCommand(logWebviewProvider, [arg]);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.newBefore', async () => {
-            vscode.window.showInformationMessage('New before not implemented yet');
+        vscode.commands.registerCommand('jj-view.newBefore', async (...args: unknown[]) => {
+            await newBeforeCommand(scmProvider, jj, args);
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
-            await uploadCommand(scmProvider, jj, gerritService, revision);
+            await uploadCommand(jj, gerritService, revision, outputChannel);
         }),
     );
 
@@ -214,6 +216,12 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
+            await showDetailsCommand(logWebviewProvider, [arg]);
+        }),
+    );
+
     const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
         await logWebviewProvider.refresh();
     });
@@ -223,6 +231,13 @@ export function activate(context: vscode.ExtensionContext) {
     
     // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
     scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
+
+    // Detect terminal 'jj upload' commands and trigger immediate Gerrit refresh
+    context.subscriptions.push(
+        vscode.window.onDidEndTerminalShellExecution((event) => {
+            handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel);
+        })
+    );
 
     // For now, let's expose the refresh command to also refresh the tree
     const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
@@ -247,6 +262,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(newCmd);
     context.subscriptions.push(newMergeCommand);
     context.subscriptions.push(commitCmd);
+    context.subscriptions.push(commitPromptCmd);
     context.subscriptions.push(scmProvider);
 
     context.subscriptions.push(
@@ -255,10 +271,37 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.absorb', async (...args: unknown[]) => {
+            await absorbCommand(scmProvider, jj, args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
+            await showMultiFileDiffCommand(jj, outputChannel, ...args);
+        }),
+    );
+
     return {
         scmProvider,
         jj,
     };
+}
+
+/** Checks if a terminal command is a jj upload and triggers staggered Gerrit refreshes. */
+export function handleTerminalExecution(
+    commandLine: string,
+    gerritService: GerritService,
+    outputChannel: vscode.OutputChannel,
+): boolean {
+    const cmd = commandLine.trim();
+    if (cmd.startsWith('jj') && cmd.includes('upload')) {
+        outputChannel.appendLine(`[Extension] Detected terminal upload: "${cmd}"`);
+        gerritService.requestRefreshWithBackoffs();
+        return true;
+    }
+    return false;
 }
 
 // This method is called when your extension is deactivated

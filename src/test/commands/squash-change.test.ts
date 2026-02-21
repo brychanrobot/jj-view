@@ -43,7 +43,7 @@ describe('squashChangeCommand', () => {
         jj = new JjService(repo.path);
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
-            contentProvider: createMock<JjDocumentContentProvider>({ update: vi.fn() }),
+            contentProvider: createMock<JjDocumentContentProvider>({ invalidateCache: vi.fn() }),
         });
     });
 

@@ -12,13 +12,12 @@ import { TestRepo, buildGraph } from '../test-repo';
 import { JjScmProvider } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showQuickPick: vi.fn(),
-        showErrorMessage: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        window: { showQuickPick: vi.fn() },
+    });
+});
 
 describe('moveToChildCommand', () => {
     let jj: JjService;

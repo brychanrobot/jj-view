@@ -13,8 +13,6 @@ import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
 
 suite('Webview Selection Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let provider: JjLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;
@@ -61,7 +59,10 @@ suite('Webview Selection Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+        const outputChannel = createMock<vscode.OutputChannel>({
+            appendLine: () => {},
+        });
+        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
 
         // Spy on vscode.commands.executeCommand; stub jj-view.* to avoid errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
@@ -80,15 +81,13 @@ suite('Webview Selection Integration Test', function () {
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
-        // Wait for potential initial refresh
-        await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
-    teardown(() => {
+    teardown(async () => {
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Selection Change updates Context Keys', async () => {
@@ -141,6 +140,13 @@ suite('Webview Selection Integration Test', function () {
         // Verify jj.selection.allowAbandon -> false
         calls = getContextCalls('jj.selection.allowAbandon');
         assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
+        // Verify jj.selection.allowAbandon -> false
+        calls = getContextCalls('jj.selection.allowAbandon');
+        assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
+
+        // Verify jj.selection.allowNewBefore -> false
+        calls = getContextCalls('jj.selection.allowNewBefore');
+        assert.strictEqual(calls.at(-1)?.args[2], false, 'allowNewBefore should be false for immutable selection');
     });
 
     test('Abandon command from webview triggers extension command', async () => {

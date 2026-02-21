@@ -19,7 +19,9 @@ export interface JjLogOptions {
 
 
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
-const MUTATION_TIMEOUT_MS = 60_000;
+const ONE_MINUTE = 60_000;
+const MUTATION_TIMEOUT_MS = ONE_MINUTE;
+const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
 export class JjService {
     private _writeOperationCount = 0;
@@ -76,9 +78,10 @@ export class JjService {
             if (options.isMutation) {
                 this._writeOperationCount++;
                 // Safety timeout: if operation takes too long, reject to unblock file watcher
+                const duration = options.timeout ?? MUTATION_TIMEOUT_MS;
                 const timeout = setTimeout(() => {
-                    reject(new Error(`Mutation operation timed out after ${MUTATION_TIMEOUT_MS}ms`));
-                }, MUTATION_TIMEOUT_MS);
+                    reject(new Error(`Mutation operation timed out after ${duration / 1000}s`));
+                }, duration);
                 this._operationTimeouts.set(opId, timeout);
             }
 
@@ -234,6 +237,82 @@ export class JjService {
     }
 
     /**
+     * Get the left (auto-merged parents) and right (revision) content for a file's diff.
+     * Uses `jj diffedit --tool` to correctly compute the auto-merged left side,
+     * which handles merge commits (multiple parents) properly.
+     */
+    async getDiffContent(revision: string, filePath: string): Promise<{ left: string; right: string }> {
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-diff-'));
+        const relativePath = this.toRelative(filePath);
+
+        try {
+            const tempDirNormalized = tempDir.split(path.sep).join('/');
+            const leftPath = `${tempDirNormalized}/left`;
+            const rightPath = `${tempDirNormalized}/right`;
+
+            // Normalize filePath separators for safe injection into JS script string
+            const normalizedFilePath = relativePath.split(path.sep).join('/');
+
+            // Script copies $left/<file> and $right/<file> to temp dir.
+            // Uses try/catch for each side to handle new files (no left) and deleted files (no right).
+            // Exits with 1 to prevent jj from modifying the revision.
+            const script = `
+                const fs = require('fs');
+                const path = require('path');
+                const [left, right] = process.argv.slice(1);
+                try { fs.copyFileSync(path.join(left, '${normalizedFilePath}'), '${leftPath}'); } catch(e) {}
+                try { fs.copyFileSync(path.join(right, '${normalizedFilePath}'), '${rightPath}'); } catch(e) {}
+                process.exit(1);
+            `
+                .replace(/\n/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+            try {
+                await this.run(
+                    'diffedit',
+                    [
+                        '-r', revision,
+                        '--tool', 'vscode-diff-capture',
+                        `--config=merge-tools.vscode-diff-capture.program="node"`,
+                        `--config=merge-tools.vscode-diff-capture.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                        relativePath,
+                    ],
+                    { useCachedSnapshot: true },
+                );
+            } catch {
+                // Expected: jj returns error because our tool exits with 1
+            }
+
+            // Check if output files were created
+            const leftExists = await fs.access(leftPath).then(() => true).catch(() => false);
+            const rightExists = await fs.access(rightPath).then(() => true).catch(() => false);
+
+            if (!leftExists && !rightExists) {
+                // If diffedit didn't run the tool, it means there are no differences for this file
+                // relative to the parent(s). Fallback to fetching file content directly.
+                // This handles "Quick Diff" on unchanged files where we need the base content.
+                try {
+                    const content = await this.getFileContent(filePath, revision);
+                    return { left: content, right: content };
+                } catch {
+                    // If file doesn't exist in revision, return empty
+                    return { left: '', right: '' };
+                }
+            }
+
+            const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
+            const right = rightExists ? await fs.readFile(rightPath, 'utf8') : '';
+
+            return { left, right };
+        } finally {
+            await fs.rm(tempDir, { recursive: true }).catch(() => {});
+        }
+    }
+
+    /**
      * Squash changes into parent.
      * @param paths - specific files to squash (empty = all)
      * @param revision - if provided, squash this revision into its parent (-r flag)
@@ -334,20 +413,26 @@ export class JjService {
         await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths]);
     }
 
-    async new(message?: string, parents?: string | string[], insertBefore?: string): Promise<string> {
+    async new(options: { message?: string; parents?: string[]; insertBefore?: string[] } = {}): Promise<string> {
+        const { message, parents = [], insertBefore = [] } = options;
         const args: string[] = [];
         if (message) {
             args.push('-m', message);
         }
-        if (insertBefore) {
-            args.push('--insert-before', insertBefore);
-        } else if (parents) {
-            if (Array.isArray(parents)) {
-                args.push(...parents);
-            } else {
-                args.push(parents);
-            }
+        for (const rev of insertBefore) {
+            args.push('--insert-before', rev);
         }
+        
+        if (insertBefore.length > 0) {
+            // When insertBefore is used, parents must be specified with --insert-after
+            for (const rev of parents) {
+                args.push('--insert-after', rev);
+            }
+        } else {
+            // Standard usage: parents are positional arguments
+            args.push(...parents);
+        }
+
         await this.run('new', args, { isMutation: true });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {
             useCachedSnapshot: true,
@@ -502,7 +587,10 @@ export class JjService {
     }
 
     async upload(commandArgs: string[], revision: string): Promise<string> {
-        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], { isMutation: true });
+        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], {
+            isMutation: true,
+            timeout: UPLOAD_TIMEOUT_MS,
+        });
     }
 
     public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
@@ -601,5 +689,65 @@ export class JjService {
         } finally {
             await fs.rm(tmpDir, { recursive: true, force: true });
         }
+    }
+    async absorb(options: { paths?: string[]; fromRevision?: string } = {}): Promise<string> {
+        const { paths, fromRevision } = options;
+        const args: string[] = ['--no-pager'];
+
+        if (fromRevision) {
+            args.push('--from', fromRevision);
+        }
+        if (paths && paths.length > 0) {
+            // Check if paths are relative or absolute, assume toRelative handles it
+            const relativePaths = paths.map((p) => this.toRelative(p));
+            args.push(...relativePaths);
+        }
+
+        return this.run('absorb', args, { isMutation: true });
+    }
+
+    async getGitBlobHashes(commitId: string, filePaths: string[]): Promise<Map<string, string>> {
+        if (filePaths.length === 0) {
+            return new Map();
+        }
+
+        // We use raw git command because jj doesn't expose ls-tree
+        return new Promise((resolve) => {
+             cp.execFile('git', ['ls-tree', commitId, '--', ...filePaths], {
+                cwd: this.workspaceRoot,
+                maxBuffer: 10 * 1024 * 1024
+            }, (err, stdout) => {
+                if (err) {
+                    // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
+                    // This is expected fallback behavior
+                    resolve(new Map());
+                    return;
+                }
+
+                const resultMap = new Map<string, string>();
+                // Output format: <mode> blob <sha> <tab><path>
+                // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
+                
+                const lines = stdout.toString().trim().split('\n');
+                for (const line of lines) {
+                    if (!line) continue;
+                    
+                    // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
+                    // Git ls-tree output is fairly standard: mode type sha\tpath
+                    const parts = line.split(/\s+/); 
+                    if (parts.length >= 4 && parts[1] === 'blob') {
+                        const sha = parts[2];
+                        const pathPart = line.substring(line.indexOf('\t') + 1);
+                        // Remove quotes if present (git ls-tree quotes paths with spaces/unusual chars)
+                        const cleanPath = pathPart.startsWith('"') && pathPart.endsWith('"') 
+                            ? JSON.parse(pathPart) 
+                            : pathPart;
+                            
+                        resultMap.set(cleanPath, sha);
+                    }
+                }
+                resolve(resultMap);
+            });
+        });
     }
 }

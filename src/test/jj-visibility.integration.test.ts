@@ -11,8 +11,6 @@ import { TestRepo } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.OutputChannel;
@@ -42,9 +40,9 @@ suite('JJ SCM Visibility Integration Test', function () {
         scmProvider = new JjScmProvider(context, jj, repo.path, outputChannel);
     });
 
-    teardown(() => {
+    teardown(async () => {
         scmProvider.dispose();
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Buttons visibility conditions', async () => {

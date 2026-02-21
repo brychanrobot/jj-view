@@ -7,6 +7,7 @@ import * as React from 'react';
 import { computeGraphLayout } from '../graph-compute';
 import { GraphRail } from './GraphRail';
 import { CommitNode, ActionPayload } from './CommitNode';
+import { computeGap, computeMaxShortestIdLength, computeGraphAreaWidth } from '../layout-utils';
 
 interface CommitGraphProps {
     commits: any[];
@@ -45,10 +46,17 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
 
     // Total graph width calculation
     const LEFT_MARGIN = 12; // Match GraphRail
-    const GAP = 10; // Space between graph and text
+
+    // Dynamic sizing based on font
+    // Fallback to 13px if not available
+    const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
+    const GAP = computeGap(fontSize);
+    
+    // Determine the max shortest ID length to display
+    const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits), [commits]);
 
     // Padding-left for the text area
-    const graphAreaWidth = layout.width * LANE_WIDTH + LEFT_MARGIN + GAP;
+    const graphAreaWidth = computeGraphAreaWidth(layout.width, LANE_WIDTH, LEFT_MARGIN, GAP);
 
     return (
         <div className="commit-graph" style={{ position: 'relative' }}>
@@ -94,6 +102,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
                                 isSelected={isSelected}
                                 selectionCount={selectedCommitIds?.size || 0}
                                 hasImmutableSelection={hasImmutableSelection}
+                                idDisplayLength={maxShortestIdLength}
                             />
                         </div>
                     );

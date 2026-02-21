@@ -14,22 +14,19 @@ import { JjScmProvider } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
 // Mock VS Code
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showQuickPick: vi.fn(),
-        showInformationMessage: vi.fn(),
-        showWarningMessage: vi.fn(),
-        showErrorMessage: vi.fn(),
-        showTextDocument: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    workspace: {
-        openTextDocument: vi.fn(),
-        textDocuments: [],
-    },
-    ProgressLocation: { Notification: 15 },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        window: {
+            showQuickPick: vi.fn(),
+            showTextDocument: vi.fn(),
+        },
+        workspace: {
+            openTextDocument: vi.fn(),
+            textDocuments: [],
+        },
+    });
+});
 
 describe('squashCommand', () => {
     let jj: JjService;

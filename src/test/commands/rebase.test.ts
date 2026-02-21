@@ -11,17 +11,12 @@ import { JjScmProvider } from '../../jj-scm-provider';
 import { TestRepo, buildGraph } from '../test-repo';
 import * as vscode from 'vscode';
 
-vi.mock('vscode', () => ({
-    window: {
-        showInformationMessage: vi.fn(),
-        showErrorMessage: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    ProgressLocation: { Notification: 15 },
-    commands: {
-        executeCommand: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock({
+        commands: { executeCommand: vi.fn() },
+    });
+});
 
 describe('rebaseOntoSelectedCommand', () => {
     let repo: TestRepo;

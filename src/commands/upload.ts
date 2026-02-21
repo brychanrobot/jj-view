@@ -5,24 +5,23 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { JjScmProvider } from '../jj-scm-provider';
+
 import { GerritService } from '../gerrit-service';
-import { withDelayedProgress } from './command-utils';
+import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
-    scmProvider: JjScmProvider,
     jj: JjService,
     gerrit: GerritService,
-    revision: string
+    revision: string,
+    outputChannel: vscode.OutputChannel
 ): Promise<void> {
+    const config = vscode.workspace.getConfiguration('jj-view');
+    const customCommand = config.get<string>('uploadCommand');
+    const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        // Check for override
-        const customCommand = config.get<string>('uploadCommand');
         let args: string[] = [];
-
-        if (customCommand && customCommand.trim().length > 0) {
-            args = customCommand.trim().split(/\s+/);
+        if (hasCustomCommand) {
+            args = customCommand!.trim().split(/\s+/);
         } else {
             const isGerrit = await gerrit.isGerrit();
             if (isGerrit) {
@@ -42,11 +41,15 @@ export async function uploadCommand(
             jj.upload(args, revision)
         );
 
-        // Refresh view
-        await scmProvider.refresh();
+        gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);
     } catch (e: unknown) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        vscode.window.showErrorMessage(`Upload failed: ${errorMessage}`);
+        const CONFIGURE = 'Configure Upload...';
+        const extraActions = hasCustomCommand ? [] : [CONFIGURE];
+        const selection = await showJjError(e, 'Upload failed', outputChannel, extraActions);
+
+        if (selection === CONFIGURE) {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'jj-view.uploadCommand');
+        }
     }
 }

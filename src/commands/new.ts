@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, getErrorMessage, withDelayedProgress } from './command-utils';
+import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args?: unknown[]) {
@@ -14,20 +13,23 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
 
     // Check if we have arguments passed (like from webview or context menu)
     // If we do, is it a single revision?
-    let revision: string | undefined = undefined;
+    let parents: string[] | undefined;
     if (args) {
         if (Array.isArray(args)) {
-            revision = extractRevision(args);
+            const revision = extractRevision(args);
+            if(revision) {
+                parents = [revision];
+            }
         } else if (typeof args === 'string') {
             // direct call
-            revision = args;
+            parents = [args];
         }
     }
 
     try {
-        await withDelayedProgress('Creating new change...', jj.new(undefined, revision ? [revision] : undefined));
+        await withDelayedProgress('Creating new change...', jj.new({ parents }));
         await scmProvider.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        vscode.window.showErrorMessage(`Error creating new commit: ${getErrorMessage(e)}`);
+        showJjError(e, 'Error creating new commit', scmProvider.outputChannel);
     }
 }

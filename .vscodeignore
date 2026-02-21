@@ -2,6 +2,12 @@
 .vscode-test/**
 out/**
 node_modules/**
+!node_modules/@parcel/watcher/**
+!node_modules/@parcel/watcher-*/**
+!node_modules/detect-libc/**
+!node_modules/is-glob/**
+!node_modules/is-extglob/**
+!node_modules/picomatch/**
 src/**
 .gitignore
 .yarnrc

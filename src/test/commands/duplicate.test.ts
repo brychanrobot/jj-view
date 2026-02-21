@@ -10,14 +10,10 @@ import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import { JjScmProvider } from '../../jj-scm-provider';
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showErrorMessage: vi.fn(),
-        withProgress: vi.fn().mockImplementation(async (_, task) => task()),
-    },
-    ProgressLocation: { Notification: 15 },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('duplicateCommand', () => {
     let jj: JjService;

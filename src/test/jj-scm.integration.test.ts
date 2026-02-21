@@ -15,8 +15,6 @@ import { TestRepo, buildGraph } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let scmProvider: JjScmProvider;
 
@@ -56,7 +54,7 @@ suite('JJ SCM Provider Integration Test', function () {
         if (scmProvider) {
             scmProvider.dispose();
         }
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Detects added file in working copy', async () => {
@@ -148,9 +146,12 @@ suite('JJ SCM Provider Integration Test', function () {
         const [leftUri, rightUri] = command.arguments as vscode.Uri[];
 
         const params = new URLSearchParams(leftUri.query);
-        assert.ok(params.get('revision')?.endsWith('-'), 'Left query revision should end with -');
+        assert.ok(params.get('base'), 'Left query should have base param');
+        assert.strictEqual(params.get('side'), 'left', 'Left query should have side=left');
 
-        assert.ok(rightUri.query.startsWith('revision='), 'Right query should start with revision=');
+        const rightParams = new URLSearchParams(rightUri.query);
+        assert.ok(rightParams.get('base'), 'Right query should have base param');
+        assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
 
         assert.strictEqual(parentGroup.resourceStates[0].contextValue, 'jjParent');
 
@@ -590,7 +591,7 @@ suite('JJ SCM Provider Integration Test', function () {
                 startPolling: () => {},
                 dispose: () => {},
             });
-            const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {});
+            const provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, scmProvider.outputChannel);
 
             // Mock Webview
             let messageHandler: (m: unknown) => void = () => {};
@@ -673,5 +674,33 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.ok(parentGroups[0].resourceStates.length > 0, 'Parent group should have resources');
 
         assert.strictEqual(scmProvider.sourceControl.count, 2, 'SCM Count should match Working Copy count (2)');
+    });
+
+    test('Parent group context value updates when switching between immutable and mutable parents', async () => {
+        // Scenario:
+        // 1. Edit C1 (Parent is Root). Root is Immutable. Group should be 'jjParentGroup'.
+        // 2. Edit C2 (Parent is C1). C1 is Mutable. Group should be 'jjParentGroup:mutable'.
+        
+        // 1. Create C1 on top of root
+        repo.new(['root()'], 'C1'); 
+        // Current working copy (@) is C1. Parent is Root.
+        
+        await scmProvider.refresh();
+        let parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        // Root is immutable, so parent group should be immutable
+        assert.strictEqual(parentGroups[0].contextValue, 'jjParentGroup', 'Parent (Root) should be immutable');
+        
+        // 2. Create C2 on top of C1
+        repo.new([], 'C2');     
+        // Current working copy (@) is C2. Parent is C1.
+        // C1 is a normal commit, so it is mutable.
+        
+        await scmProvider.refresh();
+        parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        assert.strictEqual(parentGroups.length, 1);
+        
+        // This is the key assertion: Did the reused group update its context value?
+        assert.strictEqual(parentGroups[0].contextValue, 'jjParentGroup:mutable', 'Parent (C1) should be mutable');
+        assert.ok(parentGroups[0].label.includes('C1'), 'Group should be C1');
     });
 });

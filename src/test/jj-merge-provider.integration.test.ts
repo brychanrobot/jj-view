@@ -11,8 +11,6 @@ import { JjMergeContentProvider } from '../jj-merge-provider';
 import { TestRepo } from './test-repo';
 
 suite('JJ Merge Provider Integration Test', function () {
-    this.timeout(20000);
-
     let jj: JjService;
     let provider: JjMergeContentProvider;
     let registration: vscode.Disposable;
@@ -27,10 +25,10 @@ suite('JJ Merge Provider Integration Test', function () {
         registration = vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', provider);
     });
 
-    teardown(() => {
+    teardown(async () => {
         registration.dispose();
         provider.clearCache();
-        repo.dispose();
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Provider resolves conflict content', async () => {

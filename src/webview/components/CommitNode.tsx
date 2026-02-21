@@ -27,6 +27,7 @@ interface CommitNodeProps {
     isSelected?: boolean;
     selectionCount: number;
     hasImmutableSelection: boolean;
+    idDisplayLength?: number;
 }
 
 export const CommitNode: React.FC<CommitNodeProps> = ({
@@ -36,6 +37,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     isSelected,
     selectionCount,
     hasImmutableSelection,
+    idDisplayLength = 8, // Default fallback
 }) => {
     const isWorkingCopy = commit.is_working_copy;
     const isImmutable = commit.is_immutable;
@@ -142,6 +144,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 // Merge requires multiple items selected
                 canMerge: isSelected && selectionCount > 1,
 
+                // Absorb requires at least one mutable parent and single-item context
+                canAbsorb: commit.parents_immutable?.some((immutable: boolean) => !immutable) && (!isSelected || selectionCount <= 1),
+
                 preventDefaultContextMenuItems: true,
             })}
             onClick={(e) => {
@@ -157,8 +162,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 alignItems: 'stretch',
                 flexDirection: 'row',
                 justifyContent: 'flex-start',
-                fontFamily: 'var(--vscode-editor-font-family)',
-                fontSize: 'var(--vscode-editor-font-size)',
+                paddingBottom: '0',
                 cursor: 'default',
                 width: '100%',
                 backgroundColor: backgroundColor,
@@ -168,7 +172,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 minWidth: 0,
                 paddingLeft: '6px',
                 paddingTop: '0',
-                paddingBottom: '0',
             }}
         >
             {/* Left Column: ID and Actions */}
@@ -177,7 +180,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 style={{
                     marginRight: '8px',
                     flexShrink: 0,
-                    minWidth: '60px',
+                    width: `${idDisplayLength}ch`,
+                    minWidth: `${idDisplayLength}ch`,
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
@@ -194,17 +198,18 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         opacity: 1,
+                        fontFamily: 'monospace', // Ensure ch units align with text
                     }}
                 >
                     {commit.change_id_shortest ? (
                         <>
                             <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
                             <span style={{ opacity: 0.5 }}>
-                                {commit.change_id.substring(commit.change_id_shortest.length, 8)}
+                                {commit.change_id.substring(commit.change_id_shortest.length, idDisplayLength)}
                             </span>
                         </>
                     ) : (
-                        commit.change_id.substring(0, 8)
+                        commit.change_id.substring(0, idDisplayLength)
                     )}
                 </span>
 
@@ -344,8 +349,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     <div
                         className="gerrit-row"
                         style={{
-                            fontSize: 'var(--vscode-editor-font-size)',
-                            fontFamily: 'var(--vscode-editor-font-family)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
@@ -411,10 +414,10 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
                         {/* Sync Status Button or Icon */}
                         {gerritCl.status === 'NEW' &&
-                            (gerritCl.currentRevision === commit.commit_id ? (
+                            (gerritCl.currentRevision === commit.commit_id || gerritCl.synced ? (
                                 // Synced - Non-interactive Icon
                                 <div
-                                    title="Up to date with Gerrit"
+                                    title={gerritCl.synced ? "Synced (content matches Gerrit)" : "Up to date with Gerrit"}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',

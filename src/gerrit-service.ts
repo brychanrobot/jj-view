@@ -11,6 +11,34 @@ import { GerritClInfo } from './jj-types';
 import { JjService } from './jj-service';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
 
+interface GerritFile {
+    status?: string;
+    new_sha?: string;
+}
+
+interface GerritRevision {
+    files?: Record<string, GerritFile>;
+}
+
+export interface GerritChange {
+    change_id: string;
+    _number: number;
+    status: 'NEW' | 'MERGED' | 'ABANDONED';
+    submittable: boolean;
+    unresolved_comment_count?: number;
+    current_revision?: string;
+    revisions?: Record<string, GerritRevision>;
+    project?: string;
+    branch?: string;
+    subject?: string;
+    created?: string;
+    updated?: string;
+    mergeable?: boolean;
+    insertions?: number;
+    deletions?: number;
+    owner?: { _account_id: number };
+}
+
 export class GerritService implements vscode.Disposable {
     private poller: NodeJS.Timeout | undefined;
     private cache: Map<string, GerritClInfo> = new Map();
@@ -18,12 +46,16 @@ export class GerritService implements vscode.Disposable {
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
+    private _initPromise: Promise<void>;
+
+    private lastRefreshTime: number = 0;
+
     constructor(
         private workspaceRoot: string,
         private jjService: JjService,
         private outputChannel?: vscode.OutputChannel // Optional for easier testing
     ) {
-        this.detectGerritHost();
+        this._initPromise = this.detectGerritHost();
         
         // Listen for config changes
         vscode.workspace.onDidChangeConfiguration(e => {
@@ -31,6 +63,21 @@ export class GerritService implements vscode.Disposable {
                 this.detectGerritHost();
             }
         });
+
+        // Refresh when window gains focus (throttled to 10s)
+        vscode.window.onDidChangeWindowState(state => {
+            if (state.focused && this.isEnabled) {
+                const now = Date.now();
+                if (now - this.lastRefreshTime > 10000) {
+                    this._refresh('Window focus');
+                }
+            }
+        });
+    }
+
+    /** For testing only: wait for initialization to complete */
+    public async awaitReady(): Promise<void> {
+        return this._initPromise;
     }
 
     dispose() {
@@ -49,8 +96,7 @@ export class GerritService implements vscode.Disposable {
         // Listeners will re-fetch Gerrit data for their cached commits.
         this.poller = setInterval(() => {
             if (this.isEnabled && vscode.window.state.focused) {
-                this.cache.clear();
-                this._onDidUpdate.fire();
+                this._refresh();
             }
         }, 60000);
     }
@@ -59,6 +105,39 @@ export class GerritService implements vscode.Disposable {
         if (this.poller) {
             clearInterval(this.poller);
             this.poller = undefined;
+        }
+    }
+
+    /** Immediately clears cache and notifies listeners to re-fetch Gerrit data. */
+    public forceRefresh() {
+        this._refresh('Force refresh');
+    }
+
+    private _refresh(reason?: string) {
+        if (this.isEnabled) {
+            if (reason) {
+                this.outputChannel?.appendLine(`[GerritService] ${reason} triggered`);
+            }
+            this.cache.clear();
+            this._onDidUpdate.fire();
+            this.lastRefreshTime = Date.now();
+        }
+    }
+
+    /**
+     * Schedules multiple force refreshes with backoff delays to catch updates (e.g. CI, Merge status)
+     * that might have latency after an upload.
+     */
+    public requestRefreshWithBackoffs(scheduleFn: (callback: () => void, delay: number) => void = setTimeout) {
+        if (!this.isEnabled) {
+            return;
+        }
+
+        const delays = [2000, 3000, 5000, 10000];
+        this.outputChannel?.appendLine(`[GerritService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
+        
+        for (const delay of delays) {
+            scheduleFn(() => this.forceRefresh(), delay);
         }
     }
 
@@ -246,7 +325,7 @@ export class GerritService implements vscode.Disposable {
     /**
      * Fetches status from network (bypass cache read), updates cache, and returns new value.
      */
-    public async forceFetchAndCacheStatus(_commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
+    public async forceFetchAndCacheStatus(commitId: string, changeId?: string, description?: string): Promise<GerritClInfo | undefined> {
         if (!this._gerritHost) {
             return undefined;
         }
@@ -258,7 +337,8 @@ export class GerritService implements vscode.Disposable {
 
         const info = await this._fetchFromNetwork(cacheKey);
         if (info) {
-             this.cache.set(cacheKey, info);
+            await this._verifySyncForCommit(commitId, info);
+            this.cache.set(cacheKey, info);
         }
         return info;
     }
@@ -312,7 +392,7 @@ export class GerritService implements vscode.Disposable {
         
         const searchQ = `change:${cacheKey}`;
         try {
-            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION`;
+            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION&o=CURRENT_FILES`;
             
             const response = await fetch(url);
             if (!response.ok) {
@@ -323,7 +403,7 @@ export class GerritService implements vscode.Disposable {
             const text = await response.text();
             // Gerrit API returns ")]}'" prefix
             const jsonStr = text.replace(/^\)]}'\n/, '');
-            const data = JSON.parse(jsonStr);
+            const data = JSON.parse(jsonStr) as GerritChange[];
 
             // Search returns an array of changes
             if (!Array.isArray(data) || data.length === 0) {
@@ -332,6 +412,24 @@ export class GerritService implements vscode.Disposable {
 
             // Use the first match (typically the most relevant or only one)
             const change = data[0];
+            const currentRev = change.current_revision;
+            
+            let files: Record<string, { newSha?: string; status?: string }> | undefined;
+            if (currentRev && change.revisions && change.revisions[currentRev] && change.revisions[currentRev].files) {
+                files = {};
+                const rawFiles = change.revisions[currentRev].files;
+                if (rawFiles) {
+                    for (const [path, fileInfo] of Object.entries(rawFiles)) {
+                        // Skip magic files like /COMMIT_MSG
+                        if (path.startsWith('/')) continue;
+                        
+                        files[path] = {
+                            newSha: fileInfo.new_sha,
+                            status: fileInfo.status
+                        };
+                    }
+                }
+            }
 
             const info: GerritClInfo = {
                 changeId: change.change_id,
@@ -340,12 +438,63 @@ export class GerritService implements vscode.Disposable {
                 submittable: change.submittable,
                 url: `${this._gerritHost}/c/${change._number}`,
                 unresolvedComments: change.unresolved_comment_count || 0,
-                currentRevision: change.current_revision
+                currentRevision: change.current_revision,
+                files
             };
             return info;
         } catch (error) {
             this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${cacheKey}: ${error}`);
             return undefined;
+        }
+    }
+
+    /**
+     * Verify whether a local commit's content matches its Gerrit revision
+     * by comparing per-file blob SHA-1 hashes. Sets `synced = true` if matching.
+     */
+    private async _verifySyncForCommit(commitId: string, info: GerritClInfo): Promise<void> {
+        if (info.status !== 'NEW' ||
+            info.currentRevision === commitId ||
+            !info.files) {
+            return;
+        }
+
+        const gerritFiles = info.files;
+        try {
+            // 1. Get filtered sets of "active" files (non-deleted)
+            const localChanges = await this.jjService.getChanges(commitId);
+            const localPaths = new Set(
+                localChanges
+                    .filter(c => c.status !== 'deleted')
+                    .map(c => c.path)
+            );
+
+            const gerritPaths = Object.keys(gerritFiles).filter(p => gerritFiles[p].status !== 'D');
+            const gerritPathSet = new Set(gerritPaths);
+
+            // 2. Compare sets using ES2024 Set.difference
+            // Check for strict equality of sets: A.difference(B) must be empty AND B.difference(A) must be empty
+            if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
+                return;
+            }
+
+            // 3. Sets match 1:1, so we only need to verify content hashes
+            if (gerritPaths.length > 0) {
+                const localHashes = await this.jjService.getGitBlobHashes(commitId, gerritPaths);
+                
+                for (const file of gerritPaths) {
+                    const gerritFile = gerritFiles[file];
+                    const localSha = localHashes.get(file);
+
+                    if (!localSha || localSha !== gerritFile.newSha) {
+                        return;
+                    }
+                }
+            }
+
+            info.synced = true;
+        } catch (e) {
+            this.outputChannel?.appendLine(`[GerritService] Sync verification failed for ${commitId}: ${e}`);
         }
     }
 }

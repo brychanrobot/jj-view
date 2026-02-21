@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { JjService } from '../jj-service';
 import { JjScmProvider, JjResourceState } from '../jj-scm-provider';
-import { collectResourceStates, getErrorMessage } from './command-utils';
+import { collectResourceStates, showJjError } from './command-utils';
 
 export async function moveToChildCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
@@ -77,15 +77,9 @@ async function applyMoveToParent(
         await jj.movePartialToParent(relPath, ranges);
         vscode.window.showInformationMessage('Moved changes to parent.');
     } catch (e: unknown) {
-        vscode.window.showErrorMessage('Failed to move changes: ' + getErrorMessage(e));
+        showJjError(e, 'Failed to move changes', scmProvider.outputChannel);
     } finally {
         await scmProvider.refresh();
-        // Invalidate the Parent content cache so the Diff Editor updates
-        if (scmProvider.contentProvider) {
-            // The diff view typically uses jj-view scheme for the left side (Parent)
-            const parentUri = docUri.with({ scheme: 'jj-view', query: 'revision=@-' });
-            scmProvider.contentProvider.update(parentUri);
-        }
     }
 }
 
@@ -112,12 +106,8 @@ async function applyMoveToChild(
         await jj.movePartialToChild(relPath, ranges);
         vscode.window.showInformationMessage('Moved changes to child.');
     } catch (e: unknown) {
-        vscode.window.showErrorMessage('Failed to move changes: ' + getErrorMessage(e));
+        showJjError(e, 'Failed to move changes', scmProvider.outputChannel);
     } finally {
         await scmProvider.refresh();
-        if (scmProvider.contentProvider) {
-            const parentUri = docUri.with({ scheme: 'jj-view', query: 'revision=@-' });
-            scmProvider.contentProvider.update(parentUri);
-        }
     }
 }

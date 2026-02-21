@@ -12,28 +12,48 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
         return this._onDidChange.event;
     }
 
+    // Cache keyed by "base|filePath" → { left, right }
+    private _cache = new Map<string, { left: string; right: string }>();
+    // Track all URIs that have been served so we can fire onDidChange for them
+    private _knownUris = new Set<string>();
+
     constructor(private jj: JjService) {}
 
-    update(uri: vscode.Uri) {
-        this._onDidChange.fire(uri);
+    /**
+     * Clear the entire cache and notify VS Code that all known URIs have changed.
+     * Called from refresh() to ensure stale content is never served.
+     */
+    invalidateCache() {
+        this._cache.clear();
+        for (const uriStr of this._knownUris) {
+            this._onDidChange.fire(vscode.Uri.parse(uriStr));
+        }
+        this._knownUris.clear();
     }
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-        // expected uri format: jj-view:/absolute/path/to/file?revision=xyz
-        // OR jj-view:/absolute/path/to/file (defaults to parent of working copy)
-
         const query = new URLSearchParams(uri.query);
-        const revision = query.get('revision') || '@-';
+        const base = query.get('base');
+        const side = query.get('side');
         const explicitPath = query.get('path');
-        
-        // Prefer explicit path from query if available (handling renames robustly)
-        // Otherwise fallback to fsPath
-        const filePath = explicitPath || uri.fsPath;
 
-        try {
-            return await this.jj.cat(filePath, revision);
-        } catch (e) {
-            return ''; // Return empty if file not found (e.g. added file)
+        if (!base || !side) {
+            return '';
         }
+
+        const filePath = explicitPath || uri.fsPath;
+        const cacheKey = `${base}|${filePath}`;
+
+        // Track this URI for future invalidation
+        this._knownUris.add(uri.toString());
+
+        // Check cache first
+        let content = this._cache.get(cacheKey);
+        if (!content) {
+            content = await this.jj.getDiffContent(base, filePath);
+            this._cache.set(cacheKey, content);
+        }
+
+        return side === 'left' ? content.left : content.right;
     }
 }

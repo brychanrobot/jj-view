@@ -9,6 +9,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - All code should be written in **TypeScript**.
 - Strict type checking is enabled (`"strict": true` in `tsconfig.json`).
 - **Forbidden**: `any` type usage. Use strict types or `unknown` if absolute necessary.
+- **Forbidden**: disabling the `any` type check for a line or block. `// @ts-ignore` or `// eslint-disable-line` are not allowed.
 - **Forbidden**: `as unknown as Type` double casting. Use `createMock` utility or proper type narrowing instead.
 
 ### Naming Conventions
@@ -31,7 +32,12 @@ This document outlines the coding standards, testing strategies, and architectur
 
 ## Testing Strategy
 
-This project employs a split testing strategy to ensure both logic correctness and integration validity. Tests should never mock JjService. They should use TestRepo to create a temporary repository on disk and JjService to interact with it. Test verifications should use TestRepo and not try to verify using JjService.
+This project employs a split testing strategy to ensure both logic correctness and integration validity. 
+
+**CRITICAL RULE**: Tests should **NEVER** mock `JjService` methods. 
+- Always use `TestRepo` to set up a real temporary repository on disk.
+- Use a real `JjService` instance to operate on it. 
+- Use `TestRepo` methods to verify outcomes (e.g. file content, log history), rather than spying on `JjService` calls.
 
 ### 1. Unit Tests
 
@@ -42,7 +48,19 @@ This project employs a split testing strategy to ensure both logic correctness a
 - **Scope**:
     - Test individual classes and functions in isolation.
     - **Mock all external dependencies**, especially the `vscode` module and file system operations.
+    - **EXCEPTION**: Do NOT mock `JjService` methods (e.g. `jj.absorb`). Instead, use `TestRepo` to create a real temporary repo and use a real `JjService` instance to interact with it.
     - Fast feedback loop, run frequently.
+    - **Mocking VS Code**: Use the shared `createVscodeMock` helper with dynamic import to avoid hoisting issues.
+        ```typescript
+        // Correct pattern
+        vi.mock('vscode', async () => {
+            const { createVscodeMock } = await import('../vscode-mock');
+            return createVscodeMock({
+                // Overrides
+                window: { showErrorMessage: vi.fn() },
+            });
+        });
+        ```
 - **Example**: Testing `JjService` log parsing logic or `JjScmProvider` state calculations without starting VS Code.
 
 ### 2. Integration Tests
