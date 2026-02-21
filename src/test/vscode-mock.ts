@@ -63,6 +63,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             showErrorMessage: vi.fn(),
             showInformationMessage: vi.fn(),
             showWarningMessage: vi.fn(),
+            showInputBox: vi.fn(),
             withProgress: vi.fn().mockImplementation(async (_: unknown, task: () => Promise<unknown>) => task()),
             setStatusBarMessage: vi.fn(),
             createOutputChannel: vi.fn().mockReturnValue({ appendLine: vi.fn() }),
