@@ -110,6 +110,9 @@ describe('JjService Write Operation Timeout', () => {
         const abandonPromise = jjService.abandon('test-rev');
         expect(jjService.writeOpCount).toBe(1);
 
+        // Wait a microtask for the mutex queue to pulse and runInternal to start
+        await Promise.resolve();
+
         // Complete before timeout
         resolveCommand!();
         await abandonPromise;

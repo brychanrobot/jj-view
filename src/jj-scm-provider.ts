@@ -5,13 +5,14 @@
 
 import * as vscode from 'vscode';
 import { JjService } from './jj-service';
-import { JjStatusEntry } from './jj-types';
+import { JjStatusEntry, JjLogEntry } from './jj-types';
 import { ChangeDetectionManager } from './change-detection-manager';
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { JjDocumentContentProvider } from './jj-content-provider';
+import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import { JjContextKey } from './jj-context-keys';
@@ -34,6 +35,7 @@ export class JjScmProvider implements vscode.Disposable {
     private _lastKnownDescription: string = '';
     private _lastKnownCommitId: string = '';
     private _selectedCommitIds: string[] = [];
+    private _currentEntry: JjLogEntry | undefined;
 
     private _onDidChangeStatus = new vscode.EventEmitter<void>();
     readonly onDidChangeStatus: vscode.Event<void> = this._onDidChangeStatus.event;
@@ -51,6 +53,7 @@ export class JjScmProvider implements vscode.Disposable {
         workspaceRoot: string,
         public readonly outputChannel: vscode.OutputChannel,
         public readonly contentProvider?: JjDocumentContentProvider,
+        public readonly editProvider?: JjEditFileSystemProvider,
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));
         this.decorationProvider = new JjDecorationProvider();
@@ -152,14 +155,18 @@ export class JjScmProvider implements vscode.Disposable {
             this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${!!forceSnapshot})${reasonStr}...`);
             const start = performance.now();
             try {
+                // Clear any cached data that might be stale after external changes
+                await this.jj.clearCache();
+
                 // 0. Force a snapshot if requested
                 if (forceSnapshot) {
                     await this.jj.status();
                 }
                 this._onRepoStateReady.fire();
 
-                // Invalidate diff content cache so stale content is never served
+                // Invalidate caches so stale content is never served
                 this.contentProvider?.invalidateCache();
+                this.editProvider?.invalidateCache();
 
                 // 1. Fetch data in parallel for performance
                 const [logResult, children, conflictedPaths] = await Promise.all([
@@ -167,8 +174,8 @@ export class JjScmProvider implements vscode.Disposable {
                     this.jj.getChildren('@'),
                     this.jj.getConflictedFiles(),
                 ]);
-                const [logEntry] = logResult;
-                const currentEntry = logEntry;
+                const [currentEntry] = logResult;
+                this._currentEntry = currentEntry;
 
                 let parentMutable = false;
                 const hasChild = children.length > 0;
@@ -226,7 +233,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
-                    const state = this.toResourceState(c, '@');
+                    const state = this.toResourceState(c, currentEntry.change_id);
                     decorationMap.set(state.resourceUri.toString(), c);
                     return state;
                 });
@@ -234,7 +241,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // 3. Update Conflict Group (conflictedPaths fetched above)
                 this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                     const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
-                    const state = this.toResourceState(entry, '@');
+                    const state = this.toResourceState(entry, currentEntry.change_id);
                     decorationMap.set(state.resourceUri.toString(), entry);
                     return state;
                 });
@@ -265,7 +272,6 @@ export class JjScmProvider implements vscode.Disposable {
                     // Process fetched parent entries
                     for (let i = 0; i < parentEntries.length; i++) {
                         const [parentEntry] = parentEntries[i];
-                        const parentRef = parentRefs[i];
 
                         if (parentEntry) {
                             const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
@@ -293,8 +299,9 @@ export class JjScmProvider implements vscode.Disposable {
                             }
 
                             const parentChanges = parentEntry.changes || [];
-                            group.resourceStates = parentChanges.map((c) => {
-                                const state = this.toResourceState(c, parentRef);
+                            const isMutable = !parentEntry.is_immutable;
+                            group.resourceStates = parentChanges.map((c: JjStatusEntry) => {
+                                const state = this.toResourceState(c, parentEntry.change_id, { editable: isMutable });
                                 decorationMap.set(state.resourceUri.toString(), c);
                                 return state;
                             });
@@ -410,9 +417,18 @@ export class JjScmProvider implements vscode.Disposable {
         }
     }
 
-    private toResourceState(entry: JjStatusEntry, revision: string = '@'): JjResourceState {
+    private toResourceState(
+        entry: JjStatusEntry,
+        revision: string = '@',
+        options: { editable?: boolean; workingCopyChangeId?: string } = {},
+    ): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
-        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root);
+        const isWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
+        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, {
+            ...options,
+            workingCopyChangeId: this._currentEntry?.change_id,
+        });
+
 
         const command: vscode.Command = entry.conflicted
             ? {
@@ -423,7 +439,7 @@ export class JjScmProvider implements vscode.Disposable {
             : {
                   command: 'vscode.diff',
                   title: 'Diff',
-                  arguments: [leftUri, rightUri, `${entry.path} (${revision === '@' ? 'Working Copy' : revision})`],
+                  arguments: [leftUri, rightUri, `${entry.path} (${isWorkingCopy ? 'Working Copy' : revision})`],
               };
 
         return {
@@ -434,13 +450,15 @@ export class JjScmProvider implements vscode.Disposable {
                 faded: false,
                 strikeThrough: entry.status === 'removed',
             },
-            contextValue: entry.conflicted ? 'jjConflict' : revision === '@' ? 'jjWorkingCopy' : 'jjParent',
+            contextValue: entry.conflicted ? 'jjConflict' : isWorkingCopy ? 'jjWorkingCopy' : 'jjParent',
             revision: revision,
         };
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
-        return uri.with({ scheme: 'jj-view', query: 'base=@&side=left' });
+        const query = new URLSearchParams(uri.query);
+        const revision = query.get('jj-revision') || '@';
+        return uri.with({ scheme: 'jj-view', query: `base=${revision}&side=left` });
     }
 
     get sourceControl(): vscode.SourceControl {

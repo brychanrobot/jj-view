@@ -149,9 +149,15 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.ok(params.get('base'), 'Left query should have base param');
         assert.strictEqual(params.get('side'), 'left', 'Left query should have side=left');
 
-        const rightParams = new URLSearchParams(rightUri.query);
-        assert.ok(rightParams.get('base'), 'Right query should have base param');
-        assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
+        if (rightUri.scheme === 'jj-edit') {
+            const rightParams = new URLSearchParams(rightUri.query);
+            assert.ok(rightParams.get('revision'), 'Right query should have revision param for jj-edit');
+        } else {
+            assert.strictEqual(rightUri.scheme, 'jj-view', 'Right URI scheme should be jj-view if not jj-edit');
+            const rightParams = new URLSearchParams(rightUri.query);
+            assert.ok(rightParams.get('base'), 'Right query should have base param for jj-view');
+            assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
+        }
 
         assert.strictEqual(parentGroup.resourceStates[0].contextValue, 'jjParent');
 

@@ -21,10 +21,12 @@ export async function showMultiFileDiffCommand(
             // Resolve to concrete change ID so both diff sides use the jj-view content provider
             const [logEntry] = await jj.getLog({ revision, limit: 1 });
             const changeId = logEntry?.change_id ?? revision;
+            const editable = logEntry ? !logEntry.is_immutable : false;
 
             const [changes, description] = await Promise.all([
                 jj.getChanges(changeId),
                 jj.getDescription(changeId),
+                jj.getDiffForRevision(revision),
             ]);
             
             if (changes.length === 0) {
@@ -34,7 +36,7 @@ export async function showMultiFileDiffCommand(
 
             const resources: [vscode.Uri, vscode.Uri][] = [];
             for (const entry of changes) {
-                const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot);
+                const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
                 resources.push([leftUri, rightUri]);
             }
 
@@ -56,3 +58,4 @@ export async function showMultiFileDiffCommand(
         showJjError(err, 'Failed to open multi-file diff', outputChannel);
     }
 }
+

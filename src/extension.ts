@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { JjService } from './jj-service';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
+import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
 import { GerritService } from './gerrit-service';
 import { abandonCommand } from './commands/abandon';
@@ -56,11 +57,19 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(gerritService);
 
     const contentProvider = new JjDocumentContentProvider(jj);
-    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider);
+    const editProvider = new JjEditFileSystemProvider(jj);
+    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider, editProvider);
+    
+    // Wire up the edit provider to trigger scm refreshes
+    editProvider.onDidWrite = () => scmProvider.refresh();
+
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
 
     // Register Document Content Provider for read-only access to old file versions
     context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('jj-view', contentProvider));
+
+    // Register FileSystemProvider for editable access to mutable revision files
+    context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editProvider));
 
     const disposable = vscode.commands.registerCommand('jj-view.showCurrentChange', async () => {
         await showCurrentChangeCommand(jj, outputChannel);

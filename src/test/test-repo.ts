@@ -35,10 +35,27 @@ export class TestRepo {
             });
             return options.trim !== false ? output.trim() : output;
         } catch (e: unknown) {
-            // Re-throw with stdout/stderr for easier debugging
             const err = e as { stdout?: Buffer; stderr?: Buffer };
+            const stderr = err.stderr?.toString() || '';
+
+            // If the working copy is stale, try again with --ignore-working-copy
+            // if we haven't already tried it.
+            if (stderr.toLowerCase().includes('working copy is stale') && !args.includes('--ignore-working-copy')) {
+                try {
+                    const output = cp.execFileSync('jj', ['--quiet', '--ignore-working-copy', ...args], {
+                        cwd: this.path,
+                        encoding: 'utf-8',
+                        stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
+                    });
+                    return options.trim !== false ? output.trim() : output;
+                } catch {
+                    // Fall through to original error if retry also fails
+                }
+            }
+
+            // Re-throw with stdout/stderr for easier debugging
             throw new Error(
-                `Command failed: jj ${args.join(' ')}\nStdout: ${err.stdout?.toString()}\nStderr: ${err.stderr?.toString()}`,
+                `Command failed: jj ${args.join(' ')}\nStdout: ${err.stdout?.toString()}\nStderr: ${stderr}`,
             );
         }
     }

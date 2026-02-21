@@ -68,10 +68,9 @@ describe('showMultiFileDiffCommand', () => {
         expect(original.query).toContain('side=left');
         expect(original.path).toContain(FILE_NAME);
 
-        // Modified (right) should use jj-view scheme (not file scheme)
-        expect(modified.scheme).toBe('jj-view');
-        expect(modified.query).toContain(`base=${changeId}`);
-        expect(modified.query).toContain('side=right');
+        // Modified (right) should use jj-edit scheme (editable for mutable commits)
+        expect(modified.scheme).toBe('jj-edit');
+        expect(modified.query).toContain(`revision=${changeId}`);
         expect(modified.path).toContain(FILE_NAME);
     });
 
@@ -89,11 +88,10 @@ describe('showMultiFileDiffCommand', () => {
         const tuples = call![2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
         expect(tuples).toHaveLength(1);
 
-        // Modified side should use change ID, not '@'
+        // Modified side should use change ID, not '@', with jj-edit scheme
         const modified = tuples[0][2];
-        expect(modified.scheme).toBe('jj-view');
-        expect(modified.query).toContain(`base=${changeId}`);
-        expect(modified.query).toContain('side=right');
+        expect(modified.scheme).toBe('jj-edit');
+        expect(modified.query).toContain(`revision=${changeId}`);
     });
 
     it('works with Webview Context payload', async () => {

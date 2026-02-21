@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
@@ -816,6 +816,42 @@ describe('JjService Unit Tests', () => {
         expect(contentV2).toBe('v2');
     });
 
+    test('setFileContent writes content to a specific revision', async () => {
+        repo.writeFile('edit-me.txt', 'original content');
+        repo.describe('parent');
+        const parentId = repo.getChangeId('@');
+
+        // Create a child commit on top
+        repo.new();
+        repo.writeFile('child-file.txt', 'child');
+
+        // Edit the file in the parent revision
+        await jjService.setFileContent(parentId, 'edit-me.txt', 'updated content');
+
+        // Verify the parent revision has the new content
+        const parentContent = repo.getFileContent(parentId, 'edit-me.txt');
+        expect(parentContent).toBe('updated content');
+    });
+
+    test('setFilesContent writes multiple files to a specific revision atomically', async () => {
+        repo.writeFile('file1.txt', 'old1');
+        repo.writeFile('file2.txt', 'old2');
+        repo.describe('parent');
+        const parentId = repo.getChangeId('@');
+
+        repo.new();
+        repo.writeFile('child.txt', 'child');
+
+        const files = new Map([
+            ['file1.txt', 'new1'],
+            ['file2.txt', 'new2'],
+        ]);
+        await jjService.setFilesContent(parentId, files);
+
+        expect(repo.getFileContent(parentId, 'file1.txt')).toBe('new1');
+        expect(repo.getFileContent(parentId, 'file2.txt')).toBe('new2');
+    });
+
     test('movePartialToParent handles new files (not in parent)', async () => {
         const fileName = 'new-file.txt';
         const filePath = path.join(repo.path, fileName);
@@ -1196,5 +1232,29 @@ describe('JjService Unit Tests', () => {
         
         expect(hashes.size).toBe(1);
         expect(hashes.get(fileName)).toBe(expectedHash);
+    });
+
+    test('getDiffForRevision handles thundering herd concurrently', async () => {
+        repo.writeFile('test.txt', 'content');
+        repo.describe('thundering herd test');
+        const commitId = repo.getCommitId('@');
+        
+        // Spy on run to count diffedit calls
+        const runSpy = vi.spyOn(jjService as unknown as Record<'run', (...args: unknown[]) => Promise<unknown>>, 'run');
+        
+        // Trigger multiple concurrent requests
+        const results = await Promise.all([
+            jjService.getDiffForRevision(commitId),
+            jjService.getDiffForRevision(commitId),
+            jjService.getDiffForRevision(commitId),
+        ]);
+        
+        // Verify they all returned the same thing (same tempDir)
+        expect(results[0].tempDir).toBe(results[1].tempDir);
+        expect(results[1].tempDir).toBe(results[2].tempDir);
+        
+        // Verify it was only called ONCE for diffedit bulk capture
+        const diffeditCalls = runSpy.mock.calls.filter((call: unknown[]) => call[0] === 'diffedit');
+        expect(diffeditCalls.length).toBe(1);
     });
 });

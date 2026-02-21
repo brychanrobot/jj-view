@@ -28,6 +28,9 @@ export class JjService {
     private _lastWriteTime = 0;
     private _operationTimeouts = new Map<number, NodeJS.Timeout>();
     private _nextOpId = 0;
+    private _diffCache = new Map<string, { tempDir: string; expires: number }>();
+    private _diffCachePromises = new Map<string, Promise<{ tempDir: string; expires: number }>>();
+    private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
         public readonly workspaceRoot: string,
@@ -59,7 +62,18 @@ export class JjService {
     private async run(
         command: string,
         args: string[],
-        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean } = {},
+        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean; label?: string } = {},
+    ): Promise<string> {
+        if (options.isMutation) {
+            return this.runMutation(() => this.runInternal(command, args, options));
+        }
+        return this.runInternal(command, args, options);
+    }
+
+    private async runInternal(
+        command: string,
+        args: string[],
+        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean; label?: string } = {},
     ): Promise<string> {
         const opId = this._nextOpId++;
 
@@ -69,82 +83,78 @@ export class JjService {
         }
         
         const start = performance.now();
-        // Truncate for readability: jj <command> <arg1>...
         const allArgs = [command, ...finalArgs];
         const displayArgs = allArgs.slice(0, 2);
-        const commandStr = `jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
+        const prefix = options.label ? `[${options.label}] ` : '';
+        const commandStr = `${prefix}jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
         
-        return new Promise<string>((resolve, reject) => {
-            if (options.isMutation) {
-                this._writeOperationCount++;
-                // Safety timeout: if operation takes too long, reject to unblock file watcher
-                const duration = options.timeout ?? MUTATION_TIMEOUT_MS;
-                const timeout = setTimeout(() => {
-                    reject(new Error(`Mutation operation timed out after ${duration / 1000}s`));
-                }, duration);
-                this._operationTimeouts.set(opId, timeout);
+        const isMutation = !!options.isMutation;
+        let timeout: NodeJS.Timeout | undefined;
+
+        try {
+            const { stdout } = await new Promise<{ stdout: string | Buffer }>((resolve, reject) => {
+                if (isMutation) {
+                    const duration = options.timeout ?? MUTATION_TIMEOUT_MS;
+                    timeout = setTimeout(() => {
+                        reject(new Error(`Mutation operation timed out after ${duration / 1000}s`));
+                    }, duration);
+                    this._operationTimeouts.set(opId, timeout);
+                }
+
+                const finalOptions = {
+                    cwd: this.workspaceRoot,
+                    env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
+                    maxBuffer: 100 * 1024 * 1024, 
+                    ...options,
+                };
+
+                cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout, stderr) => {
+                    const duration = performance.now() - start;
+                    const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
+                    this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
+                    
+                    if (err) {
+                        const combined: string[] = [];
+                        const outStr = stdout?.toString().trim();
+                        const errStr = stderr?.toString().trim();
+                        if (outStr) combined.push(outStr);
+                        if (errStr) combined.push(errStr);
+                        if (combined.length > 0) err.message = combined.join('\n\n');
+                        reject(err);
+                    } else {
+                        resolve({ stdout });
+                    }
+                });
+            });
+
+            if (isMutation) {
+                await this.clearCache().catch(err => 
+                    this.logger(`Warning: failed to clear cache: ${err}`)
+                );
             }
 
-            const finalOptions = {
-                cwd: this.workspaceRoot,
-                env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
-                // Default maxBuffer to 100MB to support large logs/diffs
-                maxBuffer: 100 * 1024 * 1024, 
-                ...options,
-            };
+            const shouldTrim = options.trim !== false;
+            const result = typeof stdout === 'string' ? stdout : stdout.toString();
+            return shouldTrim ? result.trim() : result;
 
-            cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout, stderr) => {
-                const duration = performance.now() - start;
-                const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
-                this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
-                
-                if (err) {
-                    const combined: string[] = [];
-                    const outStr = stdout?.toString().trim();
-                    const errStr = stderr?.toString().trim();
-                    
-                    if (outStr) {
-                        combined.push(outStr);
-                    }
-                    if (errStr) {
-                        combined.push(errStr);
-                    }
-
-                    if (combined.length > 0) {
-                        err.message = combined.join('\n\n');
-                    }
-                    
-                    reject(err);
-                    return;
-                }
-                const shouldTrim = options.trim !== false;
-                if (typeof stdout === 'string') {
-                    resolve(shouldTrim ? stdout.trim() : stdout);
-                } else {
-                    resolve(shouldTrim ? stdout.toString().trim() : stdout.toString());
-                }
-            });
-        }).finally(() => {
-            if (options.isMutation) {
-                const timeout = this._operationTimeouts.get(opId);
+        } finally {
+            if (isMutation) {
                 if (timeout) {
                     clearTimeout(timeout);
                     this._operationTimeouts.delete(opId);
                 }
-                this._writeOperationCount--;
-                this._lastWriteTime = Date.now();
             }
-        });
+        }
     }
 
     async getBookmarks(): Promise<string[]> {
-        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], { useCachedSnapshot: true });
+        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], { useCachedSnapshot: true, label: 'getBookmarks' });
         const lines = output.trim().split('\n').filter((line) => line.length > 0);
         return Array.from(new Set(lines));
     }
 
     async moveBookmark(name: string, toRevision: string): Promise<string> {
-        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], { isMutation: true });
+        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], { isMutation: true, label: 'moveBookmark' });
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
@@ -161,7 +171,7 @@ export class JjService {
             args.push('-n', '200');
         }
 
-        const output = await this.run('log', args, { useCachedSnapshot: true });
+        const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
         const entries: JjLogEntry[] = [];
 
         for (const line of output.trim().split('\n')) {
@@ -192,7 +202,7 @@ export class JjService {
         if (from) {
             cmdArgs.push('--from', from);
         }
-        await this.run('restore', cmdArgs, { isMutation: true });
+        await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
     }
     /**
      * Get the base, left (ours), and right (theirs) content for a conflicted file.
@@ -253,78 +263,220 @@ export class JjService {
 
     /**
      * Get the left (auto-merged parents) and right (revision) content for a file's diff.
-     * Uses `jj diffedit --tool` to correctly compute the auto-merged left side,
-     * which handles merge commits (multiple parents) properly.
+     * Uses the bulk cache, warming it if necessary.
      */
     async getDiffContent(revision: string, filePath: string): Promise<{ left: string; right: string }> {
-        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-diff-'));
+        const cache = await this.getDiffForRevision(revision);
         const relativePath = this.toRelative(filePath);
+        const leftPath = path.join(cache.tempDir, 'left', relativePath);
+        const rightPath = path.join(cache.tempDir, 'right', relativePath);
 
+        const leftExists = await fs.access(leftPath).then(() => true).catch(() => false);
+        const rightExists = await fs.access(rightPath).then(() => true).catch(() => false);
+
+        if (leftExists || rightExists) {
+            const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
+            const right = rightExists ? await fs.readFile(rightPath, 'utf8') : '';
+            return { left, right };
+        }
+
+        // If not in cache, it means there are no differences for this file
+        // relative to the parent(s). Fallback to fetching file content directly.
+        // This handles "Quick Diff" on unchanged files where we need the base content.
         try {
-            const tempDirNormalized = tempDir.split(path.sep).join('/');
-            const leftPath = `${tempDirNormalized}/left`;
-            const rightPath = `${tempDirNormalized}/right`;
+            this.logger(`getDiffContent fallback ${filePath} ${revision}`);
+            const content = await this.getFileContent(filePath, revision);
+            return { left: content, right: content };
+        } catch {
+            // If file doesn't exist in revision, return empty
+            return { left: '', right: '' };
+        }
+    }
 
-            // Normalize filePath separators for safe injection into JS script string
-            const normalizedFilePath = relativePath.split(path.sep).join('/');
+    /**
+     * Ensures that the diff cache for a revision is warm and valid.
+     * Extracts all changed files into a temporary directory using a single 'jj diffedit' call.
+     */
+    async getDiffForRevision(revision: string, force: boolean = false): Promise<{ tempDir: string; expires: number }> {
+        // Check for an in-progress warming operation for this revision
+        if (!force) {
+            const inProgress = this._diffCachePromises.get(revision);
+            if (inProgress) {
+                return inProgress;
+            }
+        }
 
-            // Script copies $left/<file> and $right/<file> to temp dir.
-            // Uses try/catch for each side to handle new files (no left) and deleted files (no right).
-            // Exits with 1 to prevent jj from modifying the revision.
-            const script = `
-                const fs = require('fs');
-                const path = require('path');
-                const [left, right] = process.argv.slice(1);
-                try { fs.copyFileSync(path.join(left, '${normalizedFilePath}'), '${leftPath}'); } catch(e) {}
-                try { fs.copyFileSync(path.join(right, '${normalizedFilePath}'), '${rightPath}'); } catch(e) {}
-                process.exit(1);
-            `
-                .replace(/\n/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
+        const cached = this._diffCache.get(revision);
+        if (cached && !force && Date.now() < cached.expires) {
+            return cached;
+        }
 
-            const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        // Expired or missing: warm the cache
+        const warmingPromise = this._warmDiffCache(revision, cached);
+        this._diffCachePromises.set(revision, warmingPromise);
+        return warmingPromise;
+    }
+
+    private async _warmDiffCache(revision: string, oldEntry?: { tempDir: string; expires: number }): Promise<{ tempDir: string; expires: number }> {
+        try {
+            // Cleanup first if we're forcing or it expired
+            if (oldEntry) {
+                await this.cleanupDiffCache(revision);
+            }
+
+            const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-bulk-diff-'));
+            const leftDir = path.join(tempDir, 'left');
+            const rightDir = path.join(tempDir, 'right');
 
             try {
-                await this.run(
+                await fs.mkdir(leftDir, { recursive: true });
+                await fs.mkdir(rightDir, { recursive: true });
+
+                const script = `
+                    const fs = require('fs');
+                    const path = require('path');
+                    const [left, right] = process.argv.slice(1);
+                    
+                    function copyDir(src, dest) {
+                        if (!fs.existsSync(src)) return;
+                        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+                        const entries = fs.readdirSync(src, { withFileTypes: true });
+                        for (let entry of entries) {
+                            const s = path.join(src, entry.name);
+                            const d = path.join(dest, entry.name);
+                            if (entry.isDirectory()) copyDir(s, d);
+                            else fs.copyFileSync(s, d);
+                        }
+                    }
+                    copyDir(left, '${leftDir.split(path.sep).join('/')}');
+                    copyDir(right, '${rightDir.split(path.sep).join('/')}');
+                    process.exit(1);
+                `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
+
+                const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+                try {
+                    await this.run(
+                        'diffedit',
+                        [
+                            '-r', revision,
+                            '--tool', 'vscode-bulk-capture',
+                            `--config=merge-tools.vscode-bulk-capture.program="node"`,
+                            `--config=merge-tools.vscode-bulk-capture.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                        ],
+                        { useCachedSnapshot: true, label: `getDiffForRevision ${revision}` },
+                    );
+                } catch {
+                    // Expected exit 1
+                }
+
+                const entry = {
+                    tempDir,
+                    expires: Date.now() + 5 * 60_000,
+                };
+                this._diffCache.set(revision, entry);
+                return entry;
+            } catch (err) {
+                await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+                throw err;
+            }
+        } finally {
+            // Always remove the promise from the map when finished
+            this._diffCachePromises.delete(revision);
+        }
+    }
+
+    async clearCache(): Promise<void> {
+        this._diffCachePromises.clear();
+        const keys = Array.from(this._diffCache.keys());
+        await Promise.all(keys.map((revision) => this.cleanupDiffCache(revision)));
+    }
+
+    private async cleanupDiffCache(revision: string) {
+        const cached = this._diffCache.get(revision);
+        if (cached) {
+            this._diffCache.delete(revision);
+            await fs.rm(cached.tempDir, { recursive: true, force: true }).catch(() => {});
+        }
+    }
+
+    private async runMutation<T>(op: () => Promise<T>): Promise<T> {
+        this._writeOperationCount++;
+        try {
+            const result = this._mutationMutex.then(() => op());
+            this._mutationMutex = result.then(
+                () => {},
+                () => {},
+            );
+            return await result;
+        } finally {
+            this._writeOperationCount--;
+            this._lastWriteTime = Date.now();
+        }
+    }
+
+    /**
+     * Atomic write operation for multiple files in a revision.
+     * Serialized via a mutation queue to prevent divergent commits.
+     */
+    async setFilesContent(revision: string, files: Map<string, string>): Promise<void> {
+        return this.runMutation(async () => {
+            const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-batch-edit-'));
+            try {
+                const fileList: { relPath: string; tmpPath: string }[] = [];
+                for (const [filePath, content] of files.entries()) {
+                    const relPath = this.toRelative(filePath);
+                    const safeName = relPath.replace(/[\\/]/g, '_');
+                    const tmpPath = path.join(tempDir, `src_${safeName}`);
+                    await fs.writeFile(tmpPath, content, 'utf8');
+                    fileList.push({ relPath, tmpPath });
+                }
+
+                const copyCommands = fileList.map(f => {
+                    const normalizedRelPath = f.relPath.split(path.sep).join('/');
+                    const normalizedTmpPath = f.tmpPath.split(path.sep).join('/');
+                    return `
+                        try {
+                            const dest = path.join(right, '${normalizedRelPath}');
+                            const destDir = path.dirname(dest);
+                            if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+                            fs.copyFileSync('${normalizedTmpPath}', dest);
+                        } catch(e) {}
+                    `;
+                }).join('\n');
+
+                const script = `
+                    const fs = require('fs');
+                    const path = require('path');
+                    const [left, right] = process.argv.slice(1);
+                    ${copyCommands}
+                    process.exit(0);
+                `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
+
+                const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+                await this.runInternal(
                     'diffedit',
                     [
                         '-r', revision,
-                        '--tool', 'vscode-diff-capture',
-                        `--config=merge-tools.vscode-diff-capture.program="node"`,
-                        `--config=merge-tools.vscode-diff-capture.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
-                        relativePath,
+                        '--tool', 'vscode-batch-write',
+                        `--config=merge-tools.vscode-batch-write.program="node"`,
+                        `--config=merge-tools.vscode-batch-write.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                        ...fileList.map(f => f.relPath),
                     ],
-                    { useCachedSnapshot: true },
+                    { isMutation: true, label: 'setFilesContent' },
                 );
-            } catch {
-                // Expected: jj returns error because our tool exits with 1
+            } finally {
+                await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
             }
+        });
+    }
 
-            // Check if output files were created
-            const leftExists = await fs.access(leftPath).then(() => true).catch(() => false);
-            const rightExists = await fs.access(rightPath).then(() => true).catch(() => false);
-
-            if (!leftExists && !rightExists) {
-                // If diffedit didn't run the tool, it means there are no differences for this file
-                // relative to the parent(s). Fallback to fetching file content directly.
-                // This handles "Quick Diff" on unchanged files where we need the base content.
-                try {
-                    const content = await this.getFileContent(filePath, revision);
-                    return { left: content, right: content };
-                } catch {
-                    // If file doesn't exist in revision, return empty
-                    return { left: '', right: '' };
-                }
-            }
-
-            const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
-            const right = rightExists ? await fs.readFile(rightPath, 'utf8') : '';
-
-            return { left, right };
-        } finally {
-            await fs.rm(tempDir, { recursive: true }).catch(() => {});
-        }
+    /**
+     * Set the content of a file in a specific revision.
+     */
+    async setFileContent(revision: string, filePath: string, content: string): Promise<void> {
+        return this.setFilesContent(revision, new Map([[filePath, content]]));
     }
 
     /**
@@ -360,7 +512,7 @@ export class JjService {
         if (relativePaths.length > 0) {
             args.push(...relativePaths);
         }
-        await this.run('squash', args, { isMutation: true });
+        await this.run('squash', args, { isMutation: true, label: 'squash' });
     }
 
     async rebase(
@@ -379,25 +531,25 @@ export class JjService {
             // Rebase revision (cherry-pick like behavior)
             args.push('-r', source);
         }
-        return this.run('rebase', args, { isMutation: true });
+        return this.run('rebase', args, { isMutation: true, label: 'rebase' });
     }
 
     async duplicate(revision: string): Promise<string> {
-        return this.run('duplicate', [revision], { isMutation: true });
+        return this.run('duplicate', [revision], { isMutation: true, label: 'duplicate' });
     }
 
     async abandon(revisions: string | string[]): Promise<string> {
         const revs = Array.isArray(revisions) ? revisions : [revisions];
-        return this.run('abandon', revs, { isMutation: true });
+        return this.run('abandon', revs, { isMutation: true, label: 'abandon' });
     }
 
     async undo(): Promise<string> {
-        return this.run('undo', [], { isMutation: true });
+        return this.run('undo', [], { isMutation: true, label: 'undo' });
     }
 
     async getGitRemotes(): Promise<{ name: string; url: string }[]> {
         try {
-            const output = await this.run('git', ['remote', 'list']);
+            const output = await this.run('git', ['remote', 'list'], { label: 'getGitRemotes' });
             return output
                 .split('\n')
                 .map((line) => line.trim())
@@ -415,7 +567,7 @@ export class JjService {
         const output = await this.run(
             'log',
             ['-r', `children(${revision})`, '--no-graph', '-T', 'change_id ++ "\\n"'],
-            { useCachedSnapshot: true },
+            { useCachedSnapshot: true, label: 'getChildren' }
         );
         return output
             .trim()
@@ -425,7 +577,7 @@ export class JjService {
 
     async moveChanges(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
         const relativePaths = paths.map((p) => this.toRelative(p));
-        await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths]);
+        await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], { label: 'moveChanges' });
     }
 
     async new(options: { message?: string; parents?: string[]; insertBefore?: string[] } = {}): Promise<string> {
@@ -448,33 +600,46 @@ export class JjService {
             args.push(...parents);
         }
 
-        await this.run('new', args, { isMutation: true });
+        await this.run('new', args, { isMutation: true, label: 'new' });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {
             useCachedSnapshot: true,
+            label: 'new:getChangeId'
         });
         return output.trim();
     }
 
     async getFileContent(
-        path: string,
+        filePath: string,
         revision: string = '@',
         conflictStyle: 'git' | 'default' = 'default',
     ): Promise<string> {
-        const relativePath = this.toRelative(path);
+        // Check cache first (only for default conflict style for now)
+        if (conflictStyle === 'default') {
+            try {
+                const cache = await this.getDiffForRevision(revision);
+                const relativePath = this.toRelative(filePath);
+                const rightPath = path.join(cache.tempDir, 'right', relativePath);
+                return await fs.readFile(rightPath, 'utf8');
+            } catch {
+                // Fall through if not in cache (e.g. file not changed in this revision)
+            }
+        }
+
+        const relativePath = this.toRelative(filePath);
         const args = ['show', relativePath, '-r', revision];
         if (conflictStyle === 'git') {
             args.push('--config=ui.conflict-marker-style=git');
         }
-        return this.run('file', args, { trim: false });
+        return this.run('file', args, { trim: false, label: 'getFileContent' });
     }
 
     async resolve(revision: string): Promise<void> {
-        await this.run('new', [revision], { isMutation: true });
+        await this.run('new', [revision], { isMutation: true, label: 'resolve' });
     }
 
     async getConflictedFiles(): Promise<string[]> {
         try {
-            const output = await this.run('resolve', ['--list'], { useCachedSnapshot: true });
+            const output = await this.run('resolve', ['--list'], { useCachedSnapshot: true, label: 'getConflictedFiles' });
             return output
                 .split('\n')
                 .map((line) => line.trim())
@@ -491,24 +656,24 @@ export class JjService {
         if (revision) {
             cmdArgs.push(revision);
         }
-        await this.run('describe', cmdArgs, { isMutation: true });
+        await this.run('describe', cmdArgs, { isMutation: true, label: 'describe' });
     }
 
     async commit(message: string): Promise<void> {
-        await this.run('commit', ['-m', message], { isMutation: true });
+        await this.run('commit', ['-m', message], { isMutation: true, label: 'commit' });
     }
 
     async getDescription(revision: string): Promise<string> {
-        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description'], { useCachedSnapshot: true });
+        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description'], { useCachedSnapshot: true, label: 'getDescription' });
     }
 
     async cat(path: string, revision: string = '@-'): Promise<string> {
         const relativePath = this.toRelative(path);
-        return this.run('file', ['show', '-r', revision, relativePath], { trim: false, useCachedSnapshot: true });
+        return this.run('file', ['show', '-r', revision, relativePath], { trim: false, useCachedSnapshot: true, label: 'cat' });
     }
 
     async status(): Promise<string> {
-        return this.run('status', [], { useCachedSnapshot: false });
+        return this.run('status', [], { useCachedSnapshot: false, label: 'status' });
     }
 
     async getChanges(revision: string): Promise<JjStatusEntry[]> {
@@ -589,7 +754,7 @@ export class JjService {
     }
 
     async edit(revision: string): Promise<string> {
-        return this.run('edit', [revision], { isMutation: true });
+        return this.run('edit', [revision], { isMutation: true, label: 'edit' });
     }
 
     async showDetails(revision: string): Promise<string> {
@@ -636,7 +801,7 @@ export class JjService {
         // Capture the exact commit ID of the child to restore from later
         const oldChildId = (await this.run('log', ['-r', '@', '--no-graph', '-T', 'commit_id'])).trim();
 
-        await this.run('bookmark', ['create', tmpBookmark, '-r', '@'], { isMutation: true });
+        await this.run('bookmark', ['create', tmpBookmark, '-r', '@'], { isMutation: true, label: 'movePartialToParent' });
 
         try {
             // Create temp commit on top of Parent
@@ -718,7 +883,7 @@ export class JjService {
             args.push(...relativePaths);
         }
 
-        return this.run('absorb', args, { isMutation: true });
+        return this.run('absorb', args, { isMutation: true, label: 'absorb' });
     }
 
     async getGitBlobHashes(commitId: string, filePaths: string[]): Promise<Map<string, string>> {
