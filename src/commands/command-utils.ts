@@ -185,9 +185,6 @@ export async function showJjError(
 
     console.error(fullMessage, error);
     outputChannel?.appendLine(`[Error] ${fullMessage}`);
-    if (error && typeof error === 'object' && 'stack' in error) {
-        outputChannel?.appendLine((error as Error).stack || '');
-    }
 
     const SHOW_LOG = 'Show Log';
     const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);

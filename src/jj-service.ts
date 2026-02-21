@@ -93,12 +93,27 @@ export class JjService {
                 ...options,
             };
 
-            cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout) => {
+            cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout, stderr) => {
                 const duration = performance.now() - start;
                 const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                 this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
                 
                 if (err) {
+                    const combined: string[] = [];
+                    const outStr = stdout?.toString().trim();
+                    const errStr = stderr?.toString().trim();
+                    
+                    if (outStr) {
+                        combined.push(outStr);
+                    }
+                    if (errStr) {
+                        combined.push(errStr);
+                    }
+
+                    if (combined.length > 0) {
+                        err.message = combined.join('\n\n');
+                    }
+                    
                     reject(err);
                     return;
                 }
