@@ -4,6 +4,7 @@
  */
 
 import * as React from 'react';
+import { JjStatusEntry } from '../../jj-types';
 
 interface CommitDetailsProps {
     commitId: string;
@@ -14,11 +15,21 @@ interface CommitDetailsProps {
         additions?: number;
         deletions?: number;
     }>;
+    isImmutable: boolean;
     onSave: (description: string) => void;
-    onOpenDiff: (filePath: string) => void;
+    onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
+    onOpenMultiDiff: () => void;
 }
 
-export const CommitDetails: React.FC<CommitDetailsProps> = ({ commitId, description, files, onSave, onOpenDiff }) => {
+export const CommitDetails: React.FC<CommitDetailsProps> = ({
+    commitId,
+    description,
+    files,
+    isImmutable,
+    onSave,
+    onOpenDiff,
+    onOpenMultiDiff,
+}) => {
     const [draftDescription, setDraftDescription] = React.useState(description);
     const [isSaving, setIsSaving] = React.useState(false);
 
@@ -110,7 +121,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({ commitId, descript
                         files.map((file, idx) => (
                             <div
                                 key={idx}
-                                onClick={() => onOpenDiff(file.path)}
+                                onClick={() => onOpenDiff(file as unknown as JjStatusEntry, isImmutable)}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -180,6 +191,22 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({ commitId, descript
                     gap: '10px',
                 }}
             >
+                <button
+                    onClick={onOpenMultiDiff}
+                    style={{
+                        padding: '8px 16px',
+                        color: 'var(--vscode-button-foreground)',
+                        backgroundColor: 'var(--vscode-button-secondaryBackground)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                    }}
+                >
+                    <span className="codicon codicon-diff"></span>
+                    Multi-file Diff
+                </button>
                 <button
                     onClick={handleSave}
                     disabled={isSaving}

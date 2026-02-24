@@ -8,6 +8,7 @@ import * as path from 'path';
 import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 import { JjLogEntry } from './jj-types';
+import { createDiffUris } from './uri-utils';
 
 import { GerritService } from './gerrit-service';
 
@@ -242,15 +243,20 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     private _activeDetailsPanel?: vscode.WebviewPanel;
 
     public async createCommitDetailsPanel(commitId: string) {
-        const description = await this._jj.getDescription(commitId);
-        const changes = await this._jj.getChanges(commitId);
-
+        // Fetch full log entry - this includes description, changes (file list), and immutability status
+        const logs = await this._jj.getLog({ revision: commitId });
+        if (logs.length === 0) {
+            return;
+        }
+        
+        const log = logs[0];
         const initialData = {
             view: 'details',
             payload: {
                 commitId,
-                description,
-                files: changes,
+                description: log.description,
+                files: log.changes || [],
+                isImmutable: log.is_immutable,
             },
         };
 
@@ -300,17 +306,23 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     );
                     vscode.window.showInformationMessage('Description updated');
                     break;
-                case 'openDiff':
-                    const filePath = message.payload.filePath;
-                    const parentUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=left`);
-                    const childUri = vscode.Uri.parse(`jj-view:${filePath}?base=${commitId}&side=right`);
+                case 'openDiff': {
+                    const file = message.payload.file;
+                    const commitId = message.payload.commitId;
+                    const isImmutable = message.payload.isImmutable;
+                    
+                    const { leftUri, rightUri } = createDiffUris(file, commitId, this._jj.workspaceRoot, { editable: !isImmutable });
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',
-                        parentUri,
-                        childUri,
-                        `${path.basename(filePath)} (${commitId.substring(0, 8)})`,
+                        leftUri,
+                        rightUri,
+                        `${path.basename(file.path)} (${commitId.substring(0, 8)})${!isImmutable ? ' (Editable)' : ''}`,
                     );
+                    break;
+                }
+                case 'openMultiDiff':
+                    await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.commitId);
                     break;
             }
         });

@@ -15,6 +15,7 @@ import { BookmarkPill } from './components/Bookmark';
 import { CommitDragPreview } from './components/CommitDragPreview';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
+import { JjStatusEntry } from '../jj-types';
 
 const App: React.FC = () => {
     // Initial State from Window (injected by provider)
@@ -181,11 +182,20 @@ const App: React.FC = () => {
         }
     };
 
-    const handleOpenDiff = (filePath: string) => {
+    const handleOpenDiff = (file: JjStatusEntry, isImmutable: boolean) => {
         if (view === 'details' && detailsCommit) {
             vscode.postMessage({
                 type: 'openDiff',
-                payload: { commitId: detailsCommit.commitId, filePath },
+                payload: { commitId: detailsCommit.commitId, file, isImmutable },
+            });
+        }
+    };
+
+    const handleOpenMultiDiff = () => {
+        if (view === 'details' && detailsCommit) {
+            vscode.postMessage({
+                type: 'openMultiDiff',
+                payload: { commitId: detailsCommit.commitId },
             });
         }
     };
@@ -273,8 +283,10 @@ const App: React.FC = () => {
                 commitId={detailsCommit.commitId}
                 description={detailsCommit.description}
                 files={detailsCommit.files}
+                isImmutable={detailsCommit.isImmutable}
                 onSave={handleSaveDescription}
                 onOpenDiff={handleOpenDiff}
+                onOpenMultiDiff={handleOpenMultiDiff}
             />
         );
     }
