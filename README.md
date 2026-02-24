@@ -23,8 +23,11 @@ Visualize your `jj` repo history with a clear, interactive graph.
 ### 📝 Commit Details Panel
 A dedicated view for inspecting and managing commits.
 - **Edit Descriptions**: Easily update commit messages.
-- **File Differences**: View list of changed files and open diffs side-by-side.
-- **Navigation**: Click changes to look at them in standard VS Code diff editors.
+- **Diff Management**:
+  - **Open Multi-File Diff**: View all changes in the revision in a single scrollable editor.
+  - **Single-File Diff**: Click any file to open a side-by-side diff.
+  - **Editable Diffs**: For mutable commits, diff editors are fully editable. Save changes (`Ctrl+S`) to apply them back to the commit.
+- **Navigation**: Quickly jump between changed files.
 
 ### 🛠️ Source Control Integration
 Full integration with VS Code's Source Control view (SCM).
@@ -43,6 +46,7 @@ Support for common and advanced `jj` operations:
 - **Squashing**: Squash changes into the parent revision.
 - **Absorbing**: Automatically move changes into the mutable ancestor where they were introduced.
 - **Rebasing**: Rebase changes onto other revisions.
+- **Editable Diffs**: Edit any mutable commit directly in the diff editor. Changes are batched and applied on save, with full support for single and multi-file diffs.
 
 ## Commands
 
@@ -67,7 +71,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
 - `JJ View: Commit (Prompt)`: Commit the current changes in the working copy, prompting for a description message first.
 - `JJ View: Open File`: Open the file associated with a change.
-- `JJ View: Show Multi-File Diff`: Open a multi-file diff view for the selected revision.
+- `JJ View: Show Multi-File Diff`: Open a comprehensive multi-file diff view for the selected revision. These views are editable for mutable commits.
 
 ### History & Merging
 - `JJ View: Squash into Parent`: Squash the current change into its parent.
@@ -86,7 +90,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 
 ### ⌨️ Keybindings
 - **Commit**: `Ctrl+Enter` (or `Cmd+Enter` on macOS) in the SCM input box to commit changes.
-- **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box to save the description without finishing the commit.
+- **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box or Commit Details panel to save the description without finishing the commit.
 
 ### 🔄 Automatic Refresh
 The extension automatically refreshes the view when:
