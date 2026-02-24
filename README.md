@@ -66,6 +66,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Abandon`: Abandon (delete) a change.
 - `JJ View: Restore`: Restore files in the working copy.
 - `JJ View: Set Description`: Edit the description of the current change.
+- `JJ View: Set Description (Prompt)`: Edit the description of the current change using an interactive prompt.
 - `JJ View: Upload`: Upload the current change (runs configured upload command).
 - `JJ View: Set Bookmark`: Create or move a bookmark to a specific revision.
 - `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
