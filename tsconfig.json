@@ -15,5 +15,5 @@
         "noUnusedParameters": true /* Report errors on unused parameters. */,
         "noUnusedLocals": true
     },
-    "exclude": ["vitest.config.ts", "playwright.config.ts", "node_modules"]
+    "exclude": ["vitest.config.ts", "playwright.config.ts", "node_modules", "scripts"]
 }
