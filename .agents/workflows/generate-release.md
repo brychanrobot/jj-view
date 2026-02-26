@@ -15,7 +15,11 @@ Steps:
 6. Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores).
 7. Update `CHANGELOG.md` by prepending the new version and release notes.
 8. Use `npm run release:encode -- "<release_notes>"` to encode the release notes.
-9. Generate a GitHub release link: `https://github.com/<owner>/<repo>/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
-10. Present the **Release Notes** and the **Pre-filled Release Link** directly to the user in the final `notify_user` call.
-11. Instruct the user to push changes via `jj git push` before clicking the link.
-12. (Optional) Update the task.md but skip creating a walkthrough.md for the release itself.
+9. Generate a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
+10. Present the **Release Notes** and the **one-click Release Link** directly to the user in the final chat response.
+11. Include links to both marketplaces in the release notes:
+    - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jj-view.jj-view)
+    - [Open VSX](https://open-vsx.org/extension/jj-view/jj-view)
+12. Add a **CI Note**: A clear reminder that CI handles the binary (VSIX) upload automatically after publishing the release.
+13. Instruct the user to push changes via `jj git push` before clicking the link.
+14. (Optional) Update the task.md but do NOT create a walkthrough.md for the release itself.

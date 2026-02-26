@@ -66,7 +66,11 @@ jobs:
               run: |
                   VERSION=$(jq -r .version package.json)
                   TIMESTAMP=$(date +'%Y%m%d-%H%M')
-                  VSIX_NAME="jj-view-${VERSION}-${TIMESTAMP}.vsix"
+                  if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+                    VSIX_NAME="jj-view-${VERSION}.vsix"
+                  else
+                    VSIX_NAME="jj-view-${VERSION}-pre-${TIMESTAMP}.vsix"
+                  fi
                   echo "vsix_name=${VSIX_NAME}" >> $GITHUB_OUTPUT
 
                   # Rename the VSIX
