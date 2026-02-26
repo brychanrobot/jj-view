@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.3
+
+### Fixed
+- **CI/CD**: Fixed an issue where the extension artifact was not correctly attached to GitHub releases.
+
 ## 1.15.2
 
 ### Fixed

@@ -73,8 +73,11 @@ jobs:
                   fi
                   echo "vsix_name=${VSIX_NAME}" >> $GITHUB_OUTPUT
 
-                  # Rename the VSIX
-                  mv *.vsix "${VSIX_NAME}"
+                  # Rename the VSIX if needed
+                  existing_vsix=$(ls *.vsix)
+                  if [ "${existing_vsix}" != "${VSIX_NAME}" ]; then
+                    mv "${existing_vsix}" "${VSIX_NAME}"
+                  fi
 
                   # Generate Changelog
                   echo "changes<<EOF" >> $GITHUB_OUTPUT

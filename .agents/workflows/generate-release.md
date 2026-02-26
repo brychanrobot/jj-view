@@ -14,7 +14,7 @@ Steps:
 5. If they do not match, assume the version in `package.json` is already correct and fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph` if you haven't already.
 6. Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores).
 7. Update `CHANGELOG.md` by prepending the new version and release notes.
-8. Use `npm run release:encode -- "<release_notes>"` to encode the release notes.
+8. Use `npm run release:encode -- "<release_notes>"` (script located at `.agents/scripts/encode-release-notes.ts`) to encode the release notes.
 9. Generate a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
 10. Present the **Release Notes** and the **one-click Release Link** directly to the user in the final chat response.
 11. Include links to both marketplaces in the release notes:

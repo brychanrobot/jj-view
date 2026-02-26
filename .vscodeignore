@@ -29,4 +29,4 @@ package-lock.json
 .prettierrc
 .prettierignore
 GEMINI.md
-CHANGELOG.md
+.agents/**

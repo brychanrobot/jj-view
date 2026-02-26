@@ -3,7 +3,7 @@
     "publisher": "jj-view",
     "displayName": "JJ View",
     "description": "Integrates Jujutsu (jj) version control into VS Code.",
-    "version": "1.15.2",
+    "version": "1.15.3",
     "repository": {
         "type": "git",
         "url": "https://github.com/brychanrobot/jj-view"
@@ -455,7 +455,7 @@
         "test:integration:all": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test.mjs && vscode-test --config .vscode-test-activation.mjs",
         "test:screenshots": "playwright test",
         "test:unit": "vitest run",
-        "release:encode": "ts-node scripts/encode-release-notes.ts"
+        "release:encode": "ts-node .agents/scripts/encode-release-notes.ts"
     },
     "devDependencies": {
         "@playwright/test": "^1.58.0",
