@@ -56,6 +56,42 @@ export class JjService {
         return filePath;
     }
 
+    private getScriptPath(scriptBaseName: string): string {
+        const isWin = process.platform === 'win32';
+        const scriptName = isWin ? `${scriptBaseName}.bat` : `${scriptBaseName}.sh`;
+        const scriptPath = path.join(__dirname, '..', 'scripts', scriptName);
+        return scriptPath;
+    }
+
+    private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
+        const isWin = process.platform === 'win32';
+        const normalizedScriptPath = scriptPath.split(path.sep).join('/');
+        
+        // Ensure all arguments in the template are quoted for the JSON array
+        const quotedArgs = argsTemplate.map(arg => {
+            if (arg.startsWith('"') && arg.endsWith('"')) {
+                return arg;
+            }
+            return `"${arg}"`;
+        });
+
+        if (isWin) {
+            // On Windows, we must use cmd /c to execute .bat files correctly from jj
+            const escapedScriptPath = normalizedScriptPath.replace(/\//g, '\\\\');
+            return [
+                `--config=merge-tools.${toolName}.program="cmd"`,
+                `--config=merge-tools.${toolName}.merge-args=["/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
+                `--config=merge-tools.${toolName}.edit-args=["/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
+            ];
+        } else {
+            return [
+                `--config=merge-tools.${toolName}.program="${normalizedScriptPath}"`,
+                `--config=merge-tools.${toolName}.merge-args=[${quotedArgs.join(', ')}]`,
+                `--config=merge-tools.${toolName}.edit-args=[${quotedArgs.join(', ')}]`,
+            ];
+        }
+    }
+
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution.
@@ -219,30 +255,18 @@ export class JjService {
             const leftPath = `${tempDirNormalized}/left`;
             const rightPath = `${tempDirNormalized}/right`;
 
-            // Simple script to copy the 3 conflict parts to temp dir
-            // Exits with 1 to prevent jj from marking conflict as resolved
-            const script = `
-                const fs = require('fs');
-                const [base, left, right] = process.argv.slice(1);
-                fs.copyFileSync(base, '${basePath}');
-                fs.copyFileSync(left, '${leftPath}');
-                fs.copyFileSync(right, '${rightPath}');
-                process.exit(1);
-            `
-                .replace(/\n/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const normalizedScriptPath = this.getScriptPath('conflict-capture');
 
             try {
+                const toolName = 'vscode-capture';
+                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, ['$base', '$left', '$right', tempDirNormalized]);
+
                 await this.run(
                     'resolve',
                     [
                         '--tool',
-                        'vscode-capture',
-                        `--config=merge-tools.vscode-capture.program="node"`,
-                        `--config=merge-tools.vscode-capture.merge-args=["-e", "${escapedScript}", "$base", "$left", "$right", "$output"]`,
+                        toolName,
+                        ...toolConfig,
                         relativePath,
                     ],
                     { useCachedSnapshot: true },
@@ -332,37 +356,18 @@ export class JjService {
                 await fs.mkdir(leftDir, { recursive: true });
                 await fs.mkdir(rightDir, { recursive: true });
 
-                const script = `
-                    const fs = require('fs');
-                    const path = require('path');
-                    const [left, right] = process.argv.slice(1);
-                    
-                    function copyDir(src, dest) {
-                        if (!fs.existsSync(src)) return;
-                        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-                        const entries = fs.readdirSync(src, { withFileTypes: true });
-                        for (let entry of entries) {
-                            const s = path.join(src, entry.name);
-                            const d = path.join(dest, entry.name);
-                            if (entry.isDirectory()) copyDir(s, d);
-                            else fs.copyFileSync(s, d);
-                        }
-                    }
-                    copyDir(left, '${leftDir.split(path.sep).join('/')}');
-                    copyDir(right, '${rightDir.split(path.sep).join('/')}');
-                    process.exit(1);
-                `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
-
-                const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                const normalizedScriptPath = this.getScriptPath('batch-diff');
+                const toolName = 'vscode-bulk-capture';
+                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, ['$left', '$right', leftDir.split(path.sep).join('/'), rightDir.split(path.sep).join('/')]);
 
                 try {
                     await this.run(
                         'diffedit',
                         [
                             '-r', revision,
-                            '--tool', 'vscode-bulk-capture',
-                            `--config=merge-tools.vscode-bulk-capture.program="node"`,
-                            `--config=merge-tools.vscode-bulk-capture.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                            '--ignore-immutable',
+                            '--tool', toolName,
+                            ...toolConfig,
                         ],
                         { useCachedSnapshot: true, label: `getDiffForRevision ${revision}` },
                     );
@@ -432,36 +437,22 @@ export class JjService {
                     fileList.push({ relPath, tmpPath });
                 }
 
-                const copyCommands = fileList.map(f => {
-                    const normalizedRelPath = f.relPath.split(path.sep).join('/');
-                    const normalizedTmpPath = f.tmpPath.split(path.sep).join('/');
-                    return `
-                        try {
-                            const dest = path.join(right, '${normalizedRelPath}');
-                            const destDir = path.dirname(dest);
-                            if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-                            fs.copyFileSync('${normalizedTmpPath}', dest);
-                        } catch(e) {}
-                    `;
-                }).join('\n');
+                const normalizedScriptPath = this.getScriptPath('batch-edit');
+                const toolName = 'vscode-batch-write';
 
-                const script = `
-                    const fs = require('fs');
-                    const path = require('path');
-                    const [left, right] = process.argv.slice(1);
-                    ${copyCommands}
-                    process.exit(0);
-                `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
-
-                const escapedScript = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                const argsTemplate = ['$left', '$right'];
+                for (const f of fileList) {
+                    argsTemplate.push(f.tmpPath.split(path.sep).join('/'));
+                    argsTemplate.push(f.relPath.split(path.sep).join('/'));
+                }
+                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, argsTemplate);
 
                 await this.runInternal(
                     'diffedit',
                     [
                         '-r', revision,
-                        '--tool', 'vscode-batch-write',
-                        `--config=merge-tools.vscode-batch-write.program="node"`,
-                        `--config=merge-tools.vscode-batch-write.edit-args=["-e", "${escapedScript}", "$left", "$right"]`,
+                        '--tool', toolName,
+                        ...toolConfig,
                         ...fileList.map(f => f.relPath),
                     ],
                     { isMutation: true, label: 'setFilesContent' },

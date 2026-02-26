@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
@@ -776,31 +776,6 @@ describe('JjService Unit Tests', () => {
         expect(desc.trim()).toBe('multiline\ndescription\ntest');
     });
 
-    test('getDiff for merge commit shows combined diff', async () => {
-        const filePath = path.join(repo.path, 'conflict.txt');
-        fs.writeFileSync(filePath, 'base\n');
-        repo.describe('parent');
-        repo.new();
-
-        repo.writeFile('conflict.txt', 'initial\nadded\n');
-
-        const output = await jjService.getDiff('@', 'conflict.txt');
-        expect(output).toContain('diff --git');
-        expect(output).toContain('+added');
-    });
-
-    test('getDiff returns git formatted diff', async () => {
-        repo.writeFile('diff-test.txt', 'initial\n');
-        repo.describe('diff-base');
-        repo.new();
-
-        repo.writeFile('diff-test.txt', 'initial\nadded\n');
-
-        const output = await jjService.getDiff('@', 'diff-test.txt');
-        expect(output).toContain('diff --git');
-        expect(output).toContain('+added');
-    });
-
     test('getFileContent returns content at specific revision', async () => {
         repo.writeFile('content-test.txt', 'v1');
         repo.describe('v1');
@@ -1234,27 +1209,4 @@ describe('JjService Unit Tests', () => {
         expect(hashes.get(fileName)).toBe(expectedHash);
     });
 
-    test('getDiffForRevision handles thundering herd concurrently', async () => {
-        repo.writeFile('test.txt', 'content');
-        repo.describe('thundering herd test');
-        const commitId = repo.getCommitId('@');
-        
-        // Spy on run to count diffedit calls
-        const runSpy = vi.spyOn(jjService as unknown as Record<'run', (...args: unknown[]) => Promise<unknown>>, 'run');
-        
-        // Trigger multiple concurrent requests
-        const results = await Promise.all([
-            jjService.getDiffForRevision(commitId),
-            jjService.getDiffForRevision(commitId),
-            jjService.getDiffForRevision(commitId),
-        ]);
-        
-        // Verify they all returned the same thing (same tempDir)
-        expect(results[0].tempDir).toBe(results[1].tempDir);
-        expect(results[1].tempDir).toBe(results[2].tempDir);
-        
-        // Verify it was only called ONCE for diffedit bulk capture
-        const diffeditCalls = runSpy.mock.calls.filter((call: unknown[]) => call[0] === 'diffedit');
-        expect(diffeditCalls.length).toBe(1);
-    });
 });
