@@ -15,7 +15,7 @@ import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
 import { JjDecorationProvider } from './jj-decoration-provider';
-import { JjContextKey } from './jj-context-keys';
+import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { completeSquashCommand } from './commands/squash';
 import { getErrorMessage } from './commands/command-utils';
 import { RefreshScheduler } from './refresh-scheduler';
@@ -60,8 +60,8 @@ export class JjScmProvider implements vscode.Disposable {
         this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
 
         // Create groups in order of display
-        this._conflictGroup = this._sourceControl.createResourceGroup('conflicts', 'Merge Conflicts');
-        this._workingCopyGroup = this._sourceControl.createResourceGroup('working-copy', 'Working Copy');
+        this._conflictGroup = this._sourceControl.createResourceGroup(ScmContextValue.ConflictGroup, 'Merge Conflicts');
+        this._workingCopyGroup = this._sourceControl.createResourceGroup(ScmContextValue.WorkingCopyGroup, 'Working Copy');
         // Parent groups are created dynamically in refresh()
 
         this._sourceControl.quickDiffProvider = this;
@@ -169,13 +169,18 @@ export class JjScmProvider implements vscode.Disposable {
                 this.editProvider?.invalidateCache();
 
                 // 1. Fetch data in parallel for performance
-                const [logResult, children, conflictedPaths] = await Promise.all([
-                    this.jj.getLog({ revision: '@' }),
+                const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+
+                const [bulkLog, children, conflictedPaths] = await Promise.all([
+                    this.jj.getLog({ revision: `ancestors(@, ${maxMutableAncestors + 1})` }),
                     this.jj.getChildren('@'),
                     this.jj.getConflictedFiles(),
                 ]);
-                const [currentEntry] = logResult;
+
+                // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
+                const currentEntry = bulkLog.find(e => e.is_working_copy) || bulkLog[0];
                 this._currentEntry = currentEntry;
+                const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map(entry => [entry.commit_id, entry]));
 
                 let parentMutable = false;
                 const hasChild = children.length > 0;
@@ -232,8 +237,11 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
+                // Working copy items are squashable if the parent is mutable
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
-                    const state = this.toResourceState(c, currentEntry.change_id);
+                    const state = this.toResourceState(c, currentEntry.change_id, {
+                        squashable: parentMutable,
+                    });
                     decorationMap.set(state.resourceUri.toString(), c);
                     return state;
                 });
@@ -247,66 +255,103 @@ export class JjScmProvider implements vscode.Disposable {
                 });
                 this._conflictGroup.hideWhenEmpty = true;
 
-                // 4. Update Parent Groups (one for each parent)
-                const neededParentCount = currentEntry?.parents?.length || 0;
+                // 4. Update Parent Groups (traverse mutable ancestors)
+                let currentFocus = currentEntry;
+                let ancestorDepth = 1;
+                let ancestorsToDisplay: { entry: JjLogEntry; prefix: string; isMutable: boolean; canSquash: boolean }[] = [];
+
+                while (currentFocus && ancestorsToDisplay.length < maxMutableAncestors) {
+                    if (!currentFocus.parents || currentFocus.parents.length === 0) {
+                        break;
+                    }
+
+                    // For the prefix, we use @-1, @-2. For merge parents, @-1^1, @-1^2 etc.
+                    const isMerge = currentFocus.parents.length > 1;
+
+                    // Get all parent entries from the bulk map
+                    const parentEntries = currentFocus.parents.map((parentRef) => {
+                         const refId = typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef
+                            ? (parentRef as { commit_id: string }).commit_id
+                            : (parentRef as string);
+                         return bulkLogMap.get(refId);
+                    });
+
+                    for (let i = 0; i < parentEntries.length; i++) {
+                        const parentEntry = parentEntries[i];
+                        if (!parentEntry) continue;
+
+                        const prefix = isMerge 
+                            ? `@-${ancestorDepth}^${i + 1}`
+                            : `@-${ancestorDepth}`;
+
+                        const canSquash = !parentEntry.is_immutable && 
+                            parentEntry.parents_immutable !== undefined && 
+                            parentEntry.parents_immutable.length > 0 && 
+                            !parentEntry.parents_immutable[0];
+
+                        ancestorsToDisplay.push({
+                            entry: parentEntry,
+                            prefix,
+                            isMutable: !parentEntry.is_immutable,
+                            canSquash
+                        });
+                    }
+
+                    // Stop traversing if it's a merge commit
+                    if (isMerge) {
+                        break;
+                    }
+
+                    // Move to the single parent for the next iteration
+                    const singleParentEntry = parentEntries[0];
+                    if (!singleParentEntry || singleParentEntry.is_immutable) {
+                        break; // Stop if the parent is immutable or not found
+                    }
+
+                    currentFocus = singleParentEntry;
+                    ancestorDepth++;
+                }
 
                 // Dispose excess parent groups
-                while (this._parentGroups.length > neededParentCount) {
+                while (this._parentGroups.length > ancestorsToDisplay.length) {
                     const group = this._parentGroups.pop();
                     group?.dispose();
                 }
 
-                // Fetch all parent entries in parallel
-                if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
-                    const parentRefs = currentEntry.parents.map((parentRef) => {
-                        if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
-                            return (parentRef as { commit_id: string }).commit_id;
-                        }
-                        return parentRef as string;
-                    });
+                // Populate the SCM groups
+                for (let i = 0; i < ancestorsToDisplay.length; i++) {
+                    const { entry: ancestorEntry, prefix, isMutable, canSquash } = ancestorsToDisplay[i];
 
-                    const parentEntries = await Promise.all(
-                        parentRefs.map((ref) => this.jj.getLog({ revision: ref })),
-                    );
+                    const shortId = ancestorEntry.change_id_shortest || ancestorEntry.change_id.substring(0, 8);
+                    const desc = ancestorEntry.description?.trim() || '(no description)';
+                    const label = `${prefix}: ${shortId} - ${desc}`;
 
-                    // Process fetched parent entries
-                    for (let i = 0; i < parentEntries.length; i++) {
-                        const [parentEntry] = parentEntries[i];
+                    // Reuse existing group or create new one
+                    let group: vscode.SourceControlResourceGroup;
+                    const contextValue = ancestorEntry.is_immutable
+                        ? ScmContextValue.AncestorGroup
+                        : canSquash
+                          ? ScmContextValue.AncestorGroupSquashable
+                          : ScmContextValue.AncestorGroupMutable;
 
-                        if (parentEntry) {
-                            const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
-                            const desc = parentEntry.description?.trim() || '(no description)';
-
-                            const label =
-                                currentEntry.parents.length > 1
-                                    ? `Parent ${i + 1}: ${shortId} - ${desc}`
-                                    : `Parent: ${shortId} - ${desc}`;
-
-                            // Reuse existing group or create new one
-                            let group: vscode.SourceControlResourceGroup;
-                            const contextValue = parentEntry.is_immutable ? 'jjParentGroup' : 'jjParentGroup:mutable';
-
-                            if (i < this._parentGroups.length) {
-                                group = this._parentGroups[i];
-                                group.label = label;
-                                group.contextValue = contextValue;
-                            } else {
-                                const groupId = `parent-${i}`;
-                                group = this._sourceControl.createResourceGroup(groupId, label);
-                                group.hideWhenEmpty = true;
-                                group.contextValue = contextValue;
-                                this._parentGroups.push(group);
-                            }
-
-                            const parentChanges = parentEntry.changes || [];
-                            const isMutable = !parentEntry.is_immutable;
-                            group.resourceStates = parentChanges.map((c: JjStatusEntry) => {
-                                const state = this.toResourceState(c, parentEntry.change_id, { editable: isMutable });
-                                decorationMap.set(state.resourceUri.toString(), c);
-                                return state;
-                            });
-                        }
+                    if (i < this._parentGroups.length) {
+                        group = this._parentGroups[i];
+                        group.label = label;
+                        group.contextValue = contextValue;
+                    } else {
+                        const groupId = `ancestor-${i}`;
+                        group = this._sourceControl.createResourceGroup(groupId, label);
+                        group.hideWhenEmpty = true;
+                        group.contextValue = contextValue;
+                        this._parentGroups.push(group);
                     }
+
+                    const parentChanges = ancestorEntry.changes || [];
+                    group.resourceStates = parentChanges.map((c: JjStatusEntry) => {
+                        const state = this.toResourceState(c, ancestorEntry.change_id, { editable: isMutable, squashable: canSquash });
+                        decorationMap.set(state.resourceUri.toString(), c);
+                        return state;
+                    });
                 }
 
                 // Update Decoration Provider
@@ -420,7 +465,7 @@ export class JjScmProvider implements vscode.Disposable {
     private toResourceState(
         entry: JjStatusEntry,
         revision: string = '@',
-        options: { editable?: boolean; workingCopyChangeId?: string } = {},
+        options: { editable?: boolean; workingCopyChangeId?: string; squashable?: boolean } = {},
     ): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
         const isWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
@@ -450,7 +495,15 @@ export class JjScmProvider implements vscode.Disposable {
                 faded: false,
                 strikeThrough: entry.status === 'removed',
             },
-            contextValue: entry.conflicted ? 'jjConflict' : isWorkingCopy ? 'jjWorkingCopy' : 'jjParent',
+            contextValue: entry.conflicted
+                ? ScmContextValue.Conflict
+                : isWorkingCopy
+                  ? options.squashable
+                      ? ScmContextValue.WorkingCopySquashable
+                      : ScmContextValue.WorkingCopy
+                  : options.squashable
+                    ? ScmContextValue.AncestorSquashable
+                    : ScmContextValue.Ancestor,
             revision: revision,
         };
     }

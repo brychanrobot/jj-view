@@ -764,57 +764,17 @@ export class JjService {
         });
     }
 
-    public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
-        const baseContent = await this.getFileContent(fileRelPath, '@-').catch(() => '');
-        const diffOutput = await this.getDiff('@', fileRelPath);
+    public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[], revision: string = '@'): Promise<void> {
+        const parentRev = `${revision}-`;
+        const baseContent = await this.getFileContent(fileRelPath, parentRev).catch(() => '');
+        const diffOutput = await this.getDiff(revision, fileRelPath);
 
         const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges);
 
-        // Squash changes from Child (@) into Parent (@-), effectively moving them up.
-        await this.runPartialMove('@', '@-', fileRelPath, wantedContent);
+        // Squash changes from Child (revision) into Parent (parentRev), effectively moving them up.
+        await this.runPartialMove(revision, parentRev, fileRelPath, wantedContent);
     }
 
-    public async movePartialToChild(fileRelPath: string, ranges: SelectionRange[]): Promise<void> {
-        let baseContent = await this.getFileContent(fileRelPath, '@--').catch(() => '');
-
-        const diffOutput = await this.getDiff('@-', fileRelPath);
-
-        // Wanted Content for Parent: Grandparent + Unselected Changes
-        const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges, { inverse: true });
-
-        // Strategy:
-        // 1. Create a temp commit on Parent (@-) with the "reverted" content.
-        // 2. Squash temp commit into Parent (Parent loses the changes).
-        // 3. Child (@) is automatically rebased, but effectively loses the changes too (since it matched Parent).
-        // 4. Restore Child from its pre-squash snapshot to preserve the changes as local modifications.
-        const timestamp = Date.now();
-        const tmpBookmark = `jj-move-tmp-${timestamp}`;
-        // Capture the exact commit ID of the child to restore from later
-        const oldChildId = (await this.run('log', ['-r', '@', '--no-graph', '-T', 'commit_id'])).trim();
-
-        await this.run('bookmark', ['create', tmpBookmark, '-r', '@'], { isMutation: true, label: 'movePartialToParent' });
-
-        try {
-            // Create temp commit on top of Parent
-            await this.run('new', ['@-'], { isMutation: true });
-
-            // Write wanted content
-            const absPath = path.join(this.workspaceRoot, fileRelPath);
-            await fs.writeFile(absPath, wantedContent, 'utf8');
-
-            // Squash into Parent
-            // Note: 'squash' without args squashes @ into @-.
-            await this.run('squash', [], { isMutation: true });
-        } finally {
-            // Return to Child (which has been rebased)
-            await this.run('edit', [tmpBookmark], { isMutation: true });
-            // Restore Child to its previous state (content-wise)
-            // This ensures that changes removed from Parent appear as local changes in Child.
-            await this.run('restore', ['--from', oldChildId, fileRelPath], { isMutation: true });
-
-            await this.run('bookmark', ['delete', tmpBookmark], { isMutation: true });
-        }
-    }
 
     private async runPartialMove(
         fromRev: string,

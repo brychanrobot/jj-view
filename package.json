@@ -58,6 +58,12 @@
                 "jj-view.uploadCommand": {
                     "type": "string",
                     "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'."
+                },
+                "jj-view.maxMutableAncestors": {
+                    "type": "number",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Maximum number of mutable ancestors to display in the SCM view."
                 }
             }
         },
@@ -171,11 +177,6 @@
             {
                 "command": "jj-view.moveToParentInDiff",
                 "title": "Move to Parent",
-                "category": "JJ View"
-            },
-            {
-                "command": "jj-view.moveToChildInDiff",
-                "title": "Move to Child",
                 "category": "JJ View"
             },
             {
@@ -338,61 +339,61 @@
                 {
                     "command": "jj-view.absorb",
                     "group": "inline",
-                    "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
+                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable"
                 },
                 {
                     "command": "jj-view.showMultiFileDiff",
                     "group": "inline@1",
-                    "when": "scmResourceGroupState =~ /^jjParentGroup/ || scmResourceGroup == 'working-copy'"
+                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor/ || scmResourceGroup == 'jj.group.workingCopy'"
                 },
                 {
                     "command": "jj-view.abandon",
                     "group": "inline@2",
-                    "when": "scmResourceGroup == 'working-copy'"
+                    "when": "scmResourceGroup == 'jj.group.workingCopy'"
                 },
                 {
                     "command": "jj-view.squash",
                     "group": "inline@3",
-                    "when": "scmResourceGroup == 'working-copy' && jj.parentMutable"
+                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable || scmResourceGroupState == 'jj.group.ancestor:squashable'"
                 },
                 {
                     "command": "jj-view.showDetails",
                     "group": "inline@4",
-                    "when": "scmResourceGroupState =~ /^jjParentGroup/"
+                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor/"
                 },
                 {
                     "command": "jj-view.edit",
                     "group": "inline@5",
-                    "when": "scmResourceGroupState == 'jjParentGroup:mutable'"
+                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor:(mutable|squashable)/"
                 }
             ],
             "scm/resourceState/context": [
                 {
                     "command": "jj-view.openFile",
                     "group": "inline@1",
-                    "when": "scmResourceState == 'jjWorkingCopy' || scmResourceState == 'jjParent' || scmResourceState == 'jjConflict'"
+                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/ || scmResourceState == 'jj.resource.conflict'"
                 },
                 {
                     "command": "jj-view.restore",
                     "group": "inline@2",
-                    "when": "scmResourceState == 'jjWorkingCopy'"
+                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/"
                 },
                 {
                     "command": "jj-view.squash",
                     "group": "inline@3",
-                    "when": "scmResourceState == 'jjWorkingCopy' && jj.parentMutable"
+                    "when": "scmResourceState == 'jj.resource.workingCopy:squashable' || scmResourceState == 'jj.resource.ancestor:squashable'"
                 },
                 {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline@4",
-                    "when": "scmResourceState == 'jjParent'"
+                    "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
                 },
                 {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline@5",
-                    "when": "scmResourceState == 'jjWorkingCopy' && jj.hasChild"
+                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ && jj.hasChild"
                 }
             ],
             "scm/change/title": [
@@ -419,11 +420,6 @@
                     "command": "jj-view.moveToParentInDiff",
                     "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
-                },
-                {
-                    "command": "jj-view.moveToChildInDiff",
-                    "group": "jj-view",
-                    "when": "isInDiffEditor && jj.hasChild"
                 }
             ]
         },

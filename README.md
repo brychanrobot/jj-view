@@ -116,6 +116,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.gerrit.host` | `null` | Gerrit host URL (e.g., https://experiment-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes. |
 | `jj-view.gerrit.project` | `null` | Gerrit project name. If not set, extension attempts to detect it from git remotes. |
 | `jj-view.uploadCommand` | `null` | Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'. |
+| `jj-view.maxMutableAncestors` | `10` | Maximum number of mutable ancestors to display in the SCM view. |
 
 ## File Watcher Mode
 

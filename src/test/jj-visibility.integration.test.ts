@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
+import { ScmContextValue } from '../jj-context-keys';
 import { TestRepo } from './test-repo';
 import { createMock, accessPrivate } from './test-utils';
 
@@ -55,7 +56,7 @@ suite('JJ SCM Visibility Integration Test', function () {
         assert.strictEqual(workingCopyGroup.resourceStates.length, 1);
 
         const resourceState = workingCopyGroup.resourceStates[0];
-        assert.strictEqual(resourceState.contextValue, 'jjWorkingCopy');
+        assert.strictEqual(resourceState.contextValue, ScmContextValue.WorkingCopy);
 
         // 2. Ensure parent mutability
         // Create new commit "first commit" and work on top of it ("working on this")

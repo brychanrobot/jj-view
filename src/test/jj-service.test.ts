@@ -850,36 +850,6 @@ describe('JjService Unit Tests', () => {
         expect(diff).toBe('');
     });
 
-    test('movePartialToChild moves changes to child', async () => {
-        const fileName = 'child-move.txt';
-        const filePath = path.join(repo.path, fileName);
-
-        await buildGraph(repo, [
-            { label: 'grandparent', description: 'grandparent', files: { [fileName]: 'base\n' } },
-            {
-                label: 'parent',
-                parents: ['grandparent'],
-                description: 'parent',
-                files: { [fileName]: 'base\nchange\n' },
-            },
-            { label: 'child', parents: ['parent'], description: 'child', isWorkingCopy: true },
-        ]);
-
-        expect(fs.readFileSync(filePath, 'utf8')).toBe('base\nchange\n');
-
-        const ranges = [{ startLine: 1, endLine: 1 }];
-
-        await jjService.movePartialToChild(fileName, ranges);
-
-        const parentContent = await jjService.getFileContent(fileName, '@-');
-        expect(parentContent).toBe('base\n');
-
-        const childContent = fs.readFileSync(filePath, 'utf8');
-        expect(childContent).toBe('base\nchange\n');
-
-        const diff = await jjService.getDiff('@', fileName);
-        expect(diff).toContain('+change');
-    });
 
     test('movePartialToParent moves subset of changes', async () => {
         const fileName = 'partial.txt';
@@ -909,38 +879,6 @@ describe('JjService Unit Tests', () => {
         expect(childContent).toBe('mod1\nline2\nmod3\n');
     });
 
-    test('movePartialToChild leaves unselected changes in parent', async () => {
-        const fileName = 'partial-child.txt';
-
-        // Setup: Grandparent
-        repo.writeFile(fileName, 'A\nB\nB2\nB3\nB4\nC\n');
-        repo.describe('grandparent');
-
-        // Parent: Modify A->ModA, C->ModC
-        repo.new([], 'parent');
-        repo.writeFile(fileName, 'ModA\nB\nModC\n');
-
-        // Child: Inherits ModA, ModC
-        repo.new([], 'child');
-
-        // We want to move 'ModC' to Child.
-        // Parent should revert 'ModC' -> 'C'.
-        // Parent keeps 'ModA'.
-
-        // We select Hunk 2 (Lines corresponding to ModC in Parent).
-        // Range covers 'ModC' (Line 3, index 2).
-        const ranges = [{ startLine: 2, endLine: 2 }];
-
-        await jjService.movePartialToChild(fileName, ranges);
-
-        // Verify Parent: Has ModA, but C reverted to C
-        const parentContent = await jjService.getFileContent(fileName, '@-');
-        expect(parentContent).toBe('ModA\nB\nB2\nB3\nB4\nC\n');
-
-        // Verify Child: Still has ModA, ModC
-        const childContent = repo.readFile(fileName);
-        expect(childContent).toBe('ModA\nB\nModC\n');
-    });
 
     test('movePartialToParent moves deletion', async () => {
         const fileName = 'deletion.txt';

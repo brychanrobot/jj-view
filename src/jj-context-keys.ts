@@ -26,3 +26,23 @@ export enum JjContextKey {
     /** True when any number of commits are selected (create new commit before them) */
     SelectionAllowNewBefore = 'jj.selection.allowNewBefore',
 }
+
+/**
+ * Context values assigned to SCM Resource Groups and States.
+ * Evaluated against `scmResourceGroupState` and `scmResourceState` in `package.json`.
+ */
+export enum ScmContextValue {
+    // Group States
+    WorkingCopyGroup = 'jj.group.workingCopy',
+    ConflictGroup = 'jj.group.conflict',
+    AncestorGroup = 'jj.group.ancestor',
+    AncestorGroupMutable = 'jj.group.ancestor:mutable',
+    AncestorGroupSquashable = 'jj.group.ancestor:squashable',
+
+    // Item States
+    WorkingCopy = 'jj.resource.workingCopy',
+    WorkingCopySquashable = 'jj.resource.workingCopy:squashable',
+    Conflict = 'jj.resource.conflict',
+    Ancestor = 'jj.resource.ancestor',
+    AncestorSquashable = 'jj.resource.ancestor:squashable',
+}

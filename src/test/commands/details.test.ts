@@ -36,7 +36,7 @@ describe('showDetailsCommand', () => {
     test('calls createCommitDetailsPanel with resource group', async () => {
         const mockState = createMock<JjResourceState>({ revision: 'somerev' });
         const mockGroup = createMock<vscode.SourceControlResourceGroup>({
-            id: 'parent-0',
+            id: 'ancestor-0',
             label: 'Parent',
             resourceStates: [mockState],
         });

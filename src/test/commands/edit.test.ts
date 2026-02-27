@@ -55,7 +55,7 @@ describe('editCommand', () => {
 
         const mockState = createMock<JjResourceState>({ revision: ids['parent'].changeId });
         const mockParentGroup = createMock<vscode.SourceControlResourceGroup>({
-            id: 'parent-0',
+            id: 'ancestor-0',
             label: 'Parent: ...',
             resourceStates: [mockState],
         });

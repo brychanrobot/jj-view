@@ -57,25 +57,21 @@ export async function moveToParentInDiffCommand(scmProvider: JjScmProvider, jj: 
     if (!editor) {
         return;
     }
-    await applyMoveToParent(scmProvider, jj, editor.document, editor.selections);
-}
 
-async function applyMoveToParent(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    document: vscode.TextDocument,
-    selections: readonly vscode.Selection[],
-) {
-    const docUri = document.uri;
+    const docUri = editor.document.uri;
     const fsPath = docUri.fsPath;
     const relPath = path.relative(jj.workspaceRoot, fsPath);
+
+    // Extract revision from URI query if present (for diff views)
+    const query = new URLSearchParams(docUri.query);
+    const revision = query.get('jj-revision') || '@';
 
     // Map VS Code selections to simple ranges for Service
-    const ranges = selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
+    const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
 
     try {
-        await jj.movePartialToParent(relPath, ranges);
-        vscode.window.showInformationMessage('Moved changes to parent.');
+        await jj.movePartialToParent(relPath, ranges, revision);
+        vscode.window.showInformationMessage(`Moved changes from ${revision} to parent.`);
     } catch (e: unknown) {
         showJjError(e, 'Failed to move changes', scmProvider.outputChannel);
     } finally {
@@ -83,31 +79,3 @@ async function applyMoveToParent(
     }
 }
 
-export async function moveToChildInDiffCommand(scmProvider: JjScmProvider, jj: JjService, editor: vscode.TextEditor) {
-    if (!editor) {
-        return;
-    }
-    await applyMoveToChild(scmProvider, jj, editor.document, editor.selections);
-}
-
-async function applyMoveToChild(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    document: vscode.TextDocument,
-    selections: readonly vscode.Selection[],
-) {
-    const docUri = document.uri;
-    const fsPath = docUri.fsPath;
-    const relPath = path.relative(jj.workspaceRoot, fsPath);
-
-    const ranges = selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
-
-    try {
-        await jj.movePartialToChild(relPath, ranges);
-        vscode.window.showInformationMessage('Moved changes to child.');
-    } catch (e: unknown) {
-        showJjError(e, 'Failed to move changes', scmProvider.outputChannel);
-    } finally {
-        await scmProvider.refresh();
-    }
-}

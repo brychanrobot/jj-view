@@ -82,7 +82,7 @@ export function isWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceCo
 }
 
 export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
-    return isSourceControlResourceGroup(arg) && arg.id.startsWith('parent-');
+    return isSourceControlResourceGroup(arg) && arg.id.startsWith('ancestor-');
 }
 
 /**

@@ -14,7 +14,7 @@ import { GerritService } from './gerrit-service';
 import { abandonCommand } from './commands/abandon';
 import { newMergeChangeCommand, MergeCommandArg } from './commands/merge';
 import { squashCommand, completeSquashCommand } from './commands/squash';
-import { moveToChildCommand, moveToParentInDiffCommand, moveToChildInDiffCommand } from './commands/move';
+import { moveToChildCommand, moveToParentInDiffCommand } from './commands/move';
 import { restoreCommand } from './commands/restore';
 import { setDescriptionCommand } from './commands/describe';
 import { newCommand } from './commands/new';
@@ -129,6 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
         ),
     );
 
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'jj-view.moveToChild',
@@ -148,15 +149,6 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.moveToChildInDiff', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                return;
-            }
-            await moveToChildInDiffCommand(scmProvider, jj, editor);
-        }),
-    );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.refresh', async () => {

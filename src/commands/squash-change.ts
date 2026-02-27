@@ -84,10 +84,17 @@ export async function squashChangeCommand(
 
     const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
 
+    const originalUri = scmProvider.provideOriginalResource(uri) as vscode.Uri;
+    let revision = '@';
+    if (originalUri && originalUri.query) {
+        const queryParams = new URLSearchParams(originalUri.query);
+        revision = queryParams.get('base') || '@';
+    }
+
     // Get current diff and validate that the change exists in JJ's view
     let diffOutput = '';
     try {
-        diffOutput = await jj.getDiff('@', relPath);
+        diffOutput = await jj.getDiff(revision, relPath);
     } catch {
         // If we can't get the diff, continue anyway - the move operation will fail with a clear error
     }
@@ -126,7 +133,7 @@ export async function squashChangeCommand(
     }
 
     try {
-        await jj.movePartialToParent(relPath, ranges);
+        await jj.movePartialToParent(relPath, ranges, revision);
         vscode.window.showInformationMessage('Squashed change to parent.');
 
         // Only refresh on success
