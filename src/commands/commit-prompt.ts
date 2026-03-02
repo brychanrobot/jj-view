@@ -29,7 +29,6 @@ export async function commitPromptCommand(scmProvider: JjScmProvider, jj: JjServ
 
     try {
         await withDelayedProgress('Committing...', jj.commit(message));
-        vscode.window.showInformationMessage('Committed change');
         await scmProvider.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
         showJjError(err, 'Error committing change', scmProvider.outputChannel);
