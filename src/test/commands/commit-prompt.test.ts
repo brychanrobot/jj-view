@@ -68,7 +68,8 @@ describe('commitPromptCommand', () => {
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('new description');
         
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
+        // Success path should refresh SCM state
+        expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
     });
 
     test('does nothing if user cancels prompt', async () => {
@@ -88,7 +89,9 @@ describe('commitPromptCommand', () => {
         // The description of @ should still be 'existing' (no new commit created)
         const desc = repo.getDescription('@');
         expect(desc.trim()).toBe('existing');
-        expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+
+        // Cancel path should not refresh
+        expect(scmProvider.refresh).not.toHaveBeenCalled();
     });
 
     test('shows prompt even when input box has text', async () => {
@@ -113,7 +116,8 @@ describe('commitPromptCommand', () => {
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('feat: quick commit');
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
+        // Success path should refresh SCM state
+        expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
     });
 
     test('commits with blank message when prompt is cleared', async () => {
@@ -122,7 +126,7 @@ describe('commitPromptCommand', () => {
         inputBoxMock.value = '';
         
         // Mock existing description
-        await jj.describe('existing description', '@'); 
+        await jj.describe('existing description', '@');
         
         // Get the current change ID before the operation
         const beforeChangeId = repo.getChangeId('@');
@@ -134,12 +138,12 @@ describe('commitPromptCommand', () => {
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
 
-        // Check that a new change was created (jj.new() was called)
+        // Check that a new change was created (commit happened)
         // The current change ID should be different from before
         const afterChangeId = repo.getChangeId('@');
         expect(afterChangeId).not.toBe(beforeChangeId);
         
-        // The parent should still have the existing description
+        // Parent commit should have a blank description (commit message was cleared)
         const parentId = repo.getParents('@')[0];
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('');
@@ -148,6 +152,7 @@ describe('commitPromptCommand', () => {
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
         
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
+        // Success path should refresh SCM state
+        expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
     });
 });
