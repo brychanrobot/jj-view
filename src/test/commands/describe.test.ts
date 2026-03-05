@@ -4,6 +4,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { createMock } from '../test-utils';
 import { setDescriptionCommand } from '../../commands/describe';
 import { JjService } from '../../jj-service';
@@ -26,7 +27,10 @@ describe('setDescriptionCommand', () => {
         jj = new JjService(repo.path);
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
-            setDescription: vi.fn(),
+            sourceControl: createMock<vscode.SourceControl>({
+                inputBox: createMock<vscode.SourceControlInputBox>({ value: '' }),
+            }),
+            outputChannel: createMock<vscode.OutputChannel>({ appendLine: vi.fn() }),
         });
     });
 
@@ -35,9 +39,23 @@ describe('setDescriptionCommand', () => {
         vi.clearAllMocks();
     });
 
-    test('updates description of current commit', async () => {
-        await setDescriptionCommand(scmProvider, jj, 'new description');
+    test('updates description from string argument', async () => {
+        await setDescriptionCommand(scmProvider, jj, ['new description']);
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('new description');
+    });
+
+    test('updates description from input box when message is omitted', async () => {
+        scmProvider.sourceControl.inputBox.value = 'from input box';
+        await setDescriptionCommand(scmProvider, jj, []);
+        const description = repo.getDescription('@');
+        expect(description.trim()).toBe('from input box');
+    });
+
+    test('updates description for specific revision', async () => {
+        repo.new([], 'child');
+        await setDescriptionCommand(scmProvider, jj, ['updated parent', '@-']);
+        const description = repo.getDescription('@-');
+        expect(description.trim()).toBe('updated parent');
     });
 });

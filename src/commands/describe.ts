@@ -10,15 +10,19 @@ import { JjScmProvider } from '../jj-scm-provider';
 export async function setDescriptionCommand(
     scmProvider: JjScmProvider,
     jj: JjService,
-    description: string,
-    args?: unknown[],
+    args: unknown[] = [],
 ) {
-    let revision = '@';
-    if (args && Array.isArray(args)) {
-        const extracted = extractRevision(args);
-        if (extracted) {
-            revision = extracted;
-        }
+    const message = typeof args[0] === 'string' ? args[0] : undefined;
+    const revisionArgs = message ? args.slice(1) : args;
+    const revision =
+        (message && typeof args[1] === 'string' ? args[1] : undefined) ??
+        extractRevision(revisionArgs) ??
+        '@';
+
+    const description = message ?? scmProvider.sourceControl.inputBox.value;
+
+    if (!description) {
+        return;
     }
 
     try {

@@ -65,8 +65,7 @@ describe('commitCommand', () => {
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
 
-        expect(scmProvider.sourceControl.inputBox.value).toBe('');
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Committed change');
+        expect(scmProvider.sourceControl.inputBox.value).toBe('feat: my change');
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 });

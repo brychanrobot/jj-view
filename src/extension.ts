@@ -124,10 +124,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.setDescription', async (messageArg?: string, revision?: string) => {
-            const message = messageArg ?? scmProvider.sourceControl.inputBox.value;
-            await setDescriptionCommand(scmProvider, jj, message, revision ? [revision] : undefined);
-        }),
+        vscode.commands.registerCommand('jj-view.setDescription', (...args: unknown[]) =>
+            setDescriptionCommand(scmProvider, jj, args),
+        ),
     );
 
     context.subscriptions.push(
