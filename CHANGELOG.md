@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.16.0
+
+### Features
+- Added `describe-prompt` command, which allows users to set a change description using a quick input dialog instead of opening a full text editor.
+
+### Fixes
+- Fixed broken save description button.
+- Removed the redundant "Committed change" toast notification that appeared after using the commit prompt, for a cleaner and less intrusive user experience.
+
+### Chores
+- Cleaned up vitest logs by silencing intentionally triggered console errors.
+
 ## 1.15.3
 
 ### Fixed
