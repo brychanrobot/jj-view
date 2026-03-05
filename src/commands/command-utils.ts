@@ -183,7 +183,9 @@ export async function showJjError(
     const message = getErrorMessage(error);
     const fullMessage = `${prefix}: ${message}`;
 
-    console.error(fullMessage, error);
+    if (!process.env.VITEST) {
+        console.error(fullMessage, error);
+    }
     outputChannel?.appendLine(`[Error] ${fullMessage}`);
 
     const SHOW_LOG = 'Show Log';
