@@ -31,4 +31,5 @@ export interface GraphLayout {
     width: number;
     height: number;
     rows: JjLogEntry[]; // The commits in display order
+    rowWidths: number[]; // Per-row active width (in lanes) for text alignment
 }

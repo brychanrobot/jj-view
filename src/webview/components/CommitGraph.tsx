@@ -55,7 +55,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
     // Determine the max shortest ID length to display
     const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits), [commits]);
 
-    // Padding-left for the text area
+    // Per-row padding-left for the text area (aligns text next to each node)
+    const rowGraphAreaWidths = React.useMemo(
+        () => (layout.rowWidths || []).map((rw) => computeGraphAreaWidth(rw, LANE_WIDTH, LEFT_MARGIN, GAP)),
+        [layout.rowWidths, LANE_WIDTH, LEFT_MARGIN, GAP],
+    );
+    // Fallback for the overall graph
     const graphAreaWidth = computeGraphAreaWidth(layout.width, LANE_WIDTH, LEFT_MARGIN, GAP);
 
     return (
@@ -72,7 +77,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
 
             {/* Commit List (Text) */}
             <div style={{ position: 'relative', zIndex: 1 }}>
-                {displayRows.map((commit) => {
+                {displayRows.map((commit, rowIndex) => {
                     const isSelected = selectedCommitIds?.has(commit.change_id);
                     const hasImmutableSelection =
                         selectedCommitIds && selectedCommitIds.size > 0
@@ -80,13 +85,14 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
                             : false;
 
                     const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                    const rowPaddingLeft = rowGraphAreaWidths[rowIndex] ?? graphAreaWidth;
 
                     return (
                         <div
                             key={commit.commit_id}
                             style={{
                                 height: height,
-                                paddingLeft: graphAreaWidth,
+                                paddingLeft: rowPaddingLeft,
                                 display: 'flex',
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',

@@ -51,37 +51,26 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             // Straight Vertical
             d = `M ${sx} ${sy} L ${ex} ${ey}`;
         } else {
-            // Rail Routing: Bend at the row boundary to keep the structure clean.
-            // We use the top of the next row as the midpoint for the S-curve.
-            const nextRowY = rowOffsets[y1 + 1] || (sy + ROW_HEADER_HEIGHT);
-            const midY = nextRowY;
+            // Rail Routing: Bend right BEFORE the target row to match jj log.
+            // The edge stays vertical at the source lane, then bends at the
+            // boundary just before the target row.
+            const targetRowY = rowOffsets[y2] || ey;
+            const midY = targetRowY;
 
             // Direction for horizontal
             const dirX = x2 > x1 ? 1 : -1;
 
-            // Start -> Vertical to Turn
+            // Start -> Vertical down at source lane
             d += `M ${sx} ${sy}`;
             d += ` L ${sx} ${midY - R}`;
 
             // Curve 1 (Vertical to Horizontal)
-
-            // Quadratic Bezier (Q): Q control-point-x control-point-y end-x end-y
-            // Start: (sx, midY - R)
-            // Control: (sx, midY) - Corner
-            // End: (sx + R*dirX, midY)
             d += ` Q ${sx} ${midY} ${sx + R * dirX} ${midY}`;
 
             // Horizontal Line
-            // If adjacent lanes (delta=1), len = W = 2*R.
-            // start + 2*R*dirX = start + W*dirX = ex.
-            // So horizontal segment is length 0. Perfect S.
-            // If delta > 1, straight line exists.
             d += ` L ${ex - R * dirX} ${midY}`;
 
             // Curve 2 (Horizontal to Vertical)
-            // Start: (ex - R*dirX, midY)
-            // Control: (ex, midY)
-            // End: (ex, midY + R)
             d += ` Q ${ex} ${midY} ${ex} ${midY + R}`;
 
             // Vertical to End

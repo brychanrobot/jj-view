@@ -84,6 +84,14 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
             if (p0Lane === -1) {
                 p0Lane = nodeLane;
                 lanes[nodeLane] = p0;
+            } else if (p0Lane > nodeLane) {
+                // Parent was reserved at a wider lane by another child.
+                // Move it to the current (narrower) lane to match jj's layout:
+                // this creates a ├─╯ join connector instead of keeping the
+                // parent at the wider lane.
+                lanes[p0Lane] = null;
+                lanes[nodeLane] = p0;
+                p0Lane = nodeLane;
             }
             pendingEdges.push({
                 x1: nodeLane,
@@ -159,5 +167,30 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
         nodes.reduce((max, n) => Math.max(max, n.x + 1), 0),
     );
 
-    return { nodes, edges, width, height: sortedRows.length, rows: sortedRows };
+    // Compute per-row active widths for text alignment.
+    // Uses the "bend before target" model:
+    // - Straight edges occupy their lane for all rows between source and target
+    // - Angled edges stay at source lane until bending just before the target
+    const rowWidths: number[] = new Array(sortedRows.length).fill(0);
+    for (const node of nodes) {
+        rowWidths[node.y] = Math.max(rowWidths[node.y], node.x + 1);
+    }
+    for (const edge of edges) {
+        const minY = Math.min(edge.y1, edge.y2);
+        const maxY = Math.max(edge.y1, edge.y2);
+        const maxLane = Math.max(edge.x1, edge.x2) + 1;
+        if (edge.x1 === edge.x2) {
+            // Straight edge: active for all rows
+            for (let y = minY; y <= maxY && y < sortedRows.length; y++) {
+                rowWidths[y] = Math.max(rowWidths[y], maxLane);
+            }
+        } else {
+            // Angled edge: active at source lane until y2-1
+            for (let y = minY; y <= maxY - 1 && y < sortedRows.length; y++) {
+                rowWidths[y] = Math.max(rowWidths[y], maxLane);
+            }
+        }
+    }
+
+    return { nodes, edges, width, height: sortedRows.length, rows: sortedRows, rowWidths };
 }
