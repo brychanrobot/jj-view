@@ -170,12 +170,19 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // 1. Fetch data in parallel for performance
                 const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+                const limit = maxMutableAncestors + 1;
 
-                const [bulkLog, children, conflictedPaths] = await Promise.all([
-                    this.jj.getLog({ revision: `ancestors(@, ${maxMutableAncestors + 1})` }),
+                // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
+                const bulkLogPromise = this.jj.getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
+                    .then(commitIds => Promise.all(commitIds.map(id => this.jj.getLog({ revision: id }))));
+
+                const [bulkLogEntries, children, conflictedPaths] = await Promise.all([
+                    bulkLogPromise,
                     this.jj.getChildren('@'),
                     this.jj.getConflictedFiles(),
                 ]);
+
+                const bulkLog = bulkLogEntries.map(entries => entries[0]).filter(Boolean);
 
                 // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
                 const currentEntry = bulkLog.find(e => e.is_working_copy) || bulkLog[0];

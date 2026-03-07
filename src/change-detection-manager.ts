@@ -20,6 +20,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private _poller: Poller;
     private _fileWatcherMode: 'polling' | 'watch' = 'polling';
     private _isFocused = true;
+    private lastExternalOpTime = 0;
+
+    private get hasActiveOrRecentWrites(): boolean {
+        return this.jj.hasActiveWriteOps || (Date.now() - this.jj.lastWriteTime < 500) || (Date.now() - this.lastExternalOpTime < 500);
+    }
 
     constructor(
         private workspaceRoot: string,
@@ -31,7 +36,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         // Initialize poller with 5 second interval
         this._poller = new Poller(5000, async () => {
              // Skip if a write operation is in progress or just finished
-            if (!this.jj.hasActiveWriteOps && Date.now() - this.jj.lastWriteTime >= 500) {
+            if (!this.hasActiveOrRecentWrites) {
                 await this.triggerRefresh({ forceSnapshot: true, reason: 'poll' });
             }
         });
@@ -129,10 +134,10 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._opHeadsWatcher = new DirectoryWatcher(
             opHeadsPath,
             () => {
-                 // Check for active write ops before firing?
-                 if (this.jj.hasActiveWriteOps || Date.now() - this.jj.lastWriteTime < 500) {
+                if (this.hasActiveOrRecentWrites) {
                     return;
                 }
+                this.lastExternalOpTime = Date.now();
                 this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
             },
             this.outputChannel,
@@ -182,6 +187,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._workingCopyWatcher = new DirectoryWatcher(
             this.workspaceRoot,
             () => {
+                if (this.hasActiveOrRecentWrites) {
+                    return;
+                }
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event' });
             },
             this.outputChannel,

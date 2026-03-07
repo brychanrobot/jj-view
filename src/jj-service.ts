@@ -14,6 +14,7 @@ import { buildLogTemplate, LOG_ENTRY_SCHEMA } from './jj-template-builder';
 export interface JjLogOptions {
     revision?: string;
     limit?: number;
+    omitChanges?: boolean;
 }
 
 
@@ -194,8 +195,15 @@ export class JjService {
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
-        const { revision, limit } = options;
-        const args = ['-T', buildLogTemplate(LOG_ENTRY_SCHEMA)];
+        const { revision, limit, omitChanges } = options;
+        
+        let schema = LOG_ENTRY_SCHEMA;
+        if (omitChanges) {
+            schema = { ...LOG_ENTRY_SCHEMA };
+            delete schema['changes'];
+        }
+        
+        const args = ['-T', buildLogTemplate(schema)];
         if (revision) {
             args.push('-r', revision);
         }
@@ -229,6 +237,22 @@ export class JjService {
         return entries;
     }
 
+    async getLogIds(options: JjLogOptions = {}): Promise<string[]> {
+        const { revision, limit } = options;
+        const args = ['-T', 'commit_id ++ "\\n"', '--no-graph'];
+        if (revision) {
+            args.push('-r', revision);
+        }
+        if (limit) {
+            args.push('-n', limit.toString());
+        } else if (!revision) {
+            args.push('-n', '200');
+        }
+
+        const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLogIds' });
+        return output.trim().split('\n').filter(Boolean);
+    }
+
     async restore(paths: string[], from?: string): Promise<void> {
         if (paths.length === 0) {
             return;
@@ -240,6 +264,7 @@ export class JjService {
         }
         await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
     }
+
     /**
      * Get the base, left (ours), and right (theirs) content for a conflicted file.
      * Uses `jj resolve` with a custom capture tool to extract the properly separated content.
@@ -664,7 +689,7 @@ export class JjService {
     }
 
     async status(): Promise<string> {
-        return this.run('status', [], { useCachedSnapshot: false, label: 'status' });
+        return this.run('status', [], { isMutation: true, useCachedSnapshot: false, label: 'status' });
     }
 
     async getChanges(revision: string): Promise<JjStatusEntry[]> {

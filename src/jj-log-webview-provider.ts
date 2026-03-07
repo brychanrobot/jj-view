@@ -175,7 +175,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
                 // Default jj log (usually local heads/roots)
                 const logStart = performance.now();
-                commits = await this._jj.getLog({});
+                commits = await this._jj.getLog({ omitChanges: true });
                 const logDuration = performance.now() - logStart;
                 this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
 
