@@ -18,6 +18,9 @@ interface GerritFile {
 
 interface GerritRevision {
     files?: Record<string, GerritFile>;
+    commit?: {
+        message: string;
+    };
 }
 
 export interface GerritChange {
@@ -337,7 +340,7 @@ export class GerritService implements vscode.Disposable {
 
         const info = await this._fetchFromNetwork(cacheKey);
         if (info) {
-            await this._verifySyncForCommit(commitId, info);
+            await this._verifySyncForCommit(commitId, description, info);
             this.cache.set(cacheKey, info);
         }
         return info;
@@ -390,9 +393,9 @@ export class GerritService implements vscode.Disposable {
     private async _fetchFromNetwork(cacheKey: string): Promise<GerritClInfo | undefined> {
         if (!this._gerritHost) return undefined;
         
-        const searchQ = `change:${cacheKey}`;
+            const searchQ = `change:${cacheKey}`;
         try {
-            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION&o=CURRENT_FILES`;
+            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION&o=CURRENT_FILES&o=CURRENT_COMMIT`;
             
             const response = await fetch(url);
             if (!response.ok) {
@@ -415,19 +418,19 @@ export class GerritService implements vscode.Disposable {
             const currentRev = change.current_revision;
             
             let files: Record<string, { newSha?: string; status?: string }> | undefined;
-            if (currentRev && change.revisions && change.revisions[currentRev] && change.revisions[currentRev].files) {
-                files = {};
-                const rawFiles = change.revisions[currentRev].files;
-                if (rawFiles) {
-                    for (const [path, fileInfo] of Object.entries(rawFiles)) {
-                        // Skip magic files like /COMMIT_MSG
-                        if (path.startsWith('/')) continue;
-                        
-                        files[path] = {
-                            newSha: fileInfo.new_sha,
-                            status: fileInfo.status
-                        };
-                    }
+            let remoteDescription: string | undefined;
+
+            const rev = (currentRev && change.revisions) ? change.revisions[currentRev] : undefined;
+            if (rev) {
+                remoteDescription = rev.commit?.message;
+
+                if (rev.files) {
+                    files = Object.entries(rev.files).reduce((acc, [path, fileInfo]) => {
+                        if (!path.startsWith('/')) {
+                            acc[path] = { newSha: fileInfo.new_sha, status: fileInfo.status };
+                        }
+                        return acc;
+                    }, {} as Record<string, { newSha?: string; status?: string }>);
                 }
             }
 
@@ -439,7 +442,8 @@ export class GerritService implements vscode.Disposable {
                 url: `${this._gerritHost}/c/${change._number}`,
                 unresolvedComments: change.unresolved_comment_count || 0,
                 currentRevision: change.current_revision,
-                files
+                files,
+                remoteDescription
             };
             return info;
         } catch (error) {
@@ -452,11 +456,24 @@ export class GerritService implements vscode.Disposable {
      * Verify whether a local commit's content matches its Gerrit revision
      * by comparing per-file blob SHA-1 hashes. Sets `synced = true` if matching.
      */
-    private async _verifySyncForCommit(commitId: string, info: GerritClInfo): Promise<void> {
+    private async _verifySyncForCommit(commitId: string, description: string | undefined, info: GerritClInfo): Promise<void> {
         if (info.status !== 'NEW' ||
             info.currentRevision === commitId ||
             !info.files) {
             return;
+        }
+
+        // Verify description matches
+        if (info.remoteDescription && description) {
+            const normalize = (desc: string) => {
+                // Gerrit appends the Change-Id footer to the description.
+                // Since our local description might not have this, we strip it out before comparing
+                // to avoid false positive sync failures.
+                return desc.replace(/^Change-Id: I[0-9a-fA-F]{40}\s*$/gm, '').trim();
+            };
+            if (normalize(description) !== normalize(info.remoteDescription)) {
+                return;
+            }
         }
 
         const gerritFiles = info.files;
@@ -471,7 +488,7 @@ export class GerritService implements vscode.Disposable {
 
             const gerritPaths = Object.keys(gerritFiles).filter(p => gerritFiles[p].status !== 'D');
             const gerritPathSet = new Set(gerritPaths);
-
+            
             // 2. Compare sets using ES2024 Set.difference
             // Check for strict equality of sets: A.difference(B) must be empty AND B.difference(A) must be empty
             if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {

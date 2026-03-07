@@ -208,6 +208,7 @@ describe('GerritService Detection', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(result).toBeUndefined();
     });
+
     test('fetchAndCacheStatus handles invalid JJ Change-Id gracefully', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
@@ -224,6 +225,7 @@ describe('GerritService Detection', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(result).toBeUndefined();
     });
+
     test('fetchAndCacheStatus caches by Change-Id', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
@@ -474,6 +476,111 @@ describe('GerritService Detection', () => {
         expect(result).toBeDefined();
         // Should be not synced because file2.txt is extra locally
         expect(result?.synced).toBeFalsy();
+    });
+
+    test('forceFetchAndCacheStatus detects description mismatch as not synced', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+        const currentRev = 'commit-sha-on-gerrit';
+        
+        // Match files exactly but change description
+        repo.writeFile('file1.txt', 'content1');
+        await jjService.describe('Local Description\n\nChange-Id: ' + changeId);
+        const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
+        
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW',
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    commit: { message: 'Remote Description\n\nChange-Id: ' + changeId },
+                    files: {
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
+                    }
+                }
+            }
+        });
+
+        const commitId = repo.getCommitId('@').trim();
+
+        // Pass a DIFFERENT local description
+        const resultNoSync = await service.forceFetchAndCacheStatus(commitId, changeId, `Local Description\n\nChange-Id: ${changeId}`);
+        expect(resultNoSync?.synced).toBeFalsy();
+    });
+
+    test('forceFetchAndCacheStatus accepts matching description regardless of whitespace', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+        const currentRev = 'commit-sha-on-gerrit';
+        
+        const baseDescription = `Same Description\n\nChange-Id: ${changeId}`;
+        
+        repo.writeFile('file1.txt', 'content1');
+        await jjService.describe(baseDescription);
+        const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
+
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW',
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    commit: { message: baseDescription + '\n\n' }, // Extra newlines remotely
+                    files: {
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
+                    }
+                }
+            }
+        });
+
+        const commitId = repo.getCommitId('@').trim();
+
+        // Pass exactly the base description (different whitespace/trimming)
+        const resultSynced = await service.forceFetchAndCacheStatus(commitId, changeId, baseDescription);
+        expect(resultSynced?.synced).toBeTruthy();
+    });
+
+    test('forceFetchAndCacheStatus ignores Change-Id footer differences', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk'; 
+        const gerritId = 'I000000000000ffffffffffffffffffffffffffff';
+        const currentRev = 'commit-sha-on-gerrit';
+        
+        repo.writeFile('file1.txt', 'content1');
+        await jjService.describe('Local description has no Change-Id');
+        const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
+
+        fakeGerritServer.addChange({
+            change_id: gerritId,
+            _number: 123,
+            status: 'NEW',
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    commit: { message: 'Local description has no Change-Id\n\nChange-Id: ' + gerritId }, // Gerrit has it
+                    files: {
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
+                    }
+                }
+            }
+        });
+
+        const commitId = repo.getCommitId('@').trim();
+
+        const resultSynced = await service.forceFetchAndCacheStatus(commitId, jjId, 'Local description has no Change-Id');
+        expect(resultSynced?.synced).toBeTruthy();
     });
 
     test('requestRefreshWithBackoffs schedules multiple refreshes', async () => {

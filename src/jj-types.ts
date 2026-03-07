@@ -18,6 +18,7 @@ export interface GerritClInfo {
     currentRevision?: string;
     files?: Record<string, { newSha?: string; status?: string }>;
     synced?: boolean;
+    remoteDescription?: string;
 }
 
 export interface JjLogEntry {

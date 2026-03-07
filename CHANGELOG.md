@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.1
+
+### Fixes
+- **Gerrit**: The Upload button now correctly appears when you modify a commit's description. Previously, it only detected changes to file contents.
+
 ## 1.16.0
 
 ### Features
