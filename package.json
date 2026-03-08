@@ -267,7 +267,7 @@
                 {
                     "command": "jj-view.newBefore",
                     "group": "navigation",
-                    "when": "view == jj-view.logView && jj.selection.allowAbandon"
+                    "when": "view == jj-view.logView && jj.selection.allowNewBefore"
                 }
             ],
             "webview/context": [
@@ -278,7 +278,7 @@
                 },
                 {
                     "command": "jj-view.newBefore",
-                    "when": "webviewSection == 'commit' && canEdit",
+                    "when": "webviewSection == 'commit' && canNewBefore",
                     "group": "navigation"
                 },
                 {
@@ -456,6 +456,7 @@
         "test:activation": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test-activation.mjs",
         "test:integration:all": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test.mjs && vscode-test --config .vscode-test-activation.mjs",
         "test:screenshots": "playwright test",
+        "test:e2e": "node esbuild.js && npm run build:tests && playwright test -c playwright.e2e.config.ts",
         "test:unit": "vitest run",
         "release:encode": "ts-node .agents/scripts/encode-release-notes.ts"
     },

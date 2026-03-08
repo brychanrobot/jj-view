@@ -150,7 +150,7 @@ suite('Webview Selection Integration Test', function () {
     });
 
     test('Abandon command from webview triggers extension command', async () => {
-        const payload = { commitId: 'commit-to-abandon' };
+        const payload = { changeId: 'commit-to-abandon' };
         await messageHandler({
             type: 'abandon',
             payload,

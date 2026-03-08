@@ -56,6 +56,14 @@ jobs:
               if: runner.os != 'Linux'
               run: npm run test:integration
 
+            - name: Install Playwright Browsers & Dependencies
+              if: runner.os == 'Linux'
+              run: npx playwright install --with-deps chromium
+
+            - name: Run E2E Tests (Linux)
+              if: runner.os == 'Linux'
+              run: xvfb-run -a npm run test:e2e
+
             - name: Package Extension
               if: runner.os == 'Linux'
               run: npx @vscode/vsce package

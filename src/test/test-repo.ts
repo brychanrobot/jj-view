@@ -111,6 +111,14 @@ export class TestRepo {
         this.exec(['edit', revision]);
     }
 
+    getWorkingCopyId(): string {
+        return this.exec(['log', '--ignore-working-copy', '-r', '@', '-T', 'change_id', '--no-graph']);
+    }
+
+    getDiffSummary(revision: string = '@'): string {
+        return this.exec(['diff', '-r', revision, '--summary']);
+    }
+
     bookmark(name: string, revision: string) {
         this.exec(['bookmark', 'create', name, '-r', revision]);
     }
@@ -147,11 +155,11 @@ export class TestRepo {
     }
 
     getChangeId(revision: string): string {
-        return this.exec(['log', '-r', revision, '-T', 'change_id', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'change_id', '--no-graph']);
     }
 
     getCommitId(revision: string): string {
-        return this.exec(['log', '-r', revision, '-T', 'commit_id', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'commit_id', '--no-graph']);
     }
 
     diff(relativePath: string, revision?: string): string {
@@ -196,15 +204,19 @@ export class TestRepo {
     }
 
     log(): string {
-        return this.exec(['log']);
+        return this.exec(['log', '--ignore-working-copy']);
     }
 
-    getLogOutput(template: string, revision: string = '::'): string {
-        return this.exec(['log', '-r', revision, '-T', template, '--color', 'never']);
+    getLogOutput(template: string): string {
+        return this.exec(['log', '--ignore-working-copy', '-T', template, '--color', 'never']);
+    }
+
+    getLog(revision: string, template: string): string {
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', template, '--no-graph', '--color', 'never']);
     }
 
     isImmutable(revision: string): boolean {
-        const output = this.exec(['log', '-r', revision, '-T', 'immutable', '--no-graph', '--color', 'never']);
+        const output = this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'immutable', '--no-graph', '--color', 'never']);
         return output.trim() === 'true';
     }
 }

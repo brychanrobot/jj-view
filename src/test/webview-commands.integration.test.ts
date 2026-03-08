@@ -138,7 +138,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
         await messageHandler({
             type: 'abandon',
             payload: {
-                commitId: commitToAbandonId,
+                changeId: commitToAbandonId,
             },
         });
 
@@ -176,7 +176,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
 
         await messageHandler({
             type: 'newChild',
-            payload: { commitId: parentId },
+            payload: { changeId: parentId },
         });
 
         const childId = repo.getChangeId('@');
@@ -203,7 +203,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
         // Send Edit
         await messageHandler({
             type: 'edit',
-            payload: { commitId: targetId },
+            payload: { changeId: targetId },
         });
 
         // Verify working copy is now targetId
@@ -247,7 +247,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
 
         await messageHandler({
             type: 'squash',
-            payload: { commitId: childId },
+            payload: { changeId: childId },
         });
 
         const parentContent = repo.getFileContent('@-', 'file.txt');
@@ -272,7 +272,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
             type: 'moveBookmark',
             payload: {
                 bookmark: 'my-bookmark',
-                targetCommitId: commitB,
+                targetChangeId: commitB,
             },
         });
 
@@ -299,8 +299,8 @@ suite('Webview Commands End-to-End Integration Test', function () {
         await messageHandler({
             type: 'rebaseCommit',
             payload: {
-                sourceCommitId: idB,
-                targetCommitId: idA,
+                sourceChangeId: idB,
+                targetChangeId: idA,
                 mode: 'source',
             },
         });

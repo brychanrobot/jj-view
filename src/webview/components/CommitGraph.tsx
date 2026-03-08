@@ -55,6 +55,14 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
     // Determine the max shortest ID length to display
     const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits), [commits]);
 
+    const hasImmutableSelection = React.useMemo(() => {
+        if (!selectedCommitIds || selectedCommitIds.size === 0) {
+            return false;
+        }
+        // Check ALL commits, not just displayRows, to ensure correctness even if some are off-screen
+        return commits.some((c) => selectedCommitIds.has(c.change_id) && c.is_immutable);
+    }, [commits, selectedCommitIds]);
+
     // Padding-left for the text area
     const graphAreaWidth = computeGraphAreaWidth(layout.width, LANE_WIDTH, LEFT_MARGIN, GAP);
 
@@ -74,11 +82,6 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
             <div style={{ position: 'relative', zIndex: 1 }}>
                 {displayRows.map((commit) => {
                     const isSelected = selectedCommitIds?.has(commit.change_id);
-                    const hasImmutableSelection =
-                        selectedCommitIds && selectedCommitIds.size > 0
-                            ? displayRows.some((c) => selectedCommitIds.has(c.change_id) && c.is_immutable)
-                            : false;
-
                     const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
 
                     return (
@@ -96,7 +99,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
                             <CommitNode
                                 commit={commit}
                                 onClick={(modifiers) =>
-                                    onAction('select', { commitId: commit.change_id, ...modifiers })
+                                    onAction('select', { changeId: commit.change_id, ...modifiers })
                                 }
                                 onAction={onAction}
                                 isSelected={isSelected}

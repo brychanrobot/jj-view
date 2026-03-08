@@ -8,11 +8,11 @@ import { JjService } from '../jj-service';
 import { showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
-export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjService, context: { commitId: string }) {
-    if (!context || !context.commitId) {
+export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjService, context: { changeId?: string; commitId?: string }) {
+    const revision = context?.changeId || context?.commitId;
+    if (!revision) {
         return;
     }
-    const commitId = context.commitId;
 
     try {
         const bookmarks = await withDelayedProgress('Fetching bookmarks...', jj.getBookmarks());
@@ -30,7 +30,7 @@ export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjServi
             if (name) {
                 quickPick.hide();
                 try {
-                    await withDelayedProgress(`Setting bookmark ${name}...`, jj.moveBookmark(name, commitId));
+                    await withDelayedProgress(`Setting bookmark ${name}...`, jj.moveBookmark(name, revision));
                     await scmProvider.refresh({ reason: 'after bookmark set' });
                 } catch (e: unknown) {
                     showJjError(e, 'Error setting bookmark', scmProvider.outputChannel);

@@ -15,9 +15,11 @@ export { BookmarkPill } from './Bookmark';
 
 // Shared payload for all actions
 export interface ActionPayload {
-    commitId: string;
+    changeId: string;
     isImmutable?: boolean;
     url?: string;
+    multiSelect?: boolean;
+    [key: string]: unknown;
 }
 
 interface CommitNodeProps {
@@ -49,7 +51,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
         id: `commit-${commit.change_id}`,
         data: {
             type: 'commit',
-            commitId: commit.change_id,
+            changeId: commit.change_id,
             description: commit.description, // Pass description for preview
             change_id_shortest: commit.change_id_shortest, // Pass short ID for preview styles
         },
@@ -57,7 +59,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
     const { setNodeRef: setDroppableRef, isOver } = useDroppable({
         id: `commit-${commit.change_id}`,
-        data: { type: 'commit', commitId: commit.change_id },
+        data: { type: 'commit', changeId: commit.change_id },
     });
     const { active } = useDndContext();
     const [isHovered, setIsHovered] = React.useState(false);
@@ -122,20 +124,22 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
             {...listeners}
             {...attributes}
             className={`commit-row ${isWorkingCopy ? 'working-copy' : ''}`}
+            aria-selected={isSelected}
+            data-change-id={commit.change_id}
+            data-selected={isSelected}
+            data-hovered={isHovered}
             data-vscode-context={JSON.stringify({
                 webviewSection: 'commit',
                 viewItem: isSelected ? 'jj-commit-selected' : 'jj-commit',
-                commitId: commit.change_id,
+                commitId: commit.commit_id,
+                changeId: commit.change_id,
 
-                // Detailed Capabilities for Context Menu "when" clauses
-                // Only show Abandon in context menu for multi-selection (use hover button for single)
-                canAbandon: isSelected && selectionCount > 1 && !hasImmutableSelection,
+                // Abandon and New Before supported on multi-selection, but also on unselected items
+                canAbandon: !isImmutable && (!isSelected || !hasImmutableSelection),
+                canNewBefore: !isImmutable && (!isSelected || !hasImmutableSelection),
 
-                // Edit/NewBefore require mutable commits and currently single-item context
+                // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
                 canEdit: !isImmutable && (!isSelected || selectionCount <= 1),
-                canNewBefore: !isImmutable && (!isSelected || selectionCount <= 1),
-
-                // Duplicate works on any commit, but restricted to single-item context for now
                 canDuplicate: !isSelected || selectionCount <= 1,
 
                 // Rebase source must be mutable, and we rebase ONTO the current selection
@@ -241,30 +245,42 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             icon="codicon-plus"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onAction('newChild', { commitId: commit.change_id });
+                                onAction('newChild', { changeId: commit.change_id });
                             }}
                         />
+
+                        {!isImmutable && (
+                            <IconButton
+                                title="Edit Commit"
+                                icon="codicon-edit"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('edit', { changeId: commit.change_id });
+                                }}
+                            />
+                        )}
 
                         {commit.parents_immutable &&
                             commit.parents_immutable.length === 1 &&
                             !commit.parents_immutable[0] && (
                                 <IconButton
-                                    title="Move to Parent (Squash)"
+                                    title="Squash into Parent"
                                     icon="codicon-arrow-down"
                                     onClick={(e) => {
+                                        console.log('[Webview] Squash clicked for:', commit.change_id);
                                         e.stopPropagation();
-                                        onAction('squash', { commitId: commit.change_id });
+                                        onAction('squash', { changeId: commit.change_id });
                                     }}
                                 />
                             )}
 
                         {!isImmutable && (
                             <IconButton
-                                title="Abandon"
+                                title="Abandon Commit"
                                 icon="codicon-trash"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onAction('abandon', { commitId: commit.change_id });
+                                    onAction('abandon', { changeId: commit.change_id });
                                 }}
                             />
                         )}
@@ -394,7 +410,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 e.preventDefault();
                                 e.stopPropagation();
                                 onAction('openGerrit', {
-                                    commitId: commit.change_id,
+                                    changeId: commit.change_id,
                                     url: gerritCl.url,
                                 });
                             }}
@@ -437,7 +453,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     role="button"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onAction('upload', { commitId: commit.change_id });
+                                        onAction('upload', { changeId: commit.change_id });
                                     }}
                                     title="Local changes need upload (Click to push)"
                                     style={{

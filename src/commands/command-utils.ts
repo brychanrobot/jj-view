@@ -4,6 +4,7 @@
  */
 
 import { JjResourceState } from '../jj-scm-provider';
+import { ScmContextValue } from '../jj-context-keys';
 import * as vscode from 'vscode';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
@@ -34,6 +35,14 @@ function hasCommitId(arg: unknown): arg is { commitId: string } {
     }
     const obj = arg as { commitId: unknown };
     return typeof obj.commitId === 'string';
+}
+
+function hasChangeId(arg: unknown): arg is { changeId: string } {
+    if (typeof arg !== 'object' || arg === null || !('changeId' in arg)) {
+        return false;
+    }
+    const obj = arg as { changeId: unknown };
+    return typeof obj.changeId === 'string';
 }
 
 /**
@@ -78,7 +87,7 @@ function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControl
 }
 
 export function isWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
-    return isSourceControlResourceGroup(arg) && arg.id === 'working-copy';
+    return isSourceControlResourceGroup(arg) && arg.id === ScmContextValue.WorkingCopyGroup;
 }
 
 export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
@@ -86,39 +95,64 @@ export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControl
 }
 
 /**
- * Helper to check if a specific revision was passed as a string argument
- * (often from the command palette or explicit tool calls)
+ * Helper to extract revisions from various VS Code argument types.
+ * Supports strings, objects with revision/commitId, and resource groups.
  */
-export function extractRevision(args: unknown[]): string | undefined {
+export function extractRevisions(args: unknown[]): string[] {
+    const revisions: string[] = [];
+
     for (const arg of args) {
+        if (!arg) continue;
+
         if (typeof arg === 'string' && arg.trim().length > 0) {
-            return arg;
+            revisions.push(arg);
+            continue;
         }
 
         if (hasRevision(arg)) {
-            return arg.revision;
+            revisions.push(arg.revision);
+            continue;
+        }
+
+        if (hasChangeId(arg)) {
+            revisions.push(arg.changeId);
+            continue;
         }
 
         if (hasCommitId(arg)) {
-            return arg.commitId;
+            revisions.push(arg.commitId);
+            continue;
         }
 
         if (isWorkingCopyResourceGroup(arg)) {
-            return '@';
+            revisions.push('@');
+            continue;
         }
 
         if (isParentResourceGroup(arg) && arg.resourceStates.length > 0) {
-            const firstState = arg.resourceStates[0] as JjResourceState;
-            return firstState.revision;
+            // Revisions for all files in this group (they should all be the same commit)
+            const groupRevisions = (arg.resourceStates as JjResourceState[])
+                .map(s => s.revision)
+                .filter((v, i, a) => a.indexOf(v) === i);
+            revisions.push(...groupRevisions);
+            continue;
+        }
+        
+        if (Array.isArray(arg)) {
+            revisions.push(...extractRevisions(arg));
         }
     }
-    // 5. Webview Context (generic object with commitId)
-    const arg0 = args[0];
-    if (hasCommitId(arg0)) {
-        return arg0.commitId;
-    }
 
-    return undefined;
+    return Array.from(new Set(revisions));
+}
+
+/**
+ * Helper to check if a specific revision was passed (singular).
+ * Re-added for backward compatibility to keep independent command diffs small.
+ */
+export function extractRevision(args: unknown[]): string | undefined {
+    const revs = extractRevisions(args);
+    return revs.length > 0 ? revs[0] : undefined;
 }
 
 export function getErrorMessage(error: unknown): string {

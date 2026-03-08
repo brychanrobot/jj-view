@@ -14,8 +14,8 @@ export async function editCommand(scmProvider: JjScmProvider, jj: JjService, arg
     }
 
     try {
-        await withDelayedProgress('Editing revision...', jj.edit(revision));
-        await scmProvider.refresh();
+        await withDelayedProgress('Editing...', jj.edit(revision));
+        await scmProvider.refresh({ reason: 'after edit' });
     } catch (e: unknown) {
         showJjError(e, 'Error editing commit', scmProvider.outputChannel);
     }

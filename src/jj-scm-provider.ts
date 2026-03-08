@@ -152,7 +152,9 @@ export class JjScmProvider implements vscode.Disposable {
             }
             const { forceSnapshot, reason } = options;
             const reasonStr = reason ? ` (reason: ${reason})` : '';
-            this.outputChannel.appendLine(`Refreshing JJ SCM (snapshot: ${!!forceSnapshot})${reasonStr}...`);
+            const msg = `Refreshing JJ Scm (snapshot: ${!!forceSnapshot})${reasonStr}...`;
+            this.outputChannel.appendLine(msg);
+            console.log(`[Extension Host] ${msg}`);
             const start = performance.now();
             try {
                 // Clear any cached data that might be stale after external changes
@@ -348,7 +350,7 @@ export class JjScmProvider implements vscode.Disposable {
                     } else {
                         const groupId = `ancestor-${i}`;
                         group = this._sourceControl.createResourceGroup(groupId, label);
-                        group.hideWhenEmpty = true;
+                        group.hideWhenEmpty = false;
                         group.contextValue = contextValue;
                         this._parentGroups.push(group);
                     }

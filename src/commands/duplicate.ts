@@ -4,18 +4,18 @@
  */
 
 import { JjService } from '../jj-service';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function duplicateCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const revision = extractRevision(args);
+    const revision = extractRevisions(args)[0];
     if (!revision) {
         return;
     }
 
     try {
-        await withDelayedProgress('Duplicating revision...', jj.duplicate(revision));
-        await scmProvider.refresh();
+        await withDelayedProgress('Duplicating...', jj.duplicate(revision));
+        await scmProvider.refresh({ reason: 'after duplicate' });
     } catch (e: unknown) {
         showJjError(e, 'Error duplicating commit', scmProvider.outputChannel);
     }

@@ -5,3 +5,4 @@ dist
 *.vsix
 .DS_Store
 codicons/
+test-results/

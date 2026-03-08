@@ -7,7 +7,7 @@ import * as React from 'react';
 import { JjStatusEntry } from '../../jj-types';
 
 interface CommitDetailsProps {
-    commitId: string;
+    changeId: string;
     description: string;
     files: Array<{
         path: string;
@@ -22,7 +22,7 @@ interface CommitDetailsProps {
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
-    commitId,
+    changeId,
     description,
     files,
     isImmutable,
@@ -64,7 +64,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 <div
                     style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', fontFamily: 'monospace' }}
                 >
-                    ID: {commitId}
+                    ID: {changeId}
                 </div>
             </div>
 

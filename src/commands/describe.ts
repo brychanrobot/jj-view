@@ -4,7 +4,7 @@
  */
 
 import { JjService } from '../jj-service';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function setDescriptionCommand(
@@ -16,7 +16,7 @@ export async function setDescriptionCommand(
     const revisionArgs = message ? args.slice(1) : args;
     const revision =
         (message && typeof args[1] === 'string' ? args[1] : undefined) ??
-        extractRevision(revisionArgs) ??
+        extractRevisions(revisionArgs)[0] ??
         '@';
 
     const description = message ?? scmProvider.sourceControl.inputBox.value;

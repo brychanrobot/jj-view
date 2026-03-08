@@ -131,10 +131,10 @@ const App: React.FC = () => {
 
     const handleGraphAction = (action: string, payload: any) => {
         if (action === 'select') {
-            const { commitId, multiSelect } = payload;
+            const { changeId, multiSelect } = payload;
 
             // 1. Calculate new selection state
-            const nextSelectedIds = calculateNextSelection(selectedCommitIds, commitId, multiSelect);
+            const nextSelectedIds = calculateNextSelection(selectedCommitIds, changeId, multiSelect);
 
             // 2. Update visual selection state
             setSelectedCommitIds(nextSelectedIds);
@@ -152,7 +152,7 @@ const App: React.FC = () => {
 
             // 4. Request Details ONLY if the item ends up selected
             // (If we toggled it off, we shouldn't open details)
-            if (nextSelectedIds.has(commitId)) {
+            if (nextSelectedIds.has(changeId)) {
                 vscode.postMessage({ type: 'getDetails', payload });
             }
             return;
@@ -177,7 +177,7 @@ const App: React.FC = () => {
         if (view === 'details' && detailsCommit) {
             vscode.postMessage({
                 type: 'saveDescription',
-                payload: { commitId: detailsCommit.commitId, description },
+                payload: { changeId: detailsCommit.changeId, description },
             });
         }
     };
@@ -186,7 +186,7 @@ const App: React.FC = () => {
         if (view === 'details' && detailsCommit) {
             vscode.postMessage({
                 type: 'openDiff',
-                payload: { commitId: detailsCommit.commitId, file, isImmutable },
+                payload: { changeId: detailsCommit.changeId, file, isImmutable },
             });
         }
     };
@@ -195,7 +195,7 @@ const App: React.FC = () => {
         if (view === 'details' && detailsCommit) {
             vscode.postMessage({
                 type: 'openMultiDiff',
-                payload: { commitId: detailsCommit.commitId },
+                payload: { changeId: detailsCommit.changeId },
             });
         }
     };
@@ -219,7 +219,7 @@ const App: React.FC = () => {
             const bookmarkName = active.data.current.name;
             const bookmarkRemote = active.data.current.remote;
             // commit-ID -> ID
-            const targetCommitId = over.data.current.commitId;
+            const targetChangeId = over.data.current.changeId;
 
             // Optimistic Update
             setCommits((prevCommits) => {
@@ -228,7 +228,7 @@ const App: React.FC = () => {
                     c.bookmarks?.some((b: any) => b.name === bookmarkName && b.remote === bookmarkRemote),
                 );
 
-                if (!sourceCommit || sourceCommit.change_id === targetCommitId) {
+                if (!sourceCommit || sourceCommit.change_id === targetChangeId) {
                     return prevCommits;
                 }
 
@@ -243,7 +243,7 @@ const App: React.FC = () => {
                     }
 
                     // Add to target
-                    if (commit.change_id === targetCommitId) {
+                    if (commit.change_id === targetChangeId) {
                         newBookmarks = [...newBookmarks, { name: bookmarkName, remote: bookmarkRemote }];
                     }
 
@@ -259,11 +259,11 @@ const App: React.FC = () => {
             // Send to extension
             vscode.postMessage({
                 type: 'moveBookmark',
-                payload: { bookmark: bookmarkName, targetCommitId },
+                payload: { bookmark: bookmarkName, targetChangeId },
             });
         } else if (activeType === 'commit') {
-            const sourceCommitId = active.data.current.commitId;
-            const targetCommitId = over.data.current.commitId;
+            const sourceChangeId = active.data.current.changeId;
+            const targetChangeId = over.data.current.changeId;
 
             // Detect modifier keys from the activator event or our state
             // Prefer tracking state for consistency with UI
@@ -271,7 +271,7 @@ const App: React.FC = () => {
 
             vscode.postMessage({
                 type: 'rebaseCommit',
-                payload: { sourceCommitId, targetCommitId, mode },
+                payload: { sourceChangeId, targetChangeId, mode },
             });
         }
     };
@@ -280,7 +280,7 @@ const App: React.FC = () => {
     if (view === 'details' && detailsCommit) {
         return (
             <CommitDetails
-                commitId={detailsCommit.commitId}
+                changeId={detailsCommit.changeId}
                 description={detailsCommit.description}
                 files={detailsCommit.files}
                 isImmutable={detailsCommit.isImmutable}

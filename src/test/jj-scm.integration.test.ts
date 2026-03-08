@@ -696,7 +696,7 @@ suite('JJ SCM Provider Integration Test', function () {
                 type: 'moveBookmark',
                 payload: {
                     bookmark: 'integrated-bookmark',
-                    targetCommitId: childId,
+                    targetChangeId: childId,
                 },
             });
 

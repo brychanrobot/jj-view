@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newBeforeCommand(
@@ -13,25 +13,28 @@ export async function newBeforeCommand(
     jj: JjService,
     args: unknown[],
 ) {
-    let targetRevision: string | undefined;
+    let revisions: string[] = [];
 
-    // Check for arguments (context menu, etc)
-    if (args && args.length > 0) {
-        targetRevision = extractRevision(args);
-    }
+    // 1. Revisions from arguments (context menu, etc)
+    const argRevisions = extractRevisions(args);
+    
+    // 2. Selection from provider
+    const selectedIds = scmProvider.getSelectedCommitIds();
 
-    // Fallback: Check for selection in webview
-    const revisions: string[] = [];
-    if (targetRevision) {
-        revisions.push(targetRevision);
-    } else {
-        const selectedIds = scmProvider.getSelectedCommitIds();
-        if (selectedIds.length > 0) {
-            revisions.push(...selectedIds);
+    if (argRevisions.length > 0) {
+        // If the right-clicked commit is part of the selection, use the full selection.
+        // This allows "New Before" to apply to multiple selected commits if you right-click one of them.
+        const target = argRevisions[0];
+        if (selectedIds.includes(target)) {
+            revisions = selectedIds;
         } else {
-             // Fallback: Default to working copy parent (which is essentially "insert before working copy")
-             revisions.push('@');
+            revisions = argRevisions;
         }
+    } else if (selectedIds.length > 0) {
+        revisions = selectedIds;
+    } else {
+        // Fallback: Default to working copy (insert before working copy)
+        revisions = ['@'];
     }
 
     if (revisions.length === 0) {

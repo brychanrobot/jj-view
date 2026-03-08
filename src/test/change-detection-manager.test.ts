@@ -214,6 +214,8 @@ describe('ChangeDetectionManager', () => {
     
             // Wait for watchers to start
             await waitForLog('Working Copy Watcher] Started');
+            // Give it a bit more time to settle
+            await new Promise(resolve => setTimeout(resolve, 800));
     
             // Create a file to trigger the watcher
             const testFile = path.join(repo.path, 'test_watch.txt');

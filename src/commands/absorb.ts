@@ -6,13 +6,13 @@
 import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
-import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import { collectResourceStates, extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 
 export async function absorbCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
     const paths = resourceStates.map((r) => r.resourceUri.fsPath);
 
-    const fromRevision = extractRevision(args);
+    const fromRevision = extractRevisions(args)[0];
 
     try {
         await withDelayedProgress('Absorbing changes...', jj.absorb({ paths, fromRevision }));

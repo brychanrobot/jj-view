@@ -12,7 +12,7 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
     let revisions: string[] = [];
 
     // 1. Check if triggered from Working Copy header (ignore selection)
-    if (args.some(isWorkingCopyResourceGroup)) {
+    if (args.some(arg => isWorkingCopyResourceGroup(arg))) {
         revisions = ['@'];
     } else {
         // 2. Check explicit argument (e.g. context menu click)
@@ -54,7 +54,6 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
         await scmProvider.refresh();
         vscode.window.showInformationMessage(`Abandoned ${revisions.length} change(s).`);
     } catch (e: unknown) {
-        // const errorMessage = e instanceof Error ? e.message : String(e);
         showJjError(e, 'Error abandoning commit', scmProvider.outputChannel);
     }
 }

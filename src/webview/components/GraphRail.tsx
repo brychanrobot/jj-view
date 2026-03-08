@@ -121,10 +121,10 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             />
         );
 
+        let content;
         if (node.isWorkingCopy) {
-            return (
-                <g key={node.commitId}>
-                    {isSelected && <Halo />}
+            content = (
+                <>
                     <circle cx={cx} cy={cy} r="8" fill="var(--vscode-sideBar-background)" />
                     <text
                         x={cx}
@@ -142,14 +142,11 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                     >
                         @
                     </text>
-                </g>
+                </>
             );
-        }
-
-        if (node.conflict) {
-            return (
-                <g key={node.commitId}>
-                    {isSelected && <Halo />}
+        } else if (node.conflict) {
+            content = (
+                <>
                     <circle cx={cx} cy={cy} r="6" fill="var(--vscode-sideBar-background)" />
                     <line
                         x1={cx - 3}
@@ -169,14 +166,11 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                         strokeWidth="2"
                         strokeLinecap="round"
                     />
-                </g>
+                </>
             );
-        }
-
-        if (node.isEmpty) {
-            return (
+        } else if (node.isEmpty) {
+            content = (
                 <circle
-                    key={node.commitId}
                     cx={cx}
                     cy={cy}
                     r="5"
@@ -186,19 +180,17 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                     style={{ opacity: 0.8 }}
                 />
             );
-        }
-
-        if (isSelected) {
-            return (
-                <g key={node.commitId}>
-                    <Halo />
-                    <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />
-                </g>
+        } else {
+            content = (
+                <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />
             );
         }
 
         return (
-            <circle key={node.commitId} cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />
+            <g key={node.commitId}>
+                {isSelected && <Halo />}
+                {content}
+            </g>
         );
     };
 

@@ -9,6 +9,7 @@ import { abandonCommand } from '../../commands/abandon';
 import { JjService } from '../../jj-service';
 import { TestRepo, buildGraph } from '../test-repo';
 import { JjScmProvider } from '../../jj-scm-provider';
+import { ScmContextValue } from '../../jj-context-keys';
 import * as vscode from 'vscode';
 
 vi.mock('vscode', async () => {
@@ -40,12 +41,12 @@ describe('abandonCommand', () => {
 
     // Helper to verify a change is truly abandoned (not just that @ moved)
     const expectChangeAbandoned = (changeId: string) => {
-        const visibleIds = repo.getLogOutput('change_id');
+        const visibleIds = repo.getLog('all()', 'change_id');
         expect(visibleIds).not.toContain(changeId);
     };
 
     const expectChangeVisible = (changeId: string) => {
-        const visibleIds = repo.getLogOutput('change_id');
+        const visibleIds = repo.getLog('all()', 'change_id');
         expect(visibleIds).toContain(changeId);
     };
 
@@ -65,7 +66,7 @@ describe('abandonCommand', () => {
         const changeId = repo.getChangeId('@');
 
         // Mock a SourceControlResourceGroup
-        const resourceGroup = { id: 'working-copy', label: 'Working Copy', resourceStates: [] };
+        const resourceGroup = { id: ScmContextValue.WorkingCopyGroup, label: 'Working Copy', resourceStates: [] };
 
         await abandonCommand(scmProvider, jj, [resourceGroup]);
 
@@ -93,7 +94,7 @@ describe('abandonCommand', () => {
         // Select C1 (Keep Me)
         (scmProvider.getSelectedCommitIds as unknown as { mockReturnValue: Function }).mockReturnValue([keepId]);
 
-        const resourceGroup = { id: 'working-copy', label: 'Working Copy', resourceStates: [] };
+        const resourceGroup = { id: ScmContextValue.WorkingCopyGroup, label: 'Working Copy', resourceStates: [] };
         await abandonCommand(scmProvider, jj, [resourceGroup]);
 
         // Verify C2 is gone

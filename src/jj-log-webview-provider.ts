@@ -72,19 +72,19 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'newChild':
                     // new(message?, parent?)
-                    await vscode.commands.executeCommand('jj-view.new', data.payload.commitId);
+                    await vscode.commands.executeCommand('jj-view.new', data.payload);
                     break;
                 case 'squash':
                     // Route through extension command to reuse safe squash logic (editor, etc.)
-                    // Pass the commitId string to the squash command
-                    await vscode.commands.executeCommand('jj-view.squash', data.payload.commitId);
+                    // Pass the whole payload
+                    await vscode.commands.executeCommand('jj-view.squash', data.payload);
                     // Refresh is handled by the command event listener
                     break;
                 case 'edit':
-                    await vscode.commands.executeCommand('jj-view.edit', data.payload.commitId);
+                    await vscode.commands.executeCommand('jj-view.edit', data.payload);
                     break;
                 case 'select':
-                    const details = await this._jj.showDetails(data.payload.commitId);
+                    const details = await this._jj.showDetails(data.payload.changeId);
                     const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
                     vscode.workspace.openTextDocument({ content: cleanDetails, language: 'plaintext' }).then((doc) =>
                         vscode.window.showTextDocument(doc, {
@@ -100,28 +100,28 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand('jj-view.abandon', data.payload);
                     break;
                 case 'getDetails':
-                    await this.createCommitDetailsPanel(data.payload.commitId);
+                    await this.createCommitDetailsPanel(data.payload.changeId);
                     break;
                 case 'new':
                     await vscode.commands.executeCommand('jj-view.new');
                     break;
                 case 'newBefore':
-                    await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.commitIds || []));
+                    await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.changeIds || []));
                     break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'moveBookmark':
-                    await this._jj.moveBookmark(data.payload.bookmark, data.payload.targetCommitId);
+                    await this._jj.moveBookmark(data.payload.bookmark, data.payload.targetChangeId);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'rebaseCommit':
-                    await this._jj.rebase(data.payload.sourceCommitId, data.payload.targetCommitId, data.payload.mode);
+                    await this._jj.rebase(data.payload.sourceChangeId, data.payload.targetChangeId, data.payload.mode);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'upload':
-                    await vscode.commands.executeCommand('jj-view.upload', data.payload.commitId);
+                    await vscode.commands.executeCommand('jj-view.upload', data.payload);
                     break;
                 case 'selectionChange':
                     if (data.payload.commitIds.length === 0 && this._activeDetailsPanel) {
@@ -177,7 +177,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 const logStart = performance.now();
                 commits = await this._jj.getLog({ omitChanges: true });
                 const logDuration = performance.now() - logStart;
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`);
 
                 this._cachedCommits = commits;
                 this._renderCommits(commits);
@@ -242,9 +242,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
     private _activeDetailsPanel?: vscode.WebviewPanel;
 
-    public async createCommitDetailsPanel(commitId: string) {
+    public async createCommitDetailsPanel(changeId: string) {
         // Fetch full log entry - this includes description, changes (file list), and immutability status
-        const logs = await this._jj.getLog({ revision: commitId });
+        const logs = await this._jj.getLog({ revision: changeId });
         if (logs.length === 0) {
             return;
         }
@@ -253,7 +253,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const initialData = {
             view: 'details',
             payload: {
-                commitId,
+                changeId,
                 description: log.description,
                 files: log.changes || [],
                 isImmutable: log.is_immutable,
@@ -261,7 +261,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         };
 
         if (this._activeDetailsPanel) {
-            this._activeDetailsPanel.title = `Commit: ${commitId.substring(0, 8)}`;
+            this._activeDetailsPanel.title = `Commit: ${changeId.substring(0, 8)}`;
             this._activeDetailsPanel.webview.html = this._getHtmlForWebview(
                 this._activeDetailsPanel.webview,
                 initialData,
@@ -272,7 +272,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
         const panel = vscode.window.createWebviewPanel(
             'jj-view.commitDetails',
-            `Commit: ${commitId.substring(0, 8)}`,
+            `Commit: ${changeId.substring(0, 8)}`,
             vscode.ViewColumn.Active,
             {
                 enableScripts: true,
@@ -302,27 +302,27 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand(
                         'jj-view.setDescription',
                         message.payload.description,
-                        message.payload.commitId,
+                        message.payload.changeId,
                     );
                     vscode.window.showInformationMessage('Description updated');
                     break;
                 case 'openDiff': {
                     const file = message.payload.file;
-                    const commitId = message.payload.commitId;
+                    const changeId = message.payload.changeId;
                     const isImmutable = message.payload.isImmutable;
                     
-                    const { leftUri, rightUri } = createDiffUris(file, commitId, this._jj.workspaceRoot, { editable: !isImmutable });
+                    const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, { editable: !isImmutable });
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',
                         leftUri,
                         rightUri,
-                        `${path.basename(file.path)} (${commitId.substring(0, 8)})${!isImmutable ? ' (Editable)' : ''}`,
+                        `${path.basename(file.path)} (${changeId.substring(0, 8)})${!isImmutable ? ' (Editable)' : ''}`,
                     );
                     break;
                 }
                 case 'openMultiDiff':
-                    await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.commitId);
+                    await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.changeId);
                     break;
             }
         });
@@ -343,7 +343,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};">
                 <link href="${styleUri}" rel="stylesheet">
                 <link href="${codiconsUri}" rel="stylesheet">
                 <title>JJ Log</title>
