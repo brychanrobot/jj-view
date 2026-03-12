@@ -14,6 +14,7 @@ import { GerritService } from './gerrit-service';
 import { abandonCommand } from './commands/abandon';
 import { newMergeChangeCommand, MergeCommandArg } from './commands/merge';
 import { squashCommand, completeSquashCommand } from './commands/squash';
+import { squashIntoCommand } from './commands/squash-into';
 import { moveToChildCommand, moveToParentInDiffCommand } from './commands/move';
 import { restoreCommand } from './commands/restore';
 import { setDescriptionCommand } from './commands/describe';
@@ -114,6 +115,9 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.squash', async (...args: unknown[]) => {
             await squashCommand(scmProvider, jj, args);
+        }),
+        vscode.commands.registerCommand('jj-view.squashInto', async (...args: unknown[]) => {
+            await squashIntoCommand(scmProvider, jj, args);
         }),
     );
 

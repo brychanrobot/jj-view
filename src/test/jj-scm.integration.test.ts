@@ -114,7 +114,7 @@ suite('JJ SCM Provider Integration Test', function () {
         );
 
         const wcState = workingCopyGroup.resourceStates[0];
-        assert.ok([ScmContextValue.WorkingCopy, ScmContextValue.WorkingCopySquashable].includes(wcState.contextValue as ScmContextValue));
+        assert.ok([ScmContextValue.WorkingCopy, ScmContextValue.WorkingCopySquashable, ScmContextValue.WorkingCopySquashableMulti].includes(wcState.contextValue as ScmContextValue));
     });
     test('Shows parent commit changes in separate group', async () => {
         const filePath = path.join(repo.path, 'parent-file.txt');
@@ -141,7 +141,7 @@ suite('JJ SCM Provider Integration Test', function () {
             (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
         );
         assert.ok(resourceState, 'Parent resource should be visible');
-        const expectedContext = [ScmContextValue.Ancestor, ScmContextValue.AncestorSquashable];
+        const expectedContext = [ScmContextValue.Ancestor, ScmContextValue.AncestorSquashable, ScmContextValue.AncestorSquashableMulti];
         assert.ok(expectedContext.includes(resourceState.contextValue as ScmContextValue), `Expected ${resourceState.contextValue} to be in ${expectedContext}`);
         assert.ok(parentGroup.label.startsWith('@-1'), `Label '${parentGroup.label}' should start with '@-1'`);
 
@@ -163,7 +163,7 @@ suite('JJ SCM Provider Integration Test', function () {
             assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
         }
 
-        const expectedContext2 = [ScmContextValue.Ancestor, ScmContextValue.AncestorSquashable];
+        const expectedContext2 = [ScmContextValue.Ancestor, ScmContextValue.AncestorSquashable, ScmContextValue.AncestorSquashableMulti];
         assert.ok(expectedContext2.includes(parentGroup.resourceStates[0].contextValue as ScmContextValue), `Expected ${parentGroup.resourceStates[0].contextValue} to be in ${expectedContext2}`);
 
         repo.new([], 'child commit');
@@ -213,7 +213,7 @@ suite('JJ SCM Provider Integration Test', function () {
             // Parent group (@-1) - This parent has a mutable parent (grandparent), so it should be squashable
             assert.ok(parentGroups[0].label.startsWith('@-1'), `First group label should start with '@-1'`);
             assert.strictEqual(parentGroups[0].contextValue, ScmContextValue.AncestorGroupSquashable);
-            assert.strictEqual(parentGroups[0].resourceStates[0].contextValue, ScmContextValue.AncestorSquashable);
+            assert.strictEqual(parentGroups[0].resourceStates[0].contextValue, ScmContextValue.AncestorSquashableMulti);
             
             // Grandparent group (@-2) - Its parent might be the implicit root/initial commit, so we don't strictly assert its squashability here
             assert.ok(parentGroups[1].label.startsWith('@-2'), `Second group label should start with '@-2'`);
@@ -825,7 +825,7 @@ suite('JJ SCM Provider Integration Test', function () {
         assert.ok(wcState, 'Working copy resource missing');
         // Squashable expects a single mutable parent. Merge commit has 2, so our squash command prevents it anyway.
         // But in `jj-scm-provider.ts` it blindly assigns `:squashable` if the first parent is mutable!
-        assert.ok([ScmContextValue.WorkingCopy, ScmContextValue.WorkingCopySquashable].includes(wcState.contextValue as ScmContextValue), 
+        assert.ok([ScmContextValue.WorkingCopy, ScmContextValue.WorkingCopySquashable, ScmContextValue.WorkingCopySquashableMulti].includes(wcState.contextValue as ScmContextValue), 
             `Unexpected wc context value: ${wcState.contextValue}`);
 
         // 3. Assert Conflict Group ID

@@ -42,7 +42,9 @@ export enum ScmContextValue {
     // Item States
     WorkingCopy = 'jj.resource.workingCopy',
     WorkingCopySquashable = 'jj.resource.workingCopy:squashable',
+    WorkingCopySquashableMulti = 'jj.resource.workingCopy:squashable:multi',
     Conflict = 'jj.resource.conflict',
     Ancestor = 'jj.resource.ancestor',
     AncestorSquashable = 'jj.resource.ancestor:squashable',
+    AncestorSquashableMulti = 'jj.resource.ancestor:squashable:multi',
 }

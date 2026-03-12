@@ -226,8 +226,9 @@ test.describe('SCM Pane E2E', () => {
             // It shares the same codicon-arrow-down icon as the group squash action
             const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
             await wcFileRow.hover();
-            const squashFileIcon = wcFileRow.locator('.action-item', { has: page.locator('.codicon-arrow-down') }).first();
-            await squashFileIcon.click();
+            // Use role and more flexible title matching for reliability across VS Code versions
+            const squashFileIcon = wcFileRow.getByRole('button', { name: /Squash into (Parent|Ancestor)/ }).first();
+            await squashFileIcon.click({ force: true });
 
             // Assert via repo that file.txt changes were squashed into the parent commit
             await expect(async () => {
@@ -255,6 +256,57 @@ test.describe('SCM Pane E2E', () => {
             // Wait for save indicator or poll the file content
             await expect(async () => {
                 expect(repo.getFileContent('@', 'file2.txt').trim()).toBe('edited from diff');
+            }).toPass({ timeout: 5000 });
+
+            // Squash Into Ancestor (file.txt)
+            // Need a setup with a grandparent. Let's create one on the fly.
+            // Oh wait, `initial` is the parent of `wc`. Let's use `initial` as the grandparent.
+            // Actually, we need to commit `wc` to make a parent, then create a new `wc` on top.
+            await focusSCM(page);
+            const scmInputRow2 = page.getByRole('treeitem', { name: 'Source Control Input' });
+            await scmInputRow2.click();
+            await page.keyboard.press('Control+A');
+            await page.keyboard.insertText('commit wc');
+            await page.keyboard.press('Control+Enter');
+            
+            await expect(async () => {
+                expect(repo.getParents('@').length).toBe(1);
+            }).toPass({ timeout: 5000 });
+            // Now we have initial -> wc_commit -> new_wc
+            // Modify file2.txt in the new working copy
+            repo.writeFile('file2.txt', 'new mod2');
+            
+            // Click the SCM refresh button
+            const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
+            await refreshButton.click();
+
+            // Wait for file2.txt to appear in SCM Working Copy
+            const newWcFileRow = page.getByRole('treeitem', { name: /file2\.txt, modified/ });
+            await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
+            
+            // Hover over file2.txt to show the inline actions
+            await newWcFileRow.hover();
+            // The squashInto action should be visible because we have two mutable ancestors (the previous wc commit, and initial).
+            // Use role and first() for robustness
+            const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash into Ancestor/ }).first();
+            await squashIntoIcon.click({ force: true });
+
+            // SCM QuickPick should appear for Ancestor selection
+            // We should select "Ancestor 2:" which is `initial`.
+            const quickPickInput = page.getByRole('listbox');
+            // We should select the `initial` commit.
+            const ancestor2Option = page.getByRole('option', { name: /initial/i });
+            await ancestor2Option.click();
+            await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
+
+            // Verify the squash happened
+            await expect(async () => {
+                const wcChanges = repo.getDiffSummary('@');
+                expect(wcChanges).not.toContain('file2.txt');
+                
+                // The ancestor should now have the change. Since we squashed it into "Ancestor 2:"
+                // (which is 'initial'), we check its content.
+                expect(repo.getFileContent('@~2', 'file2.txt').trim()).toBe('new mod2');
             }).toPass({ timeout: 5000 });
 
         } finally {

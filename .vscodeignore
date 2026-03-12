@@ -30,3 +30,4 @@ package-lock.json
 .prettierignore
 GEMINI.md
 .agents/**
+media/custom-icons-src/**

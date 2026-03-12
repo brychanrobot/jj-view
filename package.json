@@ -20,6 +20,15 @@
     ],
     "main": "./dist/extension.js",
     "contributes": {
+        "icons": {
+            "jj-icon-squash-into": {
+                "description": "Squash into Ancestor icon",
+                "default": {
+                    "fontPath": "./media/custom-icons/jj-view-icons.woff",
+                    "fontCharacter": "\\f101"
+                }
+            }
+        },
         "configuration": {
             "title": "JJ View",
             "properties": {
@@ -132,6 +141,12 @@
                 "title": "Squash into Parent",
                 "category": "JJ View",
                 "icon": "$(arrow-down)"
+            },
+            {
+                "command": "jj-view.squashInto",
+                "title": "Squash into Ancestor",
+                "category": "JJ View",
+                "icon": "$(jj-icon-squash-into)"
             },
             {
                 "command": "jj-view.moveToChild",
@@ -384,6 +399,11 @@
                     "when": "scmResourceState == 'jj.resource.workingCopy:squashable' || scmResourceState == 'jj.resource.ancestor:squashable'"
                 },
                 {
+                    "command": "jj-view.squashInto",
+                    "group": "inline@3",
+                    "when": "scmResourceState == 'jj.resource.workingCopy:squashable:multi' || scmResourceState == 'jj.resource.ancestor:squashable:multi'"
+                },
+                {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline@4",
@@ -435,7 +455,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run check-types && npm run lint && node esbuild.js --production",
-        "build": "npm run check-types && npm run lint && node esbuild.js",
+        "build": "npm run build:icons && npm run check-types && npm run lint && node esbuild.js",
+        "build:icons": "mkdir -p ./media/custom-icons && fantasticon",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
@@ -447,8 +468,8 @@
         "pretest": "npm run build && npm run build:tests && npm run lint",
         "check-types": "tsc --noEmit",
         "lint": "eslint src && npm run check-license",
-        "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' **",
-        "fix-license": "go run github.com/google/addlicense@v1.1.1 -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' **",
+        "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' **",
+        "fix-license": "go run github.com/google/addlicense@v1.1.1 -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' **",
         "format": "prettier --write .",
         "check-format": "prettier --check .",
         "test": "npm-run-all -p --print-label test:unit test:integration:all",
@@ -475,6 +496,7 @@
         "esbuild": "^0.27.1",
         "eslint": "^9.39.1",
         "eslint-config-prettier": "^10.1.8",
+        "fantasticon": "^4.1.0",
         "npm-run-all": "^4.1.5",
         "ovsx": "^0.10.8",
         "playwright": "^1.58.0",
