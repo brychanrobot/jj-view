@@ -5,8 +5,9 @@
 
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
+import * as path from 'path';
 import { TestRepo, buildGraph } from '../test-repo';
-import { launchVSCode, focusSCM } from './e2e-helpers';
+import { launchVSCode, focusSCM, hoverAndClick } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -163,10 +164,9 @@ test.describe('SCM Pane E2E', () => {
             // Wait for groups to settle
             const wcGroupHeader = page.getByRole('treeitem', { name: /Working Copy/ });
             
-            // Hover over Working copy group to show abandon icon
-            await wcGroupHeader.hover();
+            // Use abandon icon
             const abandonIcon = wcGroupHeader.locator('.action-item', { has: page.locator('.codicon-trash') }).first();
-            await abandonIcon.click();
+            await hoverAndClick(wcGroupHeader, abandonIcon);
             
             // Assert via repo that wc change is abandoned. Poll until true.
             await expect(async () => {
@@ -179,10 +179,8 @@ test.describe('SCM Pane E2E', () => {
 
             // Now test Squash Ancestor...
             const ancestorRow = page.getByRole('treeitem', { name: /ancestor change/ });
-            await ancestorRow.hover();
-            // The row itself holds the action items for the group resource if hovered
             const squashIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-arrow-down') }).first();
-            await squashIcon.click();
+            await hoverAndClick(ancestorRow, squashIcon);
             
             // Assert via repo that the ancestor was squashed into its parent (initial). Poll until true.
             await expect(async () => {
@@ -211,10 +209,8 @@ test.describe('SCM Pane E2E', () => {
             await focusSCM(page);
             // Discard Changes (file3.txt)
             const wcFile3Row = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
-            await wcFile3Row.hover();
-            
             const discardIcon = wcFile3Row.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
-            await discardIcon.click();
+            await hoverAndClick(wcFile3Row, discardIcon);
             
             // Assert the file was restored by polling
             await expect(async () => {
@@ -225,10 +221,9 @@ test.describe('SCM Pane E2E', () => {
             // Hover over file.txt in Working Copy and click Squash into Parent
             // It shares the same codicon-arrow-down icon as the group squash action
             const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
-            await wcFileRow.hover();
             // Use role and more flexible title matching for reliability across VS Code versions
             const squashFileIcon = wcFileRow.getByRole('button', { name: /Squash into (Parent|Ancestor)/ }).first();
-            await squashFileIcon.click({ force: true });
+            await hoverAndClick(wcFileRow, squashFileIcon);
 
             // Assert via repo that file.txt changes were squashed into the parent commit
             await expect(async () => {
@@ -249,16 +244,34 @@ test.describe('SCM Pane E2E', () => {
             // We want to edit the right side (working copy).
             const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
             await rightEditor.click();
-            await page.keyboard.press('Control+A');
-            await page.keyboard.press('Backspace');
-            await page.keyboard.type('edited from diff', { delay: 10 });
             
-            await page.keyboard.press('Control+s');
-            
-            // Assert the file content
+            // Selecting all text and typing
+            // Use toPass to retry the entire typing sequence since Monaco can be finicky
             await expect(async () => {
-                expect(repo.getFileContent('@', 'file2.txt').trim()).toBe('edited from diff');
+                await rightEditor.click();
+                await page.keyboard.press('Control+A');
+                await page.keyboard.press('Backspace');
+                await page.keyboard.insertText('edited from diff');
+                await expect(rightEditor).toContainText('edited from diff', { timeout: 1000 });
             }).toPass({ timeout: 5000 });
+
+            // Save and ensure JJ picks it up. 
+            // The VS Code diff editor sometimes needs a moment or a retry.
+            await expect(async () => {
+                // Ensure focus before save
+                await rightEditor.click();
+                await page.keyboard.press('Control+s');
+                
+                // Wait a bit for filesystem to sync
+                await page.waitForTimeout(500);
+
+                // Verify file content on disk and in jj
+                const diskContent = fs.readFileSync(path.join(repo.path, 'file2.txt'), 'utf8').trim();
+                expect(diskContent).toBe('edited from diff');
+
+                const content = repo.getFileContent('@', 'file2.txt').trim();
+                expect(content).toBe('edited from diff');
+            }).toPass({ timeout: 20000 });
 
             // Squash Into Ancestor (file.txt)
             // Need a setup with a grandparent. Let's create one on the fly.
@@ -275,23 +288,20 @@ test.describe('SCM Pane E2E', () => {
                 expect(repo.getParents('@').length).toBe(1);
             }).toPass({ timeout: 5000 });
             // Now we have initial -> wc_commit -> new_wc
-            // Modify file2.txt in the new working copy
-            repo.writeFile('file2.txt', 'new mod2');
+            // Modify file3.txt in the new working copy
+            repo.writeFile('file3.txt', 'new mod3');
             
             // Click the SCM refresh button
             const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
             await refreshButton.click();
 
-            // Wait for file2.txt to appear in SCM Working Copy
-            const newWcFileRow = page.getByRole('treeitem', { name: /file2\.txt, modified/ }).first();
+            // Wait for file3.txt to appear in SCM Working Copy
+            const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
             await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
-            
-            // Hover over file2.txt to show the inline actions
-            await newWcFileRow.hover();
             
             // The squashInto action should be visible because we have two mutable ancestors (the previous wc commit, and initial).
             const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash into Ancestor/ }).first();
-            await squashIntoIcon.click({ force: true });
+            await hoverAndClick(newWcFileRow, squashIntoIcon);
 
             // SCM QuickPick should appear for Ancestor selection
             const quickPickInput = page.getByRole('listbox');
@@ -301,15 +311,19 @@ test.describe('SCM Pane E2E', () => {
             await ancestor2Option.click();
             await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
 
-            // Verify the squash happened by waiting for there to be only ONE file2.txt row (the ancestor one)
-            await expect(page.getByRole('treeitem', { name: /file2\.txt, modified/ })).toHaveCount(1, { timeout: 10000 });
+            // Verify the squash happened by waiting for there to be only ONE file3.txt row (the ancestor one)
+            await expect(async () => {
+                const rows = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
+                const count = await rows.count();
+                expect(count).toBe(1);
+            }).toPass({ timeout: 10000 });
             
             await expect(async () => {
                 const wcChanges = repo.getDiffSummary('@');
-                expect(wcChanges).not.toContain('file2.txt');
+                expect(wcChanges).not.toContain('file3.txt');
                 
                 // The ancestor should now have the change.
-                expect(repo.getFileContent('@--', 'file2.txt').trim()).toBe('new mod2');
+                expect(repo.getFileContent('@--', 'file3.txt').trim()).toBe('new mod3');
             }).toPass({ timeout: 5000 });
 
         } finally {
@@ -336,9 +350,8 @@ test.describe('SCM Pane E2E', () => {
             const wcGroupHeader = page.getByRole('treeitem', { name: /Working Copy/ });
 
             // 1. Absorb
-            await wcGroupHeader.hover();
             const absorbIcon = wcGroupHeader.locator('.action-item', { has: page.locator('.codicon-magnet') }).first();
-            await absorbIcon.click();
+            await hoverAndClick(wcGroupHeader, absorbIcon);
             
             // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
             await expect(async () => {
@@ -348,9 +361,8 @@ test.describe('SCM Pane E2E', () => {
             // 2. Show Details
             // Use ancestorRow for group-level actions like Details
             const ancestorRow = page.getByRole('treeitem', { name: /ancestor change/ }).first();
-            await ancestorRow.hover();
             const detailsIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-list-selection') }).first();
-            await detailsIcon.click();
+            await hoverAndClick(ancestorRow, detailsIcon);
             
             // Assert that the Commit Details panel opened (it opens as an editor tab)
             await expect(page.getByRole('tab', { name: /^Commit: / })).toBeVisible({ timeout: 5000 });
@@ -361,9 +373,8 @@ test.describe('SCM Pane E2E', () => {
             // 3. Move to Child (Pull from Ancestor)
             // Groups are expanded by default, so f2.txt is already visible.
             const ancestorFile = page.getByRole('treeitem', { name: /f2\.txt/ });
-            await ancestorFile.hover();
             const moveToChildIcon = ancestorFile.locator('.action-item', { has: page.locator('.codicon-arrow-up') }).first();
-            await moveToChildIcon.click();
+            await hoverAndClick(ancestorFile, moveToChildIcon);
 
             // Assert via repo that f2.txt from ancestor was moved to working copy
             await expect(async () => {
@@ -372,9 +383,8 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
 
             // 4. Edit (Make ancestor the working copy)
-            await ancestorRow.hover();
             const editIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-edit') }).first();
-            await editIcon.click();
+            await hoverAndClick(ancestorRow, editIcon);
 
             // Assert via repo that the working copy is now the ancestor
             await expect(async () => {
@@ -403,12 +413,10 @@ test.describe('SCM Pane E2E', () => {
         try {
             await focusSCM(page);
             // Hover over Ancestor group
-            const ancestorRow = page.getByRole('treeitem', { name: /ancestor change/ });
-            await ancestorRow.hover();
-            
+            const ancestorRowGroup = page.getByRole('treeitem', { name: /ancestor change/ });
             // Use Multi-File Diff icon (diff-multiple)
-            const multiDiffIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-diff-multiple') }).first();
-            await multiDiffIcon.click();
+            const multiDiffIcon = ancestorRowGroup.locator('.action-item', { has: page.locator('.codicon-diff-multiple') }).first();
+            await hoverAndClick(ancestorRowGroup, multiDiffIcon);
 
             // Wait for Multi-File Diff View to appear
             const tabList = page.locator('.tabs-and-actions-container');

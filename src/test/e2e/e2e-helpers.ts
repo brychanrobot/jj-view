@@ -276,3 +276,17 @@ export async function triggerRefresh(page: Page) {
     await page.waitForTimeout(100);
 }
 
+/**
+ * Hovers over a row and clicks an inline action button.
+ * VS Code inline actions only appear on hover, and sometimes the hover state
+ * is transient or flakey, so we retry the hover+click sequence.
+ */
+export async function hoverAndClick(row: Locator, button: Locator) {
+    await expect(async () => {
+        await row.hover();
+        // Wait for the button to be visible because VS Code renders inline actions on hover
+        await expect(button).toBeVisible({ timeout: 1000 });
+        await button.click({ force: true });
+    }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
+}
+
