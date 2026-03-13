@@ -63,23 +63,49 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
     const extensionPath = path.resolve(__dirname, '../../../../');
     const vscodePath = await downloadAndUnzipVSCode();
 
+    const args = [
+        repo.path,
+        `--user-data-dir=${userDataDir}`,
+        `--extensions-dir=${extensionsDir}`,
+        '--disable-workspace-trust',
+        '--new-window',
+        '--skip-welcome',
+        '--skip-release-notes',
+        '--no-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-updates',
+    ];
+
+    if (process.env.VSIX_PATH) {
+        const vsixPath = path.resolve(process.env.VSIX_PATH);
+        if (!fs.existsSync(vsixPath)) {
+            throw new Error(`VSIX_PATH is set but file does not exist: ${vsixPath}`);
+        }
+        
+        // Import utilities from @vscode/test-electron to find the CLI path
+        const { resolveCliPathFromVSCodeExecutablePath } = await import('@vscode/test-electron');
+        const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodePath);
+        
+        // Install the extension via CLI
+        const { spawnSync } = await import('child_process');
+        console.log(`Installing VSIX from ${vsixPath}...`);
+        const result = spawnSync(cliPath, ['--install-extension', vsixPath, '--extensions-dir', extensionsDir], {
+            encoding: 'utf-8',
+            stdio: 'inherit'
+        });
+        
+        if (result.status !== 0) {
+            throw new Error(`Failed to install extension VSIX: ${result.stderr || result.error}`);
+        }
+    } else {
+        args.push(`--extensionDevelopmentPath=${extensionPath}`);
+        args.push('--disable-extensions'); // Only disable other extensions when running from source
+    }
+
     const app = await electron.launch({
         executablePath: vscodePath,
-        args: [
-            repo.path,
-            `--extensionDevelopmentPath=${extensionPath}`,
-            `--user-data-dir=${userDataDir}`,
-            `--extensions-dir=${extensionsDir}`,
-            '--disable-extensions', // Works alongside extensionDevelopmentPath in recent VS Code
-            '--disable-workspace-trust',
-            '--new-window',
-            '--skip-welcome',
-            '--skip-release-notes',
-            '--no-sandbox',
-            '--disable-gpu',
-            '--disable-dev-shm-usage',
-            '--disable-updates',
-        ],
+        args,
     });
 
     const page = await app.firstWindow();

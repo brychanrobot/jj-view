@@ -65,17 +65,19 @@ jobs:
               if: runner.os != 'Linux'
               run: npm run test:integration
 
+            - name: Package Extension
+              if: runner.os == 'Linux'
+              run: npx @vscode/vsce package --out jj-view.vsix
+
             - name: Install Playwright Browsers & Dependencies
               if: runner.os == 'Linux'
               run: npx playwright install --with-deps chromium
 
             - name: Run E2E Tests (Linux)
               if: runner.os == 'Linux'
+              env:
+                  VSIX_PATH: jj-view.vsix
               run: xvfb-run -a npm run test:e2e
-
-            - name: Package Extension
-              if: runner.os == 'Linux'
-              run: npx @vscode/vsce package
 
             - name: Generate Release Info
               if: runner.os == 'Linux'
@@ -89,12 +91,9 @@ jobs:
                     VSIX_NAME="jj-view-${VERSION}-pre-${TIMESTAMP}.vsix"
                   fi
                   echo "vsix_name=${VSIX_NAME}" >> $GITHUB_OUTPUT
-
-                  # Rename the VSIX if needed
-                  existing_vsix=$(ls *.vsix)
-                  if [ "${existing_vsix}" != "${VSIX_NAME}" ]; then
-                    mv "${existing_vsix}" "${VSIX_NAME}"
-                  fi
+                  
+                  # Rename the generic vsix to the specific release name
+                  mv jj-view.vsix "${VSIX_NAME}"
 
                   # Generate Changelog
                   echo "changes<<EOF" >> $GITHUB_OUTPUT
