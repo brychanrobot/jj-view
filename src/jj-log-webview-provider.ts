@@ -9,6 +9,7 @@ import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 import { JjLogEntry } from './jj-types';
 import { createDiffUris } from './uri-utils';
+import { formatDisplayChangeId, shortenChangeId } from './utils/jj-utils';
 
 import { GerritService } from './gerrit-service';
 
@@ -173,6 +174,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             
             try {
                 this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
+
                 // Default jj log (usually local heads/roots)
                 const logStart = performance.now();
                 commits = await this._jj.getLog({ omitChanges: true });
@@ -213,7 +215,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
 
             if (hasChanges) {
-            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
+                this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
                 this._renderCommits(this._cachedCommits);
             }
         } catch (e) {
@@ -222,6 +224,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private _renderCommits(commits: JjLogEntry[]) {
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+
         if (this._gerrit.isEnabled) {
             for (const commit of commits) {
                 if (commit.commit_id) {
@@ -236,13 +241,16 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         }
         
         this._view?.webview.postMessage({
-            type: 'update', commits
+            type: 'update', commits, minChangeIdLength
         });
     }
 
     private _activeDetailsPanel?: vscode.WebviewPanel;
 
     public async createCommitDetailsPanel(changeId: string) {
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+
         // Fetch full log entry - this includes description, changes (file list), and immutability status
         const logs = await this._jj.getLog({ revision: changeId });
         if (logs.length === 0) {
@@ -250,6 +258,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         }
         
         const log = logs[0];
+        const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
         const initialData = {
             view: 'details',
             payload: {
@@ -257,11 +266,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 description: log.description,
                 files: log.changes || [],
                 isImmutable: log.is_immutable,
+                minChangeIdLength,
             },
         };
 
         if (this._activeDetailsPanel) {
-            this._activeDetailsPanel.title = `Commit: ${changeId.substring(0, 8)}`;
+            this._activeDetailsPanel.title = `Commit: ${displayId}`;
             this._activeDetailsPanel.webview.html = this._getHtmlForWebview(
                 this._activeDetailsPanel.webview,
                 initialData,
@@ -272,7 +282,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
         const panel = vscode.window.createWebviewPanel(
             'jj-view.commitDetails',
-            `Commit: ${changeId.substring(0, 8)}`,
+            `Commit: ${displayId}`,
             vscode.ViewColumn.Active,
             {
                 enableScripts: true,
@@ -317,7 +327,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         'vscode.diff',
                         leftUri,
                         rightUri,
-                        `${path.basename(file.path)} (${changeId.substring(0, 8)})${!isImmutable ? ' (Editable)' : ''}`,
+                        `${path.basename(file.path)} (${shortenChangeId(changeId, minChangeIdLength)})${!isImmutable ? ' (Editable)' : ''}`,
                     );
                     break;
                 }

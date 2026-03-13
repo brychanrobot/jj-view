@@ -4,11 +4,13 @@
  */
 
 import * as React from 'react';
+import { getChangeIdDisplayLength, shortenChangeId } from '../../utils/jj-utils';
 
 export const CommitDragPreview: React.FC<{
     commit: any; // Simplified commit object or drag data
     isCtrlPressed: boolean;
-}> = ({ commit, isCtrlPressed }) => {
+    minChangeIdLength: number;
+}> = ({ commit, isCtrlPressed, minChangeIdLength }) => {
     // Mode Logic
     const mode = isCtrlPressed ? 'revision' : 'source';
     const isRevisionMode = mode === 'revision';
@@ -20,8 +22,9 @@ export const CommitDragPreview: React.FC<{
 
     // ID Formatting
     const fullId = commit.commitId || '';
-    const shortId = commit.change_id_shortest || fullId.substring(0, 8);
-    const remainderId = fullId.substring(shortId.length, 8);
+    const idDisplayLength = getChangeIdDisplayLength(commit.change_id_shortest, minChangeIdLength);
+    const shortId = commit.change_id_shortest || shortenChangeId(fullId, idDisplayLength);
+    const remainderId = fullId.substring(shortId.length, idDisplayLength);
 
     return (
         <div

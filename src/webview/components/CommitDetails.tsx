@@ -63,6 +63,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 <h2 style={{ margin: '0 0 10px 0' }}>Commit Details</h2>
                 <div
                     style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', fontFamily: 'monospace' }}
+                    title={changeId}
                 >
                     ID: {changeId}
                 </div>

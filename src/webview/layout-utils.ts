@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { getChangeIdDisplayLength } from '../utils/jj-utils';
+
 /**
  * Calculates the gap between the commit graph and the text content based on font size.
  * Currently set to 0.5 * fontSize.
@@ -19,17 +21,11 @@ export interface ShortestIdCommit {
 }
 
 /**
- * Determines the maximum length of the shortest unique change ID prefix in the given list of commits.
- * Returns 8 as a fallback if no shortest IDs are available.
+ * Determines the maximum length of the shortest unique change ID prefix in the given list of commits,
+ * but at least minLen.
  */
-export function computeMaxShortestIdLength(commits: ShortestIdCommit[]): number {
-    let max = 0;
-    for (const commit of commits) {
-        if (commit.change_id_shortest) {
-            max = Math.max(max, commit.change_id_shortest.length);
-        }
-    }
-    return max > 0 ? max : 8;
+export function computeMaxShortestIdLength(commits: ShortestIdCommit[], minLen: number): number {
+    return commits.reduce((max, commit) => Math.max(max, getChangeIdDisplayLength(commit.change_id_shortest, minLen)), minLen);
 }
 
 /**

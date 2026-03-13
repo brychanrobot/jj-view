@@ -13,9 +13,10 @@ interface CommitGraphProps {
     commits: any[];
     onAction: (action: string, payload: ActionPayload) => void;
     selectedCommitIds?: Set<string>;
+    minChangeIdLength: number;
 }
 
-export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, selectedCommitIds }) => {
+export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, selectedCommitIds, minChangeIdLength }) => {
     const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
     const displayRows = layout.rows || commits;
 
@@ -53,7 +54,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
     const GAP = computeGap(fontSize);
     
     // Determine the max shortest ID length to display
-    const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits), [commits]);
+    const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits, minChangeIdLength), [commits, minChangeIdLength]);
 
     const hasImmutableSelection = React.useMemo(() => {
         if (!selectedCommitIds || selectedCommitIds.size === 0) {

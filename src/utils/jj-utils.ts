@@ -21,3 +21,34 @@ export function convertJjChangeIdToHex(jjChangeId: string): string {
     }
     return result;
 }
+
+/**
+ * Shortens a change ID to at least minLen characters.
+ * If changeId is shorter than minLen, it returns the full ID.
+ */
+export function shortenChangeId(changeId: string, minLen: number): string {
+    if (!changeId) {
+        return '';
+    }
+    return changeId.substring(0, Math.max(minLen, 0));
+}
+
+/**
+ * Calculates the total length of the change ID to display,
+ * respecting the unique prefix and the configured minimum length.
+ */
+export function getChangeIdDisplayLength(shortestId: string | undefined, minLen: number): number {
+    return Math.max(minLen, shortestId?.length || 0);
+}
+
+/**
+ * Formats a change ID for display using the unique prefix if available and the configured minimum length.
+ */
+export function formatDisplayChangeId(
+    changeId: string,
+    shortestId: string | undefined,
+    minLen: number,
+): string {
+    const displayLen = getChangeIdDisplayLength(shortestId, minLen);
+    return shortenChangeId(changeId, displayLen);
+}

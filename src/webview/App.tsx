@@ -24,6 +24,7 @@ const App: React.FC = () => {
 
     const [view] = React.useState<'graph' | 'details'>(initialView);
     const [commits, setCommits] = React.useState<any[]>((initialData?.payload as any)?.commits || []);
+    const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>((initialData?.payload as any)?.minChangeIdLength || 1);
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
@@ -92,6 +93,9 @@ const App: React.FC = () => {
                 case 'update':
                     if (view === 'graph') {
                         setCommits(message.commits);
+                        if (message.minChangeIdLength !== undefined) {
+                            setMinChangeIdLength(message.minChangeIdLength);
+                        }
                         setLoading(false);
                     }
                     break;
@@ -319,7 +323,12 @@ const App: React.FC = () => {
                         }
                     }}
                 >
-                    <CommitGraph commits={commits} onAction={handleGraphAction} selectedCommitIds={selectedCommitIds} />
+                    <CommitGraph 
+                        commits={commits} 
+                        onAction={handleGraphAction} 
+                        selectedCommitIds={selectedCommitIds} 
+                        minChangeIdLength={minChangeIdLength}
+                    />
                 </div>
                 {/* 
                   snapCenterToCursor ensures the preview is always centered on the mouse, 
@@ -340,7 +349,11 @@ const App: React.FC = () => {
                                 }}
                             />
                         ) : activeDragItem.type === 'commit' ? (
-                            <CommitDragPreview commit={activeDragItem} isCtrlPressed={isCtrlPressed} />
+                            <CommitDragPreview 
+                                commit={activeDragItem} 
+                                isCtrlPressed={isCtrlPressed} 
+                                minChangeIdLength={minChangeIdLength}
+                            />
                         ) : null
                     ) : null}
                 </DragOverlay>

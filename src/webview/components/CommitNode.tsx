@@ -208,9 +208,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     {commit.change_id_shortest ? (
                         <>
                             <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
-                            <span style={{ opacity: 0.5 }}>
-                                {commit.change_id.substring(commit.change_id_shortest.length, idDisplayLength)}
-                            </span>
+                            {commit.change_id.length > commit.change_id_shortest.length && (
+                                <span style={{ opacity: 0.6 }}>
+                                    {commit.change_id.substring(commit.change_id_shortest.length, idDisplayLength)}
+                                </span>
+                            )}
                         </>
                     ) : (
                         commit.change_id.substring(0, idDisplayLength)

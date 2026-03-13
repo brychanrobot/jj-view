@@ -5,6 +5,9 @@
 
 const esbuild = require('esbuild');
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -81,9 +84,6 @@ async function main() {
 }
 
 async function copyAssets() {
-    const fs = require('fs');
-    const path = require('path');
-
     console.log('[build] Copying assets...');
 
     const assets = [
@@ -122,9 +122,6 @@ async function copyAssets() {
  * `npm pack` to download tarballs for missing platforms and extract them.
  */
 async function installNativeDeps() {
-    const fs = require('fs');
-    const path = require('path');
-
     const watcherPkg = require('@parcel/watcher/package.json');
     const optionalDeps = watcherPkg.optionalDependencies || {};
 
@@ -137,10 +134,11 @@ async function installNativeDeps() {
         const spec = `${name}@${version}`;
         console.log(`[build] Installing ${spec}...`);
         try {
-            const tarball = execSync(`npm pack ${spec} --pack-destination /tmp`, {
+            const tmpDir = os.tmpdir();
+            const tarball = execSync(`npm pack ${spec} --pack-destination "${tmpDir}"`, {
                 encoding: 'utf-8',
             }).trim();
-            const tarballPath = path.join('/tmp', tarball);
+            const tarballPath = path.join(tmpDir, tarball);
             fs.mkdirSync(destDir, { recursive: true });
             execSync(`tar xzf "${tarballPath}" --strip-components=1 -C "${destDir}"`, {
                 stdio: 'inherit',
@@ -153,8 +151,27 @@ async function installNativeDeps() {
     }
 }
 
-// Run copyAssets and installNativeDeps before main build
-Promise.all([copyAssets(), installNativeDeps()])
+async function buildIcons() {
+    console.log('[build] Building icons...');
+    const inputDir = path.join(__dirname, 'media/custom-icons-src');
+    console.log(`[build] Icon input dir: ${inputDir}`);
+
+    if (fs.existsSync(inputDir)) {
+        const files = fs.readdirSync(inputDir);
+        console.log(`[build] Contents of input dir: ${files.join(', ')}`);
+    } else {
+        console.error(`[build] Icon input dir does not exist: ${inputDir}`);
+    }
+
+    const iconDir = path.join(__dirname, 'media/custom-icons');
+    if (!fs.existsSync(iconDir)) {
+        fs.mkdirSync(iconDir, { recursive: true });
+    }
+    execSync('npm run build:icons', { stdio: 'inherit' });
+}
+
+// Run prerequisite tasks before main build
+Promise.all([buildIcons(), copyAssets(), installNativeDeps()])
     .then(main)
     .catch((e) => {
         console.error(e);

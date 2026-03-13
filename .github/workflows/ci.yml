@@ -28,6 +28,12 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 22
+                  cache: 'npm'
+
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.21'
 
             - name: Install jj (Jujutsu)
               uses: taiki-e/install-action@v2
@@ -44,6 +50,9 @@ jobs:
             - name: Check Types
               if: runner.os == 'Linux'
               run: npm run check-types
+
+            - name: Build Extension (Verification)
+              run: npm run build
 
             - name: Run Unit Tests
               run: npm run test:unit

@@ -16,22 +16,25 @@ describe('Layout Utils', () => {
     });
 
     describe('computeMaxShortestIdLength', () => {
-        it('should return 8 for empty commit list', () => {
-            expect(computeMaxShortestIdLength([])).toBe(8);
+        it('should return minLen for empty commit list', () => {
+            expect(computeMaxShortestIdLength([], 8)).toBe(8);
+            expect(computeMaxShortestIdLength([], 1)).toBe(1);
         });
 
-        it('should return 8 if no shortest IDs are present', () => {
+        it('should return minLen if no shortest IDs are present', () => {
             const commits = [{ change_id_shortest: undefined }, {}];
-            expect(computeMaxShortestIdLength(commits)).toBe(8);
+            expect(computeMaxShortestIdLength(commits, 8)).toBe(8);
+            expect(computeMaxShortestIdLength(commits, 12)).toBe(12);
         });
 
-        it('should return the maximum length of shortest IDs', () => {
+        it('should return the maximum length of shortest IDs if greater than minLen', () => {
             const commits = [
                 { change_id_shortest: 'abc' },
                 { change_id_shortest: 'abcde' },
                 { change_id_shortest: 'ab' },
             ];
-            expect(computeMaxShortestIdLength(commits)).toBe(5);
+            expect(computeMaxShortestIdLength(commits, 1)).toBe(5);
+            expect(computeMaxShortestIdLength(commits, 8)).toBe(8);
         });
 
         it('should ignore undefined shortest IDs', () => {
@@ -39,7 +42,7 @@ describe('Layout Utils', () => {
                 { change_id_shortest: 'abc' },
                 { change_id_shortest: undefined },
             ];
-            expect(computeMaxShortestIdLength(commits)).toBe(3);
+            expect(computeMaxShortestIdLength(commits, 1)).toBe(3);
         });
     });
 

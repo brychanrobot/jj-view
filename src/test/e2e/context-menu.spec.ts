@@ -300,7 +300,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         await rightClickAndSelect(page, initialRow, 'Show Multi-File Diff');
 
         // Verification: A diff editor should open.
-        const shortHash = nodes['initial'].changeId.substring(0, 8);
-        await expect(page.getByRole('tab', { name: new RegExp(shortHash) })).toBeVisible({ timeout: 10000 });
+        const shortId = nodes['initial'].changeId.substring(0, 3);
+        await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
     });
 });

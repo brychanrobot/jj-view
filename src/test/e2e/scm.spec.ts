@@ -27,7 +27,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Verify groups
             const mergeConflictsHeader = page.getByRole('treeitem', { name: 'Merge Conflicts' });
-            const workingCopyHeader = page.getByRole('treeitem', { name: 'Working Copy' });
+            const workingCopyHeader = page.getByRole('treeitem', { name: /Working Copy/ });
 
             await expect(mergeConflictsHeader).toBeVisible();
             await expect(workingCopyHeader).toBeVisible();
@@ -161,7 +161,7 @@ test.describe('SCM Pane E2E', () => {
         try {
             await focusSCM(page);
             // Wait for groups to settle
-            const wcGroupHeader = page.getByRole('treeitem', { name: 'Working Copy' });
+            const wcGroupHeader = page.getByRole('treeitem', { name: /Working Copy/ });
             
             // Hover over Working copy group to show abandon icon
             await wcGroupHeader.hover();
@@ -250,10 +250,12 @@ test.describe('SCM Pane E2E', () => {
             const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
             await rightEditor.click();
             await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('edited from diff');
-            await page.keyboard.press('Control+S'); // Save
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type('edited from diff', { delay: 10 });
             
-            // Wait for save indicator or poll the file content
+            await page.keyboard.press('Control+s');
+            
+            // Assert the file content
             await expect(async () => {
                 expect(repo.getFileContent('@', 'file2.txt').trim()).toBe('edited from diff');
             }).toPass({ timeout: 5000 });
@@ -281,32 +283,33 @@ test.describe('SCM Pane E2E', () => {
             await refreshButton.click();
 
             // Wait for file2.txt to appear in SCM Working Copy
-            const newWcFileRow = page.getByRole('treeitem', { name: /file2\.txt, modified/ });
+            const newWcFileRow = page.getByRole('treeitem', { name: /file2\.txt, modified/ }).first();
             await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
             
             // Hover over file2.txt to show the inline actions
             await newWcFileRow.hover();
+            
             // The squashInto action should be visible because we have two mutable ancestors (the previous wc commit, and initial).
-            // Use role and first() for robustness
             const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash into Ancestor/ }).first();
             await squashIntoIcon.click({ force: true });
 
             // SCM QuickPick should appear for Ancestor selection
-            // We should select "Ancestor 2:" which is `initial`.
             const quickPickInput = page.getByRole('listbox');
-            // We should select the `initial` commit.
+            await expect(quickPickInput).toBeVisible({ timeout: 5000 });
+            
             const ancestor2Option = page.getByRole('option', { name: /initial/i });
             await ancestor2Option.click();
             await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
 
-            // Verify the squash happened
+            // Verify the squash happened by waiting for there to be only ONE file2.txt row (the ancestor one)
+            await expect(page.getByRole('treeitem', { name: /file2\.txt, modified/ })).toHaveCount(1, { timeout: 10000 });
+            
             await expect(async () => {
                 const wcChanges = repo.getDiffSummary('@');
                 expect(wcChanges).not.toContain('file2.txt');
                 
-                // The ancestor should now have the change. Since we squashed it into "Ancestor 2:"
-                // (which is 'initial'), we check its content.
-                expect(repo.getFileContent('@~2', 'file2.txt').trim()).toBe('new mod2');
+                // The ancestor should now have the change.
+                expect(repo.getFileContent('@--', 'file2.txt').trim()).toBe('new mod2');
             }).toPass({ timeout: 5000 });
 
         } finally {
@@ -330,7 +333,7 @@ test.describe('SCM Pane E2E', () => {
 
         try {
             await focusSCM(page);
-            const wcGroupHeader = page.getByRole('treeitem', { name: 'Working Copy' });
+            const wcGroupHeader = page.getByRole('treeitem', { name: /Working Copy/ });
 
             // 1. Absorb
             await wcGroupHeader.hover();

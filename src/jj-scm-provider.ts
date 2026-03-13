@@ -20,6 +20,7 @@ import { completeSquashCommand } from './commands/squash';
 import { getErrorMessage } from './commands/command-utils';
 import { RefreshScheduler } from './refresh-scheduler';
 import { createDiffUris } from './uri-utils';
+import { formatDisplayChangeId } from './utils/jj-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     revision: string;
@@ -171,7 +172,8 @@ export class JjScmProvider implements vscode.Disposable {
                 this.editProvider?.invalidateCache();
 
                 // 1. Fetch data in parallel for performance
-                const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+                const config = vscode.workspace.getConfiguration('jj-view');
+                const maxMutableAncestors = config.get<number>('maxMutableAncestors', 10);
                 const limit = maxMutableAncestors + 1;
 
                 // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
@@ -304,9 +306,18 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
+                if (currentEntry) {
+                    const config = vscode.workspace.getConfiguration('jj-view');
+                    const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+                    const shortId = formatDisplayChangeId(currentEntry.change_id, currentEntry.change_id_shortest, minChangeIdLength);
+                    this._workingCopyGroup.label = `Working Copy - ${shortId}`;
+                } else {
+                    this._workingCopyGroup.label = 'Working Copy';
+                }
+
                 // Working copy items are squashable if the parent is mutable
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
-                    const state = this.toResourceState(c, currentEntry.change_id, {
+                    const state = this.toResourceState(c, currentEntry?.change_id || '@', {
                         squashable: parentMutable,
                         multipleAncestors: ancestorsToDisplay.length > 1,
                     });
@@ -317,7 +328,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // 4. Update Conflict Group (conflictedPaths fetched above)
                 this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                     const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
-                    const state = this.toResourceState(entry, currentEntry.change_id);
+                    const state = this.toResourceState(entry, currentEntry?.change_id || '@');
                     decorationMap.set(state.resourceUri.toString(), entry);
                     return state;
                 });
@@ -334,7 +345,9 @@ export class JjScmProvider implements vscode.Disposable {
                 for (let i = 0; i < ancestorsToDisplay.length; i++) {
                     const { entry: ancestorEntry, prefix, isMutable, canSquash } = ancestorsToDisplay[i];
 
-                    const shortId = ancestorEntry.change_id_shortest || ancestorEntry.change_id.substring(0, 8);
+                    const config = vscode.workspace.getConfiguration('jj-view');
+                    const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+                    const shortId = formatDisplayChangeId(ancestorEntry.change_id, ancestorEntry.change_id_shortest, minChangeIdLength);
                     const desc = ancestorEntry.description?.trim() || '(no description)';
                     const label = `${prefix}: ${shortId} - ${desc}`;
 

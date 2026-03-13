@@ -40,6 +40,7 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
         "window.titleBarStyle": "custom",
         "security.workspace.trust.enabled": false,
         "jj-view.fileWatcherMode": "watch",
+        "jj-view.minChangeIdLength": 3,
         "telemetry.telemetryLevel": "off",
         "workbench.notification.displayMode": "hidden",
         "notifications.showDoNotDisturb": true,

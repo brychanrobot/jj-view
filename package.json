@@ -68,6 +68,12 @@
                     "type": "string",
                     "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'."
                 },
+                "jj-view.minChangeIdLength": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 1,
+                    "description": "Minimum number of characters to display for change IDs. This affects the unique prefix calculation and UI truncation."
+                },
                 "jj-view.maxMutableAncestors": {
                     "type": "number",
                     "default": 10,
@@ -455,8 +461,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run check-types && npm run lint && node esbuild.js --production",
-        "build": "npm run build:icons && npm run check-types && npm run lint && node esbuild.js",
-        "build:icons": "mkdir -p ./media/custom-icons && fantasticon",
+        "build": "npm run check-types && npm run lint && node esbuild.js",
+        "build:icons": "svgtofont -s media/custom-icons-src -o media/custom-icons",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
@@ -496,13 +502,13 @@
         "esbuild": "^0.27.1",
         "eslint": "^9.39.1",
         "eslint-config-prettier": "^10.1.8",
-        "fantasticon": "^4.1.0",
         "npm-run-all": "^4.1.5",
         "ovsx": "^0.10.8",
         "playwright": "^1.58.0",
         "prettier": "^3.7.4",
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
+        "svgtofont": "^6.5.1",
         "ts-node": "^10.9.2",
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.48.1",
