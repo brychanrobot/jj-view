@@ -208,7 +208,19 @@ export class ChangeDetectionManager implements vscode.Disposable {
             const data = await fs.readFile(gitIgnorePath, 'utf8');
             return data.split('\n')
                 .map(line => line.trim())
-                .filter(line => line.length > 0 && !line.startsWith('#') && !line.startsWith('!'));
+                .filter(line => line.length > 0 && !line.startsWith('#') && !line.startsWith('!'))
+                .map(line => {
+                    // Strip leading/trailing slashes and wildcards to pass as literals.
+                    // PARCEL-WATCHER BEHAVIOR:
+                    // 1. Literal paths (e.g. 'out') prune all descendants recursively.
+                    // 2. Glob patterns (e.g. 'out*') do NOT prune descendants recursively.
+                    // 
+                    // By stripping wildcards we ensure directory contents are ignored, which is the common case
+                    // for gitignore patterns like /out/. The caveat is that we lose true wildcard matching 
+                    // (e.g. /out*/ will only match a directory named exactly 'out').
+                    return line.replace(/^[\/*?]+|[\/*?]+$/g, '');
+                })
+                .filter(pattern => pattern.length > 0);
         } catch {
             return [];
         }

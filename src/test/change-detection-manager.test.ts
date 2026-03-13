@@ -282,5 +282,43 @@ describe('ChangeDetectionManager', () => {
                  expect(found, 'Expected file watcher event for visible.txt').toBe(true);
              }, { timeout: 10000, interval: 100 });
          });
+
+        it('ignores directories matching literal patterns like /out/', async () => {
+            // Setup config to return 'watch'
+            mockGetConfiguration.mockReturnValue({
+                get: (key: string, defaultValue: unknown) => {
+                    if (key === 'fileWatcherMode') return 'watch';
+                    return defaultValue;
+                }
+            });
+
+            repo.writeFile('.gitignore', '/out*/');
+            
+            const ignoredDir = path.join(repo.path, 'out');
+            await fs.mkdir(ignoredDir, { recursive: true });
+
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+
+            // Wait for watcher to start and settle
+            await waitForLog('Working Copy Watcher] Started');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            triggerRefreshSpy.mockClear();
+
+            // 1. Write to the ignored directory — should NOT trigger
+            await fs.writeFile(path.join(ignoredDir, 'build.log'), 'building...');
+
+            // Wait to confirm no event fires for ignored file
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const ignoredCalls = triggerRefreshSpy.mock.calls.filter(call => call[0].reason === 'file watcher event');
+            expect(ignoredCalls, 'File in /out/ directory should not have triggered a refresh').toHaveLength(0);
+
+            // 2. Write to a non-ignored path — SHOULD trigger
+            repo.writeFile('readme.md', 'hello');
+
+            await vi.waitFor(() => {
+                const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
+                expect(found, 'Expected file watcher event for readme.md').toBe(true);
+            }, { timeout: 10000, interval: 100 });
+        });
     });
 });
