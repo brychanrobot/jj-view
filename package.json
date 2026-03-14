@@ -400,25 +400,25 @@
                     "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/"
                 },
                 {
-                    "command": "jj-view.squash",
-                    "group": "inline@3",
-                    "when": "scmResourceState == 'jj.resource.workingCopy:squashable' || scmResourceState == 'jj.resource.ancestor:squashable'"
-                },
-                {
                     "command": "jj-view.squashInto",
                     "group": "inline@3",
-                    "when": "scmResourceState == 'jj.resource.workingCopy:squashable:multi' || scmResourceState == 'jj.resource.ancestor:squashable:multi'"
+                    "when": "scmResourceState =~ /jj\\.resource.*:squashable:multi/"
                 },
                 {
-                    "command": "jj-view.moveToChild",
-                    "icon": "$(git-merge)",
+                    "command": "jj-view.squash",
                     "group": "inline@4",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
+                    "when": "scmResourceState =~ /jj\\.resource.*:squashable/"
                 },
                 {
                     "command": "jj-view.moveToChild",
                     "icon": "$(git-merge)",
                     "group": "inline@5",
+                    "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
+                },
+                {
+                    "command": "jj-view.moveToChild",
+                    "icon": "$(git-merge)",
+                    "group": "inline@6",
                     "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ && jj.hasChild"
                 }
             ],

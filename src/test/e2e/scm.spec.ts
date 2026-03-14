@@ -299,6 +299,11 @@ test.describe('SCM Pane E2E', () => {
             const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
             await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
             
+            // Hover to reveal inline actions
+            await newWcFileRow.hover();
+            const squashIcon = newWcFileRow.getByRole('button', { name: 'Squash into Parent', exact: true }).first();
+            await expect(squashIcon).toBeVisible();
+
             // The squashInto action should be visible because we have two mutable ancestors (the previous wc commit, and initial).
             const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash into Ancestor/ }).first();
             await hoverAndClick(newWcFileRow, squashIntoIcon);
