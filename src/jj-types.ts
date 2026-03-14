@@ -45,6 +45,7 @@ export interface JjLogEntry {
     conflict?: boolean;
     changes?: JjStatusEntry[];
     gerritCl?: GerritClInfo;
+    gerritNeedsUpload?: boolean;
 }
 
 export interface JjStatusEntry {

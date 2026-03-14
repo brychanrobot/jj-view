@@ -228,14 +228,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
 
         if (this._gerrit.isEnabled) {
-            for (const commit of commits) {
-                if (commit.commit_id) {
-                    commit.gerritCl = this._gerrit.getCachedClStatus(
-                        commit.change_id,
-                        commit.description
-                    );
-                }
-            }
+            this._gerrit.populateGerritInfo(commits);
         } else {
             this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
         }

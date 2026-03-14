@@ -514,4 +514,61 @@ export class GerritService implements vscode.Disposable {
             this.outputChannel?.appendLine(`[GerritService] Sync verification failed for ${commitId}: ${e}`);
         }
     }
+
+    /**
+     * Hydrates a list of commits with Gerrit information, including inherited
+     * 'needsUpload' statuses based on the commit graph.
+     */
+    public populateGerritInfo(commits: import('./jj-types').JjLogEntry[]): void {
+        if (!this.isEnabled) {
+            return;
+        }
+
+        const commitMap = new Map<string, import('./jj-types').JjLogEntry>();
+        for (const commit of commits) {
+            if (commit.commit_id) {
+                commitMap.set(commit.commit_id, commit);
+                commit.gerritCl = this.getCachedClStatus(
+                    commit.change_id,
+                    commit.description
+                );
+            }
+        }
+
+        const needsUploadCache = new Map<string, boolean>();
+        const computeNeedsUpload = (commitId: string): boolean => {
+            if (needsUploadCache.has(commitId)) {
+                return needsUploadCache.get(commitId)!;
+            }
+            
+            const commit = commitMap.get(commitId);
+            if (!commit) {
+                return false;
+            }
+            
+            let needsUpload = false;
+            const gerritCl = commit.gerritCl;
+            if (gerritCl && gerritCl.status === 'NEW' && !(gerritCl.currentRevision === commit.commit_id || gerritCl.synced)) {
+                needsUpload = true;
+            }
+            
+            if (!needsUpload && commit.parents) {
+                for (const parentId of commit.parents) {
+                    if (computeNeedsUpload(parentId)) {
+                        needsUpload = true;
+                        break;
+                    }
+                }
+            }
+            
+            needsUploadCache.set(commitId, needsUpload);
+            return needsUpload;
+        };
+
+        for (const commit of commits) {
+            if (commit.commit_id && commit.gerritCl && commit.gerritCl.status === 'NEW') {
+                commit.gerritNeedsUpload = computeNeedsUpload(commit.commit_id);
+            }
+        }
+    }
 }

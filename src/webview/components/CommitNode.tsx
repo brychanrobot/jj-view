@@ -432,7 +432,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
                         {/* Sync Status Button or Icon */}
                         {gerritCl.status === 'NEW' &&
-                            (gerritCl.currentRevision === commit.commit_id || gerritCl.synced ? (
+                            (!commit.gerritNeedsUpload ? (
                                 // Synced - Non-interactive Icon
                                 <div
                                     title={gerritCl.synced ? "Synced (content matches Gerrit)" : "Up to date with Gerrit"}

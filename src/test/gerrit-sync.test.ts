@@ -7,6 +7,8 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
+import { JjLogEntry } from '../jj-types';
+import { createMock } from './test-utils';
 
 vi.mock('vscode', () => ({
     workspace: {
@@ -174,5 +176,126 @@ describe('Gerrit Sync Verification', () => {
 
         // When revisions match, synced should not be set (it's already up to date — no need)
         expect(result?.synced).toBeUndefined();
+    });
+
+    describe('populateGerritInfo', () => {
+        beforeEach(async () => {
+             service = new GerritService(repo.path, jjService);
+             await service.awaitReady();
+        });
+
+        test('computes gerritNeedsUpload for a single out-of-sync commit', () => {
+            const commit = createMock<JjLogEntry>({
+                commit_id: 'c1',
+                change_id: 'I1',
+                description: 'desc',
+                author: { name: 'A', email: 'a@e.com', timestamp: '' },
+                committer: { name: 'A', email: 'a@e.com', timestamp: '' },
+                parents: [],
+            });
+
+            // Mock cache
+            vi.spyOn(service, 'getCachedClStatus').mockReturnValue({
+                changeId: 'I1',
+                changeNumber: 1,
+                status: 'NEW',
+                submittable: false,
+                url: '',
+                unresolvedComments: 0,
+                currentRevision: 'old-sha', // Out of sync
+                synced: false
+            });
+
+            service.populateGerritInfo([commit]);
+
+            expect(commit.gerritNeedsUpload).toBe(true);
+        });
+
+        test('computes gerritNeedsUpload recursively for descendants of out-of-sync commits', () => {
+            const c1 = createMock<JjLogEntry>({
+                commit_id: 'c1',
+                change_id: 'I1',
+                description: 'desc1',
+                author: { name: 'A', email: 'a@e.com', timestamp: '' },
+                committer: { name: 'A', email: 'a@e.com', timestamp: '' },
+                parents: [],
+            });
+            const c2 = createMock<JjLogEntry>({
+                commit_id: 'c2',
+                change_id: 'I2',
+                description: 'desc2',
+                author: { name: 'A', email: 'a@e.com', timestamp: '' },
+                committer: { name: 'A', email: 'a@e.com', timestamp: '' },
+                parents: ['c1'], // Child of c1
+            });
+            const c3 = createMock<JjLogEntry>({
+                commit_id: 'c3',
+                change_id: 'I3',
+                description: 'desc3',
+                author: { name: 'A', email: 'a@e.com', timestamp: '' },
+                committer: { name: 'A', email: 'a@e.com', timestamp: '' },
+                parents: ['c2'], // Child of c2
+            });
+
+            vi.spyOn(service, 'getCachedClStatus').mockImplementation((changeId) => {
+                if (changeId === 'I1') {
+                    return {
+                        changeId: 'I1',
+                        changeNumber: 1,
+                        status: 'NEW',
+                        submittable: false,
+                        url: '',
+                        unresolvedComments: 0,
+                        currentRevision: 'old-sha', // Out of sync
+                        synced: false
+                    };
+                }
+                if (changeId === 'I2' || changeId === 'I3') {
+                    return {
+                        changeId,
+                        changeNumber: 2,
+                        status: 'NEW',
+                        submittable: false,
+                        url: '',
+                        unresolvedComments: 0,
+                        currentRevision: changeId === 'I2' ? 'c2' : 'c3', // In sync directly
+                        synced: true
+                    };
+                }
+                return undefined;
+            });
+
+            service.populateGerritInfo([c1, c2, c3]);
+
+            expect(c1.gerritNeedsUpload).toBe(true); // Direct
+            expect(c2.gerritNeedsUpload).toBe(true); // Inherited from c1
+            expect(c3.gerritNeedsUpload).toBe(true); // Inherited transitively from c1
+        });
+
+        test('does not set gerritNeedsUpload if all are in sync', () => {
+            const commit = createMock<JjLogEntry>({
+                commit_id: 'c1',
+                change_id: 'I1',
+                description: 'desc',
+                author: { name: 'A', email: 'a@e.com', timestamp: '' },
+                committer: { name: 'A', email: 'a@e.com', timestamp: '' },
+                parents: [],
+            });
+
+            vi.spyOn(service, 'getCachedClStatus').mockReturnValue({
+                changeId: 'I1',
+                changeNumber: 1,
+                status: 'NEW',
+                submittable: false,
+                url: '',
+                unresolvedComments: 0,
+                currentRevision: 'c1', // In sync
+                synced: true
+            });
+
+            service.populateGerritInfo([commit]);
+
+            expect(commit.gerritNeedsUpload).toBe(false);
+        });
     });
 });
