@@ -869,13 +869,17 @@ export class JjService {
 
         // We use raw git command because jj doesn't expose ls-tree
         return new Promise((resolve) => {
-             cp.execFile('git', ['ls-tree', commitId, '--', ...filePaths], {
+             const timeout = 10000; // 10s safety timeout
+             cp.execFile('git', ['--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths], {
                 cwd: this.workspaceRoot,
-                maxBuffer: 10 * 1024 * 1024
+                maxBuffer: 10 * 1024 * 1024,
+                timeout,
+                env: { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat' }
             }, (err, stdout) => {
                 if (err) {
                     // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
                     // This is expected fallback behavior
+                    this.logger(`getGitBlobHashes failed: ${err.message}`);
                     resolve(new Map());
                     return;
                 }
