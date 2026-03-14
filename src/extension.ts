@@ -188,8 +188,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.upload', async (revision: string) => {
-            await uploadCommand(jj, gerritService, revision, outputChannel);
+        vscode.commands.registerCommand('jj-view.upload', async (...args: unknown[]) => {
+            await uploadCommand(jj, gerritService, args, outputChannel);
         }),
     );
 

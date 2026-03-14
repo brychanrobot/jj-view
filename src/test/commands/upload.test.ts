@@ -44,13 +44,12 @@ describe('uploadCommand', () => {
 
     test('uses custom upload command when configured (correctly)', async () => {
         // Setup config to return 'git push --force' ONLY when queried for 'uploadCommand'
-        // The current bug queries 'jj-view.uploadCommand', which should return undefined here
         mockConfig.get.mockImplementation((key: string) => {
             if (key === 'uploadCommand') return 'git push --force';
             return undefined;
         });
 
-        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         // Should use the custom command
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push', '--force'], 'rev-123');
@@ -60,11 +59,20 @@ describe('uploadCommand', () => {
     test('falls back to default when custom command is empty', async () => {
         mockConfig.get.mockReturnValue(undefined);
         
-        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
         
         // Default for non-Gerrit is git push
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+    });
+
+    test('extracts revision from object payload (repro for r.substring error)', async () => {
+        mockConfig.get.mockReturnValue(undefined);
+        
+        // This simulates the webview payload: { changeId: 'rev-object' }
+        await uploadCommand(jjService, gerritService, [{ changeId: 'rev-object' }], mockOutputChannel);
+        
+        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-object');
     });
 
     test('suggests configuration when upload fails and no custom command set', async () => {
@@ -79,7 +87,7 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Configure Upload...');
 
-        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),
@@ -106,7 +114,7 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Show Log');
 
-        await uploadCommand(jjService, gerritService, 'rev-123', mockOutputChannel);
+        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),
