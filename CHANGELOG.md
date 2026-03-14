@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.17.0
+
+### Features
+- Implement "Squash into Ancestor" feature
+- Show multiple ancestors in the SCM pane
+- Implement `jj-view.minChangeIdLength` setting
+
+### Fixes
+- **Gerrit**:
+  - Fix upload error ("r.substring is not a function")
+  - Ensure children inherit `needsUpload` status from parents
+- Prevent `.git/index.lock` contention in `getGitBlobHashes`
+- Fix visibility of "Squash" inline actions
+
+### Chores & Improvements
+- Tune the performance of refreshes
+- Refine gitignore pattern parsing for file watcher
+- Added E2E Playwright tests that run against the VSIX
+
 ## 1.16.1
 
 ### Fixes
