@@ -14,6 +14,86 @@ body {
     overflow-x: hidden;
 }
 
+/* Theme: Default */
+.theme-default {
+    --jj-lane-0: var(--vscode-charts-green);
+    --jj-lane-1: var(--vscode-charts-orange);
+    --jj-lane-2: var(--vscode-charts-blue);
+    --jj-lane-3: var(--vscode-charts-red);
+    --jj-lane-4: var(--vscode-charts-purple);
+    --jj-lane-5: var(--vscode-charts-yellow);
+    --jj-lane-6: var(--vscode-charts-foreground); /* Fallback/last color */
+}
+
+/* Theme: Oceanic */
+.theme-oceanic {
+    /* Brighter to dimmer */
+    --jj-lane-0: #caf0f8;
+    --jj-lane-1: #90e0ef;
+    --jj-lane-2: #00b4d8;
+    --jj-lane-3: #0096c7;
+    --jj-lane-4: #0077b6;
+    --jj-lane-5: #023e8a;
+    --jj-lane-6: #03045e;
+}
+
+/* Theme: Sunset */
+.theme-sunset {
+    /* More yellow/orange/red */
+    --jj-lane-0: #ffea00; /* Yellow */
+    --jj-lane-1: #ffb700;
+    --jj-lane-2: #ff9e00;
+    --jj-lane-3: #ff8500; /* Orange */
+    --jj-lane-4: #ff6d00;
+    --jj-lane-5: #ff5400;
+    --jj-lane-6: #ff0000; /* Red */
+}
+
+/* Theme: Neon */
+.theme-neon {
+    --jj-lane-0: #39ff14; /* Neon Green */
+    --jj-lane-1: #ff00ff; /* Neon Magenta */
+    --jj-lane-2: #00ffff; /* Neon Cyan */
+    --jj-lane-3: #ffef00; /* Neon Yellow */
+    --jj-lane-4: #ff0000; /* Neon Red */
+    --jj-lane-5: #ff9900; /* Neon Orange */
+    --jj-lane-6: #bf00ff; /* Neon Purple */
+}
+
+/* Theme: Pastel */
+.theme-pastel {
+    --jj-lane-0: #ffb3ba; /* Pastel Pink */
+    --jj-lane-1: #ffdfba; /* Pastel Orange */
+    --jj-lane-2: #ffffba; /* Pastel Yellow */
+    --jj-lane-3: #baffc9; /* Pastel Green */
+    --jj-lane-4: #bae1ff; /* Pastel Blue */
+    --jj-lane-5: #e8baff; /* Pastel Purple */
+    --jj-lane-6: #ffd1ff; /* Pastel Magenta */
+}
+
+/* Theme: Monochrome */
+.theme-monochrome {
+    /* Brighter to dimmer, fast decay */
+    --jj-lane-0: #eeeeee;
+    --jj-lane-1: #666666;
+    --jj-lane-2: #555555;
+    --jj-lane-3: #444444;
+    --jj-lane-4: #383838;
+    --jj-lane-5: #303030;
+    --jj-lane-6: #282828;
+}
+
+.vscode-light .theme-monochrome {
+    /* Darker to lighter, fast decay for light themes */
+    --jj-lane-0: #111111;
+    --jj-lane-1: #999999;
+    --jj-lane-2: #aaaaaa;
+    --jj-lane-3: #bbbbbb;
+    --jj-lane-4: #c7c7c7;
+    --jj-lane-5: #cfcfcf;
+    --jj-lane-6: #d7d7d7;
+}
+
 .commit-row {
     transition: background-color 0.1s;
     /* Ensure content sits above but doesn't block graph unless necessary */

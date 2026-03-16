@@ -73,12 +73,12 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
         if (isConflict) {
             // Mix red conflict tint with blue selection tint
             backgroundColor =
-                'color-mix(in srgb, var(--vscode-list-inactiveSelectionBackground), rgba(255, 0, 0, 0.2))';
+                'color-mix(in srgb, var(--vscode-list-inactiveSelectionBackground), var(--vscode-charts-red) 20%)';
         } else {
             backgroundColor = 'var(--vscode-list-inactiveSelectionBackground)';
         }
     } else if (isConflict) {
-        backgroundColor = 'rgba(255, 0, 0, 0.1)';
+        backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-red) 10%)';
     }
 
     // Allow hover background even while dragging (buttons hidden by JSX check)
@@ -86,7 +86,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     if (isHovered || isOver) {
         if (isSelected) {
         } else if (isConflict) {
-            backgroundColor = 'rgba(255, 0, 0, 0.2)';
+            backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-red) 20%)';
         } else {
             backgroundColor = 'var(--vscode-list-hoverBackground)';
         }
@@ -234,7 +234,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             background: isSelected
                                 ? 'linear-gradient(var(--vscode-list-inactiveSelectionBackground), var(--vscode-list-inactiveSelectionBackground)), var(--vscode-sideBar-background)'
                                 : isConflict
-                                  ? 'linear-gradient(rgba(255, 0, 0, 0.2), rgba(255, 0, 0, 0.2)), var(--vscode-sideBar-background)'
+                                  ? 'linear-gradient(color-mix(in srgb, transparent, var(--vscode-charts-red) 20%), color-mix(in srgb, transparent, var(--vscode-charts-red) 20%)), var(--vscode-sideBar-background)'
                                   : 'linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground)), var(--vscode-sideBar-background)',
                             paddingRight: '20px',
                             maskImage: 'linear-gradient(to right, black 60%, transparent 100%)',

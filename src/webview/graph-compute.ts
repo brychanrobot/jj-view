@@ -6,18 +6,8 @@
 import { GraphLayout, GraphNode, GraphEdge } from './graph-model';
 import { JjLogEntry } from '../jj-types';
 
-const COLORS = [
-    '#00aa00', // Green
-    '#ffaa00', // Orange
-    '#00aaff', // Blue
-    '#ff00aa', // Pink
-    '#aa00ff', // Purple
-    '#00aaaa', // Cyan
-    '#aaaa00', // Yellow
-];
-
 function getColor(lane: number): string {
-    return COLORS[lane % COLORS.length];
+    return `var(--jj-lane-${lane % 7})`;
 }
 
 export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {

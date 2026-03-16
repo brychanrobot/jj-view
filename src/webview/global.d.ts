@@ -11,7 +11,10 @@ declare global {
         vscode: unknown;
         vscodeInitialData?: {
             view: 'graph' | 'details';
-            payload?: unknown;
+            payload?: {
+                theme?: string;
+                [key: string]: unknown;
+            };
         };
         acquireVsCodeApi: () => {
             postMessage: (message: { type: string; payload?: unknown }) => void;

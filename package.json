@@ -79,6 +79,19 @@
                     "default": 10,
                     "minimum": 0,
                     "description": "Maximum number of mutable ancestors to display in the SCM view."
+                },
+                "jj-view.logTheme": {
+                    "type": "string",
+                    "default": "default",
+                    "enum": [
+                        "default",
+                        "oceanic",
+                        "sunset",
+                        "neon",
+                        "pastel",
+                        "monochrome"
+                    ],
+                    "description": "Color theme for the graph lanes in the JJ Log view."
                 }
             }
         },

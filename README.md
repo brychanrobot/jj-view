@@ -133,6 +133,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.uploadCommand`                | `null`      | Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'.                                                                                                                                                                     |
 | `jj-view.minChangeIdLength`            | `1`         | Minimum number of characters to display for change IDs. This affects the unique prefix calculation and UI truncation.                                                                                                                                                                                |
 | `jj-view.maxMutableAncestors`          | `10`        | Maximum number of mutable ancestors to display in the SCM view.                                                                                                                                                                                                                                      |
+| `jj-view.logTheme`                     | `"default"` | Color theme for the graph lanes in the JJ Log view. Available options: `default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`.                                                                                                                                                               |
 
 ## File Watcher Mode
 

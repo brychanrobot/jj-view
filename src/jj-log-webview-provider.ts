@@ -27,6 +27,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     ) {
         // Gerrit updates only need to re-render, not re-fetch jj log
         this._gerrit.onDidUpdate(() => this.refreshGerrit());
+
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('jj-view.logTheme')) {
+                this._renderCommits(this._cachedCommits);
+            }
+        });
     }
 
     public resolveWebviewView(
@@ -45,19 +51,23 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         // it uses the latest cached data instead of the initial stale data.
         webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
+                const currentTheme = vscode.workspace.getConfiguration('jj-view').get<string>('logTheme', 'default');
                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
                     view: 'graph',
                     payload: {
                         commits: this._cachedCommits,
+                        theme: currentTheme,
                     },
                 });
             }
         });
 
+        const initialTheme = vscode.workspace.getConfiguration('jj-view').get<string>('logTheme', 'default');
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
             view: 'graph',
             payload: {
                 commits: this._cachedCommits,
+                theme: initialTheme,
             },
         });
 
@@ -234,6 +244,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     private _renderCommits(commits: JjLogEntry[]) {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+        const logTheme = config.get<string>('logTheme', 'default');
 
         if (this._gerrit.isEnabled) {
             this._gerrit.populateGerritInfo(commits);
@@ -245,6 +256,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             type: 'update',
             commits,
             minChangeIdLength,
+            theme: logTheme,
         });
     }
 
@@ -253,6 +265,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public async createCommitDetailsPanel(changeId: string) {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+        const logTheme = config.get<string>('logTheme', 'default');
 
         // Fetch full log entry - this includes description, changes (file list), and immutability status
         const logs = await this._jj.getLog({ revision: changeId });
@@ -270,6 +283,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 files: log.changes || [],
                 isImmutable: log.is_immutable,
                 minChangeIdLength,
+                theme: logTheme,
             },
         };
 

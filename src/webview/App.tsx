@@ -27,6 +27,7 @@ const App: React.FC = () => {
     const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>(
         (initialData?.payload as any)?.minChangeIdLength || 1,
     );
+    const [theme, setTheme] = React.useState<string>(initialData?.payload?.theme || 'default');
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
@@ -99,6 +100,9 @@ const App: React.FC = () => {
                         setCommits(message.commits);
                         if (message.minChangeIdLength !== undefined) {
                             setMinChangeIdLength(message.minChangeIdLength);
+                        }
+                        if (message.theme !== undefined) {
+                            setTheme(message.theme);
                         }
                         setLoading(false);
                     }
@@ -304,7 +308,7 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="app-container">
+        <div className={`app-container theme-${theme}`}>
             <DndContext
                 sensors={sensors}
                 collisionDetection={pointerWithin}
