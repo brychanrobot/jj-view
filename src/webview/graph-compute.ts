@@ -51,6 +51,7 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
             isWorkingCopy: !!commit.is_working_copy,
             conflict: commit.conflict,
             isEmpty: commit.is_empty,
+            isImmutable: commit.is_immutable,
         };
         nodes.push(node);
         nodeMap.set(commitId, node);

@@ -23,14 +23,16 @@ const LEFT_MARGIN = 12; // Shift graph right to prevent clipping of halos
 const R = 8; // Max radius (W/2) for smooth curves
 
 export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, height, rowOffsets, selectedNodes }) => {
-    // Layering: Leftmost lanes (lower x) should be on TOP.
-    // SVG renders last-child on top. So we verify lower x comes LAST.
-    // Sort edges by min(x1, x2) DESCENDING.
+    // Layering: Leftmost lanes (lower x) should render visually on TOP.
+    // SVG renders elements in order, so the last element appears on top.
+    // Therefore, we want lower x values to come LAST in the array.
+    // 1. Primary Sort: Sort by min(x1, x2) DESCENDING.
+    // 2. Secondary Sort: If the leftmost lane is the same, sort by max(x1, x2) DESCENDING.
+    //    This ensures lines extending further to the right (higher max) render underneath
+    //    lines that stay strictly in the leftmost lane.
     const sortedEdges = React.useMemo(() => {
         return [...edges].sort((a, b) => {
-            const minA = Math.min(a.x1, a.x2);
-            const minB = Math.min(b.x1, b.x2);
-            return minB - minA; // Descending
+            return Math.min(b.x1, b.x2) - Math.min(a.x1, a.x2) || Math.max(b.x1, b.x2) - Math.max(a.x1, a.x2);
         });
     }, [edges]);
 
@@ -51,10 +53,10 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             // Straight Vertical
             d = `M ${sx} ${sy} L ${ex} ${ey}`;
         } else {
-            // Rail Routing: Bend at the row boundary to keep the structure clean.
-            // We use the top of the next row as the midpoint for the S-curve.
-            const nextRowY = rowOffsets[y1 + 1] || sy + ROW_HEADER_HEIGHT;
-            const midY = nextRowY;
+            // Rail Routing: Bend at the row boundary just above the parent to keep the structure clean.
+            // We use the top of the parent's row as the midpoint for the S-curve.
+            const prevRowY = rowOffsets[y2] ? rowOffsets[y2] - ROW_HEADER_HEIGHT : ey - ROW_HEADER_HEIGHT;
+            const midY = prevRowY + ROW_HEADER_HEIGHT;
 
             // Direction for horizontal
             const dirX = x2 > x1 ? 1 : -1;
@@ -169,7 +171,15 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                 </>
             );
         } else if (node.isEmpty) {
-            content = (
+            content = node.isImmutable ? (
+                <polygon
+                    points={`${cx},${cy - 6} ${cx + 6},${cy} ${cx},${cy + 6} ${cx - 6},${cy}`}
+                    fill="var(--vscode-sideBar-background)"
+                    stroke={node.color}
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                />
+            ) : (
                 <circle
                     cx={cx}
                     cy={cy}
@@ -177,11 +187,20 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                     fill="var(--vscode-sideBar-background)"
                     stroke={node.color}
                     strokeWidth="2"
-                    style={{ opacity: 0.8 }}
                 />
             );
         } else {
-            content = <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />;
+            content = node.isImmutable ? (
+                <polygon
+                    points={`${cx},${cy - 6} ${cx + 6},${cy} ${cx},${cy + 6} ${cx - 6},${cy}`}
+                    fill={node.color}
+                    stroke={node.color}
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                />
+            ) : (
+                <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />
+            );
         }
 
         return (

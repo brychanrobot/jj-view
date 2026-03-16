@@ -473,8 +473,8 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "npm run format && npm run check-types && npm run lint && node esbuild.js --production",
-        "build": "npm run format && npm run check-types && npm run lint && node esbuild.js",
+        "vscode:prepublish": "npm run check-types && npm run lint && node esbuild.js --production",
+        "build": "npm run check-types && npm run lint && node esbuild.js",
         "build:icons": "svgtofont -s media/custom-icons-src -o media/custom-icons",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",

@@ -14,6 +14,7 @@ export interface GraphNode {
     isWorkingCopy: boolean;
     conflict?: boolean;
     isEmpty?: boolean;
+    isImmutable?: boolean;
 }
 
 export interface GraphEdge {
