@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.18.0
+
+### Features
+
+- Add theme support for JJ log webview
+- Add formatting to other commands
+
+### Chores & Improvements
+
+- Add several skills to help with development
+- Run prettier
+
 ## 1.17.0
 
 ### Features
