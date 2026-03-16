@@ -65,7 +65,7 @@ suite('Button Visibility Integration Test', function () {
 
         // Verify structure: grandparent -> parent -> child (@)
         // Parent should be mutable because it's not root and not immutable-head
-        
+
         await scmProvider.refresh({ forceSnapshot: true });
 
         // Verify setContext was called with 'jj.parentMutable', true

@@ -7,7 +7,17 @@ import { ElectronApplication } from 'playwright';
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import { TestRepo, buildGraph, type CommitId } from '../test-repo';
-import { launchVSCode, focusJJLog, getLogWebview, expectTree, entry, rightClickAndSelect, ROOT_ID, selectCommits, triggerRefresh } from './e2e-helpers';
+import {
+    launchVSCode,
+    focusJJLog,
+    getLogWebview,
+    expectTree,
+    entry,
+    rightClickAndSelect,
+    ROOT_ID,
+    selectCommits,
+    triggerRefresh,
+} from './e2e-helpers';
 
 test.describe('JJ Log Context Menu E2E', () => {
     let repo: TestRepo;
@@ -23,12 +33,12 @@ test.describe('JJ Log Context Menu E2E', () => {
         repo.writeFile('dummy.txt', 'dummy content');
         repo.describe('dummy');
         dummyId = repo.getChangeId('@');
-        
+
         // Setup a predictable graph
         nodes = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'f.txt': 'base' } },
             { label: 'commit1', parents: ['initial'], description: 'commit1', files: { 'a.txt': 'a content' } },
-            { label: 'commit2', parents: ['initial'], description: 'commit2', files: { 'b.txt': 'b content' } }
+            { label: 'commit2', parents: ['initial'], description: 'commit2', files: { 'b.txt': 'b content' } },
         ]);
 
         const setup = await launchVSCode(repo);
@@ -41,15 +51,18 @@ test.describe('JJ Log Context Menu E2E', () => {
 
     test.afterEach(async () => {
         if (app) await app.close();
-        if (userDataDir) try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+        if (userDataDir)
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
         if (repo) repo.dispose();
     });
 
     test('Abandon and Undo', async () => {
         const webview = await getLogWebview(page);
-        
+
         await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
-        
+
         const commit2Id = nodes['commit2'].changeId;
         const commit1Id = nodes['commit1'].changeId;
         const initialId = nodes['initial'].changeId;
@@ -68,7 +81,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         const undoBtn = page.getByRole('button', { name: 'Undo' }).first();
         await expect(undoBtn).toBeVisible({ timeout: 5000 });
         await undoBtn.click();
-        
+
         // After undo, commit2 should be restored as the working copy
         await expectTree(repo, [
             '@ ' + entry(commit2Id, 'commit2', initialId),
@@ -80,9 +93,9 @@ test.describe('JJ Log Context Menu E2E', () => {
 
     test('New Before (Single)', async () => {
         const webview = await getLogWebview(page);
-        
+
         await expect(webview.locator('.commit-row', { hasText: 'commit1' })).toBeVisible();
-        
+
         const commit2Id = nodes['commit2'].changeId;
         const commit1Id = nodes['commit1'].changeId;
         const initialId = nodes['initial'].changeId;
@@ -91,7 +104,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
         await rightClickAndSelect(page, initialRow, 'New Before');
 
-        // After "New Before" initial: 
+        // After "New Before" initial:
         // root -> dummyId -> middle (@) -> initial -> {commit1, commit2}
         await expect(async () => {
             await expectTree(repo, [
@@ -106,7 +119,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
     test('Multi-select Abandon', async () => {
         const webview = await getLogWebview(page);
-        
+
         await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
 
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
@@ -128,7 +141,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
     test('Multi-select New Before', async () => {
         const webview = await getLogWebview(page);
-        
+
         await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
 
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
@@ -250,7 +263,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         // Set bookmark on commit 1
         await rightClickAndSelect(page, commit1Row, 'Set Bookmark');
-        
+
         // Wait for QuickPick/InputBox to appear
         await expect(page.locator('.quick-input-widget')).toBeVisible({ timeout: 5000 });
         await page.keyboard.type('my-bookmark', { delay: 50 });
@@ -267,20 +280,20 @@ test.describe('JJ Log Context Menu E2E', () => {
         repo.edit(commit1Id);
         await triggerRefresh(page);
         repo.writeFile('f.txt', 'modified in wc');
-        
+
         await expect(async () => {
             // Re-locate the row in each poll to handle refreshes/virtualization
             const row = webview.locator('.commit-row', { hasText: 'commit1' });
             // The working-copy class is the most reliable indicator
             await expect(row).toHaveClass(/working-copy/, { timeout: 5000 });
-        }, "Absorb setup failed: commit1 did not become the working copy").toPass({ timeout: 30000 });
-        
+        }, 'Absorb setup failed: commit1 did not become the working copy').toPass({ timeout: 30000 });
+
         // Re-locate one last time for the context menu action
         const finalRow = webview.locator('.commit-row', { hasText: 'commit1' });
         // Absorb into commit 1
-        console.log("DEBUG TEST: Attempting to right-click and Absorb on commit1");
+        console.log('DEBUG TEST: Attempting to right-click and Absorb on commit1');
         await rightClickAndSelect(page, finalRow, 'Absorb');
-        console.log("DEBUG TEST: rightClickAndSelect completed without throwing");
+        console.log('DEBUG TEST: rightClickAndSelect completed without throwing');
 
         // Verification: commit 1 should now have the change, and f.txt should no longer be modified in @
         await expect(async () => {

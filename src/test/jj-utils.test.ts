@@ -4,7 +4,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { convertJjChangeIdToHex, shortenChangeId, getChangeIdDisplayLength, formatDisplayChangeId } from '../utils/jj-utils';
+import {
+    convertJjChangeIdToHex,
+    shortenChangeId,
+    getChangeIdDisplayLength,
+    formatDisplayChangeId,
+} from '../utils/jj-utils';
 
 describe('JJ Utils', () => {
     describe('convertJjChangeIdToHex', () => {

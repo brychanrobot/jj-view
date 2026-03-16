@@ -7,17 +7,11 @@ import { JjService } from '../jj-service';
 import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
-export async function setDescriptionCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    args: unknown[] = [],
-) {
+export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[] = []) {
     const message = typeof args[0] === 'string' ? args[0] : undefined;
     const revisionArgs = message ? args.slice(1) : args;
     const revision =
-        (message && typeof args[1] === 'string' ? args[1] : undefined) ??
-        extractRevisions(revisionArgs)[0] ??
-        '@';
+        (message && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
 
     const description = message ?? scmProvider.sourceControl.inputBox.value;
 

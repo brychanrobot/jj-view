@@ -149,7 +149,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 canMerge: isSelected && selectionCount > 1,
 
                 // Absorb requires at least one mutable parent and single-item context
-                canAbsorb: commit.parents_immutable?.some((immutable: boolean) => !immutable) && (!isSelected || selectionCount <= 1),
+                canAbsorb:
+                    commit.parents_immutable?.some((immutable: boolean) => !immutable) &&
+                    (!isSelected || selectionCount <= 1),
 
                 preventDefaultContextMenuItems: true,
             })}
@@ -373,7 +375,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             marginTop: '-6px',
                             opacity: textOpacity,
                             overflow: 'hidden',
-                            height: '22px', 
+                            height: '22px',
                         }}
                     >
                         {/* Status Badge */}
@@ -435,7 +437,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             (!commit.gerritNeedsUpload ? (
                                 // Synced - Non-interactive Icon
                                 <div
-                                    title={gerritCl.synced ? "Synced (content matches Gerrit)" : "Up to date with Gerrit"}
+                                    title={
+                                        gerritCl.synced ? 'Synced (content matches Gerrit)' : 'Up to date with Gerrit'
+                                    }
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -444,10 +448,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                         cursor: 'default',
                                     }}
                                 >
-                                    <span
-                                        className="codicon codicon-cloud"
-                                        style={{ fontSize: '14px' }}
-                                    />
+                                    <span className="codicon codicon-cloud" style={{ fontSize: '14px' }} />
                                 </div>
                             ) : (
                                 // Not Synced - Interactive Upload Button
@@ -466,23 +467,20 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                         color: 'var(--vscode-charts-yellow)',
                                     }}
                                 >
-                                    <span
-                                        className="codicon codicon-cloud-upload"
-                                        style={{ fontSize: '14px' }}
-                                    />
+                                    <span className="codicon codicon-cloud-upload" style={{ fontSize: '14px' }} />
                                 </div>
                             ))}
 
                         {/* Attributes */}
                         {gerritCl.unresolvedComments > 0 && (
-                            <span 
+                            <span
                                 title={`${gerritCl.unresolvedComments} Unresolved Comments`}
-                                style={{ 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    gap: '3px', 
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
                                     color: 'var(--vscode-problemsWarningIcon-foreground)',
-                                    marginLeft: '4px'
+                                    marginLeft: '4px',
                                 }}
                             >
                                 <span className="codicon codicon-comment-discussion" style={{ fontSize: '11px' }} />
@@ -491,13 +489,13 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         )}
 
                         {gerritCl.submittable && gerritCl.status === 'NEW' && (
-                            <span 
+                            <span
                                 title="Ready to Submit"
-                                style={{ 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
                                     color: 'var(--vscode-testing-iconPassed)',
-                                    marginLeft: '4px'
+                                    marginLeft: '4px',
                                 }}
                             >
                                 <span className="codicon codicon-check" style={{ fontSize: '12px' }} />

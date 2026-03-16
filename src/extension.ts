@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
     const contentProvider = new JjDocumentContentProvider(jj);
     const editProvider = new JjEditFileSystemProvider(jj);
     const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider, editProvider);
-    
+
     // Wire up the edit provider to trigger scm refreshes
     editProvider.onDidWrite = () => scmProvider.refresh();
 
@@ -133,7 +133,6 @@ export function activate(context: vscode.ExtensionContext) {
         ),
     );
 
-
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'jj-view.moveToChild',
@@ -152,7 +151,6 @@ export function activate(context: vscode.ExtensionContext) {
             await moveToParentInDiffCommand(scmProvider, jj, editor);
         }),
     );
-
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.refresh', async () => {
@@ -218,9 +216,15 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Register view provider
-    const logWebviewProvider = new JjLogWebviewProvider(context.extensionUri, jj, gerritService, (ids) => {
-        scmProvider.handleSelectionChange(ids);
-    }, outputChannel);
+    const logWebviewProvider = new JjLogWebviewProvider(
+        context.extensionUri,
+        jj,
+        gerritService,
+        (ids) => {
+            scmProvider.handleSelectionChange(ids);
+        },
+        outputChannel,
+    );
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
     );
@@ -237,7 +241,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(refreshDisposable);
 
     context.subscriptions.push(scmProvider);
-    
+
     // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
     scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
 
@@ -245,7 +249,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.onDidEndTerminalShellExecution((event) => {
             handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel);
-        })
+        }),
     );
 
     // For now, let's expose the refresh command to also refresh the tree

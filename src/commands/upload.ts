@@ -13,7 +13,7 @@ export async function uploadCommand(
     jj: JjService,
     gerrit: GerritService,
     args: unknown[],
-    outputChannel: vscode.OutputChannel
+    outputChannel: vscode.OutputChannel,
 ): Promise<void> {
     const revision = extractRevision(args) || '@';
     const config = vscode.workspace.getConfiguration('jj-view');
@@ -37,10 +37,7 @@ export async function uploadCommand(
             return;
         }
 
-        await withDelayedProgress(
-            `Uploading revision ${revision.substring(0, 8)}...`,
-            jj.upload(args, revision)
-        );
+        await withDelayedProgress(`Uploading revision ${revision.substring(0, 8)}...`, jj.upload(args, revision));
 
         gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);

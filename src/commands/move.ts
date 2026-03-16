@@ -78,4 +78,3 @@ export async function moveToParentInDiffCommand(scmProvider: JjScmProvider, jj: 
         await scmProvider.refresh();
     }
 }
-

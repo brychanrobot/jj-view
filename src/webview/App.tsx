@@ -24,14 +24,18 @@ const App: React.FC = () => {
 
     const [view] = React.useState<'graph' | 'details'>(initialView);
     const [commits, setCommits] = React.useState<any[]>((initialData?.payload as any)?.commits || []);
-    const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>((initialData?.payload as any)?.minChangeIdLength || 1);
+    const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>(
+        (initialData?.payload as any)?.minChangeIdLength || 1,
+    );
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
         commitsRef.current = commits;
     }, [commits]);
 
-    const [loading, setLoading] = React.useState(initialView === 'graph' && !((initialData?.payload as any)?.commits?.length > 0)); // Only load graph if in graph mode and no initial commits
+    const [loading, setLoading] = React.useState(
+        initialView === 'graph' && !((initialData?.payload as any)?.commits?.length > 0),
+    ); // Only load graph if in graph mode and no initial commits
     const [selectedCommitIds, setSelectedCommitIds] = React.useState<Set<string>>(new Set());
 
     // Details State
@@ -323,10 +327,10 @@ const App: React.FC = () => {
                         }
                     }}
                 >
-                    <CommitGraph 
-                        commits={commits} 
-                        onAction={handleGraphAction} 
-                        selectedCommitIds={selectedCommitIds} 
+                    <CommitGraph
+                        commits={commits}
+                        onAction={handleGraphAction}
+                        selectedCommitIds={selectedCommitIds}
                         minChangeIdLength={minChangeIdLength}
                     />
                 </div>
@@ -349,9 +353,9 @@ const App: React.FC = () => {
                                 }}
                             />
                         ) : activeDragItem.type === 'commit' ? (
-                            <CommitDragPreview 
-                                commit={activeDragItem} 
-                                isCtrlPressed={isCtrlPressed} 
+                            <CommitDragPreview
+                                commit={activeDragItem}
+                                isCtrlPressed={isCtrlPressed}
                                 minChangeIdLength={minChangeIdLength}
                             />
                         ) : null

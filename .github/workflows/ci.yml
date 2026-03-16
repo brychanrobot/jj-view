@@ -91,7 +91,7 @@ jobs:
                     VSIX_NAME="jj-view-${VERSION}-pre-${TIMESTAMP}.vsix"
                   fi
                   echo "vsix_name=${VSIX_NAME}" >> $GITHUB_OUTPUT
-                  
+
                   # Rename the generic vsix to the specific release name
                   mv jj-view.vsix "${VSIX_NAME}"
 

@@ -56,7 +56,7 @@ describe('Poller', () => {
         // Should run after micro-delay (10ms)
         await vi.advanceTimersByTimeAsync(10);
         expect(callback).toHaveBeenCalledTimes(1);
-        
+
         // And then continue polling
         await vi.advanceTimersByTimeAsync(100);
         expect(callback).toHaveBeenCalledTimes(2);
@@ -64,7 +64,7 @@ describe('Poller', () => {
 
     it('force runs immediately and resets timer', async () => {
         poller.start();
-        
+
         // Advance half way
         await vi.advanceTimersByTimeAsync(50);
         expect(callback).not.toHaveBeenCalled();
@@ -75,7 +75,7 @@ describe('Poller', () => {
         // Should wait full interval from now (100ms), so 50ms more + 50ms = 100ms
         await vi.advanceTimersByTimeAsync(50);
         expect(callback).toHaveBeenCalledTimes(1);
-        
+
         await vi.advanceTimersByTimeAsync(50);
         expect(callback).toHaveBeenCalledTimes(2);
     });

@@ -46,9 +46,9 @@ describe('ChangeDetectionManager', () => {
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
-        
+
         jj = new JjService(repo.path);
-        
+
         outputChannel = createMock<vscode.OutputChannel>({
             appendLine: vi.fn(),
         });
@@ -60,13 +60,13 @@ describe('ChangeDetectionManager', () => {
         mockOnDidSaveTextDocument.mockReturnValue({ dispose: vi.fn() });
         mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
         mockOnDidChangeConfiguration.mockReturnValue({ dispose: vi.fn() });
-        
+
         // Default config: polling
         mockGetConfiguration.mockReturnValue({
             get: (key: string, defaultValue: unknown) => {
                 if (key === 'fileWatcherMode') return 'polling';
                 return defaultValue;
-            }
+            },
         });
     });
 
@@ -76,19 +76,22 @@ describe('ChangeDetectionManager', () => {
             await changeManager.dispose();
             changeManager = undefined;
         }
-        
+
         repo.dispose();
         vi.clearAllMocks();
     });
 
     const waitForLog = async (pattern: string) => {
-        await vi.waitFor(() => {
-            const calls = (outputChannel.appendLine as Mock).mock.calls;
-            const found = calls.some(call => call[0].includes(pattern));
-            if (!found) {
-                throw new Error(`Log pattern "${pattern}" not found`);
-            }
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                const calls = (outputChannel.appendLine as Mock).mock.calls;
+                const found = calls.some((call) => call[0].includes(pattern));
+                if (!found) {
+                    throw new Error(`Log pattern "${pattern}" not found`);
+                }
+            },
+            { timeout: 10000, interval: 50 },
+        );
     };
 
     describe('Polling Logic (Fake Timers)', () => {
@@ -112,9 +115,9 @@ describe('ChangeDetectionManager', () => {
             const refreshPromise = new Promise<void>((resolve) => {
                 resolveRefresh = resolve;
             });
-            
+
             triggerRefreshSpy.mockReturnValue(refreshPromise);
-            
+
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
 
             // Verify configuration was read
@@ -131,7 +134,7 @@ describe('ChangeDetectionManager', () => {
             // 3. Resolve the refresh
             resolveRefresh!();
             await vi.runAllTicks(); // Process promise resolution
-            
+
             // Should NOT call immediately upon resolution
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
@@ -158,7 +161,7 @@ describe('ChangeDetectionManager', () => {
 
             // Wait 5.1s, should NOT call refresh (paused)
             await vi.advanceTimersByTimeAsync(5100);
-            
+
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
             // 3. Focus the window
@@ -175,23 +178,24 @@ describe('ChangeDetectionManager', () => {
         });
 
         it('triggers refresh on file save (VS Code event)', async () => {
-             // Fake timers for this one too since it's generic logic
+            // Fake timers for this one too since it's generic logic
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-    
+
             // Verify we subscribed to onDidSaveTextDocument
             expect(mockOnDidSaveTextDocument).toHaveBeenCalled();
-            const onDidSaveTextDocument = mockOnDidSaveTextDocument.mock.calls[mockOnDidSaveTextDocument.mock.calls.length - 1][0];
-            
+            const onDidSaveTextDocument =
+                mockOnDidSaveTextDocument.mock.calls[mockOnDidSaveTextDocument.mock.calls.length - 1][0];
+
             // Simulate save
             const mockDoc = createMock<vscode.TextDocument>({
-                uri: vscode.Uri.file(path.join(repo.path, 'test.txt'))
+                uri: vscode.Uri.file(path.join(repo.path, 'test.txt')),
             });
-            
+
             onDidSaveTextDocument(mockDoc);
-    
+
             expect(triggerRefreshSpy).toHaveBeenCalledWith({
                 forceSnapshot: true,
-                reason: 'file saved'
+                reason: 'file saved',
             });
         });
     });
@@ -207,81 +211,90 @@ describe('ChangeDetectionManager', () => {
                 get: (key: string, defaultValue: unknown) => {
                     if (key === 'fileWatcherMode') return 'watch';
                     return defaultValue;
-                }
+                },
             });
-    
+
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-    
+
             // Wait for watchers to start
             await waitForLog('Working Copy Watcher] Started');
             // Give it a bit more time to settle
-            await new Promise(resolve => setTimeout(resolve, 800));
-    
+            await new Promise((resolve) => setTimeout(resolve, 800));
+
             // Create a file to trigger the watcher
             const testFile = path.join(repo.path, 'test_watch.txt');
             await fs.writeFile(testFile, 'hello');
-            
+
             // Wait for event to propagate
-            await vi.waitFor(() => {
-                const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
-                expect(found, 'Trigger refresh for file watcher event was not called').toBe(true);
-            }, { timeout: 10000, interval: 100 });
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'file watcher event');
+                    expect(found, 'Trigger refresh for file watcher event was not called').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
         });
 
         it('handles op_heads changes with real watcher', async () => {
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-            
+
             // Wait for op_heads watcher to start
             await waitForLog('OpHeads Watcher] Started');
-    
+
             // Trigger an op_heads change
             const opHeadsPath = path.join(repo.path, '.jj', 'repo', 'op_heads', 'new_head');
             await fs.writeFile(opHeadsPath, 'commitid');
-    
+
             // Wait for event
-            await vi.waitFor(() => {
-                const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'jj operation');
-                expect(found, 'Trigger refresh for jj operation was not called').toBe(true);
-            }, { timeout: 10000, interval: 100 });
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'jj operation');
+                    expect(found, 'Trigger refresh for jj operation was not called').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
         });
 
         it('filters out negated patterns from .gitignore', async () => {
-             // Setup config to return 'watch'
-             mockGetConfiguration.mockReturnValue({
-                 get: (key: string, defaultValue: unknown) => {
-                     if (key === 'fileWatcherMode') return 'watch';
-                     return defaultValue;
-                 }
-             });
-     
-             // Create .gitignore with negated pattern and a directory to ignore
-             await fs.writeFile(path.join(repo.path, '.gitignore'), 'ignore_me\n!keep_me\n#comment');
-             await fs.mkdir(path.join(repo.path, 'ignore_me'), { recursive: true });
-     
-             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-     
-             // Wait for watcher to start, then settle to flush any
-             // FSEvents catch-up events from the mkdir before the watcher started.
-             await waitForLog('Working Copy Watcher] Started');
-             await new Promise(resolve => setTimeout(resolve, 500));
-             triggerRefreshSpy.mockClear();
+            // Setup config to return 'watch'
+            mockGetConfiguration.mockReturnValue({
+                get: (key: string, defaultValue: unknown) => {
+                    if (key === 'fileWatcherMode') return 'watch';
+                    return defaultValue;
+                },
+            });
 
-             // Write to the ignored directory — should NOT trigger
-             await fs.writeFile(path.join(repo.path, 'ignore_me', 'secret.txt'), 'hidden');
+            // Create .gitignore with negated pattern and a directory to ignore
+            await fs.writeFile(path.join(repo.path, '.gitignore'), 'ignore_me\n!keep_me\n#comment');
+            await fs.mkdir(path.join(repo.path, 'ignore_me'), { recursive: true });
 
-             // Wait to confirm no event fires for ignored file
-             await new Promise(resolve => setTimeout(resolve, 500));
-             const ignoredCalls = triggerRefreshSpy.mock.calls.filter(call => call[0].reason === 'file watcher event');
-             expect(ignoredCalls, 'Ignored file should not have triggered a refresh').toHaveLength(0);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
 
-             // Write to a non-ignored path — SHOULD trigger
-             await fs.writeFile(path.join(repo.path, 'visible.txt'), 'visible');
+            // Wait for watcher to start, then settle to flush any
+            // FSEvents catch-up events from the mkdir before the watcher started.
+            await waitForLog('Working Copy Watcher] Started');
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            triggerRefreshSpy.mockClear();
 
-             await vi.waitFor(() => {
-                 const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
-                 expect(found, 'Expected file watcher event for visible.txt').toBe(true);
-             }, { timeout: 10000, interval: 100 });
-         });
+            // Write to the ignored directory — should NOT trigger
+            await fs.writeFile(path.join(repo.path, 'ignore_me', 'secret.txt'), 'hidden');
+
+            // Wait to confirm no event fires for ignored file
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const ignoredCalls = triggerRefreshSpy.mock.calls.filter((call) => call[0].reason === 'file watcher event');
+            expect(ignoredCalls, 'Ignored file should not have triggered a refresh').toHaveLength(0);
+
+            // Write to a non-ignored path — SHOULD trigger
+            await fs.writeFile(path.join(repo.path, 'visible.txt'), 'visible');
+
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'file watcher event');
+                    expect(found, 'Expected file watcher event for visible.txt').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
+        });
 
         it('ignores directories matching literal patterns like /out/', async () => {
             // Setup config to return 'watch'
@@ -289,11 +302,11 @@ describe('ChangeDetectionManager', () => {
                 get: (key: string, defaultValue: unknown) => {
                     if (key === 'fileWatcherMode') return 'watch';
                     return defaultValue;
-                }
+                },
             });
 
             repo.writeFile('.gitignore', '/out*/');
-            
+
             const ignoredDir = path.join(repo.path, 'out');
             await fs.mkdir(ignoredDir, { recursive: true });
 
@@ -301,24 +314,27 @@ describe('ChangeDetectionManager', () => {
 
             // Wait for watcher to start and settle
             await waitForLog('Working Copy Watcher] Started');
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise((resolve) => setTimeout(resolve, 500));
             triggerRefreshSpy.mockClear();
 
             // 1. Write to the ignored directory — should NOT trigger
             await fs.writeFile(path.join(ignoredDir, 'build.log'), 'building...');
 
             // Wait to confirm no event fires for ignored file
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const ignoredCalls = triggerRefreshSpy.mock.calls.filter(call => call[0].reason === 'file watcher event');
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            const ignoredCalls = triggerRefreshSpy.mock.calls.filter((call) => call[0].reason === 'file watcher event');
             expect(ignoredCalls, 'File in /out/ directory should not have triggered a refresh').toHaveLength(0);
 
             // 2. Write to a non-ignored path — SHOULD trigger
             repo.writeFile('readme.md', 'hello');
 
-            await vi.waitFor(() => {
-                const found = triggerRefreshSpy.mock.calls.some(call => call[0].reason === 'file watcher event');
-                expect(found, 'Expected file watcher event for readme.md').toBe(true);
-            }, { timeout: 10000, interval: 100 });
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'file watcher event');
+                    expect(found, 'Expected file watcher event for readme.md').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
         });
     });
 });

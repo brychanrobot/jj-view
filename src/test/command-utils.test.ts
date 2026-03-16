@@ -41,14 +41,14 @@ describe('withDelayedProgress', () => {
 
     it('should NOT show progress if task is fast (<100ms)', async () => {
         const fastTask = Promise.resolve('done');
-        
+
         const promise = withDelayedProgress('Fast Task', fastTask);
-        
+
         // Fast forward less than delay
         vi.advanceTimersByTime(50);
-        
+
         await promise;
-        
+
         expect(vscode.window.withProgress).not.toHaveBeenCalled();
     });
 
@@ -65,7 +65,7 @@ describe('withDelayedProgress', () => {
 
         expect(vscode.window.withProgress).toHaveBeenCalledWith(
             expect.objectContaining({ title: 'Slow Task' }),
-            expect.any(Function)
+            expect.any(Function),
         );
 
         resolveTask!('finally done');

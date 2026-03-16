@@ -16,16 +16,16 @@ import { vi } from 'vitest';
 export function createVscodeMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
-        Uri: { 
+        Uri: {
             file: (fsPath: string) => {
-                return { 
-                    fsPath, 
-                    path: fsPath, 
+                return {
+                    fsPath,
+                    path: fsPath,
                     scheme: 'file',
                     query: '',
-                    with: function(change: { query?: string }) {
+                    with: function (change: { query?: string }) {
                         return { ...this, ...change };
-                    }
+                    },
                 };
             },
             from: (components: { scheme: string; path: string; query?: string }) => {
@@ -34,15 +34,15 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                     path: components.path,
                     query: components.query || '',
                     fsPath: components.path,
-                    with: function(change: { query?: string }) {
+                    with: function (change: { query?: string }) {
                         return { ...this, ...change };
-                    }
+                    },
                 };
             },
             parse: (uriString: string) => {
                 return { _isUriBaseCtorMock: true, value: uriString };
             },
-            joinPath: (base: { path: string, scheme: string }, ...paths: string[]) => {
+            joinPath: (base: { path: string; scheme: string }, ...paths: string[]) => {
                 // formatted join
                 const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
                 return {
@@ -50,11 +50,11 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                     path: combined,
                     fsPath: combined,
                     query: '',
-                    with: function(change: { query?: string }) {
+                    with: function (change: { query?: string }) {
                         return { ...this, ...change };
-                    }
+                    },
                 };
-            }
+            },
         },
         env: {
             openExternal: vi.fn(),
@@ -73,16 +73,22 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         },
         commands: {
             executeCommand: vi.fn(),
-        }
+        },
     };
 
     // Shallow merge each top-level key so overrides extend rather than replace namespaces
     for (const key of Object.keys(overrides)) {
         const baseVal = base[key];
         const overrideVal = overrides[key];
-        if (baseVal && typeof baseVal === 'object' && !Array.isArray(baseVal) &&
-            overrideVal && typeof overrideVal === 'object' && !Array.isArray(overrideVal)) {
-            base[key] = { ...baseVal as Record<string, unknown>, ...overrideVal as Record<string, unknown> };
+        if (
+            baseVal &&
+            typeof baseVal === 'object' &&
+            !Array.isArray(baseVal) &&
+            overrideVal &&
+            typeof overrideVal === 'object' &&
+            !Array.isArray(overrideVal)
+        ) {
+            base[key] = { ...(baseVal as Record<string, unknown>), ...(overrideVal as Record<string, unknown>) };
         } else {
             base[key] = overrideVal;
         }

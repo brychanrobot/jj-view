@@ -16,7 +16,12 @@ interface CommitGraphProps {
     minChangeIdLength: number;
 }
 
-export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, selectedCommitIds, minChangeIdLength }) => {
+export const CommitGraph: React.FC<CommitGraphProps> = ({
+    commits,
+    onAction,
+    selectedCommitIds,
+    minChangeIdLength,
+}) => {
     const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
     const displayRows = layout.rows || commits;
 
@@ -30,20 +35,19 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
     const { rowOffsets, totalHeight } = React.useMemo(() => {
         let currentOffset = 0;
         const offsets: number[] = [];
-        
-        displayRows.forEach(commit => {
+
+        displayRows.forEach((commit) => {
             offsets.push(currentOffset);
             // Height logic matching the renderer in CommitNode
             const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
             currentOffset += height;
         });
-        
+
         // Push one last offset for the total height boundary (useful for empty space calculations if needed)
         offsets.push(currentOffset);
 
         return { rowOffsets: offsets, totalHeight: currentOffset };
     }, [displayRows]);
-
 
     // Total graph width calculation
     const LEFT_MARGIN = 12; // Match GraphRail
@@ -52,9 +56,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({ commits, onAction, sel
     // Fallback to 13px if not available
     const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
     const GAP = computeGap(fontSize);
-    
+
     // Determine the max shortest ID length to display
-    const maxShortestIdLength = React.useMemo(() => computeMaxShortestIdLength(commits, minChangeIdLength), [commits, minChangeIdLength]);
+    const maxShortestIdLength = React.useMemo(
+        () => computeMaxShortestIdLength(commits, minChangeIdLength),
+        [commits, minChangeIdLength],
+    );
 
     const hasImmutableSelection = React.useMemo(() => {
         if (!selectedCommitIds || selectedCommitIds.size === 0) {

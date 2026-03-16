@@ -18,7 +18,7 @@ export class DirectoryWatcher implements vscode.Disposable {
         private readonly callback: DirectoryWatcherCallback,
         private readonly outputChannel: vscode.OutputChannel,
         private readonly name: string = 'DirectoryWatcher',
-        private readonly backend?: BackendType
+        private readonly backend?: BackendType,
     ) {}
 
     async start(ignores: string[] = []) {
@@ -33,7 +33,7 @@ export class DirectoryWatcher implements vscode.Disposable {
 
             try {
                 this.log(`[${this.name}] Starting watcher on: ${this.path}`);
-                
+
                 const sub = await subscribe(
                     this.path,
                     (err, events) => {
@@ -46,7 +46,7 @@ export class DirectoryWatcher implements vscode.Disposable {
                             this.callback(events);
                         }
                     },
-                    { ignore: ignores, backend: this.backend }
+                    { ignore: ignores, backend: this.backend },
                 );
 
                 if (this._disposed) {
@@ -60,18 +60,22 @@ export class DirectoryWatcher implements vscode.Disposable {
                 this.log(`[${this.name}] Failed to start: ${err}`);
                 const errorMessage = err instanceof Error ? err.message : String(err);
                 if (
-                    errorMessage.includes('inotify_add_watch') || 
-                    errorMessage.includes('ENOSPC') || 
+                    errorMessage.includes('inotify_add_watch') ||
+                    errorMessage.includes('ENOSPC') ||
                     errorMessage.includes('No space left on device')
                 ) {
-                    vscode.window.showWarningMessage(
-                        `Failed to start file watcher: inotify watch limit reached. See README for instructions.`,
-                        'Open README'
-                    ).then(selection => {
-                        if (selection === 'Open README') {
-                            vscode.env.openExternal(vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'));
-                        }
-                    });
+                    vscode.window
+                        .showWarningMessage(
+                            `Failed to start file watcher: inotify watch limit reached. See README for instructions.`,
+                            'Open README',
+                        )
+                        .then((selection) => {
+                            if (selection === 'Open README') {
+                                vscode.env.openExternal(
+                                    vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
+                                );
+                            }
+                        });
                 }
                 throw err;
             }
@@ -114,5 +118,4 @@ export class DirectoryWatcher implements vscode.Disposable {
             // Ignore errors if channel is closed/disposed
         }
     }
-
 }

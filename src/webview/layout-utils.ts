@@ -25,17 +25,15 @@ export interface ShortestIdCommit {
  * but at least minLen.
  */
 export function computeMaxShortestIdLength(commits: ShortestIdCommit[], minLen: number): number {
-    return commits.reduce((max, commit) => Math.max(max, getChangeIdDisplayLength(commit.change_id_shortest, minLen)), minLen);
+    return commits.reduce(
+        (max, commit) => Math.max(max, getChangeIdDisplayLength(commit.change_id_shortest, minLen)),
+        minLen,
+    );
 }
 
 /**
  * Calculates the total width of the graph area (including margin and gap).
  */
-export function computeGraphAreaWidth(
-    graphWidth: number,
-    laneWidth: number,
-    leftMargin: number,
-    gap: number,
-): number {
+export function computeGraphAreaWidth(graphWidth: number, laneWidth: number, leftMargin: number, gap: number): number {
     return graphWidth * laneWidth + leftMargin + gap;
 }

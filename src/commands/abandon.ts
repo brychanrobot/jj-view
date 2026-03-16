@@ -12,7 +12,7 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
     let revisions: string[] = [];
 
     // 1. Check if triggered from Working Copy header (ignore selection)
-    if (args.some(arg => isWorkingCopyResourceGroup(arg))) {
+    if (args.some((arg) => isWorkingCopyResourceGroup(arg))) {
         revisions = ['@'];
     } else {
         // 2. Check explicit argument (e.g. context menu click)

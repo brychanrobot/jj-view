@@ -14,7 +14,7 @@ import { createMock } from './test-utils';
 
 function createMockWebviewView() {
     let visibilityListener: (e: void) => void | undefined;
-    
+
     const mockWebview = createMock<vscode.Webview>({
         options: {},
         html: '',
@@ -35,10 +35,10 @@ function createMockWebviewView() {
         visible: true,
     });
 
-    return { 
-        view: mockWebviewView, 
-        webview: mockWebview, 
-        triggerVisibilityChange: () => visibilityListener?.() 
+    return {
+        view: mockWebviewView,
+        webview: mockWebview,
+        triggerVisibilityChange: () => visibilityListener?.(),
     };
 }
 
@@ -53,7 +53,7 @@ suite('Webview Initialization Integration Test', function () {
         await repo.init();
 
         jj = new JjService(repo.path);
-        
+
         const extensionUri = vscode.Uri.file(__dirname);
         const gerritService = createMock<GerritService>({
             onDidUpdate: () => ({ dispose: () => {} }),
@@ -79,7 +79,7 @@ suite('Webview Initialization Integration Test', function () {
         repo.new();
         repo.describe('Test Commit 1');
         const id1 = repo.getChangeId('@');
-        
+
         // 1. Initial Resolve & Refresh to populate cache
         const { view: initialView } = createMockWebviewView();
         provider.resolveWebviewView(
@@ -117,7 +117,7 @@ suite('Webview Initialization Integration Test', function () {
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
-        
+
         // Populate cache
         await provider.refresh();
         const htmlBefore = webview.html;

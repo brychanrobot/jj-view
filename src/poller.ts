@@ -16,7 +16,7 @@ export class Poller implements vscode.Disposable {
 
     constructor(
         private readonly intervalMs: number,
-        private readonly callback: () => Promise<void>
+        private readonly callback: () => Promise<void>,
     ) {}
 
     /**
@@ -55,7 +55,7 @@ export class Poller implements vscode.Disposable {
         if (this._disposed) {
             return;
         }
-        
+
         // Stop current timer
         if (this._timer) {
             clearTimeout(this._timer);

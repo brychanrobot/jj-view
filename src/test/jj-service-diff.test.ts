@@ -24,22 +24,20 @@ describe('JjService Diff Tests', () => {
     });
 
     test('getDiffForRevision handles thundering herd concurrently', async () => {
-        const ids = await buildGraph(repo, [
-            { label: 'base', files: { 'test.txt': 'content' } }
-        ]);
+        const ids = await buildGraph(repo, [{ label: 'base', files: { 'test.txt': 'content' } }]);
         const commitId = ids.base.commitId;
-        
+
         const runSpy = vi.spyOn(jjService as unknown as Record<'run', (...args: unknown[]) => Promise<unknown>>, 'run');
-        
+
         const results = await Promise.all([
             jjService.getDiffForRevision(commitId),
             jjService.getDiffForRevision(commitId),
             jjService.getDiffForRevision(commitId),
         ]);
-        
+
         expect(results[0].tempDir).toBe(results[1].tempDir);
         expect(results[1].tempDir).toBe(results[2].tempDir);
-        
+
         const diffeditCalls = runSpy.mock.calls.filter((call: unknown[]) => call[0] === 'diffedit');
         expect(diffeditCalls.length).toBe(1);
     });
@@ -67,7 +65,7 @@ describe('JjService Diff Tests', () => {
             },
         ]);
 
-        // Delete file in child (buildGraph doesn't support deletion via 'files' map easily yet, 
+        // Delete file in child (buildGraph doesn't support deletion via 'files' map easily yet,
         // it just overwrites or adds. But it uses repo.new() and then writes files.
         // Wait, TestRepo.deleteFile(path) exists. I'll do it after buildGraph for now.)
         repo.edit(ids.child.changeId);
@@ -75,9 +73,9 @@ describe('JjService Diff Tests', () => {
         const commitId = repo.getCommitId('@');
 
         const cache = await jjService.getDiffForRevision(commitId);
-        
+
         expect(cache.tempDir).toBeDefined();
-        
+
         // Check contents in cache
         const left = (p: string) => fs.readFileSync(path.join(cache.tempDir, 'left', p), 'utf8');
         const right = (p: string) => fs.readFileSync(path.join(cache.tempDir, 'right', p), 'utf8');
@@ -85,10 +83,10 @@ describe('JjService Diff Tests', () => {
 
         expect(left('mod.txt')).toBe('old\n');
         expect(right('mod.txt')).toBe('new\n');
-        
+
         expect(exists('left', 'add.txt')).toBe(false);
         expect(right('add.txt')).toBe('fresh\n');
-        
+
         expect(left('del.txt')).toBe('gone\n');
         expect(exists('right', 'del.txt')).toBe(false);
 
@@ -124,14 +122,12 @@ describe('JjService Diff Tests', () => {
     });
 
     test('getDiffContent works on an immutable revision', async () => {
-        const ids = await buildGraph(repo, [
-            { label: 'ice', files: { 'fixed.txt': 'frozen\n' } }
-        ]);
+        const ids = await buildGraph(repo, [{ label: 'ice', files: { 'fixed.txt': 'frozen\n' } }]);
         const commitId = ids.ice.commitId;
-        
+
         // Mark this commit as immutable by configuring immutable_heads()
         repo.config('revset-aliases."immutable_heads()"', commitId);
-        
+
         // Sanity check using TestRepo's helper
         expect(repo.isImmutable(commitId)).toBe(true);
 
@@ -143,10 +139,10 @@ describe('JjService Diff Tests', () => {
     test('getDiffContent returns identical content for unchanged file (fallback)', async () => {
         const ids = await buildGraph(repo, [
             { label: 'base', files: { 'steady.txt': 'steady\n' } },
-            { label: 'child', parents: ['base'] }
+            { label: 'child', parents: ['base'] },
         ]);
         const childId = ids.child.changeId;
-        
+
         const content = await jjService.getDiffContent(childId, 'steady.txt');
         expect(content.left).toBe('steady\n');
         expect(content.right).toBe('steady\n');

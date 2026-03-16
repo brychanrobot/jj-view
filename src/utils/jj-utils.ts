@@ -44,11 +44,7 @@ export function getChangeIdDisplayLength(shortestId: string | undefined, minLen:
 /**
  * Formats a change ID for display using the unique prefix if available and the configured minimum length.
  */
-export function formatDisplayChangeId(
-    changeId: string,
-    shortestId: string | undefined,
-    minLen: number,
-): string {
+export function formatDisplayChangeId(changeId: string, shortestId: string | undefined, minLen: number): string {
     const displayLen = getChangeIdDisplayLength(shortestId, minLen);
     return shortenChangeId(changeId, displayLen);
 }

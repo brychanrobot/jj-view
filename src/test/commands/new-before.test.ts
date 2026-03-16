@@ -17,7 +17,7 @@ vi.mock('vscode', async () => {
         window: {
             showErrorMessage: vi.fn(),
             withProgress: vi.fn(async (_options, task) => await task(() => {})),
-        }
+        },
     });
 });
 
@@ -30,7 +30,7 @@ describe('newBeforeCommand', () => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path);
-        
+
         // Mock SCM Provider
         scmProvider = {
             refresh: vi.fn().mockResolvedValue(undefined),
@@ -55,15 +55,15 @@ describe('newBeforeCommand', () => {
 
         // Expected: root -> A -> New -> B
         const parentsOfB = repo.getParents(revB)[0];
-        
+
         // B should be a child of New
         // Verify chain: B -> New -> A
         const revNew = parentsOfB;
         expect(revNew).not.toBe(revA);
-        
+
         const parentsOfNew = repo.getParents(revNew)[0];
         expect(parentsOfNew).toBe(revA);
-        
+
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
@@ -92,7 +92,7 @@ describe('newBeforeCommand', () => {
     });
 
     it('should default to @ if no argument and no selection', async () => {
-         // Setup repo: root -> Parent -> A
+        // Setup repo: root -> Parent -> A
         const ids = await buildGraph(repo, [
             { label: 'Parent', description: 'Parent' },
             { label: 'A', parents: ['Parent'], description: 'A', isWorkingCopy: true },
@@ -109,7 +109,7 @@ describe('newBeforeCommand', () => {
         // Expected: root -> Parent -> New -> A
         const parentsOfA = repo.getParents(revA)[0];
         expect(parentsOfA).not.toBe(revParent);
-        
+
         const newCommitParent = repo.getParents(parentsOfA)[0];
         expect(newCommitParent).toBe(revParent);
     });
@@ -133,17 +133,17 @@ describe('newBeforeCommand', () => {
 
         // Expected: root -> A -> New -> B
         //                             -> C
-        
+
         // B and C should have the same parent (New)
         const parentsOfB = repo.getParents(revB);
         const parentsOfC = repo.getParents(revC);
-        
+
         expect(parentsOfB.length).toBe(1);
         expect(parentsOfC.length).toBe(1);
         expect(parentsOfB[0]).toBe(parentsOfC[0]);
-        
+
         const newCommitId = parentsOfB[0];
-        
+
         // New commit should have A as parent
         const parentsOfNew = repo.getParents(newCommitId);
         expect(parentsOfNew[0]).toBe(ids['A'].changeId);

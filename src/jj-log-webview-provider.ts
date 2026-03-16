@@ -23,7 +23,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _jj: JjService,
         private readonly _gerrit: GerritService,
         private readonly _onSelectionChange: (commits: string[]) => void,
-        public readonly outputChannel?: vscode.OutputChannel // Optional
+        public readonly outputChannel?: vscode.OutputChannel, // Optional
     ) {
         // Gerrit updates only need to re-render, not re-fetch jj log
         this._gerrit.onDidUpdate(() => this.refreshGerrit());
@@ -40,12 +40,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [this._extensionUri],
         };
-        
+
         // Update the HTML when the view becomes hidden so that when it is restored,
         // it uses the latest cached data instead of the initial stale data.
         webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
-                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
+                webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
                     view: 'graph',
                     payload: {
                         commits: this._cachedCommits,
@@ -145,7 +145,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     // Only applicable for single selection where parents are mutable
                     let parentMutable = false;
                     if (count === 1) {
-                        const selectedCommit = this._cachedCommits.find((c) => c.change_id === data.payload.commitIds[0]);
+                        const selectedCommit = this._cachedCommits.find(
+                            (c) => c.change_id === data.payload.commitIds[0],
+                        );
                         if (selectedCommit && selectedCommit.parents_immutable) {
                             // If any parent is NOT immutable (i.e. is mutable), then we can absorb
                             parentMutable = selectedCommit.parents_immutable.some((immutable) => !immutable);
@@ -171,7 +173,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         if (this._view) {
             const start = performance.now();
             let commits: JjLogEntry[] = [];
-            
+
             try {
                 this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
 
@@ -179,13 +181,17 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 const logStart = performance.now();
                 commits = await this._jj.getLog({ omitChanges: true });
                 const logDuration = performance.now() - logStart;
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`);
+                this.outputChannel?.appendLine(
+                    `[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`,
+                );
 
                 this._cachedCommits = commits;
                 this._renderCommits(commits);
-                
+
                 const initialRenderDuration = performance.now() - start;
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`);
+                this.outputChannel?.appendLine(
+                    `[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`,
+                );
             } catch (e) {
                 this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
                 return;
@@ -200,16 +206,18 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     private async refreshGerrit() {
         if (!this._view || this._cachedCommits.length === 0) return;
         if (!this._gerrit.isEnabled) return;
-        
+
         try {
             this._gerrit.startPolling();
-            
+
             const gerritStart = performance.now();
-            const hasChanges = await this._gerrit.ensureFreshStatuses(this._cachedCommits.map(c => ({
-                commitId: c.commit_id ?? '',
-                changeId: c.change_id,
-                description: c.description
-            })));
+            const hasChanges = await this._gerrit.ensureFreshStatuses(
+                this._cachedCommits.map((c) => ({
+                    commitId: c.commit_id ?? '',
+                    changeId: c.change_id,
+                    description: c.description,
+                })),
+            );
 
             const gerritDuration = performance.now() - gerritStart;
             this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
@@ -232,9 +240,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         } else {
             this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
         }
-        
+
         this._view?.webview.postMessage({
-            type: 'update', commits, minChangeIdLength
+            type: 'update',
+            commits,
+            minChangeIdLength,
         });
     }
 
@@ -249,7 +259,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         if (logs.length === 0) {
             return;
         }
-        
+
         const log = logs[0];
         const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
         const initialData = {
@@ -313,8 +323,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     const file = message.payload.file;
                     const changeId = message.payload.changeId;
                     const isImmutable = message.payload.isImmutable;
-                    
-                    const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, { editable: !isImmutable });
+
+                    const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, {
+                        editable: !isImmutable,
+                    });
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',

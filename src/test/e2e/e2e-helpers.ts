@@ -30,35 +30,49 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
     const userSettingsDir = path.join(userDataDir, 'User');
     fs.mkdirSync(userSettingsDir, { recursive: true });
 
-    fs.writeFileSync(path.join(userSettingsDir, 'settings.json'), JSON.stringify({
-        "git.enabled": false,
-        "workbench.startupEditor": "none",
-        "workbench.sideBar.location": "left",
-        "scm.alwaysShowProviders": true,
-        "scm.alwaysShowActions": true,
-        "workbench.tips.enabled": false,
-        "window.titleBarStyle": "custom",
-        "security.workspace.trust.enabled": false,
-        "jj-view.fileWatcherMode": "watch",
-        "jj-view.minChangeIdLength": 3,
-        "telemetry.telemetryLevel": "off",
-        "workbench.notification.displayMode": "hidden",
-        "notifications.showDoNotDisturb": true,
-        "update.mode": "none",
-        "extensions.autoCheckUpdates": false,
-        "extensions.autoUpdate": false
-    }, null, 2));
+    fs.writeFileSync(
+        path.join(userSettingsDir, 'settings.json'),
+        JSON.stringify(
+            {
+                'git.enabled': false,
+                'workbench.startupEditor': 'none',
+                'workbench.sideBar.location': 'left',
+                'scm.alwaysShowProviders': true,
+                'scm.alwaysShowActions': true,
+                'workbench.tips.enabled': false,
+                'window.titleBarStyle': 'custom',
+                'security.workspace.trust.enabled': false,
+                'jj-view.fileWatcherMode': 'watch',
+                'jj-view.minChangeIdLength': 3,
+                'telemetry.telemetryLevel': 'off',
+                'workbench.notification.displayMode': 'hidden',
+                'notifications.showDoNotDisturb': true,
+                'update.mode': 'none',
+                'extensions.autoCheckUpdates': false,
+                'extensions.autoUpdate': false,
+            },
+            null,
+            2,
+        ),
+    );
 
-    fs.writeFileSync(path.join(userSettingsDir, 'keybindings.json'), JSON.stringify([
-        {
-            "key": "ctrl+alt+l",
-            "command": "jj-view.logView.focus"
-        },
-        {
-            "key": "ctrl+alt+r",
-            "command": "jj-view.refresh"
-        }
-    ], null, 2));
+    fs.writeFileSync(
+        path.join(userSettingsDir, 'keybindings.json'),
+        JSON.stringify(
+            [
+                {
+                    key: 'ctrl+alt+l',
+                    command: 'jj-view.logView.focus',
+                },
+                {
+                    key: 'ctrl+alt+r',
+                    command: 'jj-view.refresh',
+                },
+            ],
+            null,
+            2,
+        ),
+    );
 
     const extensionPath = path.resolve(__dirname, '../../../../');
     const vscodePath = await downloadAndUnzipVSCode();
@@ -82,19 +96,19 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
         if (!fs.existsSync(vsixPath)) {
             throw new Error(`VSIX_PATH is set but file does not exist: ${vsixPath}`);
         }
-        
+
         // Import utilities from @vscode/test-electron to find the CLI path
         const { resolveCliPathFromVSCodeExecutablePath } = await import('@vscode/test-electron');
         const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodePath);
-        
+
         // Install the extension via CLI
         const { spawnSync } = await import('child_process');
         console.log(`Installing VSIX from ${vsixPath}...`);
         const result = spawnSync(cliPath, ['--install-extension', vsixPath, '--extensions-dir', extensionsDir], {
             encoding: 'utf-8',
-            stdio: 'inherit'
+            stdio: 'inherit',
         });
-        
+
         if (result.status !== 0) {
             throw new Error(`Failed to install extension VSIX: ${result.stderr || result.error}`);
         }
@@ -109,14 +123,14 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
     });
 
     const page = await app.firstWindow();
-    
+
     // Capture page console logs for debugging
-    page.on('console', msg => {
+    page.on('console', (msg) => {
         if (process.env.DEBUG_E2E) {
             console.log(`PAGE LOG: ${msg.text()}`);
         }
     });
-    page.on('pageerror', err => console.error(`PAGE ERROR: ${err.message}`));
+    page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
 
     // Wait for the workbench to be ready
     await expect(page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
@@ -136,11 +150,11 @@ export async function focusSCM(page: Page) {
     await expect(async () => {
         // Control+Shift+G is the standard VS Code shortcut to show/focus Source Control
         await page.keyboard.press('Control+Shift+G');
-        
+
         // Wait for either the input row or the side bar title to be visible
         const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
         const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
-        
+
         await expect(scmTitle.or(scmInput)).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout: 20000 });
 }
@@ -166,7 +180,7 @@ export async function getLogWebview(page: Page): Promise<Frame> {
     async function findFrameWithSelector(frames: ReadonlyArray<Frame>, selector: string): Promise<Frame | undefined> {
         for (const f of frames) {
             try {
-                if (await f.locator(selector).count() > 0) return f;
+                if ((await f.locator(selector).count()) > 0) return f;
                 const nested = await findFrameWithSelector(f.childFrames(), selector);
                 if (nested) return nested;
             } catch (e) {}
@@ -175,13 +189,18 @@ export async function getLogWebview(page: Page): Promise<Frame> {
     }
 
     let guestFrame: Frame | undefined;
-    await expect.poll(async () => {
-        guestFrame = await findFrameWithSelector(page.frames(), '.commit-row');
-        return guestFrame;
-    }, {
-        timeout: 30000,
-        message: 'Could not find JJ Log webview frame'
-    }).toBeDefined();
+    await expect
+        .poll(
+            async () => {
+                guestFrame = await findFrameWithSelector(page.frames(), '.commit-row');
+                return guestFrame;
+            },
+            {
+                timeout: 30000,
+                message: 'Could not find JJ Log webview frame',
+            },
+        )
+        .toBeDefined();
 
     return guestFrame!;
 }
@@ -190,27 +209,40 @@ export async function getLogWebview(page: Page): Promise<Frame> {
  * Asserts that the repo log matches the expected structure.
  */
 export async function expectTree(repo: TestRepo, expected: unknown[]) {
-    await expect.poll(async () => {
-        // Output format: [@] change_id [parent1,parent2] description
-        const log = repo.getLog('all()', 'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"');
-        const actual = log.split('\n').filter(l => l.trim()).filter(line => !line.startsWith('zzzzzzzz'));
-        return actual;
-    }, {
-        timeout: 10000,
-        message: 'Tree mismatch'
-    }).toEqual(expected.map(e => {
-        if (typeof e === 'string' && e.includes('*')) {
-            // Escape regex characters except for our * wildcard
-            const escaped = e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
-            return expect.stringMatching(new RegExp(`^${escaped}$`));
-        }
-        return e;
-    }));
+    await expect
+        .poll(
+            async () => {
+                // Output format: [@] change_id [parent1,parent2] description
+                const log = repo.getLog(
+                    'all()',
+                    'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"',
+                );
+                const actual = log
+                    .split('\n')
+                    .filter((l) => l.trim())
+                    .filter((line) => !line.startsWith('zzzzzzzz'));
+                return actual;
+            },
+            {
+                timeout: 10000,
+                message: 'Tree mismatch',
+            },
+        )
+        .toEqual(
+            expected.map((e) => {
+                if (typeof e === 'string' && e.includes('*')) {
+                    // Escape regex characters except for our * wildcard
+                    const escaped = e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
+                    return expect.stringMatching(new RegExp(`^${escaped}$`));
+                }
+                return e;
+            }),
+        );
 }
 
 /** Helper to format an entry for expectTree */
 export function entry(changeId: string, description: string, parents?: string | string[]): string {
-    const p = Array.isArray(parents) ? parents.join(',') : (parents || '');
+    const p = Array.isArray(parents) ? parents.join(',') : parents || '';
     return `${changeId} [${p}] ${description}`;
 }
 
@@ -223,7 +255,7 @@ export async function selectCommits(rows: Locator[]) {
         const row = rows[i];
         await row.click({
             modifiers: i > 0 ? ['Meta'] : undefined,
-            force: true // Bypasses potential hover overlay issues
+            force: true, // Bypasses potential hover overlay issues
         });
         await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
     }
@@ -244,7 +276,7 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
     await expect(async () => {
         // 1. Trigger the context menu natively
         await target.click({ button: 'right' });
-        
+
         // Give the menu a moment to open before we look for it
         await page.waitForTimeout(300);
 
@@ -252,7 +284,7 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
         // We use a short timeout here to fail FAST and retry the right-click if the menu didn't open.
         const menuContainer = page.locator('.monaco-menu-container:not([aria-hidden="true"])');
         const item = menuContainer.locator('.action-item', { hasText: label }).first();
-        
+
         await expect(item).toBeVisible({ timeout: 100 });
 
         const rect = await item.boundingBox();
@@ -271,7 +303,7 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
 export async function triggerRefresh(page: Page) {
     // Use the custom keybinding registered in launchVSCode
     await page.keyboard.press('Control+Alt+R');
-    
+
     // Give it a tiny moment to start the refresh process
     await page.waitForTimeout(100);
 }
@@ -289,4 +321,3 @@ export async function hoverAndClick(row: Locator, button: Locator) {
         await button.click({ force: true });
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
 }
-

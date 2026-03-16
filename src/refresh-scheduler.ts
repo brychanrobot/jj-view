@@ -15,12 +15,14 @@ export class RefreshScheduler implements vscode.Disposable {
 
     private _pendingForceSnapshot: boolean = false;
     private _pendingReasons: Set<string> = new Set();
-    
+
     // Single shared promise for all callers of trigger() in current cycle
     private _pendingPromise: Promise<void> | undefined;
     private _pendingResolve: (() => void) | undefined;
 
-    constructor(private refreshCallback: (options: { forceSnapshot: boolean; reason?: string }) => void | Promise<void>) {
+    constructor(
+        private refreshCallback: (options: { forceSnapshot: boolean; reason?: string }) => void | Promise<void>,
+    ) {
         const config = vscode.workspace.getConfiguration('jj-view');
         this._baseDebounce = config.get<number>('refreshDebounceMillis', 100);
         this._maxMultiplier = config.get<number>('refreshDebounceMaxMultiplier', 4);
@@ -81,7 +83,7 @@ export class RefreshScheduler implements vscode.Disposable {
                 this._hasNewEvents = false;
                 const forceSnapshot = this._pendingForceSnapshot;
                 this._pendingForceSnapshot = false;
-                
+
                 const reasons = Array.from(this._pendingReasons).join(', ');
                 this._pendingReasons.clear();
 

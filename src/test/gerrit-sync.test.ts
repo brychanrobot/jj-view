@@ -12,10 +12,12 @@ import { createMock } from './test-utils';
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => ({ get: (key: string) => {
-            if (key === 'gerrit.host') return 'https://test-gerrit.com';
-            return undefined;
-        }}),
+        getConfiguration: () => ({
+            get: (key: string) => {
+                if (key === 'gerrit.host') return 'https://test-gerrit.com';
+                return undefined;
+            },
+        }),
         onDidChangeConfiguration: vi.fn(),
     },
     EventEmitter: class {
@@ -23,7 +25,7 @@ vi.mock('vscode', () => ({
         fire = vi.fn();
         dispose = vi.fn();
     },
-    window: { 
+    window: {
         state: { focused: true },
         onDidChangeWindowState: vi.fn(),
     },
@@ -46,7 +48,11 @@ describe('Gerrit Sync Verification', () => {
         vi.clearAllMocks();
     });
 
-    function mockGerritResponse(changeId: string, currentRevision: string, files: Record<string, { status: string; new_sha?: string }>) {
+    function mockGerritResponse(
+        changeId: string,
+        currentRevision: string,
+        files: Record<string, { status: string; new_sha?: string }>,
+    ) {
         global.fetch = vi.fn().mockResolvedValue({
             ok: true,
             text: () => {
@@ -62,7 +68,7 @@ describe('Gerrit Sync Verification', () => {
                     revisions,
                 };
                 return Promise.resolve(`)]}'\n${JSON.stringify([change])}`);
-            }
+            },
         }) as unknown as typeof fetch;
     }
 
@@ -85,7 +91,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         const result = await service.forceFetchAndCacheStatus(
-            commitId, undefined, 'Change-Id: I1111111111111111111111111111111111111111'
+            commitId,
+            undefined,
+            'Change-Id: I1111111111111111111111111111111111111111',
         );
 
         expect(result?.synced).toBe(true);
@@ -106,7 +114,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         const result = await service.forceFetchAndCacheStatus(
-            commitId, undefined, 'Change-Id: I2222222222222222222222222222222222222222'
+            commitId,
+            undefined,
+            'Change-Id: I2222222222222222222222222222222222222222',
         );
 
         expect(result?.synced).toBeUndefined();
@@ -129,7 +139,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         const result = await service.forceFetchAndCacheStatus(
-            commitId, undefined, 'Change-Id: I3333333333333333333333333333333333333333'
+            commitId,
+            undefined,
+            'Change-Id: I3333333333333333333333333333333333333333',
         );
 
         expect(result?.synced).toBe(true);
@@ -150,7 +162,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         const result = await service.forceFetchAndCacheStatus(
-            commitId, undefined, 'Change-Id: I4444444444444444444444444444444444444444'
+            commitId,
+            undefined,
+            'Change-Id: I4444444444444444444444444444444444444444',
         );
 
         expect(result?.synced).toBeUndefined();
@@ -171,7 +185,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         const result = await service.forceFetchAndCacheStatus(
-            commitId, undefined, 'Change-Id: I5555555555555555555555555555555555555555'
+            commitId,
+            undefined,
+            'Change-Id: I5555555555555555555555555555555555555555',
         );
 
         // When revisions match, synced should not be set (it's already up to date — no need)
@@ -180,8 +196,8 @@ describe('Gerrit Sync Verification', () => {
 
     describe('populateGerritInfo', () => {
         beforeEach(async () => {
-             service = new GerritService(repo.path, jjService);
-             await service.awaitReady();
+            service = new GerritService(repo.path, jjService);
+            await service.awaitReady();
         });
 
         test('computes gerritNeedsUpload for a single out-of-sync commit', () => {
@@ -203,7 +219,7 @@ describe('Gerrit Sync Verification', () => {
                 url: '',
                 unresolvedComments: 0,
                 currentRevision: 'old-sha', // Out of sync
-                synced: false
+                synced: false,
             });
 
             service.populateGerritInfo([commit]);
@@ -247,7 +263,7 @@ describe('Gerrit Sync Verification', () => {
                         url: '',
                         unresolvedComments: 0,
                         currentRevision: 'old-sha', // Out of sync
-                        synced: false
+                        synced: false,
                     };
                 }
                 if (changeId === 'I2' || changeId === 'I3') {
@@ -259,7 +275,7 @@ describe('Gerrit Sync Verification', () => {
                         url: '',
                         unresolvedComments: 0,
                         currentRevision: changeId === 'I2' ? 'c2' : 'c3', // In sync directly
-                        synced: true
+                        synced: true,
                     };
                 }
                 return undefined;
@@ -290,7 +306,7 @@ describe('Gerrit Sync Verification', () => {
                 url: '',
                 unresolvedComments: 0,
                 currentRevision: 'c1', // In sync
-                synced: true
+                synced: true,
             });
 
             service.populateGerritInfo([commit]);

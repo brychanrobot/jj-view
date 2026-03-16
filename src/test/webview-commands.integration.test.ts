@@ -80,7 +80,9 @@ suite('Webview Commands End-to-End Integration Test', function () {
 
         const extensionUri = vscode.Uri.file(__dirname);
         const gerritService = createMock<GerritService>({
-            onDidUpdate: () => { return { dispose: () => {} }; },
+            onDidUpdate: () => {
+                return { dispose: () => {} };
+            },
             isEnabled: false,
             startPolling: () => {},
             stopPolling: () => {},

@@ -22,7 +22,7 @@ export class FakeGerritServer {
             deletions: 0,
             _number: 123,
             owner: { _account_id: 1 },
-            ...change
+            ...change,
         };
         this.changes.set(change.change_id, fullChange);
     }
@@ -50,11 +50,11 @@ export class FakeGerritServer {
                 const changes = change ? [change] : [];
                 return Promise.resolve(new Response(`)]}'\n${JSON.stringify(changes)}`, { status: 200 }));
             }
-            
+
             // Check for commit SHA query
             const commitMatch = urlStr.match(/q=commit:([^&]+)/);
             if (commitMatch) {
-                 return Promise.resolve(new Response(`)]}'\n[]`, { status: 200 }));
+                return Promise.resolve(new Response(`)]}'\n[]`, { status: 200 }));
             }
         }
 

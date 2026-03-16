@@ -13,7 +13,14 @@ import { JjScmProvider } from '../../jj-scm-provider';
 import * as vscode from 'vscode';
 
 // Track created documents for mocking
-const mockDocuments = new Map<string, { getText: () => string; lineAt: (line: number) => { rangeIncludingLineBreak: { end: vscode.Position } }; save: () => Promise<boolean> }>();
+const mockDocuments = new Map<
+    string,
+    {
+        getText: () => string;
+        lineAt: (line: number) => { rangeIncludingLineBreak: { end: vscode.Position } };
+        save: () => Promise<boolean>;
+    }
+>();
 
 vi.mock('vscode', () => ({
     Uri: {
@@ -29,7 +36,10 @@ vi.mock('vscode', () => ({
         }),
     },
     Position: class {
-        constructor(public line: number, public character: number) {}
+        constructor(
+            public line: number,
+            public character: number,
+        ) {}
     },
     Range: class {
         constructor(
@@ -84,8 +94,7 @@ describe('discardChangeCommand', () => {
         repo = new TestRepo();
         repo.init();
         scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: (uri: vscode.Uri) =>
-                uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }),
+            provideOriginalResource: (uri: vscode.Uri) => uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }),
         });
         mockDocuments.clear();
     });
@@ -136,9 +145,9 @@ describe('discardChangeCommand', () => {
 
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
 
-        const provideOriginalResourceMock = vi.fn().mockImplementation((uri: vscode.Uri) =>
-            uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }),
-        );
+        const provideOriginalResourceMock = vi
+            .fn()
+            .mockImplementation((uri: vscode.Uri) => uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }));
         scmProvider = createMock<JjScmProvider>({
             provideOriginalResource: provideOriginalResourceMock,
         });
@@ -181,7 +190,7 @@ describe('discardChangeCommand', () => {
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Failed to discard change'),
-            'Show Log'
+            'Show Log',
         );
     });
 

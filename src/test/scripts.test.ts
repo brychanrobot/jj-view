@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 import { describe, expect, test, beforeAll, afterAll } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -58,66 +57,86 @@ describe('Shell and Batch Scripts', () => {
             expect(await fs.readFile(path.join(outDir, 'right'), 'utf8')).toBe('right');
         });
     });
-    
+
     describe('batch-diff', () => {
         test('copies left and right directories', async () => {
-             const leftDir = path.join(tmpDir, 'batch-diff-l');
-             const rightDir = path.join(tmpDir, 'batch-diff-r');
-             
-             await fs.mkdir(path.join(leftDir, 'folder'), { recursive: true });
-             await fs.mkdir(path.join(rightDir, 'folder'), { recursive: true });
-             
-             await fs.writeFile(path.join(leftDir, 'folder', 'l.txt'), 'l', 'utf8');
-             await fs.writeFile(path.join(rightDir, 'folder', 'r.txt'), 'r', 'utf8');
-             
-             const outLeftDir = path.join(tmpDir, 'batch-diff-out-l');
-             const outRightDir = path.join(tmpDir, 'batch-diff-out-r');
-             
-             // The script copies to out folders
-             try {
-                 if (isWin) {
-                     await execFileAsync(path.join(scriptsDir, 'batch-diff.bat'), [leftDir, rightDir, outLeftDir, outRightDir], { shell: true });
-                 } else {
-                     await execFileAsync(path.join(scriptsDir, 'batch-diff.sh'), [leftDir, rightDir, outLeftDir, outRightDir]);
-                 }
-             } catch(err: unknown) {
-                 expect((err as { code?: number }).code).toBe(1);
-             }
-             
-             expect(await fs.readFile(path.join(outLeftDir, 'folder', 'l.txt'), 'utf8')).toBe('l');
-             expect(await fs.readFile(path.join(outRightDir, 'folder', 'r.txt'), 'utf8')).toBe('r');
+            const leftDir = path.join(tmpDir, 'batch-diff-l');
+            const rightDir = path.join(tmpDir, 'batch-diff-r');
+
+            await fs.mkdir(path.join(leftDir, 'folder'), { recursive: true });
+            await fs.mkdir(path.join(rightDir, 'folder'), { recursive: true });
+
+            await fs.writeFile(path.join(leftDir, 'folder', 'l.txt'), 'l', 'utf8');
+            await fs.writeFile(path.join(rightDir, 'folder', 'r.txt'), 'r', 'utf8');
+
+            const outLeftDir = path.join(tmpDir, 'batch-diff-out-l');
+            const outRightDir = path.join(tmpDir, 'batch-diff-out-r');
+
+            // The script copies to out folders
+            try {
+                if (isWin) {
+                    await execFileAsync(
+                        path.join(scriptsDir, 'batch-diff.bat'),
+                        [leftDir, rightDir, outLeftDir, outRightDir],
+                        { shell: true },
+                    );
+                } else {
+                    await execFileAsync(path.join(scriptsDir, 'batch-diff.sh'), [
+                        leftDir,
+                        rightDir,
+                        outLeftDir,
+                        outRightDir,
+                    ]);
+                }
+            } catch (err: unknown) {
+                expect((err as { code?: number }).code).toBe(1);
+            }
+
+            expect(await fs.readFile(path.join(outLeftDir, 'folder', 'l.txt'), 'utf8')).toBe('l');
+            expect(await fs.readFile(path.join(outRightDir, 'folder', 'r.txt'), 'utf8')).toBe('r');
         });
     });
-    
+
     describe('batch-edit', () => {
         test('copies multiple files to destination directories', async () => {
             const leftDir = path.join(tmpDir, 'batch-edit-l');
             const rightDir = path.join(tmpDir, 'batch-edit-r');
-            
+
             await fs.mkdir(leftDir, { recursive: true });
             await fs.mkdir(rightDir, { recursive: true });
-            
+
             const src1 = path.join(tmpDir, 'src1.txt');
             const src2 = path.join(tmpDir, 'src2.txt');
-            
+
             await fs.writeFile(src1, 'write1', 'utf8');
             await fs.writeFile(src2, 'write2', 'utf8');
-            
+
             const dest1 = path.join('nested', 'target1.txt');
             const dest2 = 'target2.txt';
-            
+
             try {
-                 if (isWin) {
-                     await execFileAsync(path.join(scriptsDir, 'batch-edit.bat'), [leftDir, rightDir, src1, dest1, src2, dest2], { shell: true });
-                 } else {
-                     await execFileAsync(path.join(scriptsDir, 'batch-edit.sh'), [leftDir, rightDir, src1, dest1, src2, dest2]);
-                 }
-             } catch(err: unknown) {
-                 expect((err as { code?: number }).code).toBe(0);
-             }
-             
-             expect(await fs.readFile(path.join(rightDir, 'nested', 'target1.txt'), 'utf8')).toBe('write1');
-             expect(await fs.readFile(path.join(rightDir, 'target2.txt'), 'utf8')).toBe('write2');
+                if (isWin) {
+                    await execFileAsync(
+                        path.join(scriptsDir, 'batch-edit.bat'),
+                        [leftDir, rightDir, src1, dest1, src2, dest2],
+                        { shell: true },
+                    );
+                } else {
+                    await execFileAsync(path.join(scriptsDir, 'batch-edit.sh'), [
+                        leftDir,
+                        rightDir,
+                        src1,
+                        dest1,
+                        src2,
+                        dest2,
+                    ]);
+                }
+            } catch (err: unknown) {
+                expect((err as { code?: number }).code).toBe(0);
+            }
+
+            expect(await fs.readFile(path.join(rightDir, 'nested', 'target1.txt'), 'utf8')).toBe('write1');
+            expect(await fs.readFile(path.join(rightDir, 'target2.txt'), 'utf8')).toBe('write2');
         });
     });
 });

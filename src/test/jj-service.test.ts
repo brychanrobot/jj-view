@@ -160,20 +160,20 @@ describe('JjService Unit Tests', () => {
         });
 
         test('creates change inserted before multiple revisions', async () => {
-             // Setup: Parent -> Child1
-             //               -> Child2
+            // Setup: Parent -> Child1
+            //               -> Child2
             const ids = await buildGraph(repo, [
                 { label: 'parent', description: 'parent' },
                 { label: 'child1', parents: ['parent'], description: 'child1' },
                 { label: 'child2', parents: ['parent'], description: 'child2' },
             ]);
-            
+
             // Insert 'Middle' before Child1 and Child2
             // Expected DAG: Parent -> Middle -> Child1
             //                            -> Child2
-            const middleId = await jjService.new({ 
-                message: 'Middle', 
-                insertBefore: [ids['child1'].changeId, ids['child2'].changeId] 
+            const middleId = await jjService.new({
+                message: 'Middle',
+                insertBefore: [ids['child1'].changeId, ids['child2'].changeId],
             });
 
             // 1. Verify Middle's parent is Parent
@@ -205,11 +205,11 @@ describe('JjService Unit Tests', () => {
             await jjService.new({
                 message: 'Middle',
                 parents: [ids['root'].changeId, ids['parent'].changeId],
-                insertBefore: [ids['child'].changeId]
+                insertBefore: [ids['child'].changeId],
             });
 
             const userLog = await jjService.getLog();
-            const middle = userLog.find(l => l.description.includes('Middle'));
+            const middle = userLog.find((l) => l.description.includes('Middle'));
             expect(middle).toBeDefined();
 
             // Check parents of Middle
@@ -273,7 +273,7 @@ describe('JjService Unit Tests', () => {
     test('cat command preserves trailing newline', async () => {
         repo.writeFile('newline.txt', 'line\n');
         repo.describe('newline');
-        
+
         const content = await jjService.cat('newline.txt', '@');
         expect(content).toBe('line\n');
     });
@@ -642,7 +642,7 @@ describe('JjService Unit Tests', () => {
         expect(content).toBe('grandchild content');
 
         await jjService.duplicate('@');
-        
+
         // Use all() and increase timeout wait if needed, though run() handles sync
         const logAfter = repo.getLog('all()', 'change_id');
         const linesAfter = logAfter.trim().split('\n');
@@ -856,7 +856,6 @@ describe('JjService Unit Tests', () => {
         expect(diff).toBe('');
     });
 
-
     test('movePartialToParent moves subset of changes', async () => {
         const fileName = 'partial.txt';
 
@@ -884,7 +883,6 @@ describe('JjService Unit Tests', () => {
         const childContent = repo.readFile(fileName);
         expect(childContent).toBe('mod1\nline2\nmod3\n');
     });
-
 
     test('movePartialToParent moves deletion', async () => {
         const fileName = 'deletion.txt';
@@ -1039,18 +1037,18 @@ describe('JjService Unit Tests', () => {
         const oldFile = 'old-rename.txt';
         const newFile = 'new-rename.txt';
         const content = 'line1\nline2\nline3\nline4\nline5\n'.repeat(10); // Sufficient content for similarity
-        
+
         // Create file in parent
         repo.writeFile(oldFile, content);
         repo.describe('parent');
-        
+
         // Start new change
         await jjService.new();
-        
+
         repo.moveFile(oldFile, newFile);
-        
+
         const changes = await jjService.getWorkingCopyChanges();
-        
+
         // We expect jj to detect this as a rename because content is identical and large enough
         expect(changes.length).toBe(1);
         expect(changes[0].status).toBe('renamed');
@@ -1062,18 +1060,18 @@ describe('JjService Unit Tests', () => {
         const oldFile = 'old-rename.txt';
         const newFile = 'new-rename.txt';
         const content = 'line1\nline2\nline3\nline4\nline5\n'.repeat(10); // Sufficient content for similarity
-        
+
         // Create file in parent
         repo.writeFile(oldFile, content);
         repo.describe('parent');
-        
+
         await jjService.new();
-        
+
         // Move file
         repo.moveFile(oldFile, newFile);
-        
+
         const changes = await jjService.getWorkingCopyChanges();
-        
+
         // We expect jj to detect this as a rename because content is identical and large enough
         expect(changes.length).toBe(1);
         expect(changes[0].status).toBe('renamed');
@@ -1088,12 +1086,12 @@ describe('JjService Unit Tests', () => {
         repo.describe('parent');
         await jjService.new();
         repo.moveFile(oldFile, newFile);
-        
+
         const [logEntry] = await jjService.getLog({ revision: '@' });
         expect(logEntry).toBeDefined();
-        
+
         const changes = logEntry.changes || [];
-        const renameEntry = changes.find(c => c.path === newFile);
+        const renameEntry = changes.find((c) => c.path === newFile);
         expect(renameEntry).toBeDefined();
         expect(renameEntry?.status).toBe('renamed');
         expect(renameEntry?.oldPath).toBe(oldFile);
@@ -1102,13 +1100,13 @@ describe('JjService Unit Tests', () => {
     test('commit runs jj commit', async () => {
         // Setup state: Make a change
         repo.writeFile('file.txt', 'content');
-        
+
         await jjService.commit('my commit message');
 
         // Verification:
         // 1. Current working copy (@) should be empty/new
         // 2. Parent (@-) should have the message "my commit message"
-        
+
         const [head] = await jjService.getLog({ revision: '@' });
         const [parent] = await jjService.getLog({ revision: '@-' });
 
@@ -1119,13 +1117,13 @@ describe('JjService Unit Tests', () => {
     test('getBookmarks returns bookmark names', async () => {
         repo.bookmark('feature-a', '@');
         repo.bookmark('feature-b', '@');
-        
+
         const bookmarks = await jjService.getBookmarks();
-        
+
         expect(bookmarks).toContain('feature-a');
         expect(bookmarks).toContain('feature-b');
-        // We expect unique names. 
-        // Note: We cannot easily simulate duplicates (remote vs local) in this simple test setup 
+        // We expect unique names.
+        // Note: We cannot easily simulate duplicates (remote vs local) in this simple test setup
         // without valid remote fetching, but the implementation uses Set to guarantee uniqueness.
         const uniqueBookmarks = new Set(bookmarks);
         expect(bookmarks.length).toBe(uniqueBookmarks.size);
@@ -1134,23 +1132,25 @@ describe('JjService Unit Tests', () => {
     test('getGitBlobHashes returns correct blob hashes', async () => {
         const fileName = 'blob.txt';
         const fileContent = 'blob content';
-        
+
         // Create a file and commit it
         repo.writeFile(fileName, fileContent);
         repo.describe('blob test');
         const commitId = repo.getCommitId('@');
-        
+
         // Calculate expected Git hash
         // Git blob hash is SHA-1 of "blob <size>\0<content>"
         // For 'blob content', size is 12.
         // echo -n "blob content" | git hash-object --stdin
         // We can use the repo's git command to get the hash of the file content
-        const expectedHash = cp.execFileSync('git', ['hash-object', path.join(repo.path, fileName)], { cwd: repo.path }).toString().trim();
-        
+        const expectedHash = cp
+            .execFileSync('git', ['hash-object', path.join(repo.path, fileName)], { cwd: repo.path })
+            .toString()
+            .trim();
+
         const hashes = await jjService.getGitBlobHashes(commitId, [fileName]);
-        
+
         expect(hashes.size).toBe(1);
         expect(hashes.get(fileName)).toBe(expectedHash);
     });
-
 });

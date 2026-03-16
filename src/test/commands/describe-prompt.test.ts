@@ -47,11 +47,11 @@ describe('describePromptCommand', () => {
     test('prompts if input box is empty and sets description with user input', async () => {
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
         repo.new(undefined, 'initial');
         await jj.describe('existing description', '@');
-        
+
         // Mock user input
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('new description');
 
@@ -71,7 +71,7 @@ describe('describePromptCommand', () => {
     test('does nothing if user cancels prompt', async () => {
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
         await jj.describe('existing', '@');
 
@@ -81,7 +81,7 @@ describe('describePromptCommand', () => {
         await describePromptCommand(scmProvider, jj);
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
-        
+
         // The description of @ should still be 'existing' (no change)
         const desc = repo.getDescription('@');
         expect(desc.trim()).toBe('existing');
@@ -92,7 +92,7 @@ describe('describePromptCommand', () => {
         repo.new(undefined, 'initial');
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = 'feat: quick describe';
-        
+
         // Mock user accepting the pre-filled value
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('feat: quick describe updated');
 
@@ -114,10 +114,10 @@ describe('describePromptCommand', () => {
         repo.new(undefined, 'initial');
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
-        await jj.describe('existing description', '@'); 
-        
+        await jj.describe('existing description', '@');
+
         // Mock user clearing the prompt (empty string)
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('');
 

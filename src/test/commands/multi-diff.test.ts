@@ -43,9 +43,7 @@ describe('showMultiFileDiffCommand', () => {
         await showMultiFileDiffCommand(jj, mockOutputChannel, changeId);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalled();
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
-            c => c[0] === 'vscode.changes'
-        );
+        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
         const [, title, resourceTuples] = call!;
@@ -80,9 +78,7 @@ describe('showMultiFileDiffCommand', () => {
 
         await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
 
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
-            c => c[0] === 'vscode.changes'
-        );
+        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
         const tuples = call![2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
@@ -100,9 +96,7 @@ describe('showMultiFileDiffCommand', () => {
 
         await showMultiFileDiffCommand(jj, mockOutputChannel, { commitId });
 
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find(
-            c => c[0] === 'vscode.changes'
-        );
+        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
         const tuples = call![2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
@@ -112,13 +106,11 @@ describe('showMultiFileDiffCommand', () => {
     it('shows info message when no changes found', async () => {
         await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            expect.stringContaining('No changes found')
-        );
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('No changes found'));
         expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
             'vscode.changes',
             expect.anything(),
-            expect.anything()
+            expect.anything(),
         );
     });
 });

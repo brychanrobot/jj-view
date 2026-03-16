@@ -49,4 +49,3 @@ export function createDiffUris(
 
     return { leftUri, rightUri, resourceUri };
 }
-

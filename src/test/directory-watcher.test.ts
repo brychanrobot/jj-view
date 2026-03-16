@@ -47,13 +47,16 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
     });
 
     const waitForLog = async (pattern: string, timeout = 10000) => {
-        await vi.waitFor(() => {
-            const calls = (outputChannel.appendLine as Mock).mock.calls;
-            const found = calls.some(call => call[0].includes(pattern));
-            if (!found) {
-                throw new Error(`Log pattern "${pattern}" not found`);
-            }
-        }, { timeout, interval: 50 });
+        await vi.waitFor(
+            () => {
+                const calls = (outputChannel.appendLine as Mock).mock.calls;
+                const found = calls.some((call) => call[0].includes(pattern));
+                if (!found) {
+                    throw new Error(`Log pattern "${pattern}" not found`);
+                }
+            },
+            { timeout, interval: 50 },
+        );
     };
 
     it('subscribes and logs on start', async () => {
@@ -66,8 +69,9 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         await watcher.start();
         await watcher.start();
 
-        const startCalls = (outputChannel.appendLine as Mock).mock.calls
-            .filter(call => call[0].includes('Starting watcher'));
+        const startCalls = (outputChannel.appendLine as Mock).mock.calls.filter((call) =>
+            call[0].includes('Starting watcher'),
+        );
         expect(startCalls).toHaveLength(1);
     });
 
@@ -77,14 +81,15 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
 
         fs.writeFileSync(path.join(tmpDir, 'new-file.txt'), 'hello');
 
-        await vi.waitFor(() => {
-            expect(callback).toHaveBeenCalled();
-            const events = callback.mock.calls.flatMap(call => call[0]);
-            const hasCreate = events.some(
-                (e: { path: string; type: string }) => e.path.includes('new-file.txt')
-            );
-            expect(hasCreate, 'Expected a create event for new-file.txt').toBe(true);
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                expect(callback).toHaveBeenCalled();
+                const events = callback.mock.calls.flatMap((call) => call[0]);
+                const hasCreate = events.some((e: { path: string; type: string }) => e.path.includes('new-file.txt'));
+                expect(hasCreate, 'Expected a create event for new-file.txt').toBe(true);
+            },
+            { timeout: 10000, interval: 50 },
+        );
     });
 
     it('detects file modification', async () => {
@@ -99,14 +104,15 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
 
         fs.writeFileSync(filePath, 'modified');
 
-        await vi.waitFor(() => {
-            expect(callback).toHaveBeenCalled();
-            const events = callback.mock.calls.flatMap(call => call[0]);
-            const hasUpdate = events.some(
-                (e: { path: string; type: string }) => e.path.includes('existing.txt')
-            );
-            expect(hasUpdate, 'Expected an update event for existing.txt').toBe(true);
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                expect(callback).toHaveBeenCalled();
+                const events = callback.mock.calls.flatMap((call) => call[0]);
+                const hasUpdate = events.some((e: { path: string; type: string }) => e.path.includes('existing.txt'));
+                expect(hasUpdate, 'Expected an update event for existing.txt').toBe(true);
+            },
+            { timeout: 10000, interval: 50 },
+        );
     });
 
     it('detects file deletion', async () => {
@@ -117,26 +123,32 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         fs.writeFileSync(filePath, 'bye');
 
         // Wait for creation first to ensure watcher is ready
-        await vi.waitFor(() => {
-            const events = callback.mock.calls.flatMap(call => call[0]);
-            const hasCreate = events.some(
-                (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'create'
-            );
-            expect(hasCreate, 'Expected verify creation of to-delete.txt').toBe(true);
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                const events = callback.mock.calls.flatMap((call) => call[0]);
+                const hasCreate = events.some(
+                    (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'create',
+                );
+                expect(hasCreate, 'Expected verify creation of to-delete.txt').toBe(true);
+            },
+            { timeout: 10000, interval: 50 },
+        );
 
         callback.mockClear();
 
         fs.rmSync(filePath);
 
-        await vi.waitFor(() => {
-            expect(callback).toHaveBeenCalled();
-            const events = callback.mock.calls.flatMap(call => call[0]);
-            const hasDelete = events.some(
-                (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'delete'
-            );
-            expect(hasDelete, 'Expected a delete event for to-delete.txt').toBe(true);
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                expect(callback).toHaveBeenCalled();
+                const events = callback.mock.calls.flatMap((call) => call[0]);
+                const hasDelete = events.some(
+                    (e: { path: string; type: string }) => e.path.includes('to-delete.txt') && e.type === 'delete',
+                );
+                expect(hasDelete, 'Expected a delete event for to-delete.txt').toBe(true);
+            },
+            { timeout: 10000, interval: 50 },
+        );
     });
 
     it('ignores paths matching the ignore pattern', async () => {
@@ -152,19 +164,18 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         // Write to a non-ignored path — SHOULD trigger
         fs.writeFileSync(path.join(tmpDir, 'visible-file.txt'), 'visible');
 
-        await vi.waitFor(() => {
-            const events = callback.mock.calls.flatMap(call => call[0]);
-            const hasVisible = events.some(
-                (e: { path: string }) => e.path.includes('visible-file.txt')
-            );
-            expect(hasVisible, 'Expected event for visible-file.txt').toBe(true);
-        }, { timeout: 10000, interval: 50 });
+        await vi.waitFor(
+            () => {
+                const events = callback.mock.calls.flatMap((call) => call[0]);
+                const hasVisible = events.some((e: { path: string }) => e.path.includes('visible-file.txt'));
+                expect(hasVisible, 'Expected event for visible-file.txt').toBe(true);
+            },
+            { timeout: 10000, interval: 50 },
+        );
 
         // Verify no events for the ignored file
-        const allEvents = callback.mock.calls.flatMap(call => call[0]);
-        const hasIgnored = allEvents.some(
-            (e: { path: string }) => e.path.includes('ignored-file.txt')
-        );
+        const allEvents = callback.mock.calls.flatMap((call) => call[0]);
+        const hasIgnored = allEvents.some((e: { path: string }) => e.path.includes('ignored-file.txt'));
         expect(hasIgnored, 'Should not have received event for ignored file').toBe(false);
     });
 
@@ -178,7 +189,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         fs.writeFileSync(path.join(tmpDir, 'after-stop.txt'), 'nope');
 
         // Wait a bit to confirm no events arrive
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         expect(callback).not.toHaveBeenCalled();
     });
 
@@ -191,7 +202,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
 
         fs.writeFileSync(path.join(tmpDir, 'after-dispose.txt'), 'nope');
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         expect(callback).not.toHaveBeenCalled();
     });
 
@@ -204,7 +215,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
         callback.mockClear();
 
         fs.writeFileSync(path.join(tmpDir, 'after-race.txt'), 'nope');
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         expect(callback).not.toHaveBeenCalled();
     });
 
@@ -221,10 +232,10 @@ describe('DirectoryWatcher (real @parcel/watcher)', () => {
 
         expect(showWarningMock).toHaveBeenCalledWith(
             expect.stringContaining('inotify watch limit reached'),
-            'Open README'
+            'Open README',
         );
         expect(openExternalMock).toHaveBeenCalledWith(
-             vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode')
+            vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
         );
     });
 });

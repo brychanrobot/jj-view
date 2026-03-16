@@ -29,7 +29,17 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
     readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._onDidChangeFile.event;
 
-    private _pendingWrites = new Map<string, { revision: string; filePath: string; content: string; uri: vscode.Uri; resolve: () => void; reject: (err: unknown) => void }[]>();
+    private _pendingWrites = new Map<
+        string,
+        {
+            revision: string;
+            filePath: string;
+            content: string;
+            uri: vscode.Uri;
+            resolve: () => void;
+            reject: (err: unknown) => void;
+        }[]
+    >();
     private _writeTimer: NodeJS.Timeout | undefined;
     private _knownUris = new Set<string>();
 

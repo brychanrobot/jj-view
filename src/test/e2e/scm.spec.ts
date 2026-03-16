@@ -17,8 +17,19 @@ test.describe('SCM Pane E2E', () => {
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' } },
             { label: 'conflict-side-1', parents: ['initial'], description: 'side 1', files: { 'file.txt': 'a' } },
             { label: 'conflict-side-2', parents: ['initial'], description: 'side 2', files: { 'file.txt': 'b' } },
-            { label: 'merge', parents: ['conflict-side-1', 'conflict-side-2'], description: 'merge', isWorkingCopy: false },
-            { label: 'wc', parents: ['merge'], description: 'my working copy', files: { 'new-file.ts': 'console.log("hello");\n' }, isWorkingCopy: true }
+            {
+                label: 'merge',
+                parents: ['conflict-side-1', 'conflict-side-2'],
+                description: 'merge',
+                isWorkingCopy: false,
+            },
+            {
+                label: 'wc',
+                parents: ['merge'],
+                description: 'my working copy',
+                files: { 'new-file.ts': 'console.log("hello");\n' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -42,7 +53,9 @@ test.describe('SCM Pane E2E', () => {
             await expect(scmInputRow).toContainText('my working copy');
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -51,7 +64,7 @@ test.describe('SCM Pane E2E', () => {
         const repo = new TestRepo();
         repo.init();
         await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isWorkingCopy: true }
+            { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -60,15 +73,15 @@ test.describe('SCM Pane E2E', () => {
             await focusSCM(page);
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
             await scmInputRow.click(); // Focus the editor
-            
+
             // Set Description and Commit
             await page.keyboard.press('Control+A');
             await page.keyboard.insertText('Updated description explicitly');
-            
+
             // Commit using button inside the Source Control view title bar
             const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
             await commitButton.click();
-            
+
             // Wait for description to clear out (indicating commit success)
             await expect(async () => {
                 expect(repo.log()).toContain('Updated description explicitly');
@@ -80,16 +93,17 @@ test.describe('SCM Pane E2E', () => {
             // Click New Change (+)
             const newButton = page.getByRole('button', { name: 'New Change' }).first();
             await newButton.click();
-            
+
             // Wait for UI to reflect empty input box or wait for a specific commit in repo
             await expect(async () => {
                 const wcDescription = repo.getDescription('@').trim();
                 expect(wcDescription).toBe('');
             }).toPass({ timeout: 5000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -99,7 +113,7 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' } },
-            { label: 'wc', parents: ['initial'], isWorkingCopy: true }
+            { label: 'wc', parents: ['initial'], isWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -108,12 +122,12 @@ test.describe('SCM Pane E2E', () => {
             await focusSCM(page);
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
             await scmInputRow.click();
-            
+
             // Set Description with Ctrl+S
             await page.keyboard.press('Control+A');
             await page.keyboard.insertText('Using keyboard shortcuts');
             await page.keyboard.press('Control+S');
-            
+
             // Wait for input to be stable (doesn't change back to what it was)
             await expect(async () => {
                 expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
@@ -123,7 +137,7 @@ test.describe('SCM Pane E2E', () => {
             await page.keyboard.press('Control+A');
             await page.keyboard.insertText('Commit via keyboard');
             await page.keyboard.press('Control+S');
-            
+
             await expect(async () => {
                 expect(repo.getDescription('@').trim()).toBe('Commit via keyboard');
             }).toPass({ timeout: 5000 });
@@ -131,7 +145,7 @@ test.describe('SCM Pane E2E', () => {
             // Commit with Ctrl+Enter
             await scmInputRow.click();
             await page.keyboard.press('Control+Enter');
-            
+
             // Wait for commit to appear in log
             await expect(async () => {
                 const log = repo.log();
@@ -140,10 +154,11 @@ test.describe('SCM Pane E2E', () => {
 
             // Wait for input to clear in UI
             await expect(scmInputRow).not.toContainText('Commit via keyboard', { timeout: 10000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -154,7 +169,13 @@ test.describe('SCM Pane E2E', () => {
         const commits = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'base.txt': '1' } },
             { label: 'ancestor', parents: ['initial'], description: 'ancestor change', files: { 'a.txt': '1' } },
-            { label: 'wc', parents: ['ancestor'], description: 'wc change', files: { 'w.txt': '1' }, isWorkingCopy: true }
+            {
+                label: 'wc',
+                parents: ['ancestor'],
+                description: 'wc change',
+                files: { 'w.txt': '1' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -163,11 +184,11 @@ test.describe('SCM Pane E2E', () => {
             await focusSCM(page);
             // Wait for groups to settle
             const wcGroupHeader = page.getByRole('treeitem', { name: /Working Copy/ });
-            
+
             // Use abandon icon
             const abandonIcon = wcGroupHeader.locator('.action-item', { has: page.locator('.codicon-trash') }).first();
             await hoverAndClick(wcGroupHeader, abandonIcon);
-            
+
             // Assert via repo that wc change is abandoned. Poll until true.
             await expect(async () => {
                 const isWcChangeStillPresent = repo.log().includes(commits['wc'].changeId);
@@ -179,18 +200,21 @@ test.describe('SCM Pane E2E', () => {
 
             // Now test Squash Ancestor...
             const ancestorRow = page.getByRole('treeitem', { name: /ancestor change/ });
-            const squashIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-arrow-down') }).first();
+            const squashIcon = ancestorRow
+                .locator('.action-item', { has: page.locator('.codicon-arrow-down') })
+                .first();
             await hoverAndClick(ancestorRow, squashIcon);
-            
+
             // Assert via repo that the ancestor was squashed into its parent (initial). Poll until true.
             await expect(async () => {
                 const logAfterSquash = repo.log();
                 expect(logAfterSquash).not.toContain('ancestor change');
             }).toPass({ timeout: 5000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -199,8 +223,18 @@ test.describe('SCM Pane E2E', () => {
         const repo = new TestRepo();
         repo.init();
         await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'file.txt': 'base', 'file2.txt': 'base2', 'file3.txt': 'base3' } },
-            { label: 'wc', parents: ['initial'], description: 'wc change', files: { 'file.txt': 'mod', 'file2.txt': 'mod2', 'file3.txt': 'mod3' }, isWorkingCopy: true }
+            {
+                label: 'initial',
+                description: 'initial',
+                files: { 'file.txt': 'base', 'file2.txt': 'base2', 'file3.txt': 'base3' },
+            },
+            {
+                label: 'wc',
+                parents: ['initial'],
+                description: 'wc change',
+                files: { 'file.txt': 'mod', 'file2.txt': 'mod2', 'file3.txt': 'mod3' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -211,7 +245,7 @@ test.describe('SCM Pane E2E', () => {
             const wcFile3Row = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
             const discardIcon = wcFile3Row.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
             await hoverAndClick(wcFile3Row, discardIcon);
-            
+
             // Assert the file was restored by polling
             await expect(async () => {
                 expect(repo.getFileContent('@', 'file3.txt').trim()).toBe('base3');
@@ -236,15 +270,15 @@ test.describe('SCM Pane E2E', () => {
             // Open Single File Diff (file2.txt)
             const diffFileRow = page.getByRole('treeitem', { name: /file2\.txt, modified/ });
             await diffFileRow.click();
-            
+
             // Wait for Diff Editor
             await page.waitForSelector('.monaco-diff-editor');
 
-            // In VS Code, diff editors have left and right. 
+            // In VS Code, diff editors have left and right.
             // We want to edit the right side (working copy).
             const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
             await rightEditor.click();
-            
+
             // Selecting all text and typing
             // Use toPass to retry the entire typing sequence since Monaco can be finicky
             await expect(async () => {
@@ -255,13 +289,13 @@ test.describe('SCM Pane E2E', () => {
                 await expect(rightEditor).toContainText('edited from diff', { timeout: 1000 });
             }).toPass({ timeout: 5000 });
 
-            // Save and ensure JJ picks it up. 
+            // Save and ensure JJ picks it up.
             // The VS Code diff editor sometimes needs a moment or a retry.
             await expect(async () => {
                 // Ensure focus before save
                 await rightEditor.click();
                 await page.keyboard.press('Control+s');
-                
+
                 // Wait a bit for filesystem to sync
                 await page.waitForTimeout(500);
 
@@ -283,14 +317,14 @@ test.describe('SCM Pane E2E', () => {
             await page.keyboard.press('Control+A');
             await page.keyboard.insertText('commit wc');
             await page.keyboard.press('Control+Enter');
-            
+
             await expect(async () => {
                 expect(repo.getParents('@').length).toBe(1);
             }).toPass({ timeout: 5000 });
             // Now we have initial -> wc_commit -> new_wc
             // Modify file3.txt in the new working copy
             repo.writeFile('file3.txt', 'new mod3');
-            
+
             // Click the SCM refresh button
             const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
             await refreshButton.click();
@@ -298,7 +332,7 @@ test.describe('SCM Pane E2E', () => {
             // Wait for file3.txt to appear in SCM Working Copy
             const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
             await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
-            
+
             // Hover to reveal inline actions
             await newWcFileRow.hover();
             const squashIcon = newWcFileRow.getByRole('button', { name: 'Squash into Parent', exact: true }).first();
@@ -311,7 +345,7 @@ test.describe('SCM Pane E2E', () => {
             // SCM QuickPick should appear for Ancestor selection
             const quickPickInput = page.getByRole('listbox');
             await expect(quickPickInput).toBeVisible({ timeout: 5000 });
-            
+
             const ancestor2Option = page.getByRole('option', { name: /initial/i });
             await ancestor2Option.click();
             await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
@@ -322,18 +356,19 @@ test.describe('SCM Pane E2E', () => {
                 const count = await rows.count();
                 expect(count).toBe(1);
             }).toPass({ timeout: 10000 });
-            
+
             await expect(async () => {
                 const wcChanges = repo.getDiffSummary('@');
                 expect(wcChanges).not.toContain('file3.txt');
-                
+
                 // The ancestor should now have the change.
                 expect(repo.getFileContent('@--', 'file3.txt').trim()).toBe('new mod3');
             }).toPass({ timeout: 5000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -343,9 +378,20 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         const commits = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'base.txt': '1' } },
-            { label: 'ancestor', parents: ['initial'], description: 'ancestor change', files: { 'f1.txt': '1', 'f2.txt': '1' } },
+            {
+                label: 'ancestor',
+                parents: ['initial'],
+                description: 'ancestor change',
+                files: { 'f1.txt': '1', 'f2.txt': '1' },
+            },
             // Working copy edit of the same file f1.txt (to test absorb) and a new one
-            { label: 'wc', parents: ['ancestor'], description: 'wc change', files: { 'f1.txt': '2', 'f3.txt': '1' }, isWorkingCopy: true }
+            {
+                label: 'wc',
+                parents: ['ancestor'],
+                description: 'wc change',
+                files: { 'f1.txt': '2', 'f3.txt': '1' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -357,7 +403,7 @@ test.describe('SCM Pane E2E', () => {
             // 1. Absorb
             const absorbIcon = wcGroupHeader.locator('.action-item', { has: page.locator('.codicon-magnet') }).first();
             await hoverAndClick(wcGroupHeader, absorbIcon);
-            
+
             // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
             await expect(async () => {
                 expect(repo.getFileContent(commits['ancestor'].changeId, 'f1.txt').trim()).toBe('2');
@@ -366,9 +412,11 @@ test.describe('SCM Pane E2E', () => {
             // 2. Show Details
             // Use ancestorRow for group-level actions like Details
             const ancestorRow = page.getByRole('treeitem', { name: /ancestor change/ }).first();
-            const detailsIcon = ancestorRow.locator('.action-item', { has: page.locator('.codicon-list-selection') }).first();
+            const detailsIcon = ancestorRow
+                .locator('.action-item', { has: page.locator('.codicon-list-selection') })
+                .first();
             await hoverAndClick(ancestorRow, detailsIcon);
-            
+
             // Assert that the Commit Details panel opened (it opens as an editor tab)
             await expect(page.getByRole('tab', { name: /^Commit: / })).toBeVisible({ timeout: 5000 });
 
@@ -378,7 +426,9 @@ test.describe('SCM Pane E2E', () => {
             // 3. Move to Child (Pull from Ancestor)
             // Groups are expanded by default, so f2.txt is already visible.
             const ancestorFile = page.getByRole('treeitem', { name: /f2\.txt/ });
-            const moveToChildIcon = ancestorFile.locator('.action-item', { has: page.locator('.codicon-arrow-up') }).first();
+            const moveToChildIcon = ancestorFile
+                .locator('.action-item', { has: page.locator('.codicon-arrow-up') })
+                .first();
             await hoverAndClick(ancestorFile, moveToChildIcon);
 
             // Assert via repo that f2.txt from ancestor was moved to working copy
@@ -396,10 +446,11 @@ test.describe('SCM Pane E2E', () => {
                 const changeId = repo.getWorkingCopyId();
                 expect(changeId).toBe(commits['ancestor'].changeId);
             }).toPass({ timeout: 5000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -409,8 +460,13 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         const commits = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'f1.txt': '1', 'f2.txt': '1' } },
-            { label: 'ancestor', parents: ['initial'], description: 'ancestor change', files: { 'f1.txt': '2', 'f2.txt': '2' } },
-            { label: 'wc', parents: ['ancestor'], isWorkingCopy: true }
+            {
+                label: 'ancestor',
+                parents: ['initial'],
+                description: 'ancestor change',
+                files: { 'f1.txt': '2', 'f2.txt': '2' },
+            },
+            { label: 'wc', parents: ['ancestor'], isWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -420,7 +476,9 @@ test.describe('SCM Pane E2E', () => {
             // Hover over Ancestor group
             const ancestorRowGroup = page.getByRole('treeitem', { name: /ancestor change/ });
             // Use Multi-File Diff icon (diff-multiple)
-            const multiDiffIcon = ancestorRowGroup.locator('.action-item', { has: page.locator('.codicon-diff-multiple') }).first();
+            const multiDiffIcon = ancestorRowGroup
+                .locator('.action-item', { has: page.locator('.codicon-diff-multiple') })
+                .first();
             await hoverAndClick(ancestorRowGroup, multiDiffIcon);
 
             // Wait for Multi-File Diff View to appear
@@ -429,11 +487,11 @@ test.describe('SCM Pane E2E', () => {
 
             // Wait for the diff editor inside the view
             await page.waitForSelector('.monaco-diff-editor');
-            
+
             // Find the editor for f1.txt's right side
             const firstRightEditor = page.locator('.monaco-diff-editor .editor.modified').first();
             await firstRightEditor.click();
-            
+
             // Navigate out of readonly and type new text
             await page.keyboard.press('Control+A');
             await page.keyboard.insertText('edited from multi-diff');
@@ -444,10 +502,11 @@ test.describe('SCM Pane E2E', () => {
                 const f1Content = repo.getFileContent(commits['ancestor'].changeId, 'f1.txt');
                 expect(f1Content.trim()).toBe('edited from multi-diff');
             }).toPass({ timeout: 5000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });

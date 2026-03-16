@@ -34,9 +34,9 @@ describe('uploadCommand', () => {
 
     beforeEach(() => {
         jjService = { upload: vi.fn() } as unknown as JjService;
-        gerritService = { 
+        gerritService = {
             isGerrit: vi.fn().mockResolvedValue(false),
-            requestRefreshWithBackoffs: vi.fn()
+            requestRefreshWithBackoffs: vi.fn(),
         } as unknown as GerritService;
         mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
         mockConfig.get.mockReset();
@@ -58,9 +58,9 @@ describe('uploadCommand', () => {
 
     test('falls back to default when custom command is empty', async () => {
         mockConfig.get.mockReturnValue(undefined);
-        
+
         await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
-        
+
         // Default for non-Gerrit is git push
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
@@ -68,10 +68,10 @@ describe('uploadCommand', () => {
 
     test('extracts revision from object payload (repro for r.substring error)', async () => {
         mockConfig.get.mockReturnValue(undefined);
-        
+
         // This simulates the webview payload: { changeId: 'rev-object' }
         await uploadCommand(jjService, gerritService, [{ changeId: 'rev-object' }], mockOutputChannel);
-        
+
         expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-object');
     });
 
@@ -79,7 +79,7 @@ describe('uploadCommand', () => {
         mockConfig.get.mockReturnValue(undefined);
         const error = new Error('upload failed');
         vi.mocked(jjService.upload).mockRejectedValue(error);
-        
+
         // Use a typed alias to help Vitest pick the right overload
         const showErrorMessage = vscode.window.showErrorMessage as (
             message: string,
@@ -92,11 +92,11 @@ describe('uploadCommand', () => {
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),
             'Show Log',
-            'Configure Upload...'
+            'Configure Upload...',
         );
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'workbench.action.openSettings',
-            'jj-view.uploadCommand'
+            'jj-view.uploadCommand',
         );
     });
 
@@ -107,7 +107,7 @@ describe('uploadCommand', () => {
         });
         const error = new Error('upload failed');
         vi.mocked(jjService.upload).mockRejectedValue(error);
-        
+
         const showErrorMessage = vscode.window.showErrorMessage as (
             message: string,
             ...items: string[]
@@ -118,7 +118,7 @@ describe('uploadCommand', () => {
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),
-            'Show Log'
+            'Show Log',
             // No "Configure Upload..." button
         );
         // Verify it wasn't called with the extra button

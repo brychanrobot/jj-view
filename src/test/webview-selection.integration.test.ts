@@ -53,7 +53,9 @@ suite('Webview Selection Integration Test', function () {
         jj = new JjService(repo.path);
         const extensionUri = vscode.Uri.file(__dirname); // Mock URI
         const gerritService = createMock<GerritService>({
-            onDidUpdate: () => { return { dispose: () => {} }; },
+            onDidUpdate: () => {
+                return { dispose: () => {} };
+            },
             isEnabled: false,
             startPolling: () => {},
             stopPolling: () => {},

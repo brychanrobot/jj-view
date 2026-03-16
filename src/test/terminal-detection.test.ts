@@ -18,9 +18,8 @@ describe('handleTerminalExecution', () => {
     let gerritService: { forceRefresh: ReturnType<typeof vi.fn>; requestRefreshWithBackoffs: ReturnType<typeof vi.fn> };
     let outputChannel: { appendLine: ReturnType<typeof vi.fn> };
 
-
     beforeEach(() => {
-        gerritService = { 
+        gerritService = {
             forceRefresh: vi.fn(),
             requestRefreshWithBackoffs: vi.fn(),
         };
@@ -91,8 +90,6 @@ describe('handleTerminalExecution', () => {
             outputChannel as unknown as vscode.OutputChannel,
         );
 
-        expect(outputChannel.appendLine).toHaveBeenCalledWith(
-            '[Extension] Detected terminal upload: "jj upload"'
-        );
+        expect(outputChannel.appendLine).toHaveBeenCalledWith('[Extension] Detected terminal upload: "jj upload"');
     });
 });

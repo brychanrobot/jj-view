@@ -39,8 +39,8 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
         const { x1, y1, x2, y2, color } = edge;
         const sx = x1 * W + CX + LEFT_MARGIN;
         // Start Y is based on row offset + centering in header
-        const sy = (rowOffsets[y1] || 0) + CY_OFFSET; 
-        
+        const sy = (rowOffsets[y1] || 0) + CY_OFFSET;
+
         const ex = x2 * W + CX + LEFT_MARGIN;
         // End Y
         const ey = (rowOffsets[y2] || 0) + CY_OFFSET;
@@ -53,7 +53,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
         } else {
             // Rail Routing: Bend at the row boundary to keep the structure clean.
             // We use the top of the next row as the midpoint for the S-curve.
-            const nextRowY = rowOffsets[y1 + 1] || (sy + ROW_HEADER_HEIGHT);
+            const nextRowY = rowOffsets[y1 + 1] || sy + ROW_HEADER_HEIGHT;
             const midY = nextRowY;
 
             // Direction for horizontal
@@ -106,7 +106,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
         const cx = node.x * W + CX + LEFT_MARGIN;
         // Node Y is strictly based on the offset table
         const cy = (rowOffsets[node.y] || 0) + CY_OFFSET;
-        
+
         const isSelected = selectedNodes?.has(node.changeId);
 
         const Halo = () => (
@@ -181,9 +181,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                 />
             );
         } else {
-            content = (
-                <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />
-            );
+            content = <circle cx={cx} cy={cy} r="5" fill={node.color} stroke={node.color} strokeWidth="2" />;
         }
 
         return (

@@ -8,7 +8,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { createDiffUris } from '../uri-utils';
 import { JjStatusEntry } from '../jj-types';
 
-
 // Mock vscode
 vi.mock('vscode', async () => {
     // await import('./vscode-mock'); // this was redundant
@@ -71,7 +70,7 @@ describe('createDiffUris', () => {
         expect(leftUri.path).toBe('/root/old.txt');
         expect(leftUri.query).toContain('base=rev1');
         expect(leftUri.query).toContain('side=left');
-        
+
         // Right side should use new path
         expect(rightUri.path).toBe('/root/new.txt');
         expect(rightUri.query).toContain('base=rev1');

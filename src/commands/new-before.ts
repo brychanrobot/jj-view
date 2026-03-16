@@ -8,16 +8,12 @@ import { JjService } from '../jj-service';
 import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
-export async function newBeforeCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    args: unknown[],
-) {
+export async function newBeforeCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     let revisions: string[] = [];
 
     // 1. Revisions from arguments (context menu, etc)
     const argRevisions = extractRevisions(args);
-    
+
     // 2. Selection from provider
     const selectedIds = scmProvider.getSelectedCommitIds();
 
@@ -43,10 +39,7 @@ export async function newBeforeCommand(
     }
 
     try {
-        await withDelayedProgress(
-            'Creating new change...',
-            jj.new({ insertBefore: revisions })
-        );
+        await withDelayedProgress('Creating new change...', jj.new({ insertBefore: revisions }));
         scmProvider.refresh();
     } catch (e: unknown) {
         showJjError(e, `Error creating new commit before ${revisions.join(', ')}`, scmProvider.outputChannel);

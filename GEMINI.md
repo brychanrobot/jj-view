@@ -32,11 +32,12 @@ This document outlines the coding standards, testing strategies, and architectur
 
 ## Testing Strategy
 
-This project employs a split testing strategy to ensure both logic correctness and integration validity. 
+This project employs a split testing strategy to ensure both logic correctness and integration validity.
 
-**CRITICAL RULE**: Tests should **NEVER** mock `JjService` methods. 
+**CRITICAL RULE**: Tests should **NEVER** mock `JjService` methods.
+
 - Always use `TestRepo` to set up a real temporary repository on disk.
-- Use a real `JjService` instance to operate on it. 
+- Use a real `JjService` instance to operate on it.
 - Use `TestRepo` methods to verify outcomes (e.g. file content, log history), rather than spying on `JjService` calls.
 
 ### 1. Unit Tests

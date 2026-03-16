@@ -21,7 +21,7 @@ const { mockQuickPick } = vi.hoisted(() => ({
         items: [] as { label: string; description?: string }[],
         placeholder: '',
         matchOnDescription: false,
-    }
+    },
 }));
 
 vi.mock('vscode', async () => {
@@ -41,7 +41,7 @@ describe('setBookmarkCommand', () => {
         repo.init();
         jj = new JjService(repo.path);
         scmProvider = createMock<JjScmProvider>({ refresh: vi.fn() });
-        
+
         mockQuickPick.show.mockClear();
         mockQuickPick.hide.mockClear();
         mockQuickPick.onDidAccept.mockClear();
@@ -56,18 +56,16 @@ describe('setBookmarkCommand', () => {
 
     test('fetches bookmarks and shows quick pick', async () => {
         repo.bookmark('feature-a', '@');
-        
+
         await setBookmarkCommand(scmProvider, jj, { commitId: 'some-id' });
-        
+
         expect(mockQuickPick.show).toHaveBeenCalled();
-        expect(mockQuickPick.items).toEqual(expect.arrayContaining([
-            expect.objectContaining({ label: 'feature-a' })
-        ]));
+        expect(mockQuickPick.items).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'feature-a' })]));
     });
 
     test('sets bookmark when selected from list', async () => {
         repo.bookmark('feature-a', '@');
-        
+
         let acceptCallback: () => Promise<void> = async () => {};
         mockQuickPick.onDidAccept.mockImplementation((cb: () => Promise<void>) => {
             acceptCallback = cb;
@@ -78,7 +76,7 @@ describe('setBookmarkCommand', () => {
 
         mockQuickPick.selectedItems = [{ label: 'feature-a' }];
         await acceptCallback();
-        
+
         expect(mockQuickPick.hide).toHaveBeenCalled();
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
@@ -96,9 +94,9 @@ describe('setBookmarkCommand', () => {
         mockQuickPick.selectedItems = [];
         mockQuickPick.value = 'new-feature';
         await acceptCallback();
-        
+
         expect(mockQuickPick.hide).toHaveBeenCalled();
-        
+
         const bookmarks = repo.getBookmarks('@');
         expect(bookmarks).toContain('new-feature');
     });

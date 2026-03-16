@@ -10,11 +10,18 @@ fs.mkdirSync(userDir, { recursive: true });
 fs.mkdirSync(workspaceDir, { recursive: true });
 
 // Write settings to disable git
-fs.writeFileSync(path.join(userDir, 'settings.json'), JSON.stringify({
-    "git.enabled": false,
-    "git.path": null,
-    "git.autoRepositoryDetection": false
-}, null, 4));
+fs.writeFileSync(
+    path.join(userDir, 'settings.json'),
+    JSON.stringify(
+        {
+            'git.enabled': false,
+            'git.path': null,
+            'git.autoRepositoryDetection': false,
+        },
+        null,
+        4,
+    ),
+);
 
 export default defineConfig({
     files: 'out/test/extension.integration.test.js',
@@ -24,8 +31,10 @@ export default defineConfig({
     },
     launchArgs: [
         '--disable-extensions',
-        '--disable-extension', 'vscode.git',
-        '--user-data-dir', tmpDir,
-        workspaceDir // Use dedicated workspace directory
+        '--disable-extension',
+        'vscode.git',
+        '--user-data-dir',
+        tmpDir,
+        workspaceDir, // Use dedicated workspace directory
     ],
 });

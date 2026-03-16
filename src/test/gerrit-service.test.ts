@@ -27,10 +27,14 @@ vi.mock('vscode', () => ({
         private listeners: Function[] = [];
         event = (listener: Function) => {
             this.listeners.push(listener);
-            return { dispose: () => { this.listeners = this.listeners.filter(l => l !== listener); } };
+            return {
+                dispose: () => {
+                    this.listeners = this.listeners.filter((l) => l !== listener);
+                },
+            };
         };
         fire = (data: unknown) => {
-            this.listeners.forEach(l => l(data));
+            this.listeners.forEach((l) => l(data));
         };
         dispose = vi.fn();
     },
@@ -51,17 +55,17 @@ describe('GerritService Detection', () => {
         repo = new TestRepo();
         repo.init();
         mockConfig.get.mockReset();
-        
+
         mockOnDidChangeWindowState = vscode.window.onDidChangeWindowState as unknown as ReturnType<typeof vi.fn>;
         mockOnDidChangeWindowState.mockReset();
         mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
 
         jjService = new JjService(repo.path);
         fakeGerritServer = new FakeGerritServer();
-        
+
         // Default fetch mock using FakeGerrit
         global.fetch = vi.fn().mockImplementation((url, init) => {
-             return fakeGerritServer.handleFetch(url, init);
+            return fakeGerritServer.handleFetch(url, init);
         }) as unknown as typeof fetch;
     });
 
@@ -131,13 +135,13 @@ describe('GerritService Detection', () => {
     });
 
     test('Handles ssh remote format', async () => {
-         repo.addRemote('origin', 'ssh://user@gerrit.googlesource.com:29418/repo');
- 
-         service = new GerritService(repo.path, jjService);
-         await service.awaitReady();
- 
-         // Should strip repo path
-         expect(getGerritHost(service)).toBe('https://gerrit-review.googlesource.com');
+        repo.addRemote('origin', 'ssh://user@gerrit.googlesource.com:29418/repo');
+
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        // Should strip repo path
+        expect(getGerritHost(service)).toBe('https://gerrit-review.googlesource.com');
     });
 
     test('Detects from sso:// remote', async () => {
@@ -158,14 +162,16 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: changeId,
             _number: 123,
-            status: 'NEW'
+            status: 'NEW',
         });
 
-        const result = await service.fetchAndCacheStatus('commit-sha', 'z-change-id', 'Description\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678\n');
-
-        expect(global.fetch).toHaveBeenCalledWith(
-            expect.stringContaining(`change:${changeId}`)
+        const result = await service.fetchAndCacheStatus(
+            'commit-sha',
+            'z-change-id',
+            'Description\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678\n',
         );
+
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`change:${changeId}`));
         expect(result?.changeId).toBe('I1234567890abcdef1234567890abcdef12345678');
     });
 
@@ -178,19 +184,17 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: changeId,
             _number: 456,
-            status: 'NEW'
+            status: 'NEW',
         });
 
         // z (122) -> 0
         // k (107) -> f
         // "zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk" -> "000000000000ffffffffffffffffffffffffffff" (32 chars)
-        const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk'; 
-        
+        const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
+
         const result = await service.fetchAndCacheStatus('commit-sha', jjId, 'Description without ID');
 
-        expect(global.fetch).toHaveBeenCalledWith(
-            expect.stringContaining(`change:${changeId}`)
-        );
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`change:${changeId}`));
         expect(result?.changeNumber).toBe(456);
     });
 
@@ -235,7 +239,7 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: changeId,
             _number: 123,
-            status: 'NEW'
+            status: 'NEW',
         });
 
         // First call
@@ -248,7 +252,7 @@ describe('GerritService Detection', () => {
     });
 
     test('forceFetchAndCacheStatus bypasses cache and updates it', async () => {
-        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
+        mockConfig.get.mockImplementation((key: string) => (key === 'gerrit.host' ? 'https://host.com' : undefined));
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
@@ -257,20 +261,20 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: cacheKey,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
-        
+
         // Cache it first
         await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
-        
+
         // Now update it on server (but we want to verifying cache BYPASS, so updating server and force refreshing should show update)
         fakeGerritServer.updateChange(cacheKey, { status: 'MERGED' });
 
         const result = await service.forceFetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
-        
+
         expect(result?.status).toBe('MERGED');
     });
-    
+
     test('ensureFreshStatuses detects changes', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
@@ -284,24 +288,26 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: cacheKey1,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
         await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey1}`);
         fakeGerritServer.addChange({
             change_id: cacheKey,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
         await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey1}`);
 
         // 2. Update Gerrit with NEW data (MERGED)
         fakeGerritServer.updateChange(cacheKey1, { status: 'MERGED', submittable: false });
 
-        const items = [{
-            commitId: 'commit-1',
-            changeId: 'change-1',
-            description: `Change-Id: ${cacheKey1}`
-        }];
+        const items = [
+            {
+                commitId: 'commit-1',
+                changeId: 'change-1',
+                description: `Change-Id: ${cacheKey1}`,
+            },
+        ];
 
         const hasChanges = await service.ensureFreshStatuses(items);
 
@@ -319,17 +325,19 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: cacheKey3,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
         await service.fetchAndCacheStatus('commit-1', 'change-1', `Change-Id: ${cacheKey3}`);
 
         // 2. No updates to Gerrit (still NEW)
 
-        const items3 = [{
-            commitId: 'commit-1',
-            changeId: 'change-1',
-            description: `Change-Id: ${cacheKey3}`
-        }];
+        const items3 = [
+            {
+                commitId: 'commit-1',
+                changeId: 'change-1',
+                description: `Change-Id: ${cacheKey3}`,
+            },
+        ];
 
         const hasChanges3 = await service.ensureFreshStatuses(items3);
 
@@ -338,8 +346,8 @@ describe('GerritService Detection', () => {
 
     test('startPolling clears cache and fires onDidUpdate', async () => {
         vi.useFakeTimers();
-        
-        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
+
+        mockConfig.get.mockImplementation((key: string) => (key === 'gerrit.host' ? 'https://host.com' : undefined));
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -349,16 +357,18 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: cacheKey,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
         await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
-        
+
         // Verify it's cached
         expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
         // Track onDidUpdate calls
         let updateFired = false;
-        const disposable = service.onDidUpdate(() => { updateFired = true; });
+        const disposable = service.onDidUpdate(() => {
+            updateFired = true;
+        });
 
         // Start polling
         service.startPolling();
@@ -374,7 +384,7 @@ describe('GerritService Detection', () => {
     });
 
     test('forceRefresh clears cache and fires onDidUpdate', async () => {
-        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
+        mockConfig.get.mockImplementation((key: string) => (key === 'gerrit.host' ? 'https://host.com' : undefined));
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -384,7 +394,7 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({
             change_id: cacheKey,
             status: 'NEW',
-            _number: 123
+            _number: 123,
         });
         await service.fetchAndCacheStatus('c1', 'change-1', `Change-Id: ${cacheKey}`);
 
@@ -393,7 +403,9 @@ describe('GerritService Detection', () => {
 
         // Track onDidUpdate calls
         let updateFired = false;
-        const disposable = service.onDidUpdate(() => { updateFired = true; });
+        const disposable = service.onDidUpdate(() => {
+            updateFired = true;
+        });
 
         service.forceRefresh();
 
@@ -408,7 +420,7 @@ describe('GerritService Detection', () => {
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
         const currentRev = 'commit-sha-on-gerrit';
-        
+
         fakeGerritServer.addChange({
             change_id: changeId,
             status: 'NEW',
@@ -420,10 +432,10 @@ describe('GerritService Detection', () => {
                         'file1.txt': { status: 'M', new_sha: 'abc' },
                         'file2.txt': { status: 'A', new_sha: 'def' },
                         'deleted.txt': { status: 'D' },
-                        '/COMMIT_MSG': { status: 'A' }
-                    }
-                }
-            }
+                        '/COMMIT_MSG': { status: 'A' },
+                    },
+                },
+            },
         });
 
         const result = await service.fetchAndCacheStatus('local-sha', changeId, `Change-Id: ${changeId}`);
@@ -447,10 +459,10 @@ describe('GerritService Detection', () => {
         repo.writeFile('file1.txt', 'content1');
         repo.writeFile('file2.txt', 'content2');
         await jjService.describe('commit with 2 files');
-        
+
         // Get commit ID of @ (which has the files)
         const commitId = repo.getCommitId('@').trim();
-        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
 
         // 2. Mock Gerrit response knowing ONLY about file1.txt
         const currentRev = 'commit-sha-on-gerrit';
@@ -462,10 +474,10 @@ describe('GerritService Detection', () => {
             revisions: {
                 [currentRev]: {
                     files: {
-                        'file1.txt': { status: 'A', new_sha: 'abc' }
-                    }
-                }
-            }
+                        'file1.txt': { status: 'A', new_sha: 'abc' },
+                    },
+                },
+            },
         });
 
         // 3. Trigger fetch
@@ -483,14 +495,14 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
         const currentRev = 'commit-sha-on-gerrit';
-        
+
         // Match files exactly but change description
         repo.writeFile('file1.txt', 'content1');
         await jjService.describe('Local Description\n\nChange-Id: ' + changeId);
         const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
-        
+
         fakeGerritServer.addChange({
             change_id: changeId,
             _number: 123,
@@ -500,16 +512,20 @@ describe('GerritService Detection', () => {
                 [currentRev]: {
                     commit: { message: 'Remote Description\n\nChange-Id: ' + changeId },
                     files: {
-                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
-                    }
-                }
-            }
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
+                    },
+                },
+            },
         });
 
         const commitId = repo.getCommitId('@').trim();
 
         // Pass a DIFFERENT local description
-        const resultNoSync = await service.forceFetchAndCacheStatus(commitId, changeId, `Local Description\n\nChange-Id: ${changeId}`);
+        const resultNoSync = await service.forceFetchAndCacheStatus(
+            commitId,
+            changeId,
+            `Local Description\n\nChange-Id: ${changeId}`,
+        );
         expect(resultNoSync?.synced).toBeFalsy();
     });
 
@@ -518,11 +534,11 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const changeId = 'I1234567890abcdef1234567890abcdef12345678'; 
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
         const currentRev = 'commit-sha-on-gerrit';
-        
+
         const baseDescription = `Same Description\n\nChange-Id: ${changeId}`;
-        
+
         repo.writeFile('file1.txt', 'content1');
         await jjService.describe(baseDescription);
         const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
@@ -536,10 +552,10 @@ describe('GerritService Detection', () => {
                 [currentRev]: {
                     commit: { message: baseDescription + '\n\n' }, // Extra newlines remotely
                     files: {
-                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
-                    }
-                }
-            }
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
+                    },
+                },
+            },
         });
 
         const commitId = repo.getCommitId('@').trim();
@@ -554,10 +570,10 @@ describe('GerritService Detection', () => {
         service = new GerritService(repo.path, jjService);
         await service.awaitReady();
 
-        const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk'; 
+        const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
         const gerritId = 'I000000000000ffffffffffffffffffffffffffff';
         const currentRev = 'commit-sha-on-gerrit';
-        
+
         repo.writeFile('file1.txt', 'content1');
         await jjService.describe('Local description has no Change-Id');
         const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
@@ -571,15 +587,19 @@ describe('GerritService Detection', () => {
                 [currentRev]: {
                     commit: { message: 'Local description has no Change-Id\n\nChange-Id: ' + gerritId }, // Gerrit has it
                     files: {
-                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') }
-                    }
-                }
-            }
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
+                    },
+                },
+            },
         });
 
         const commitId = repo.getCommitId('@').trim();
 
-        const resultSynced = await service.forceFetchAndCacheStatus(commitId, jjId, 'Local description has no Change-Id');
+        const resultSynced = await service.forceFetchAndCacheStatus(
+            commitId,
+            jjId,
+            'Local description has no Change-Id',
+        );
         expect(resultSynced?.synced).toBeTruthy();
     });
 
@@ -590,7 +610,7 @@ describe('GerritService Detection', () => {
         await service.awaitReady();
 
         const forceRefreshSpy = vi.spyOn(service, 'forceRefresh');
-        
+
         // Mock scheduler to verify delays
         const scheduler = vi.fn().mockImplementation((fn, delay) => {
             setTimeout(fn, delay);
@@ -616,7 +636,7 @@ describe('GerritService Detection', () => {
         vi.setSystemTime(20000); // Start at t=20s to ensure throttling logic works (20000 > 10000)
 
         // Setup to be enabled
-        mockConfig.get.mockImplementation((key: string) => key === 'gerrit.host' ? 'https://host.com' : undefined);
+        mockConfig.get.mockImplementation((key: string) => (key === 'gerrit.host' ? 'https://host.com' : undefined));
 
         // Initialize service
         service = new GerritService(repo.path, jjService);
@@ -624,7 +644,9 @@ describe('GerritService Detection', () => {
 
         // Spy on _onDidUpdate.fire to verify refreshes
         let updateCount = 0;
-        const disposable = service.onDidUpdate(() => { updateCount++; });
+        const disposable = service.onDidUpdate(() => {
+            updateCount++;
+        });
 
         // Check listener registration
         expect(mockOnDidChangeWindowState).toHaveBeenCalled();
@@ -651,7 +673,7 @@ describe('GerritService Detection', () => {
         // 5. Blur event (should NOT refresh)
         listener({ focused: false });
         expect(updateCount).toBe(2);
-        
+
         disposable.dispose();
 
         vi.useRealTimers();

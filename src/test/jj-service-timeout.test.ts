@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { JjService } from '../jj-service';
 import * as cp from 'child_process';
@@ -36,13 +35,15 @@ describe('JjService Timeout Tests', () => {
         // Advance 2 minutes - should still be pending (upload timeout is 6 mins)
         // We use advanceTimersByTimeAsync to ensure pending timers are processed
         await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
-        
+
         let rejected = false;
         // Attach a catch handler to spy on rejection status without waiting
-        uploadPromise.catch(() => { rejected = true; });
-        
+        uploadPromise.catch(() => {
+            rejected = true;
+        });
+
         // Allow any pending promises/microtasks to settle
-        await new Promise(resolve => process.nextTick(resolve));
+        await new Promise((resolve) => process.nextTick(resolve));
         expect(rejected).toBe(false);
 
         // Advance past 6 minutes (total time)
@@ -61,10 +62,12 @@ describe('JjService Timeout Tests', () => {
 
         // Advance 30s - should be fine
         await vi.advanceTimersByTimeAsync(30_000);
-        
+
         let rejected = false;
-        newPromise.catch(() => { rejected = true; });
-        await new Promise(resolve => process.nextTick(resolve));
+        newPromise.catch(() => {
+            rejected = true;
+        });
+        await new Promise((resolve) => process.nextTick(resolve));
         expect(rejected).toBe(false);
 
         // Advance past 1 minute

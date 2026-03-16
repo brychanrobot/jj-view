@@ -62,7 +62,10 @@ export class JjScmProvider implements vscode.Disposable {
 
         // Create groups in order of display
         this._conflictGroup = this._sourceControl.createResourceGroup(ScmContextValue.ConflictGroup, 'Merge Conflicts');
-        this._workingCopyGroup = this._sourceControl.createResourceGroup(ScmContextValue.WorkingCopyGroup, 'Working Copy');
+        this._workingCopyGroup = this._sourceControl.createResourceGroup(
+            ScmContextValue.WorkingCopyGroup,
+            'Working Copy',
+        );
         // Parent groups are created dynamically in refresh()
 
         this._sourceControl.quickDiffProvider = this;
@@ -129,14 +132,9 @@ export class JjScmProvider implements vscode.Disposable {
         );
 
         // Initialize file watcher
-        this._fileWatcher = new ChangeDetectionManager(
-            workspaceRoot, 
-            this.jj, 
-            this.outputChannel,
-            async (options) => {
-                await this._refreshScheduler.trigger(options);
-            }
-        );
+        this._fileWatcher = new ChangeDetectionManager(workspaceRoot, this.jj, this.outputChannel, async (options) => {
+            await this._refreshScheduler.trigger(options);
+        });
         this.disposables.push(this._fileWatcher);
 
         // Initial refresh
@@ -177,8 +175,9 @@ export class JjScmProvider implements vscode.Disposable {
                 const limit = maxMutableAncestors + 1;
 
                 // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
-                const bulkLogPromise = this.jj.getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
-                    .then(commitIds => Promise.all(commitIds.map(id => this.jj.getLog({ revision: id }))));
+                const bulkLogPromise = this.jj
+                    .getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
+                    .then((commitIds) => Promise.all(commitIds.map((id) => this.jj.getLog({ revision: id }))));
 
                 const [bulkLogEntries, children, conflictedPaths] = await Promise.all([
                     bulkLogPromise,
@@ -186,12 +185,12 @@ export class JjScmProvider implements vscode.Disposable {
                     this.jj.getConflictedFiles(),
                 ]);
 
-                const bulkLog = bulkLogEntries.map(entries => entries[0]).filter(Boolean);
+                const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
 
                 // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
-                const currentEntry = bulkLog.find(e => e.is_working_copy) || bulkLog[0];
+                const currentEntry = bulkLog.find((e) => e.is_working_copy) || bulkLog[0];
                 this._currentEntry = currentEntry;
-                const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map(entry => [entry.commit_id, entry]));
+                const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
 
                 let parentMutable = false;
                 const hasChild = children.length > 0;
@@ -245,7 +244,12 @@ export class JjScmProvider implements vscode.Disposable {
                 // 2. Find Mutable Ancestors (traverse graph)
                 let currentFocus = currentEntry;
                 let ancestorDepth = 1;
-                const ancestorsToDisplay: { entry: JjLogEntry; prefix: string; isMutable: boolean; canSquash: boolean }[] = [];
+                const ancestorsToDisplay: {
+                    entry: JjLogEntry;
+                    prefix: string;
+                    isMutable: boolean;
+                    canSquash: boolean;
+                }[] = [];
 
                 if (currentFocus) {
                     while (currentFocus && ancestorsToDisplay.length < maxMutableAncestors) {
@@ -258,30 +262,30 @@ export class JjScmProvider implements vscode.Disposable {
 
                         // Get all parent entries from the bulk map
                         const parentEntries = currentFocus.parents.map((parentRef) => {
-                             const refId = typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef
-                                ? (parentRef as { commit_id: string }).commit_id
-                                : (parentRef as string);
-                             return bulkLogMap.get(refId);
+                            const refId =
+                                typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef
+                                    ? (parentRef as { commit_id: string }).commit_id
+                                    : (parentRef as string);
+                            return bulkLogMap.get(refId);
                         });
 
                         for (let i = 0; i < parentEntries.length; i++) {
                             const parentEntry = parentEntries[i];
                             if (!parentEntry) continue;
 
-                            const prefix = isMerge 
-                                ? `@-${ancestorDepth}^${i + 1}`
-                                : `@-${ancestorDepth}`;
+                            const prefix = isMerge ? `@-${ancestorDepth}^${i + 1}` : `@-${ancestorDepth}`;
 
-                            const canSquash = !parentEntry.is_immutable && 
-                                parentEntry.parents_immutable !== undefined && 
-                                parentEntry.parents_immutable.length > 0 && 
+                            const canSquash =
+                                !parentEntry.is_immutable &&
+                                parentEntry.parents_immutable !== undefined &&
+                                parentEntry.parents_immutable.length > 0 &&
                                 !parentEntry.parents_immutable[0];
 
                             ancestorsToDisplay.push({
                                 entry: parentEntry,
                                 prefix,
                                 isMutable: !parentEntry.is_immutable,
-                                canSquash
+                                canSquash,
                             });
                         }
 
@@ -309,7 +313,11 @@ export class JjScmProvider implements vscode.Disposable {
                 if (currentEntry) {
                     const config = vscode.workspace.getConfiguration('jj-view');
                     const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-                    const shortId = formatDisplayChangeId(currentEntry.change_id, currentEntry.change_id_shortest, minChangeIdLength);
+                    const shortId = formatDisplayChangeId(
+                        currentEntry.change_id,
+                        currentEntry.change_id_shortest,
+                        minChangeIdLength,
+                    );
                     this._workingCopyGroup.label = `Working Copy - ${shortId}`;
                 } else {
                     this._workingCopyGroup.label = 'Working Copy';
@@ -347,7 +355,11 @@ export class JjScmProvider implements vscode.Disposable {
 
                     const config = vscode.workspace.getConfiguration('jj-view');
                     const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-                    const shortId = formatDisplayChangeId(ancestorEntry.change_id, ancestorEntry.change_id_shortest, minChangeIdLength);
+                    const shortId = formatDisplayChangeId(
+                        ancestorEntry.change_id,
+                        ancestorEntry.change_id_shortest,
+                        minChangeIdLength,
+                    );
                     const desc = ancestorEntry.description?.trim() || '(no description)';
                     const label = `${prefix}: ${shortId} - ${desc}`;
 
@@ -496,7 +508,12 @@ export class JjScmProvider implements vscode.Disposable {
     private toResourceState(
         entry: JjStatusEntry,
         revision: string = '@',
-        options: { editable?: boolean; workingCopyChangeId?: string; squashable?: boolean; multipleAncestors?: boolean } = {},
+        options: {
+            editable?: boolean;
+            workingCopyChangeId?: string;
+            squashable?: boolean;
+            multipleAncestors?: boolean;
+        } = {},
     ): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
         const isWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
@@ -504,7 +521,6 @@ export class JjScmProvider implements vscode.Disposable {
             ...options,
             workingCopyChangeId: this._currentEntry?.change_id,
         });
-
 
         const command: vscode.Command = entry.conflicted
             ? {

@@ -13,11 +13,11 @@ The project has strict type-checking enabled (`"strict": true` in `tsconfig.json
 
 1.  **NO `any` types:** The use of `any` disables type checking and is completely forbidden. Use strict types, or if the type is truly unknown, use `unknown`.
 2.  **NO disabling type checks:** You may not disable type checking for a line or block of code.
-    *   Forbidden: `// @ts-ignore`
-    *   Forbidden: `// eslint-disable-line` (for type-related lint rules)
-    *   Forbidden: `// @ts-expect-error`
+    - Forbidden: `// @ts-ignore`
+    - Forbidden: `// eslint-disable-line` (for type-related lint rules)
+    - Forbidden: `// @ts-expect-error`
 3.  **NO double casting:** You may not bypass the type system by casting to `unknown` and then immediately casting to another type.
-    *   Forbidden: `const myVar = foo as unknown as Bar;`
+    - Forbidden: `const myVar = foo as unknown as Bar;`
 
 ## How to Handle Types Correctly
 
@@ -30,14 +30,14 @@ Instead of forcing a cast, use type guards (e.g., `typeof`, `instanceof`, or cus
 ```typescript
 // BAD (Forbidden)
 const data = getSomeUnknownData();
-const myString = data as unknown as string; 
+const myString = data as unknown as string;
 const length = myString.length;
 
 // GOOD (Type Narrowing)
 const data = getSomeUnknownData();
 if (typeof data === 'string') {
     // TypeScript now knows `data` is a string
-    const length = data.length; 
+    const length = data.length;
 } else {
     // Handle the unexpected type
     throw new Error('Expected a string');
@@ -50,7 +50,7 @@ If you have an object from an external source typed as `unknown` and need to acc
 
 ## How to Handle Mocking in Tests
 
-The most common reason developers reach for double-casting (`as unknown as Type`) is when creating mock objects for tests. **This is forbidden.** 
+The most common reason developers reach for double-casting (`as unknown as Type`) is when creating mock objects for tests. **This is forbidden.**
 
 To create partial mock objects that satisfy a required interface, use the `createMock` utility (where available) or structurally type what you need.
 
@@ -67,14 +67,14 @@ vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
         // Provide partial overrides here
-        window: { 
+        window: {
             showInformationMessage: vi.fn(),
-            showErrorMessage: vi.fn() 
+            showErrorMessage: vi.fn(),
         },
         workspace: {
-             // Only provide what the test needs
-             workspaceFolders: [{ uri: { fsPath: '/custom/test/path' } }]
-        }
+            // Only provide what the test needs
+            workspaceFolders: [{ uri: { fsPath: '/custom/test/path' } }],
+        },
     });
 });
 ```

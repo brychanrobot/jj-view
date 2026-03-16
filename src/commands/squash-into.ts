@@ -26,8 +26,8 @@ export async function squashIntoCommand(scmProvider: JjScmProvider, jj: JjServic
             return;
         }
 
-        const entries = await Promise.all(commitIds.map(id => jj.getLog({ revision: id })));
-        const linearAncestors = entries.map(e => e[0]).filter(Boolean);
+        const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
+        const linearAncestors = entries.map((e) => e[0]).filter(Boolean);
 
         // Remove the current revision itself from the selection options
         const ancestorsToChoose = linearAncestors.slice(1);

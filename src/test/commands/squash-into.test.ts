@@ -22,9 +22,9 @@ vi.mock('vscode', async () => {
         },
         workspace: {
             getConfiguration: () => ({
-                get: (_key: string, defaultValue: unknown) => defaultValue
-            })
-        }
+                get: (_key: string, defaultValue: unknown) => defaultValue,
+            }),
+        },
     });
 });
 
@@ -41,8 +41,8 @@ describe('squashIntoCommand', () => {
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
             outputChannel: createMock<vscode.OutputChannel>({
-                appendLine: vi.fn()
-            })
+                appendLine: vi.fn(),
+            }),
         });
     });
 
@@ -61,7 +61,9 @@ describe('squashIntoCommand', () => {
 
         await squashIntoCommand(scmProvider, jj, args);
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('No mutable ancestors available to squash into.');
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+            'No mutable ancestors available to squash into.',
+        );
         expect(scmProvider.refresh).not.toHaveBeenCalled();
     });
 
@@ -69,7 +71,12 @@ describe('squashIntoCommand', () => {
         const fileName = 'file.txt';
         const ids = await buildGraph(repo, [
             { label: 'grandparent', description: 'grandparent', files: { [fileName]: 'grandparent content' } },
-            { label: 'parent', parents: ['grandparent'], description: 'parent', files: { 'parent_file.txt': 'parent content' } },
+            {
+                label: 'parent',
+                parents: ['grandparent'],
+                description: 'parent',
+                files: { 'parent_file.txt': 'parent content' },
+            },
             {
                 label: 'child',
                 parents: ['parent'],
@@ -95,7 +102,7 @@ describe('squashIntoCommand', () => {
         await squashIntoCommand(scmProvider, jj, args);
 
         expect(vscode.window.showQuickPick).toHaveBeenCalled();
-        
+
         // Grandparent should have 'child content'
         const gpContent = repo.getFileContent(grandparentChangeId, fileName);
         expect(gpContent).toBe('child content');
@@ -111,7 +118,12 @@ describe('squashIntoCommand', () => {
         const fileName = 'file.txt';
         const ids = await buildGraph(repo, [
             { label: 'grandparent', description: 'grandparent', files: { [fileName]: 'grandparent content' } },
-            { label: 'parent', parents: ['grandparent'], description: 'parent', files: { 'parent_file.txt': 'parent content' } },
+            {
+                label: 'parent',
+                parents: ['grandparent'],
+                description: 'parent',
+                files: { 'parent_file.txt': 'parent content' },
+            },
             {
                 label: 'child',
                 parents: ['parent'],

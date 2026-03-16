@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 import * as vscode from 'vscode';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { absorbCommand } from '../../commands/absorb';
@@ -55,7 +54,7 @@ describe('absorbCommand', () => {
         // Verify parent has the change
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe('line1\nline2 modified\n');
-        
+
         expect(scmProvider.refresh).toHaveBeenCalled();
         expect(vscode.window.setStatusBarMessage).toHaveBeenCalledWith('Absorb completed.', 3000);
     });
@@ -87,7 +86,7 @@ describe('absorbCommand', () => {
         // Verify A has the change
         const contentA = repo.getFileContent(ids['A'].changeId, fileName);
         expect(contentA).toBe('base\nlineA modified\n');
-        
+
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 });

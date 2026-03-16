@@ -24,77 +24,78 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
 
     try {
         if (currentEntry.parents && currentEntry.parents.length > 1) {
-        // Multiple parents - prompt for selection
-        const parentOptions: vscode.QuickPickItem[] = [];
+            // Multiple parents - prompt for selection
+            const parentOptions: vscode.QuickPickItem[] = [];
 
-        for (let i = 0; i < currentEntry.parents.length; i++) {
-            let parentRef = currentEntry.parents[i];
-            if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
-                parentRef = (parentRef as { commit_id: string }).commit_id;
+            for (let i = 0; i < currentEntry.parents.length; i++) {
+                let parentRef = currentEntry.parents[i];
+                if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
+                    parentRef = (parentRef as { commit_id: string }).commit_id;
+                }
+
+                const [parentEntry] = await jj.getLog({ revision: parentRef as string });
+                if (parentEntry) {
+                    const shortId = parentEntry.change_id.substring(0, 8);
+                    const desc = parentEntry.description?.trim() || '(no description)';
+                    const shortDesc = desc.split('\n')[0].substring(0, 50);
+
+                    parentOptions.push({
+                        label: `Parent ${i + 1}: ${shortId}`,
+                        description: shortDesc,
+                        detail: parentRef as string,
+                    });
+                }
             }
 
-            const [parentEntry] = await jj.getLog({ revision: parentRef as string });
-            if (parentEntry) {
-                const shortId = parentEntry.change_id.substring(0, 8);
-                const desc = parentEntry.description?.trim() || '(no description)';
-                const shortDesc = desc.split('\n')[0].substring(0, 50);
+            const selected = await vscode.window.showQuickPick(parentOptions, {
+                placeHolder: 'Select which parent to squash into',
+            });
 
-                parentOptions.push({
-                    label: `Parent ${i + 1}: ${shortId}`,
-                    description: shortDesc,
-                    detail: parentRef as string,
-                });
+            if (!selected) {
+                return;
+            } // User cancelled
+
+            // Squash from working copy into selected parent
+            const hasCurrentDesc = currentEntry.description && currentEntry.description.trim().length > 0;
+            const [parentEntry] = await jj.getLog({ revision: selected.detail! });
+            const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
+
+            // Only open editor if squashing ALL changes (paths empty) AND both have descriptions.
+            if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
+                await openSquashDescriptionEditor(jj, paths, revision, selected.detail!);
+                return;
             }
-        }
 
-        const selected = await vscode.window.showQuickPick(parentOptions, {
-            placeHolder: 'Select which parent to squash into',
-        });
-
-        if (!selected) {
-            return;
-        } // User cancelled
-
-        // Squash from working copy into selected parent
-        const hasCurrentDesc = currentEntry.description && currentEntry.description.trim().length > 0;
-        const [parentEntry] = await jj.getLog({ revision: selected.detail! });
-        const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
-
-        // Only open editor if squashing ALL changes (paths empty) AND both have descriptions.
-        if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
-            await openSquashDescriptionEditor(jj, paths, revision, selected.detail!);
-            return;
-        }
-
-        // Partial squash or implicit all without conflicting descriptions
-        // Always use destination description to avoid launching interactive editor
-        await withDelayedProgress('Squashing...', jj.squash(paths, revision, selected.detail!, undefined, true));
-    } else {
-        // Single parent
-        let parentRev = '@-';
-        // Use revision- if we are squashing a specific revision
-        if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
-            const p = currentEntry.parents[0];
-            if (typeof p === 'object' && p !== null && 'commit_id' in p) {
-                parentRev = (p as { commit_id: string }).commit_id;
-            } else {
-                parentRev = p as string;
+            // Partial squash or implicit all without conflicting descriptions
+            // Always use destination description to avoid launching interactive editor
+            await withDelayedProgress('Squashing...', jj.squash(paths, revision, selected.detail!, undefined, true));
+        } else {
+            // Single parent
+            let parentRev = '@-';
+            // Use revision- if we are squashing a specific revision
+            if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
+                const p = currentEntry.parents[0];
+                if (typeof p === 'object' && p !== null && 'commit_id' in p) {
+                    parentRev = (p as { commit_id: string }).commit_id;
+                } else {
+                    parentRev = p as string;
+                }
             }
+
+            const hasCurrentDesc =
+                currentEntry && currentEntry.description && currentEntry.description.trim().length > 0;
+            const [parentEntry] = await jj.getLog({ revision: parentRev });
+            // Be safe with parent entry check (could be root)
+            const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
+
+            if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
+                await openSquashDescriptionEditor(jj, paths, revision, parentRev);
+                return;
+            }
+
+            // Normal squash - use destination message (-u)
+            await withDelayedProgress('Squashing...', jj.squash(paths, revision, parentRev, undefined, true));
         }
-
-        const hasCurrentDesc = currentEntry && currentEntry.description && currentEntry.description.trim().length > 0;
-        const [parentEntry] = await jj.getLog({ revision: parentRev });
-        // Be safe with parent entry check (could be root)
-        const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
-
-        if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
-            await openSquashDescriptionEditor(jj, paths, revision, parentRev);
-            return;
-        }
-
-        // Normal squash - use destination message (-u)
-        await withDelayedProgress('Squashing...', jj.squash(paths, revision, parentRev, undefined, true));
-    }
 
         await scmProvider.refresh({ reason: 'after squash' });
     } catch (e: unknown) {

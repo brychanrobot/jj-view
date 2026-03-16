@@ -11,7 +11,6 @@ import { TestRepo } from './test-repo';
 suite('Extension Test Suite', () => {
     vscode.window.showInformationMessage('Start all tests.');
 
-
     let repo: TestRepo;
 
     suiteSetup(async () => {
@@ -30,19 +29,19 @@ suite('Extension Test Suite', () => {
         assert.ok(extension, 'Extension not found');
 
         // Activate if not already active
-        const api = await extension.activate() as Api;
+        const api = (await extension.activate()) as Api;
         assert.ok(api, 'Extension did not return API');
 
         // Verify scmProvider is exported
         assert.ok(api.scmProvider, 'scmProvider not exported');
-        
+
         // Verify dependency injection: contentProvider must be assigned for cache invalidation
         // This catches the bug where contentProvider wasn't passed to scmProvider constructor
         assert.ok(api.scmProvider.contentProvider, 'contentProvider not assigned to scmProvider');
-        
+
         // Verify other basics
         assert.ok(api.jj, 'jj service not exported');
-        
+
         // Verify JJ service is bound to the correct workspace
         assert.strictEqual(api.jj.workspaceRoot, repo.path, 'JJ service root mismatch');
 

@@ -37,7 +37,7 @@ describe('refreshCommand', () => {
         await refreshCommand(scmProvider);
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Error refreshing: refresh failed'),
-            'Show Log'
+            'Show Log',
         );
     });
 });

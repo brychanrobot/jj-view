@@ -9,14 +9,25 @@ import { TestRepo, buildGraph } from '../test-repo';
 import { launchVSCode, focusJJLog, getLogWebview, expectTree, entry, ROOT_ID } from './e2e-helpers';
 
 test.describe('JJ Log Pane E2E', () => {
-
     test('Webview Initialization & Rendering', async () => {
         const repo = new TestRepo();
         repo.init();
         await buildGraph(repo, [
             { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
-            { label: 'side_branch', parents: ['initial'], description: 'side branch commit', files: { 'file2.txt': 'base2' } },
-            { label: 'wc', parents: ['initial'], description: 'working tree', files: { 'file.txt': 'mod' }, isWorkingCopy: true, bookmarks: ['main'] }
+            {
+                label: 'side_branch',
+                parents: ['initial'],
+                description: 'side branch commit',
+                files: { 'file2.txt': 'base2' },
+            },
+            {
+                label: 'wc',
+                parents: ['initial'],
+                description: 'working tree',
+                files: { 'file.txt': 'mod' },
+                isWorkingCopy: true,
+                bookmarks: ['main'],
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -24,7 +35,7 @@ test.describe('JJ Log Pane E2E', () => {
         try {
             await focusJJLog(page);
             const webview = await getLogWebview(page);
-            
+
             // Assert all commit descriptions are present
             await expect(webview.locator('.commit-desc', { hasText: 'initial setup' })).toBeVisible();
             await expect(webview.locator('.commit-desc', { hasText: 'side branch commit' })).toBeVisible();
@@ -37,10 +48,11 @@ test.describe('JJ Log Pane E2E', () => {
             // Assert Bookmark pill is present inside the working copy row
             const bookmarkPill = webview.locator('.working-copy .bookmark-pill', { hasText: 'main' });
             await expect(bookmarkPill).toBeVisible();
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -52,7 +64,13 @@ test.describe('JJ Log Pane E2E', () => {
         const nodes = await buildGraph(repo, [
             { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
             { label: 'side_branch', parents: ['initial'], description: 'side branch', files: { 'file2.txt': 'base2' } },
-            { label: 'wc', parents: ['initial'], description: 'working tree', files: { 'file.txt': 'mod' }, isWorkingCopy: true }
+            {
+                label: 'wc',
+                parents: ['initial'],
+                description: 'working tree',
+                files: { 'file.txt': 'mod' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -67,7 +85,7 @@ test.describe('JJ Log Pane E2E', () => {
             // Click the first one normally, the second with Control
             await sideBranchRow.click();
             await expect(sideBranchRow).toHaveAttribute('data-selected', 'true');
-            
+
             await wcRow.click({ modifiers: ['Control'] });
             await expect(wcRow).toHaveAttribute('data-selected', 'true');
 
@@ -92,7 +110,7 @@ test.describe('JJ Log Pane E2E', () => {
                     entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
                     entry(nodes['side_branch'].changeId, 'side branch', nodes['initial'].changeId),
                     entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                    entry(dummyId, '(empty)', ROOT_ID)
+                    entry(dummyId, '(empty)', ROOT_ID),
                 ]);
             }).toPass();
 
@@ -105,12 +123,13 @@ test.describe('JJ Log Pane E2E', () => {
                 '@ ' + entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
                 entry(nodes['side_branch'].changeId, 'side branch', nodes['initial'].changeId),
                 entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID)
+                entry(dummyId, '(empty)', ROOT_ID),
             ]);
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -122,7 +141,13 @@ test.describe('JJ Log Pane E2E', () => {
         const nodes = await buildGraph(repo, [
             { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
             { label: 'branch', parents: ['initial'], description: 'branch commit', files: { 'file2.txt': 'base2' } },
-            { label: 'wc', parents: ['branch'], description: 'working tree', files: { 'file.txt': 'mod' }, isWorkingCopy: true }
+            {
+                label: 'wc',
+                parents: ['branch'],
+                description: 'working tree',
+                files: { 'file.txt': 'mod' },
+                isWorkingCopy: true,
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -136,7 +161,7 @@ test.describe('JJ Log Pane E2E', () => {
             const branchRow = webview.locator(`[data-change-id="${branchId}"]`);
             await branchRow.hover();
             await expect(branchRow).toHaveAttribute('data-hovered', 'true');
-            
+
             const newChildBtn = branchRow.locator('[title="New Child"]');
             await newChildBtn.click();
 
@@ -161,7 +186,7 @@ test.describe('JJ Log Pane E2E', () => {
                     entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
                     entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
                     entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                    entry(dummyId, '(empty)', ROOT_ID)
+                    entry(dummyId, '(empty)', ROOT_ID),
                 ]);
             }).toPass();
 
@@ -169,7 +194,7 @@ test.describe('JJ Log Pane E2E', () => {
             const initialId = nodes['initial'].changeId;
             const initialRow = webview.locator(`[data-change-id="${initialId}"]`);
             await initialRow.hover();
-            
+
             const editBtn = initialRow.locator('[title="Edit Commit"]');
             await editBtn.click();
 
@@ -179,7 +204,7 @@ test.describe('JJ Log Pane E2E', () => {
                 entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
                 entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
                 '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID)
+                entry(dummyId, '(empty)', ROOT_ID),
             ]);
 
             // 3. Squash the child into branch
@@ -195,7 +220,7 @@ test.describe('JJ Log Pane E2E', () => {
                 entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
                 entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
                 '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID)
+                entry(dummyId, '(empty)', ROOT_ID),
             ]);
 
             // 4. Abandon the branch commit
@@ -209,12 +234,13 @@ test.describe('JJ Log Pane E2E', () => {
             await expectTree(repo, [
                 entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
                 '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID)
+                entry(dummyId, '(empty)', ROOT_ID),
             ]);
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });
@@ -224,8 +250,18 @@ test.describe('JJ Log Pane E2E', () => {
         repo.init();
         const nodes = await buildGraph(repo, [
             { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
-            { label: 'target', parents: ['initial'], description: 'target branch', files: { 'file_target.txt': 'target' } },
-            { label: 'source', parents: ['initial'], description: 'source branch', files: { 'file_source.txt': 'source' } }
+            {
+                label: 'target',
+                parents: ['initial'],
+                description: 'target branch',
+                files: { 'file_target.txt': 'target' },
+            },
+            {
+                label: 'source',
+                parents: ['initial'],
+                description: 'source branch',
+                files: { 'file_source.txt': 'source' },
+            },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -246,20 +282,23 @@ test.describe('JJ Log Pane E2E', () => {
                 await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
                 await page.mouse.down();
                 // Move to target
-                await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 10 });
+                await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+                    steps: 10,
+                });
                 await page.mouse.up();
             }
 
             // Verify rebase via repo
             await expect(async () => {
-                // Check 'source' parent is now 'target' 
+                // Check 'source' parent is now 'target'
                 const parents = repo.getParents(nodes['source'].changeId);
                 expect(parents).toContain(nodes['target'].changeId);
             }).toPass({ timeout: 10000 });
-
         } finally {
             await app.close();
-            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
             repo.dispose();
         }
     });

@@ -38,10 +38,7 @@ describe('Layout Utils', () => {
         });
 
         it('should ignore undefined shortest IDs', () => {
-             const commits = [
-                { change_id_shortest: 'abc' },
-                { change_id_shortest: undefined },
-            ];
+            const commits = [{ change_id_shortest: 'abc' }, { change_id_shortest: undefined }];
             expect(computeMaxShortestIdLength(commits, 1)).toBe(3);
         });
     });

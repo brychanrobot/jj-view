@@ -8,7 +8,11 @@ import { JjService } from '../jj-service';
 import { showJjError, withDelayedProgress } from './command-utils';
 import { JjScmProvider } from '../jj-scm-provider';
 
-export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjService, context: { changeId?: string; commitId?: string }) {
+export async function setBookmarkCommand(
+    scmProvider: JjScmProvider,
+    jj: JjService,
+    context: { changeId?: string; commitId?: string },
+) {
     const revision = context?.changeId || context?.commitId;
     if (!revision) {
         return;
@@ -16,17 +20,17 @@ export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjServi
 
     try {
         const bookmarks = await withDelayedProgress('Fetching bookmarks...', jj.getBookmarks());
-        
+
         // Show QuickPick to allow selecting an existing bookmark or creating a new one
         const quickPick = vscode.window.createQuickPick();
         quickPick.placeholder = 'Select a bookmark to move, or type a new name to create';
-        quickPick.items = bookmarks.map(b => ({ label: b, description: 'Move bookmark' }));
+        quickPick.items = bookmarks.map((b) => ({ label: b, description: 'Move bookmark' }));
         quickPick.matchOnDescription = true;
-        
+
         quickPick.onDidAccept(async () => {
             const selection = quickPick.selectedItems[0];
             const name = selection ? selection.label : quickPick.value;
-            
+
             if (name) {
                 quickPick.hide();
                 try {
@@ -37,9 +41,8 @@ export async function setBookmarkCommand(scmProvider: JjScmProvider, jj: JjServi
                 }
             }
         });
-        
-        quickPick.show();
 
+        quickPick.show();
     } catch (e: unknown) {
         showJjError(e, 'Error checking bookmarks', scmProvider.outputChannel);
     }

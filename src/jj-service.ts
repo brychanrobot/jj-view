@@ -17,8 +17,6 @@ export interface JjLogOptions {
     omitChanges?: boolean;
 }
 
-
-
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
 const ONE_MINUTE = 60_000;
 const MUTATION_TIMEOUT_MS = ONE_MINUTE;
@@ -67,9 +65,9 @@ export class JjService {
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
         const isWin = process.platform === 'win32';
         const normalizedScriptPath = scriptPath.split(path.sep).join('/');
-        
+
         // Ensure all arguments in the template are quoted for the JSON array
-        const quotedArgs = argsTemplate.map(arg => {
+        const quotedArgs = argsTemplate.map((arg) => {
             if (arg.startsWith('"') && arg.endsWith('"')) {
                 return arg;
             }
@@ -99,7 +97,12 @@ export class JjService {
     private async run(
         command: string,
         args: string[],
-        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean; label?: string } = {},
+        options: cp.ExecFileOptions & {
+            trim?: boolean;
+            useCachedSnapshot?: boolean;
+            isMutation?: boolean;
+            label?: string;
+        } = {},
     ): Promise<string> {
         if (options.isMutation) {
             return this.runMutation(() => this.runInternal(command, args, options));
@@ -110,7 +113,12 @@ export class JjService {
     private async runInternal(
         command: string,
         args: string[],
-        options: cp.ExecFileOptions & { trim?: boolean; useCachedSnapshot?: boolean; isMutation?: boolean; label?: string } = {},
+        options: cp.ExecFileOptions & {
+            trim?: boolean;
+            useCachedSnapshot?: boolean;
+            isMutation?: boolean;
+            label?: string;
+        } = {},
     ): Promise<string> {
         const opId = this._nextOpId++;
 
@@ -118,13 +126,13 @@ export class JjService {
         if (options.useCachedSnapshot) {
             finalArgs.push('--ignore-working-copy');
         }
-        
+
         const start = performance.now();
         const allArgs = [command, ...finalArgs];
         const displayArgs = allArgs.slice(0, 2);
         const prefix = options.label ? `[${options.label}] ` : '';
         const commandStr = `${prefix}jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
-        
+
         const isMutation = !!options.isMutation;
         let timeout: NodeJS.Timeout | undefined;
 
@@ -141,7 +149,7 @@ export class JjService {
                 const finalOptions = {
                     cwd: this.workspaceRoot,
                     env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
-                    maxBuffer: 100 * 1024 * 1024, 
+                    maxBuffer: 100 * 1024 * 1024,
                     ...options,
                 };
 
@@ -149,7 +157,7 @@ export class JjService {
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                     this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
-                    
+
                     if (err) {
                         const combined: string[] = [];
                         const outStr = stdout?.toString().trim();
@@ -165,15 +173,12 @@ export class JjService {
             });
 
             if (isMutation) {
-                await this.clearCache().catch(err => 
-                    this.logger(`Warning: failed to clear cache: ${err}`)
-                );
+                await this.clearCache().catch((err) => this.logger(`Warning: failed to clear cache: ${err}`));
             }
 
             const shouldTrim = options.trim !== false;
             const result = typeof stdout === 'string' ? stdout : stdout.toString();
             return shouldTrim ? result.trim() : result;
-
         } finally {
             if (isMutation) {
                 if (timeout) {
@@ -185,24 +190,33 @@ export class JjService {
     }
 
     async getBookmarks(): Promise<string[]> {
-        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], { useCachedSnapshot: true, label: 'getBookmarks' });
-        const lines = output.trim().split('\n').filter((line) => line.length > 0);
+        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], {
+            useCachedSnapshot: true,
+            label: 'getBookmarks',
+        });
+        const lines = output
+            .trim()
+            .split('\n')
+            .filter((line) => line.length > 0);
         return Array.from(new Set(lines));
     }
 
     async moveBookmark(name: string, toRevision: string): Promise<string> {
-        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], { isMutation: true, label: 'moveBookmark' });
+        return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], {
+            isMutation: true,
+            label: 'moveBookmark',
+        });
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
         const { revision, limit, omitChanges } = options;
-        
+
         let schema = LOG_ENTRY_SCHEMA;
         if (omitChanges) {
             schema = { ...LOG_ENTRY_SCHEMA };
             delete schema['changes'];
         }
-        
+
         const args = ['-T', buildLogTemplate(schema)];
         if (revision) {
             args.push('-r', revision);
@@ -284,18 +298,16 @@ export class JjService {
 
             try {
                 const toolName = 'vscode-capture';
-                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, ['$base', '$left', '$right', tempDirNormalized]);
+                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
+                    '$base',
+                    '$left',
+                    '$right',
+                    tempDirNormalized,
+                ]);
 
-                await this.run(
-                    'resolve',
-                    [
-                        '--tool',
-                        toolName,
-                        ...toolConfig,
-                        relativePath,
-                    ],
-                    { useCachedSnapshot: true },
-                );
+                await this.run('resolve', ['--tool', toolName, ...toolConfig, relativePath], {
+                    useCachedSnapshot: true,
+                });
             } catch {
                 // Expected: jj returns error because our tool exits with 1
             }
@@ -320,8 +332,14 @@ export class JjService {
         const leftPath = path.join(cache.tempDir, 'left', relativePath);
         const rightPath = path.join(cache.tempDir, 'right', relativePath);
 
-        const leftExists = await fs.access(leftPath).then(() => true).catch(() => false);
-        const rightExists = await fs.access(rightPath).then(() => true).catch(() => false);
+        const leftExists = await fs
+            .access(leftPath)
+            .then(() => true)
+            .catch(() => false);
+        const rightExists = await fs
+            .access(rightPath)
+            .then(() => true)
+            .catch(() => false);
 
         if (leftExists || rightExists) {
             const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
@@ -366,7 +384,10 @@ export class JjService {
         return warmingPromise;
     }
 
-    private async _warmDiffCache(revision: string, oldEntry?: { tempDir: string; expires: number }): Promise<{ tempDir: string; expires: number }> {
+    private async _warmDiffCache(
+        revision: string,
+        oldEntry?: { tempDir: string; expires: number },
+    ): Promise<{ tempDir: string; expires: number }> {
         try {
             // Cleanup first if we're forcing or it expired
             if (oldEntry) {
@@ -383,17 +404,17 @@ export class JjService {
 
                 const normalizedScriptPath = this.getScriptPath('batch-diff');
                 const toolName = 'vscode-bulk-capture';
-                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, ['$left', '$right', leftDir.split(path.sep).join('/'), rightDir.split(path.sep).join('/')]);
+                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
+                    '$left',
+                    '$right',
+                    leftDir.split(path.sep).join('/'),
+                    rightDir.split(path.sep).join('/'),
+                ]);
 
                 try {
                     await this.run(
                         'diffedit',
-                        [
-                            '-r', revision,
-                            '--ignore-immutable',
-                            '--tool', toolName,
-                            ...toolConfig,
-                        ],
+                        ['-r', revision, '--ignore-immutable', '--tool', toolName, ...toolConfig],
                         { useCachedSnapshot: true, label: `getDiffForRevision ${revision}` },
                     );
                 } catch {
@@ -474,12 +495,7 @@ export class JjService {
 
                 await this.runInternal(
                     'diffedit',
-                    [
-                        '-r', revision,
-                        '--tool', toolName,
-                        ...toolConfig,
-                        ...fileList.map(f => f.relPath),
-                    ],
+                    ['-r', revision, '--tool', toolName, ...toolConfig, ...fileList.map((f) => f.relPath)],
                     { isMutation: true, label: 'setFilesContent' },
                 );
             } finally {
@@ -583,7 +599,7 @@ export class JjService {
         const output = await this.run(
             'log',
             ['-r', `children(${revision})`, '--no-graph', '-T', 'change_id ++ "\\n"'],
-            { useCachedSnapshot: true, label: 'getChildren' }
+            { useCachedSnapshot: true, label: 'getChildren' },
         );
         return output
             .trim()
@@ -593,7 +609,9 @@ export class JjService {
 
     async moveChanges(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
         const relativePaths = paths.map((p) => this.toRelative(p));
-        await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], { label: 'moveChanges' });
+        await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], {
+            label: 'moveChanges',
+        });
     }
 
     async new(options: { message?: string; parents?: string[]; insertBefore?: string[] } = {}): Promise<string> {
@@ -605,7 +623,7 @@ export class JjService {
         for (const rev of insertBefore) {
             args.push('--insert-before', rev);
         }
-        
+
         if (insertBefore.length > 0) {
             // When insertBefore is used, parents must be specified with --insert-after
             for (const rev of parents) {
@@ -619,7 +637,7 @@ export class JjService {
         await this.run('new', args, { isMutation: true, label: 'new' });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {
             useCachedSnapshot: true,
-            label: 'new:getChangeId'
+            label: 'new:getChangeId',
         });
         return output.trim();
     }
@@ -655,7 +673,10 @@ export class JjService {
 
     async getConflictedFiles(): Promise<string[]> {
         try {
-            const output = await this.run('resolve', ['--list'], { useCachedSnapshot: true, label: 'getConflictedFiles' });
+            const output = await this.run('resolve', ['--list'], {
+                useCachedSnapshot: true,
+                label: 'getConflictedFiles',
+            });
             return output
                 .split('\n')
                 .map((line) => line.trim())
@@ -680,12 +701,19 @@ export class JjService {
     }
 
     async getDescription(revision: string): Promise<string> {
-        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description'], { useCachedSnapshot: true, label: 'getDescription' });
+        return this.run('log', ['-r', revision, '--no-graph', '-T', 'description'], {
+            useCachedSnapshot: true,
+            label: 'getDescription',
+        });
     }
 
     async cat(path: string, revision: string = '@-'): Promise<string> {
         const relativePath = this.toRelative(path);
-        return this.run('file', ['show', '-r', revision, relativePath], { trim: false, useCachedSnapshot: true, label: 'cat' });
+        return this.run('file', ['show', '-r', revision, relativePath], {
+            trim: false,
+            useCachedSnapshot: true,
+            label: 'cat',
+        });
     }
 
     async status(): Promise<string> {
@@ -789,7 +817,11 @@ export class JjService {
         });
     }
 
-    public async movePartialToParent(fileRelPath: string, ranges: SelectionRange[], revision: string = '@'): Promise<void> {
+    public async movePartialToParent(
+        fileRelPath: string,
+        ranges: SelectionRange[],
+        revision: string = '@',
+    ): Promise<void> {
         const parentRev = `${revision}-`;
         const baseContent = await this.getFileContent(fileRelPath, parentRev).catch(() => '');
         const diffOutput = await this.getDiff(revision, fileRelPath);
@@ -799,7 +831,6 @@ export class JjService {
         // Squash changes from Child (revision) into Parent (parentRev), effectively moving them up.
         await this.runPartialMove(revision, parentRev, fileRelPath, wantedContent);
     }
-
 
     private async runPartialMove(
         fromRev: string,
@@ -869,45 +900,49 @@ export class JjService {
 
         // We use raw git command because jj doesn't expose ls-tree
         return new Promise((resolve) => {
-             const timeout = 10000; // 10s safety timeout
-             cp.execFile('git', ['--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths], {
-                cwd: this.workspaceRoot,
-                maxBuffer: 10 * 1024 * 1024,
-                timeout,
-                env: { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat' }
-            }, (err, stdout) => {
-                if (err) {
-                    // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
-                    // This is expected fallback behavior
-                    this.logger(`getGitBlobHashes failed: ${err.message}`);
-                    resolve(new Map());
-                    return;
-                }
-
-                const resultMap = new Map<string, string>();
-                // Output format: <mode> blob <sha> <tab><path>
-                // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
-                
-                const lines = stdout.toString().trim().split('\n');
-                for (const line of lines) {
-                    if (!line) continue;
-                    
-                    // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
-                    // Git ls-tree output is fairly standard: mode type sha\tpath
-                    const parts = line.split(/\s+/); 
-                    if (parts.length >= 4 && parts[1] === 'blob') {
-                        const sha = parts[2];
-                        const pathPart = line.substring(line.indexOf('\t') + 1);
-                        // Remove quotes if present (git ls-tree quotes paths with spaces/unusual chars)
-                        const cleanPath = pathPart.startsWith('"') && pathPart.endsWith('"') 
-                            ? JSON.parse(pathPart) 
-                            : pathPart;
-                            
-                        resultMap.set(cleanPath, sha);
+            const timeout = 10000; // 10s safety timeout
+            cp.execFile(
+                'git',
+                ['--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout,
+                    env: { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat' },
+                },
+                (err, stdout) => {
+                    if (err) {
+                        // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
+                        // This is expected fallback behavior
+                        this.logger(`getGitBlobHashes failed: ${err.message}`);
+                        resolve(new Map());
+                        return;
                     }
-                }
-                resolve(resultMap);
-            });
+
+                    const resultMap = new Map<string, string>();
+                    // Output format: <mode> blob <sha> <tab><path>
+                    // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
+
+                    const lines = stdout.toString().trim().split('\n');
+                    for (const line of lines) {
+                        if (!line) continue;
+
+                        // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
+                        // Git ls-tree output is fairly standard: mode type sha\tpath
+                        const parts = line.split(/\s+/);
+                        if (parts.length >= 4 && parts[1] === 'blob') {
+                            const sha = parts[2];
+                            const pathPart = line.substring(line.indexOf('\t') + 1);
+                            // Remove quotes if present (git ls-tree quotes paths with spaces/unusual chars)
+                            const cleanPath =
+                                pathPart.startsWith('"') && pathPart.endsWith('"') ? JSON.parse(pathPart) : pathPart;
+
+                            resultMap.set(cleanPath, sha);
+                        }
+                    }
+                    resolve(resultMap);
+                },
+            );
         });
     }
 }

@@ -30,15 +30,13 @@ describe('JjService Write Operation Timeout', () => {
             resolveCommand = r;
         });
 
-        vi.mocked(cp.execFile).mockImplementation(
-            (_cmd, _args, _opts, callback) => {
-                // Don't call callback immediately - simulate hanging command
-                hangingPromise.then(() => {
-                    callback!(null, 'done', '');
-                });
-                return {} as cp.ChildProcess;
-            },
-        );
+        vi.mocked(cp.execFile).mockImplementation((_cmd, _args, _opts, callback) => {
+            // Don't call callback immediately - simulate hanging command
+            hangingPromise.then(() => {
+                callback!(null, 'done', '');
+            });
+            return {} as cp.ChildProcess;
+        });
 
         expect(jjService.hasActiveWriteOps).toBe(false);
 
@@ -97,15 +95,13 @@ describe('JjService Write Operation Timeout', () => {
     test('completed operation clears timeout without double-decrementing', async () => {
         let resolveCommand: () => void;
 
-        vi.mocked(cp.execFile).mockImplementation(
-            (_cmd, _args, _opts, callback) => {
-                // Will resolve when we call resolveCommand
-                new Promise<void>((r) => {
-                    resolveCommand = r;
-                }).then(() => callback!(null, 'done', ''));
-                return {} as cp.ChildProcess;
-            },
-        );
+        vi.mocked(cp.execFile).mockImplementation((_cmd, _args, _opts, callback) => {
+            // Will resolve when we call resolveCommand
+            new Promise<void>((r) => {
+                resolveCommand = r;
+            }).then(() => callback!(null, 'done', ''));
+            return {} as cp.ChildProcess;
+        });
 
         const abandonPromise = jjService.abandon('test-rev');
         expect(jjService.writeOpCount).toBe(1);

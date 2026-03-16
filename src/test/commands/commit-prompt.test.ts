@@ -47,11 +47,11 @@ describe('commitPromptCommand', () => {
     test('prompts if input box is empty and commits with user input', async () => {
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
         repo.new(undefined, 'initial');
         await jj.describe('existing description', '@');
-        
+
         // Mock user input
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('new description');
 
@@ -67,7 +67,7 @@ describe('commitPromptCommand', () => {
         const parentId = repo.getParents('@')[0];
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('new description');
-        
+
         // Success path should refresh SCM state
         expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
     });
@@ -75,7 +75,7 @@ describe('commitPromptCommand', () => {
     test('does nothing if user cancels prompt', async () => {
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
         await jj.describe('existing', '@');
 
@@ -98,7 +98,7 @@ describe('commitPromptCommand', () => {
         repo.new(undefined, 'initial');
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = 'feat: quick commit';
-        
+
         // Mock user accepting the pre-filled value
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('feat: quick commit');
 
@@ -124,13 +124,13 @@ describe('commitPromptCommand', () => {
         repo.new(undefined, 'initial');
         const inputBoxMock = scmProvider.sourceControl.inputBox;
         inputBoxMock.value = '';
-        
+
         // Mock existing description
         await jj.describe('existing description', '@');
-        
+
         // Get the current change ID before the operation
         const beforeChangeId = repo.getChangeId('@');
-        
+
         // Mock user clearing the prompt (empty string)
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('');
 
@@ -142,16 +142,16 @@ describe('commitPromptCommand', () => {
         // The current change ID should be different from before
         const afterChangeId = repo.getChangeId('@');
         expect(afterChangeId).not.toBe(beforeChangeId);
-        
+
         // Parent commit should have a blank description (commit message was cleared)
         const parentId = repo.getParents('@')[0];
         const parentDesc = repo.getDescription(parentId);
         expect(parentDesc.trim()).toBe('');
-        
+
         // The new working copy should have an empty description
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
-        
+
         // Success path should refresh SCM state
         expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
     });

@@ -22,7 +22,7 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
                 if (await heading.isVisible({ timeout: 500 })) {
                     return f;
                 }
-                
+
                 const nested = await findFrame(f.childFrames());
                 if (nested) return nested;
             } catch (e) {}
@@ -31,13 +31,18 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
     };
 
     let guestFrame: Frame | undefined;
-    await expect.poll(async () => {
-        guestFrame = await findFrame(page.frames());
-        return guestFrame;
-    }, {
-        timeout: 30000,
-        message: 'Could not find Commit Details webview frame'
-    }).toBeDefined();
+    await expect
+        .poll(
+            async () => {
+                guestFrame = await findFrame(page.frames());
+                return guestFrame;
+            },
+            {
+                timeout: 30000,
+                message: 'Could not find Commit Details webview frame',
+            },
+        )
+        .toBeDefined();
 
     // Ensure the iframe is fully "ready" before returning
     await expect(guestFrame!.locator('textarea')).toBeVisible({ timeout: 10000 });
@@ -56,8 +61,17 @@ test.describe('Commit Details E2E', () => {
         repo.init();
 
         nodes = await buildGraph(repo, [
-            { label: 'initial', description: 'initial setup', files: { 'f.txt': 'base content', 'g.txt': 'other content' } },
-            { label: 'feature', parents: ['initial'], description: 'add feature', files: { 'f.txt': 'modified content' } },
+            {
+                label: 'initial',
+                description: 'initial setup',
+                files: { 'f.txt': 'base content', 'g.txt': 'other content' },
+            },
+            {
+                label: 'feature',
+                parents: ['initial'],
+                description: 'add feature',
+                files: { 'f.txt': 'modified content' },
+            },
         ]);
 
         const setup = await launchVSCode(repo);
@@ -70,7 +84,10 @@ test.describe('Commit Details E2E', () => {
 
     test.afterEach(async () => {
         if (app) await app.close();
-        if (userDataDir) try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+        if (userDataDir)
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
         if (repo) repo.dispose();
     });
 
@@ -83,7 +100,9 @@ test.describe('Commit Details E2E', () => {
 
         // Wait for the details panel tab to appear
         const shortId = nodes['initial'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         // Find the details webview
         const details = await getDetailsWebview(page);
@@ -114,7 +133,9 @@ test.describe('Commit Details E2E', () => {
         await featureRow.click();
 
         const shortId = nodes['feature'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         const details = await getDetailsWebview(page);
 
@@ -141,7 +162,9 @@ test.describe('Commit Details E2E', () => {
         await featureRow.click();
 
         const shortId = nodes['feature'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         const details = await getDetailsWebview(page);
 
@@ -168,7 +191,9 @@ test.describe('Commit Details E2E', () => {
         await initialRow.click();
 
         const shortId = nodes['initial'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         const details = await getDetailsWebview(page);
 
@@ -188,7 +213,9 @@ test.describe('Commit Details E2E', () => {
         await initialRow.click();
 
         const shortId = nodes['initial'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         const details = await getDetailsWebview(page);
 
@@ -207,7 +234,9 @@ test.describe('Commit Details E2E', () => {
         const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
         await initialRow.click();
         const shortId1 = nodes['initial'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         const details = await getDetailsWebview(page);
         await expect(details.locator('textarea')).toHaveValue(/initial setup/);
@@ -220,7 +249,9 @@ test.describe('Commit Details E2E', () => {
         const featureRow = webview2.locator('.commit-row', { hasText: 'add feature' });
         await featureRow.click();
         const shortId2 = nodes['feature'].changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({
+            timeout: 15000,
+        });
 
         // The panel is reused — wait for the textarea content to update within the SAME frame
         await expect(async () => {

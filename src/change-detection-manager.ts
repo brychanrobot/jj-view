@@ -14,7 +14,7 @@ import { BackendType } from '@parcel/watcher';
 export class ChangeDetectionManager implements vscode.Disposable {
     private _disposed = false;
     private disposables: vscode.Disposable[] = [];
-    
+
     private _workingCopyWatcher: DirectoryWatcher | undefined;
     private _opHeadsWatcher: DirectoryWatcher | undefined;
     private _poller: Poller;
@@ -23,7 +23,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private lastExternalOpTime = 0;
 
     private get hasActiveOrRecentWrites(): boolean {
-        return this.jj.hasActiveWriteOps || (Date.now() - this.jj.lastWriteTime < 500) || (Date.now() - this.lastExternalOpTime < 500);
+        return (
+            this.jj.hasActiveWriteOps ||
+            Date.now() - this.jj.lastWriteTime < 500 ||
+            Date.now() - this.lastExternalOpTime < 500
+        );
     }
 
     constructor(
@@ -31,11 +35,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
         private jj: JjService,
         private outputChannel: vscode.OutputChannel,
         private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
-        private readonly watcherBackend?: BackendType
+        private readonly watcherBackend?: BackendType,
     ) {
         // Initialize poller with 5 second interval
         this._poller = new Poller(5000, async () => {
-             // Skip if a write operation is in progress or just finished
+            // Skip if a write operation is in progress or just finished
             if (!this.hasActiveOrRecentWrites) {
                 await this.triggerRefresh({ forceSnapshot: true, reason: 'poll' });
             }
@@ -47,7 +51,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                 if (doc.uri.scheme !== 'file') return;
                 if (doc.uri.fsPath.includes('/.jj/')) return;
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file saved' });
-            })
+            }),
         );
 
         // 2. Poll for external changes or start main watcher
@@ -55,7 +59,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this.disposables.push(
             vscode.window.onDidChangeWindowState((state) => {
                 this.onWindowStateChange(state);
-            })
+            }),
         );
 
         // Initialize focus state
@@ -67,7 +71,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                 if (e.affectsConfiguration('jj-view.fileWatcherMode')) {
                     this.updateFileWatcherMode();
                 }
-            })
+            }),
         );
 
         // Initialize watchers
@@ -78,7 +82,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private updateFileWatcherMode() {
         const config = vscode.workspace.getConfiguration('jj-view');
         const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
-        
+
         const modeChanged = this._fileWatcherMode !== mode;
         this._fileWatcherMode = mode;
 
@@ -100,7 +104,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     /**
      * Reconciles the polling state based on current mode, focus, and disposal status.
      * Starts or stops the poller accordingly.
-     * 
+     *
      * @param immediate If true, attempts to force an immediate poll execution if polling is active.
      */
     private updatePollingState(immediate = false) {
@@ -112,10 +116,10 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         // We are in polling mode and focused.
         this._poller.start();
-        
+
         if (immediate) {
-             // Force an immediate poll to ensure responsiveness
-             this._poller.force();
+            // Force an immediate poll to ensure responsiveness
+            this._poller.force();
         }
     }
 
@@ -125,7 +129,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
 
         const opHeadsPath = path.join(this.workspaceRoot, '.jj', 'repo', 'op_heads');
-        
+
         // Ensure directory exists
         try {
             await fs.mkdir(opHeadsPath, { recursive: true });
@@ -142,11 +146,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
             },
             this.outputChannel,
             'OpHeads Watcher',
-            this.watcherBackend
+            this.watcherBackend,
         );
 
-        this._opHeadsWatcher.start().catch(err => {
-             this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
+        this._opHeadsWatcher.start().catch((err) => {
+            this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
         });
     }
 
@@ -166,7 +170,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private async stopWorkingCopyWatching() {
         // Also stop polling if it was active
         this._poller.stop();
-        
+
         if (this._workingCopyWatcher) {
             await this._workingCopyWatcher.stop();
             this._workingCopyWatcher = undefined;
@@ -178,10 +182,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        const [gitIgnores, gitModules] = await Promise.all([
-            this.getGitIgnorePatterns(),
-            this.getGitModulesPatterns()
-        ]);
+        const [gitIgnores, gitModules] = await Promise.all([this.getGitIgnorePatterns(), this.getGitModulesPatterns()]);
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules];
 
         this._workingCopyWatcher = new DirectoryWatcher(
@@ -194,10 +195,12 @@ export class ChangeDetectionManager implements vscode.Disposable {
             },
             this.outputChannel,
             'Working Copy Watcher',
-            this.watcherBackend
+            this.watcherBackend,
         );
 
-        this.outputChannel.appendLine(`[ChangeDetectionManager] Starting Working Copy Watcher on ${this.workspaceRoot} with backend: ${this.watcherBackend}`);
+        this.outputChannel.appendLine(
+            `[ChangeDetectionManager] Starting Working Copy Watcher on ${this.workspaceRoot} with backend: ${this.watcherBackend}`,
+        );
 
         await this._workingCopyWatcher.start(ignore);
     }
@@ -206,21 +209,22 @@ export class ChangeDetectionManager implements vscode.Disposable {
         try {
             const gitIgnorePath = path.join(this.workspaceRoot, '.gitignore');
             const data = await fs.readFile(gitIgnorePath, 'utf8');
-            return data.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0 && !line.startsWith('#') && !line.startsWith('!'))
-                .map(line => {
+            return data
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0 && !line.startsWith('#') && !line.startsWith('!'))
+                .map((line) => {
                     // Strip leading/trailing slashes and wildcards to pass as literals.
                     // PARCEL-WATCHER BEHAVIOR:
                     // 1. Literal paths (e.g. 'out') prune all descendants recursively.
                     // 2. Glob patterns (e.g. 'out*') do NOT prune descendants recursively.
-                    // 
+                    //
                     // By stripping wildcards we ensure directory contents are ignored, which is the common case
-                    // for gitignore patterns like /out/. The caveat is that we lose true wildcard matching 
+                    // for gitignore patterns like /out/. The caveat is that we lose true wildcard matching
                     // (e.g. /out*/ will only match a directory named exactly 'out').
                     return line.replace(/^[\/*?]+|[\/*?]+$/g, '');
                 })
-                .filter(pattern => pattern.length > 0);
+                .filter((pattern) => pattern.length > 0);
         } catch {
             return [];
         }
@@ -231,12 +235,12 @@ export class ChangeDetectionManager implements vscode.Disposable {
             const gitModulesPath = path.join(this.workspaceRoot, '.gitmodules');
             const data = await fs.readFile(gitModulesPath, 'utf8');
             const paths: string[] = [];
-            
+
             const lines = data.split('\n');
             for (const line of lines) {
                 const match = line.match(/^\s*path\s*=\s*(.+)$/);
                 if (match) {
-                     paths.push(match[1].trim());
+                    paths.push(match[1].trim());
                 }
             }
             return paths;
@@ -250,16 +254,16 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
         this._disposed = true;
-        
+
         await this.stopWorkingCopyWatching();
         this._poller.dispose();
-        
+
         if (this._opHeadsWatcher) {
             await this._opHeadsWatcher.dispose();
             this._opHeadsWatcher = undefined;
         }
 
-        this.disposables.forEach(d => d.dispose());
+        this.disposables.forEach((d) => d.dispose());
         this.disposables = [];
     }
 }

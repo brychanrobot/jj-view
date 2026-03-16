@@ -132,12 +132,12 @@ export function extractRevisions(args: unknown[]): string[] {
         if (isParentResourceGroup(arg) && arg.resourceStates.length > 0) {
             // Revisions for all files in this group (they should all be the same commit)
             const groupRevisions = (arg.resourceStates as JjResourceState[])
-                .map(s => s.revision)
+                .map((s) => s.revision)
                 .filter((v, i, a) => a.indexOf(v) === i);
             revisions.push(...groupRevisions);
             continue;
         }
-        
+
         if (Array.isArray(arg)) {
             revisions.push(...extractRevisions(arg));
         }
@@ -186,7 +186,7 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
             async () => {
                 // Wait for the original task to complete
                 await notificationComplete;
-            }
+            },
         );
     }, DELAY_MS);
 
@@ -205,14 +205,14 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
  * Displays an error message to the user and logs full details to the output channel.
  * The message is shown as a non-modal (toast) notification which persists until dismissed.
  * A "Show Log" button is included to open the output channel.
- * 
+ *
  * @returns The label of the button clicked by the user, or undefined if dismissed.
  */
 export async function showJjError(
     error: unknown,
     prefix: string,
     outputChannel?: vscode.OutputChannel,
-    extraActions: string[] = []
+    extraActions: string[] = [],
 ): Promise<string | undefined> {
     const message = getErrorMessage(error);
     const fullMessage = `${prefix}: ${message}`;
@@ -224,7 +224,7 @@ export async function showJjError(
 
     const SHOW_LOG = 'Show Log';
     const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);
-    
+
     if (selection === SHOW_LOG) {
         outputChannel?.show();
     }

@@ -17,7 +17,7 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
     if (args) {
         if (Array.isArray(args)) {
             const revision = extractRevision(args);
-            if(revision) {
+            if (revision) {
                 parents = [revision];
             }
         } else if (typeof args === 'string') {

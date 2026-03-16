@@ -50,7 +50,7 @@ suite('Quick Diff Commands Integration Test', function () {
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
-             return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
+            return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
         };
     });
 
@@ -102,11 +102,7 @@ suite('Quick Diff Commands Integration Test', function () {
 
         // Verify final state on disk
         const finalContent = fs.readFileSync(filePath, 'utf-8');
-        assert.strictEqual(
-            finalContent,
-            fileContentOriginal,
-            'File content should match original after discard',
-        );
+        assert.strictEqual(finalContent, fileContentOriginal, 'File content should match original after discard');
     });
 
     test('Squash Change moves change to parent', async () => {
