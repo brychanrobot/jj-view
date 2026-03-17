@@ -163,6 +163,7 @@ export class JjScmProvider implements vscode.Disposable {
                 if (forceSnapshot) {
                     await this.jj.status();
                 }
+                await this.jj.getRepoRoot(); // Pre-warm the repo root cache
                 this._onRepoStateReady.fire();
 
                 // Invalidate caches so stale content is never served

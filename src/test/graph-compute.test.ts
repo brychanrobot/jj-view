@@ -30,7 +30,7 @@ function renderToAscii(
     );
 
     // Calculate maximum width (number of lanes) used by any node or edge
-    let width = Math.max(1, ...layout.nodes.map(n => n.x + 1));
+    let width = Math.max(1, ...layout.nodes.map((n) => n.x + 1));
     for (const e of layout.edges) {
         width = Math.max(width, e.x1 + 1, e.x2 + 1);
     }
@@ -71,7 +71,7 @@ function renderToAscii(
                 const hasEdge = edgeRoutes.some((e) => {
                     // Skip edges that connect to the final root marker (no visible descendants below it in jj log)
                     if (e.y2 >= layout.rows.length - 1) return false;
-                    
+
                     if (e.x1 === e.x2) {
                         return e.x1 === x && Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y;
                     } else {
@@ -101,7 +101,7 @@ function renderToAscii(
             const nextLog = layout.rows[i + 1];
             const yMid = node.y + 0.5;
 
-            // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row 
+            // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row
             // to save vertical space.
             const isStraightToRoot = nextLog.parents.length === 0 && log.description === '';
             const spacerCount = isStraightToRoot ? 1 : 2;
@@ -118,7 +118,7 @@ function renderToAscii(
                     if (bendingEdge) {
                         if (bendingEdge.x1 > bendingEdge.x2) {
                             // Lane N merging to Lane < N
-                            
+
                             // Let's check if there is ALSO a straight connection passing down Lane N at yMid.
                             const laneContinues = edgeRoutes.some(
                                 (e) =>
@@ -143,7 +143,9 @@ function renderToAscii(
                                     // Lanes not involved in the bend
                                     const hasVertical = edgeRoutes.some((e) => {
                                         if (e.x1 === e.x2) {
-                                            return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
+                                            return (
+                                                e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
+                                            );
                                         } else {
                                             if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
                                             if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
@@ -182,7 +184,9 @@ function renderToAscii(
                                 } else {
                                     const hasVertical = edgeRoutes.some((e) => {
                                         if (e.x1 === e.x2) {
-                                            return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
+                                            return (
+                                                e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
+                                            );
                                         } else {
                                             if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
                                             if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
@@ -206,7 +210,7 @@ function renderToAscii(
 
                 if (!rowIsMerge && !rowIsFork) {
                     for (let x = 0; x < width; x++) {
-                        const hasVertical = edgeRoutes.some(e => {
+                        const hasVertical = edgeRoutes.some((e) => {
                             if (e.x1 === e.x2) {
                                 return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
                             } else {
@@ -525,7 +529,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'yukr', description: 'yukr', parents: ['smyx'] },
             { label: 'mpsp', description: 'testing child: feature B', parents: ['vqpn'] },
             { label: 'vxmy', description: 'vxmy', parents: ['yukr'] },
-            { label: 'uoym', description: 'uoym', parents: ['zonk'], isWorkingCopy: true }
+            { label: 'uoym', description: 'uoym', parents: ['zonk'], isWorkingCopy: true },
         ]);
 
         const jjService = new JjService(repo.path);

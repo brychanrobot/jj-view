@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.1
+
+### Fixes
+
+- **Diff Cache Resolution**: Fixed an issue where diff views and merge conflicts would fail to load when a VS Code workspace is a subdirectory of a jj repository. The extension now correctly maps absolute workspace paths to repo-relative paths for bulk diff cache lookups.
+- **Initialization**: Prevent the extension from trying to initialize file watchers when a workspace does not contain a `.jj` directory in its root.
+
 ## 1.19.0
 
 ### Features
@@ -19,11 +26,11 @@
 ### Fixes
 
 - Improve JJ Log graph layout to match native `jj log` behavior and fix visual bugs:
-  - Collapse converging branches to the left lane
-  - Allow secondary parents to reuse freed lanes to prevent unnecessary graph expansion
-  - Ensure left swim lanes always appear on top
-  - Use diamond shape for immutable commits
-  - Fix lines drawing through hollow commit nodes
+    - Collapse converging branches to the left lane
+    - Allow secondary parents to reuse freed lanes to prevent unnecessary graph expansion
+    - Ensure left swim lanes always appear on top
+    - Use diamond shape for immutable commits
+    - Fix lines drawing through hollow commit nodes
 
 ## 1.18.0
 

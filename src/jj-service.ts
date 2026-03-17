@@ -36,6 +36,15 @@ export class JjService {
         public readonly logger: (message: string) => void = () => {},
     ) {}
 
+    private _repoRoot?: string;
+    async getRepoRoot(): Promise<string> {
+        if (this._repoRoot) {
+            return this._repoRoot;
+        }
+        this._repoRoot = await this.run('root', [], { label: 'getRepoRoot' });
+        return this._repoRoot;
+    }
+
     get hasActiveWriteOps(): boolean {
         return this._writeOperationCount > 0;
     }
@@ -53,6 +62,22 @@ export class JjService {
             return path.relative(this.workspaceRoot, filePath);
         }
         return filePath;
+    }
+
+    private async toRepoRelative(filePath: string): Promise<string> {
+        const repoRoot = await this.getRepoRoot();
+        let repoReal = repoRoot;
+        let workspaceReal = this.workspaceRoot;
+
+        try { repoReal = await fs.realpath(repoRoot); } catch {}
+        try { workspaceReal = await fs.realpath(this.workspaceRoot); } catch {}
+
+        const relativeToWorkspace = path.isAbsolute(filePath)
+            ? path.relative(this.workspaceRoot, filePath)
+            : filePath;
+
+        const repoToWorkspace = path.relative(repoReal, workspaceReal);
+        return path.normalize(path.join(repoToWorkspace, relativeToWorkspace));
     }
 
     private getScriptPath(scriptBaseName: string): string {
@@ -328,7 +353,7 @@ export class JjService {
      */
     async getDiffContent(revision: string, filePath: string): Promise<{ left: string; right: string }> {
         const cache = await this.getDiffForRevision(revision);
-        const relativePath = this.toRelative(filePath);
+        const relativePath = await this.toRepoRelative(filePath);
         const leftPath = path.join(cache.tempDir, 'left', relativePath);
         const rightPath = path.join(cache.tempDir, 'right', relativePath);
 
@@ -651,7 +676,7 @@ export class JjService {
         if (conflictStyle === 'default') {
             try {
                 const cache = await this.getDiffForRevision(revision);
-                const relativePath = this.toRelative(filePath);
+                const relativePath = await this.toRepoRelative(filePath);
                 const rightPath = path.join(cache.tempDir, 'right', relativePath);
                 return await fs.readFile(rightPath, 'utf8');
             } catch {

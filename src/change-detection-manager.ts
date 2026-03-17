@@ -129,7 +129,13 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        const opHeadsPath = path.join(this.workspaceRoot, '.jj', 'repo', 'op_heads');
+        let repoRoot: string;
+        try {
+            repoRoot = await this.jj.getRepoRoot();
+        } catch {
+            return;
+        }
+        const opHeadsPath = path.join(repoRoot, '.jj', 'repo', 'op_heads');
 
         // Skip if directory does not exist
         try {

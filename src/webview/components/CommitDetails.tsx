@@ -71,7 +71,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
         const title = lines[0];
         const bodyLines = lines.slice(1);
-        
+
         // Find the first non-empty line after the title to start formatting
         let bodyStartIndex = 0;
         while (bodyStartIndex < bodyLines.length && bodyLines[bodyStartIndex].trim() === '') {
@@ -85,8 +85,8 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
         // Preserve paragraph breaks (double newlines) by splitting, formatting, and rejoining
         const paragraphs = contentToFormat.split(/\n\s*\n/);
-        const formattedParagraphs = paragraphs.map(p => 
-            wordWrap(p, { width: bodyWidthRuler, trim: true, indent: '' })
+        const formattedParagraphs = paragraphs.map((p) =>
+            wordWrap(p, { width: bodyWidthRuler, trim: true, indent: '' }),
         );
 
         const newDescription = `${title}\n${emptyPrefix}${formattedParagraphs.join('\n\n')}`;
@@ -98,7 +98,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
             style={{
                 position: 'absolute',
                 top: isTitle ? '10px' : 'calc(10px + 1.5em)', // title is on first line, body is after, padded by 10px
-                bottom: isTitle ? 'auto' : '10px', 
+                bottom: isTitle ? 'auto' : '10px',
                 height: isTitle ? '1.5em' : 'auto',
                 left: `calc(10px + ${width}ch)`, // text starts 10px in due to padding
                 width: '1px',
@@ -128,15 +128,24 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         if (isOver) {
             highlightedElements.push(
                 <span key={`line-${i}`}>
-                    <span style={{ backgroundColor: 'var(--vscode-input-background)' }}>{line.substring(0, limit)}</span>
-                    <span style={{ color: 'var(--vscode-errorForeground)', backgroundColor: 'var(--vscode-input-background)' }}>{line.substring(limit)}</span>
-                </span>
+                    <span style={{ backgroundColor: 'var(--vscode-input-background)' }}>
+                        {line.substring(0, limit)}
+                    </span>
+                    <span
+                        style={{
+                            color: 'var(--vscode-errorForeground)',
+                            backgroundColor: 'var(--vscode-input-background)',
+                        }}
+                    >
+                        {line.substring(limit)}
+                    </span>
+                </span>,
             );
         } else {
             highlightedElements.push(
                 <span key={`line-${i}`} style={{ backgroundColor: 'var(--vscode-input-background)' }}>
                     {line}
-                </span>
+                </span>,
             );
         }
         if (i < lines.length - 1) {
@@ -163,17 +172,26 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                     Commit Details
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {isImmutable && (
-                            <span style={badgeStyle('var(--vscode-gitDecoration-untrackedResourceForeground)')} title="This commit cannot be modified">
+                            <span
+                                style={badgeStyle('var(--vscode-gitDecoration-untrackedResourceForeground)')}
+                                title="This commit cannot be modified"
+                            >
                                 Immutable
                             </span>
                         )}
                         {isEmpty && (
-                            <span style={badgeStyle('var(--vscode-gitDecoration-ignoredResourceForeground)')} title="This commit has no file changes">
+                            <span
+                                style={badgeStyle('var(--vscode-gitDecoration-ignoredResourceForeground)')}
+                                title="This commit has no file changes"
+                            >
                                 Empty
                             </span>
                         )}
                         {isConflict && (
-                            <span style={badgeStyle('var(--vscode-gitDecoration-conflictingResourceForeground)')} title="This commit has unresolved conflicts">
+                            <span
+                                style={badgeStyle('var(--vscode-gitDecoration-conflictingResourceForeground)')}
+                                title="This commit has unresolved conflicts"
+                            >
                                 Conflict
                             </span>
                         )}
@@ -182,7 +200,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         ))}
                     </div>
                 </h2>
-                
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground)' }}>ID:</span>
@@ -192,7 +210,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         >
                             {formatDisplayChangeId(changeId, changeId, minChangeIdLength)}
                         </span>
-                        <button 
+                        <button
                             onClick={() => navigator.clipboard.writeText(changeId)}
                             title="Copy Change ID"
                             style={{
@@ -202,7 +220,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 cursor: 'pointer',
                                 color: 'var(--vscode-icon-foreground)',
                                 display: 'flex',
-                                alignItems: 'center'
+                                alignItems: 'center',
                             }}
                         >
                             <span className="codicon codicon-copy" style={{ fontSize: '14px' }}></span>
@@ -213,7 +231,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             <span style={{ color: 'var(--vscode-descriptionForeground)' }}>Author:</span>
                             <strong style={{ color: 'var(--vscode-foreground)' }}>{author.name}</strong>
                             <span style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 4px' }}>•</span>
-                            <span style={{ color: 'var(--vscode-foreground)' }}>{getRelativeTimeString(author.timestamp)}</span>
+                            <span style={{ color: 'var(--vscode-foreground)' }}>
+                                {getRelativeTimeString(author.timestamp)}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -224,16 +244,16 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <label style={{ fontWeight: 'bold' }}>Message</label>
-                        <a 
+                        <a
                             href="command:workbench.action.openSettings?%5B%22jj-view.commit%22%5D"
                             title="Configure width rulers"
-                            style={{ 
+                            style={{
                                 fontSize: '11px',
                                 color: 'var(--vscode-textLink-foreground)',
                                 textDecoration: 'none',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '4px'
+                                gap: '4px',
                             }}
                         >
                             <span className="codicon codicon-settings-gear"></span>
@@ -252,7 +272,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 display: 'flex',
                                 alignItems: 'center',
                                 fontSize: '12px',
-                                gap: '4px'
+                                gap: '4px',
                             }}
                         >
                             <span className="codicon codicon-word-wrap"></span>
@@ -272,7 +292,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 alignItems: 'center',
                                 fontSize: '12px',
                                 gap: '4px',
-                                borderRadius: '2px'
+                                borderRadius: '2px',
                             }}
                         >
                             <span className="codicon codicon-save"></span>
@@ -280,11 +300,11 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         </button>
                     </div>
                 </div>
-                <div 
-                    style={{ 
-                        position: 'relative', 
-                        flex: 1, 
-                        display: 'flex', 
+                <div
+                    style={{
+                        position: 'relative',
+                        flex: 1,
+                        display: 'flex',
                         backgroundColor: 'var(--vscode-input-background)',
                         border: '1px solid var(--vscode-input-border)',
                         fontFamily: 'var(--vscode-editor-font-family), monospace',
@@ -401,7 +421,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             alignItems: 'center',
                             fontSize: '12px',
                             gap: '4px',
-                            borderRadius: '2px'
+                            borderRadius: '2px',
                         }}
                     >
                         <span className="codicon codicon-diff"></span>
@@ -544,7 +564,7 @@ function getRelativeTimeString(timestamp: string): string {
 
     const now = Date.now();
     const diff = now - time;
-    
+
     const seconds = Math.floor(diff / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);

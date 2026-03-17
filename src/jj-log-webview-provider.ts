@@ -277,7 +277,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
         const log = logs[0];
         const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
-        
+
         // Fetch actual changes with additions/deletions stats
         const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
 

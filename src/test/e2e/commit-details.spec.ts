@@ -271,7 +271,8 @@ test.describe('Commit Details E2E', () => {
         const textarea = details.locator('textarea');
 
         // Input a long body line separated by a newline
-        const longText = 'This is a very long text that will definitely exceed the standard seventy-two character limit that is expected of most commit bodies.';
+        const longText =
+            'This is a very long text that will definitely exceed the standard seventy-two character limit that is expected of most commit bodies.';
         const originalDesc = `Feature Title\n\n${longText}`;
         await textarea.fill(originalDesc);
 
@@ -282,7 +283,9 @@ test.describe('Commit Details E2E', () => {
         // Check if the textarea content got wrapped
         const newValue = await textarea.inputValue();
         expect(newValue).not.toBe(originalDesc);
-        expect(newValue).toContain('Feature Title\n\nThis is a very long text that will definitely exceed the standard');
+        expect(newValue).toContain(
+            'Feature Title\n\nThis is a very long text that will definitely exceed the standard',
+        );
         expect(newValue.split('\n').length).toBeGreaterThan(3); // Should be wrapped onto 3rd and 4th lines
     });
 
@@ -300,7 +303,7 @@ test.describe('Commit Details E2E', () => {
 
         // The VS Code Settings tab should open
         await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible({ timeout: 15000 });
-        
+
         // Also verify the settings are actually filtered and showing our custom setting
         // And check their default values (50 and 72)
         const titleInput = page.locator('.setting-item').filter({ hasText: 'Title Width Ruler' }).locator('input');
