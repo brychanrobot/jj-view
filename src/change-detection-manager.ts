@@ -82,6 +82,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private updateFileWatcherMode() {
         const config = vscode.workspace.getConfiguration('jj-view');
         const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
+        this.outputChannel.appendLine(`[ChangeDetectionManager] File watcher mode: ${mode}`);
 
         const modeChanged = this._fileWatcherMode !== mode;
         this._fileWatcherMode = mode;
@@ -130,10 +131,12 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         const opHeadsPath = path.join(this.workspaceRoot, '.jj', 'repo', 'op_heads');
 
-        // Ensure directory exists
+        // Skip if directory does not exist
         try {
-            await fs.mkdir(opHeadsPath, { recursive: true });
-        } catch {}
+            await fs.access(opHeadsPath);
+        } catch {
+            return;
+        }
 
         this._opHeadsWatcher = new DirectoryWatcher(
             opHeadsPath,
