@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.0
+
+### Features
+
+- Enhance Commit Details page with new features and UI refinements
+    - Add rich header info (Author, relative timestamp)
+    - Display status badges (Immutable, Conflict, Empty) and Bookmarks
+    - Show individual and total file diff stats (additions/deletions)
+    - Implement configurable title and body width rulers with Settings deep link
+    - Add "Format Body" button to automatically wrap commit descriptions
+    - Add click-to-copy utility for the commit ID
+    - Refine text area styling and ruler highlighting for character length overages
+    - Enhance overall page layout and button placement for better readability
+
 ## 1.18.1
 
 ### Fixes
