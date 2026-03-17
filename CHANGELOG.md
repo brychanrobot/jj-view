@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.1
+
+### Fixes
+
+- Improve JJ Log graph layout to match native `jj log` behavior and fix visual bugs:
+  - Collapse converging branches to the left lane
+  - Allow secondary parents to reuse freed lanes to prevent unnecessary graph expansion
+  - Ensure left swim lanes always appear on top
+  - Use diamond shape for immutable commits
+  - Fix lines drawing through hollow commit nodes
+
 ## 1.18.0
 
 ### Features
