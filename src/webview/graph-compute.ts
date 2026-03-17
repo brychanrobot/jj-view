@@ -75,6 +75,18 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
             if (p0Lane === -1) {
                 p0Lane = nodeLane;
                 lanes[nodeLane] = p0;
+            } else if (p0Lane > nodeLane) {
+                // Parent was assigned a higher lane by a sibling branch.
+                // Move it to the child's (now-free) lane so converging branches
+                // collapse to the leftmost lane, matching `jj log` behavior.
+                lanes[p0Lane] = null;
+                lanes[nodeLane] = p0;
+                p0Lane = nodeLane;
+            } else {
+                // p0 already occupies a lower lane, so nodeLane is now free.
+                // Allow secondary parents to inherit it (e.g. merge's second
+                // parent continues straight down through the node's lane).
+                allocated.delete(nodeLane);
             }
             pendingEdges.push({
                 x1: nodeLane,

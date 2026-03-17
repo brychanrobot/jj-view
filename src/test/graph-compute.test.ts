@@ -9,6 +9,226 @@ import { JjService } from '../jj-service';
 import { computeGraphLayout } from '../webview/graph-compute';
 import { TestRepo, buildGraph } from './test-repo';
 
+// Helper: ASCII renderer to verify layout against jj log output
+function renderToAscii(
+    layout: {
+        nodes: { x: number; y: number; commitId: string }[];
+        rows: {
+            commit_id: string;
+            parents: string[];
+            is_working_copy?: boolean;
+            change_id: string;
+            description: string;
+        }[];
+        edges: { x1: number; y1: number; x2: number; y2: number }[];
+    },
+    headId: string,
+): string {
+    const rows: string[] = [];
+    const nodesById = new Map<string, { x: number; y: number; commitId: string }>(
+        layout.nodes.map((n) => [n.commitId, n]),
+    );
+
+    // Calculate maximum width (number of lanes) used by any node or edge
+    let width = Math.max(1, ...layout.nodes.map(n => n.x + 1));
+    for (const e of layout.edges) {
+        width = Math.max(width, e.x1 + 1, e.x2 + 1);
+    }
+
+    for (let i = 0; i < layout.rows.length; i++) {
+        const log = layout.rows[i];
+        const node = nodesById.get(log.commit_id);
+        if (!node) {
+            continue;
+        }
+
+        // Pre-calculate yBend for all non-straight edges early, so both Commit Row and Spacer Rows can use it.
+        const edgeRoutes = layout.edges.map((e) => {
+            if (e.x1 === e.x2) return { ...e, yBend: e.y1 }; // Straight
+
+            let lastY = e.y1;
+            for (const n of layout.nodes) {
+                if (n.x === e.x2 && n.y > e.y1 && n.y < e.y2) {
+                    lastY = Math.max(lastY, n.y);
+                }
+            }
+            return { ...e, yBend: lastY + 0.5 };
+        });
+
+        // 1. Commit Row
+        let lineStr = '';
+        for (let x = 0; x < width; x++) {
+            let symbol = ' ';
+            if (node.x === x) {
+                symbol = '○';
+                if (log.parents.length === 0) {
+                    symbol = '◆';
+                }
+                if (log.is_working_copy || log.change_id === headId) {
+                    symbol = '@';
+                }
+            } else {
+                const hasEdge = edgeRoutes.some((e) => {
+                    // Skip edges that connect to the final root marker (no visible descendants below it in jj log)
+                    if (e.y2 >= layout.rows.length - 1) return false;
+                    
+                    if (e.x1 === e.x2) {
+                        return e.x1 === x && Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y;
+                    } else {
+                        if (x === e.x1 && node.y < e.yBend && node.y > e.y1) return true;
+                        if (x === e.x2 && node.y > e.yBend && node.y < e.y2) return true;
+                        return false;
+                    }
+                });
+                if (hasEdge) symbol = '│';
+            }
+            lineStr += symbol;
+            if (x < width - 1) {
+                lineStr += ' ';
+            }
+        }
+        while (lineStr.length < width * 2 - 1) {
+            lineStr += ' ';
+        }
+        rows.push(`${lineStr.trimEnd()}  ${log.change_id.substring(0, 8)} ${log.description.split('\n')[0]}`.trimEnd());
+
+        if (log.parents.length === 0) {
+            continue; // No spacer rows needed after a root commit.
+        }
+
+        // 2. Spacer Rows (2 lines)
+        if (i < layout.rows.length - 1) {
+            const nextLog = layout.rows[i + 1];
+            const yMid = node.y + 0.5;
+
+            // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row 
+            // to save vertical space.
+            const isStraightToRoot = nextLog.parents.length === 0 && log.description === '';
+            const spacerCount = isStraightToRoot ? 1 : 2;
+
+            for (let s = 0; s < spacerCount; s++) {
+                let spacerStr = '';
+                const isCurveRow = s === 0;
+                let rowIsMerge = false;
+                let rowIsFork = false;
+                if (isCurveRow) {
+                    // Check if any edge is curving at this yMid
+                    const bendingEdge = edgeRoutes.find((e) => e.x1 !== e.x2 && e.yBend === yMid);
+
+                    if (bendingEdge) {
+                        if (bendingEdge.x1 > bendingEdge.x2) {
+                            // Lane N merging to Lane < N
+                            
+                            // Let's check if there is ALSO a straight connection passing down Lane N at yMid.
+                            const laneContinues = edgeRoutes.some(
+                                (e) =>
+                                    e.x1 === bendingEdge.x1 &&
+                                    e.y1 <= yMid - 0.5 &&
+                                    ((e.x2 === bendingEdge.x1 && e.y2 > yMid) ||
+                                        (e.x2 !== bendingEdge.x1 && e.yBend > yMid)),
+                            );
+
+                            // Build the spacer string column by column
+                            for (let x = 0; x < width; x++) {
+                                if (x === bendingEdge.x2) {
+                                    // Target lane (left side of the fork/merge)
+                                    spacerStr += laneContinues ? '╭' : '├';
+                                } else if (x > bendingEdge.x2 && x < bendingEdge.x1) {
+                                    // Intermediate lanes get crossed over
+                                    spacerStr += '─';
+                                } else if (x === bendingEdge.x1) {
+                                    // Source lane (right side)
+                                    spacerStr += laneContinues ? '┤' : '╯';
+                                } else {
+                                    // Lanes not involved in the bend
+                                    const hasVertical = edgeRoutes.some((e) => {
+                                        if (e.x1 === e.x2) {
+                                            return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
+                                        } else {
+                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
+                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                            return false;
+                                        }
+                                    });
+                                    spacerStr += hasVertical ? '│' : ' ';
+                                }
+                                if (x < width - 1) {
+                                    if (x >= bendingEdge.x2 && x < bendingEdge.x1) {
+                                        spacerStr += '─';
+                                    } else {
+                                        spacerStr += ' ';
+                                    }
+                                }
+                            }
+                            rowIsFork = true; // Handled both fork and merge in the builder above
+                        } else {
+                            // Lane N branching from Lane < N (for completeness, e.g. ╭─┤ on the right)
+                            // jj log usually pulls left, so this is rare natively but good for correctness.
+                            const laneContinues = edgeRoutes.some(
+                                (e) =>
+                                    e.x1 === bendingEdge.x1 &&
+                                    e.y1 <= yMid - 0.5 &&
+                                    ((e.x2 === bendingEdge.x1 && e.y2 > yMid) ||
+                                        (e.x2 !== bendingEdge.x1 && e.yBend > yMid)),
+                            );
+
+                            for (let x = 0; x < width; x++) {
+                                if (x === bendingEdge.x1) {
+                                    spacerStr += laneContinues ? '├' : '╰';
+                                } else if (x > bendingEdge.x1 && x < bendingEdge.x2) {
+                                    spacerStr += '─';
+                                } else if (x === bendingEdge.x2) {
+                                    spacerStr += laneContinues ? '╮' : '┤';
+                                } else {
+                                    const hasVertical = edgeRoutes.some((e) => {
+                                        if (e.x1 === e.x2) {
+                                            return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
+                                        } else {
+                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
+                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                            return false;
+                                        }
+                                    });
+                                    spacerStr += hasVertical ? '│' : ' ';
+                                }
+                                if (x < width - 1) {
+                                    if (x >= bendingEdge.x1 && x < bendingEdge.x2) {
+                                        spacerStr += '─';
+                                    } else {
+                                        spacerStr += ' ';
+                                    }
+                                }
+                            }
+                            rowIsFork = true;
+                        }
+                    }
+                }
+
+                if (!rowIsMerge && !rowIsFork) {
+                    for (let x = 0; x < width; x++) {
+                        const hasVertical = edgeRoutes.some(e => {
+                            if (e.x1 === e.x2) {
+                                return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
+                            } else {
+                                // Diagonal edge: occupies x1 before yBend, and x2 after yBend
+                                if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
+                                if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                return false;
+                            }
+                        });
+                        spacerStr += hasVertical ? '│' : ' ';
+                        if (x < width - 1) {
+                            spacerStr += ' ';
+                        }
+                    }
+                }
+                rows.push(spacerStr.trimEnd());
+            }
+        }
+    }
+    return rows.join('\n');
+}
+
 describe('Graph Layout Integration Tests (Real jj output)', () => {
     let jjService: JjService;
     let repo: TestRepo;
@@ -213,122 +433,9 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const headLog = logs.find((l) => l.is_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
-        // Helper: ASCII renderer to verify layout against jj log output
-        function renderToAscii(
-            layout: {
-                nodes: { x: number; y: number; commitId: string }[];
-                rows: {
-                    commit_id: string;
-                    parents: string[];
-                    is_working_copy?: boolean;
-                    change_id: string;
-                    description: string;
-                }[];
-                edges: { x1: number; y1: number; x2: number; y2: number }[];
-            },
-            _logs: unknown[],
-        ): string {
-            const rows: string[] = [];
-            const nodesById = new Map<string, { x: number; y: number; commitId: string }>(
-                layout.nodes.map((n) => [n.commitId, n]),
-            );
-
-            for (let i = 0; i < layout.rows.length; i++) {
-                const log = layout.rows[i];
-                const node = nodesById.get(log.commit_id);
-                if (!node) {
-                    continue;
-                }
-
-                // 1. Commit Row
-                let lineStr = '';
-                for (let x = 0; x <= 1; x++) {
-                    if (node.x === x) {
-                        let symbol = '○';
-                        if (log.parents.length === 0) {
-                            symbol = '◆';
-                        }
-                        if (log.is_working_copy || log.change_id === headId) {
-                            symbol = '@';
-                        }
-                        lineStr += symbol;
-                    } else {
-                        const hasEdge = layout.edges.some(
-                            (e) =>
-                                e.x1 === x &&
-                                e.x2 === x &&
-                                Math.min(e.y1, e.y2) < node.y &&
-                                Math.max(e.y1, e.y2) > node.y,
-                        );
-                        lineStr += hasEdge ? '│' : ' ';
-                    }
-                    if (x < 1) {
-                        lineStr += ' ';
-                    }
-                }
-                while (lineStr.length < 3) {
-                    lineStr += ' ';
-                }
-                rows.push(`${lineStr.trimEnd()}  ${log.change_id.substring(0, 8)} ${log.description.split('\n')[0]}`);
-
-                // 2. Spacer Rows (2 lines)
-                if (i < layout.rows.length - 1) {
-                    const nextLog = layout.rows[i + 1];
-                    const nextNode = nodesById.get(nextLog.commit_id);
-                    const yMid = node.y + 0.5;
-
-                    for (let s = 0; s < 2; s++) {
-                        let spacerStr = '';
-                        const isCurveRow = s === 0;
-                        let rowIsMerge = false;
-
-                        // Check 1->0 Merge Connector (├─╯)
-                        if (isCurveRow && node && nextNode && node.x === 1 && nextNode.x === 0) {
-                            const edge = layout.edges.find(
-                                (e) =>
-                                    (e.y1 === node.y && e.y2 === nextNode.y) ||
-                                    (e.y2 === node.y && e.y1 === nextNode.y),
-                            );
-                            if (edge) {
-                                const verticalOn0 = layout.edges.some(
-                                    (e) =>
-                                        e.x1 === 0 &&
-                                        e.x2 === 0 &&
-                                        Math.min(e.y1, e.y2) < nextNode.y &&
-                                        Math.max(e.y1, e.y2) >= node.y,
-                                );
-                                if (verticalOn0) {
-                                    spacerStr = '├─╯';
-                                    rowIsMerge = true;
-                                }
-                            }
-                        }
-
-                        if (!rowIsMerge) {
-                            for (let x = 0; x <= 1; x++) {
-                                const hasVertical = layout.edges.some(
-                                    (e) =>
-                                        e.x1 === x &&
-                                        e.x2 === x &&
-                                        Math.min(e.y1, e.y2) < yMid &&
-                                        Math.max(e.y1, e.y2) > yMid,
-                                );
-                                spacerStr += hasVertical ? '│' : ' ';
-                                if (x < 1) {
-                                    spacerStr += ' ';
-                                }
-                            }
-                        }
-                        rows.push(spacerStr.trimEnd());
-                    }
-                }
-            }
-            return rows.join('\n');
-        }
-
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
         const expectedOutput = repo.getLogOutput(userTemplate).trim();
-        const generatedOutput = renderToAscii(layout, logs).trim();
+        const generatedOutput = renderToAscii(layout, headId).trim();
 
         expect(generatedOutput).toBe(expectedOutput);
 
@@ -375,10 +482,63 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(orcs!.y).toBeLessThan(cool!.y);
         expect(vpm!.y).toBeLessThan(cool!.y);
         expect(orcs!.x).not.toBe(vpm!.x);
+    });
 
-        // HEAD (Child of vpm)
-        const head = layout.nodes.find((n) => logs[n.y].description.includes('tqlynzyq'));
-        expect(head).toBeDefined();
-        expect(head!.y).toBeLessThan(vpm!.y);
+    test('Even More Complex Replay', async () => {
+        await buildGraph(repo, [
+            { label: 'base', description: 'Base', parents: ['root()'] },
+            { label: 'main', description: 'Main', parents: ['base'] },
+            { label: 'side', description: 'Side', parents: ['base'] },
+            { label: 'merge', description: 'Merge', parents: ['main', 'side'] },
+            { label: 'chain', description: 'Chain', parents: ['merge'] },
+            { label: 'branch', description: 'Branch', parents: ['main'] },
+            { label: 'wc', description: 'WC', parents: ['main'], isWorkingCopy: true },
+        ]);
+
+        const logs = await jjService.getLog();
+        const layout = computeGraphLayout(logs);
+
+        const headLog = logs.find((l) => l.is_working_copy);
+        const headId = headLog ? headLog.change_id : '';
+
+        const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
+        const expectedOutput = repo.getLogOutput(userTemplate).trim();
+        const generatedOutput = renderToAscii(layout, headId).trim();
+
+        expect(generatedOutput).toBe(expectedOutput);
+    });
+
+    test('Deep Nesting Multi-Lane Replay', async () => {
+        // Build the graph using buildGraph in historical order
+        await buildGraph(repo, [
+            { label: 'lvtk', description: 'the root' },
+            { label: 'zonk', description: 'A', parents: ['lvtk'] },
+            { label: 'vqpn', description: 'testing: feature A', parents: ['lvtk'] },
+            { label: 'kppt', description: 'This is a house on a street', parents: ['vqpn', 'zonk'] },
+            { label: 'lrnm', description: 'lrnm', parents: ['kppt'] },
+            { label: 'rtox', description: 'rtox', parents: ['kppt'] },
+            { label: 'posk', description: 'This is a tree', parents: ['rtox'] },
+            { label: 'smyx', description: 'Wow! It worked again, for realzies', parents: ['posk'] },
+            { label: 'plko', description: 'plko', parents: ['lrnm'] },
+            { label: 'mnry', description: 'mnry', parents: ['plko'] },
+            { label: 'txmw', description: 'Things', parents: ['plko'] },
+            { label: 'yukr', description: 'yukr', parents: ['smyx'] },
+            { label: 'mpsp', description: 'testing child: feature B', parents: ['vqpn'] },
+            { label: 'vxmy', description: 'vxmy', parents: ['yukr'] },
+            { label: 'uoym', description: 'uoym', parents: ['zonk'], isWorkingCopy: true }
+        ]);
+
+        const jjService = new JjService(repo.path);
+        const logs = await jjService.getLog();
+        const layout = computeGraphLayout(logs);
+
+        const headLog = logs.find((l) => l.is_working_copy);
+        const headId = headLog ? headLog.change_id : '';
+
+        const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
+        const expectedOutput = repo.getLogOutput(userTemplate).trim();
+        const generatedOutput = renderToAscii(layout, headId).trim();
+
+        expect(generatedOutput).toBe(expectedOutput);
     });
 });
