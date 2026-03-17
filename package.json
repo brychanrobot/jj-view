@@ -92,6 +92,16 @@
                         "monochrome"
                     ],
                     "description": "Color theme for the graph lanes in the JJ Log view."
+                },
+                "jj-view.commit.titleWidthRuler": {
+                    "type": "number",
+                    "default": 50,
+                    "description": "Width at which to display a ruler in the commit details description editor for the title line."
+                },
+                "jj-view.commit.bodyWidthRuler": {
+                    "type": "number",
+                    "default": 72,
+                    "description": "Width at which to display a ruler in the commit details description editor for the body."
                 }
             }
         },
@@ -105,7 +115,8 @@
             {
                 "command": "jj-view.showCurrentChange",
                 "title": "Show Current Change",
-                "category": "JJ View"
+                "category": "JJ View",
+                "icon": "$(eye)"
             },
             {
                 "command": "jj-view.newMergeChange",
@@ -509,6 +520,7 @@
         "@types/react-dom": "^19.2.3",
         "@types/sinon": "^21.0.0",
         "@types/vscode": "^1.104.0",
+        "@types/word-wrap": "^1.2.0",
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^3.7.1",
@@ -536,6 +548,7 @@
         "@vscode/codicons": "^0.0.44",
         "parse-diff": "^0.11.1",
         "react": "^19.2.3",
-        "react-dom": "^19.2.3"
+        "react-dom": "^19.2.3",
+        "word-wrap": "^1.2.5"
     }
 }

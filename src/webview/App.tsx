@@ -296,6 +296,13 @@ const App: React.FC = () => {
                 description={detailsCommit.description}
                 files={detailsCommit.files}
                 isImmutable={detailsCommit.isImmutable}
+                isEmpty={detailsCommit.isEmpty}
+                isConflict={detailsCommit.isConflict}
+                author={detailsCommit.author}
+                bookmarks={detailsCommit.bookmarks}
+                titleWidthRuler={detailsCommit.titleWidthRuler}
+                bodyWidthRuler={detailsCommit.bodyWidthRuler}
+                minChangeIdLength={detailsCommit.minChangeIdLength}
                 onSave={handleSaveDescription}
                 onOpenDiff={handleOpenDiff}
                 onOpenMultiDiff={handleOpenMultiDiff}

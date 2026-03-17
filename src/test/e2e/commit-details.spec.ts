@@ -108,7 +108,7 @@ test.describe('Commit Details E2E', () => {
         const details = await getDetailsWebview(page);
 
         // Verify change ID is displayed in full (32 chars)
-        const idText = await details.locator('div[title]').first().textContent();
+        const idText = await details.locator('span[title]').first().textContent();
         expect(idText).toContain(nodes['initial'].changeId);
         expect(nodes['initial'].changeId.length).toBe(32);
 
@@ -144,7 +144,7 @@ test.describe('Commit Details E2E', () => {
         await textarea.fill('updated feature description');
 
         // Click Save
-        const saveButton = details.locator('button', { hasText: 'Save Description' });
+        const saveButton = details.locator('button', { hasText: 'Save' });
         await saveButton.click();
 
         // Verify the description was saved in the repo
@@ -258,5 +258,55 @@ test.describe('Commit Details E2E', () => {
             const detailsFrame = await getDetailsWebview(page);
             await expect(detailsFrame.locator('textarea')).toHaveValue(/add feature/, { timeout: 2000 });
         }).toPass({ timeout: 15000 });
+    });
+
+    test('Format Body button rewraps text while preserving title separation', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+        // Click to open details
+        await featureRow.click();
+
+        const details = await getDetailsWebview(page);
+        const textarea = details.locator('textarea');
+
+        // Input a long body line separated by a newline
+        const longText = 'This is a very long text that will definitely exceed the standard seventy-two character limit that is expected of most commit bodies.';
+        const originalDesc = `Feature Title\n\n${longText}`;
+        await textarea.fill(originalDesc);
+
+        // Click the Format Body button
+        const formatButton = details.locator('button', { hasText: 'Format Body' });
+        await formatButton.click();
+
+        // Check if the textarea content got wrapped
+        const newValue = await textarea.inputValue();
+        expect(newValue).not.toBe(originalDesc);
+        expect(newValue).toContain('Feature Title\n\nThis is a very long text that will definitely exceed the standard');
+        expect(newValue.split('\n').length).toBeGreaterThan(3); // Should be wrapped onto 3rd and 4th lines
+    });
+
+    test('Settings gear opens VS Code settings for jj-view.commit', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+        // Click to open details
+        await featureRow.click();
+        const details = await getDetailsWebview(page);
+
+        // Click the gear icon link
+        const settingsLink = details.locator('a[title="Configure width rulers"]');
+        await settingsLink.click();
+
+        // The VS Code Settings tab should open
+        await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible({ timeout: 15000 });
+        
+        // Also verify the settings are actually filtered and showing our custom setting
+        // And check their default values (50 and 72)
+        const titleInput = page.locator('.setting-item').filter({ hasText: 'Title Width Ruler' }).locator('input');
+        await expect(titleInput).toHaveValue('50');
+
+        const bodyInput = page.locator('.setting-item').filter({ hasText: 'Body Width Ruler' }).locator('input');
+        await expect(bodyInput).toHaveValue('72');
     });
 });

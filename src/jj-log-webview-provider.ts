@@ -266,6 +266,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
+        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
+        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
 
         // Fetch full log entry - this includes description, changes (file list), and immutability status
         const logs = await this._jj.getLog({ revision: changeId });
@@ -275,15 +277,25 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
         const log = logs[0];
         const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
+        
+        // Fetch actual changes with additions/deletions stats
+        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
+
         const initialData = {
             view: 'details',
             payload: {
                 changeId,
                 description: log.description,
-                files: log.changes || [],
+                files: filesWithStats,
                 isImmutable: log.is_immutable,
+                author: log.author,
+                bookmarks: log.bookmarks || [],
+                isEmpty: log.is_empty,
+                isConflict: log.conflict,
                 minChangeIdLength,
                 theme: logTheme,
+                titleWidthRuler,
+                bodyWidthRuler,
             },
         };
 
@@ -304,6 +316,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             {
                 enableScripts: true,
                 localResourceRoots: [this._extensionUri],
+                enableCommandUris: true,
             },
         );
         this._activeDetailsPanel = panel;
@@ -331,7 +344,6 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         message.payload.description,
                         message.payload.changeId,
                     );
-                    vscode.window.showInformationMessage('Description updated');
                     break;
                 case 'openDiff': {
                     const file = message.payload.file;
