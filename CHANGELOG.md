@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- Add more time units to the relative time string (up to years) for
+  author/committer timestamps.
+
 ## 1.20.0
 
 ### Features
