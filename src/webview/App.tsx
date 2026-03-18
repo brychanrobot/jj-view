@@ -40,7 +40,7 @@ const App: React.FC = () => {
     const [selectedCommitIds, setSelectedCommitIds] = React.useState<Set<string>>(new Set());
 
     // Details State
-    const [detailsCommit] = React.useState<any>(initialData?.payload || null);
+    const [detailsCommit, setDetailsCommit] = React.useState<any>(initialData?.payload || null);
 
     // Drag State
     const [activeDragItem, setActiveDragItem] = React.useState<any | null>(null);
@@ -110,7 +110,7 @@ const App: React.FC = () => {
                 case 'updateDetails':
                     // If we get an update while in details view (e.g. after save)
                     if (view === 'details') {
-                        // Optional: update local state if needed via message
+                        setDetailsCommit(message.payload);
                     }
                     break;
                 case 'setSelection':

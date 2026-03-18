@@ -260,6 +260,53 @@ test.describe('Commit Details E2E', () => {
         }).toPass({ timeout: 15000 });
     });
 
+    test('Panel auto-updates when commit description is changed externally', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+        // Click to open details
+        await featureRow.click();
+
+        const shortId = nodes['feature'].changeId.substring(0, 3);
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
+
+        const details = await getDetailsWebview(page);
+
+        // Verify description is shown in the textarea
+        const textarea = details.locator('textarea');
+        await expect(textarea).toHaveValue(/add feature/);
+
+        // Change the description externally using jj CLI
+        repo.describe('externally updated description', nodes['feature'].changeId);
+
+        // Verify the details panel updates automatically (eventually, as file watcher triggers refresh)
+        // Wait up to 15s since file-watchers and graph rebuilds can take a moment
+        await expect(textarea).toHaveValue(/externally updated description/, { timeout: 15000 });
+    });
+
+    test('Panel auto-closes when commit is abandoned', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+        // Click to open details
+        await featureRow.click();
+
+        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+
+        await expect(tabLocator).toBeVisible({
+            timeout: 15000,
+        });
+
+        // Abandon the commit externally
+        repo.abandon(nodes['feature'].changeId);
+
+        // Verify the details panel closes automatically
+        await expect(tabLocator).toBeHidden({ timeout: 15000 });
+    });
+
     test('Format Body button rewraps text while preserving title separation', async () => {
         const webview = await getLogWebview(page);
         const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });

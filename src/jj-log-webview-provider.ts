@@ -209,6 +209,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
             // Background fetch Gerrit status for commits
             await this.refreshGerrit();
+
+            // Also refresh details panel if open
+            await this.refreshDetailsPanel();
         }
     }
 
@@ -261,6 +264,56 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private _activeDetailsPanel?: vscode.WebviewPanel;
+    private _currentDetailsChangeId?: string;
+
+    public async refreshDetailsPanel() {
+        if (!this._activeDetailsPanel || !this._currentDetailsChangeId) {
+            return;
+        }
+
+        const changeId = this._currentDetailsChangeId;
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+        const logTheme = config.get<string>('logTheme', 'default');
+        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
+        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
+
+        // Fetch full log entry - this includes description, changes (file list), and immutability status
+        let logs: JjLogEntry[];
+        try {
+            logs = await this._jj.getLog({ revision: changeId });
+        } catch (e) {
+            // Commit no longer exists (e.g. was abandoned)
+            this._activeDetailsPanel.dispose();
+            return;
+        }
+
+        if (logs.length === 0) {
+            this._activeDetailsPanel.dispose();
+            return;
+        }
+
+        const log = logs[0];
+        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
+
+        this._activeDetailsPanel.webview.postMessage({
+            type: 'updateDetails',
+            payload: {
+                changeId,
+                description: log.description,
+                files: filesWithStats,
+                isImmutable: log.is_immutable,
+                author: log.author,
+                bookmarks: log.bookmarks || [],
+                isEmpty: log.is_empty,
+                isConflict: log.conflict,
+                minChangeIdLength,
+                theme: logTheme,
+                titleWidthRuler,
+                bodyWidthRuler,
+            },
+        });
+    }
 
     public async createCommitDetailsPanel(changeId: string) {
         const config = vscode.workspace.getConfiguration('jj-view');
@@ -299,6 +352,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             },
         };
 
+        this._currentDetailsChangeId = changeId;
+
         if (this._activeDetailsPanel) {
             this._activeDetailsPanel.title = `Commit: ${displayId}`;
             this._activeDetailsPanel.webview.html = this._getHtmlForWebview(
@@ -326,6 +381,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         panel.onDidDispose(() => {
             if (this._activeDetailsPanel === panel) {
                 this._activeDetailsPanel = undefined;
+                this._currentDetailsChangeId = undefined;
                 // Notify graph view to clear selection
                 if (this._view) {
                     this._view.webview.postMessage({ type: 'setSelection', ids: [] });

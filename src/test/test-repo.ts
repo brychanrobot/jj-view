@@ -98,8 +98,12 @@ export class TestRepo {
         this.exec(['status']);
     }
 
-    describe(message: string) {
-        this.exec(['describe', '-m', message]);
+    describe(message: string, revision?: string) {
+        const args = ['describe', '-m', message];
+        if (revision) {
+            args.push('-r', revision);
+        }
+        this.exec(args);
     }
 
     getDescription(revision: string): string {
