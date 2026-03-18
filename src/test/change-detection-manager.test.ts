@@ -312,9 +312,11 @@ describe('ChangeDetectionManager', () => {
 
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
 
-            // Wait for watcher to start and settle
+            // Wait for both watchers to start and settle. We wait for the op_heads watcher too
+            // because it sets lastExternalOpTime, which makes hasActiveOrRecentWrites true for 500ms.
             await waitForLog('Working Copy Watcher] Started');
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            await waitForLog('OpHeads Watcher] Started');
+            await new Promise((resolve) => setTimeout(resolve, 800));
             triggerRefreshSpy.mockClear();
 
             // 1. Write to the ignored directory — should NOT trigger
@@ -325,8 +327,11 @@ describe('ChangeDetectionManager', () => {
             const ignoredCalls = triggerRefreshSpy.mock.calls.filter((call) => call[0].reason === 'file watcher event');
             expect(ignoredCalls, 'File in /out/ directory should not have triggered a refresh').toHaveLength(0);
 
-            // 2. Write to a non-ignored path — SHOULD trigger
-            repo.writeFile('readme.md', 'hello');
+            // 2. Write to a non-ignored path — SHOULD trigger.
+            // IMPORTANT: Use fs.writeFile directly (not repo.writeFile) to avoid triggering
+            // `jj status` (snapshot), which writes to op_heads and sets lastExternalOpTime,
+            // causing hasActiveOrRecentWrites to suppress the working copy watcher callback.
+            await fs.writeFile(path.join(repo.path, 'readme.md'), 'hello');
 
             await vi.waitFor(
                 () => {
