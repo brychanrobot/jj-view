@@ -7,12 +7,14 @@ import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { JjBookmark } from '../../jj-types';
 
-export const BasePill: React.FC<{ children: React.ReactNode; style?: React.CSSProperties; className?: string }> = ({
-    children,
-    style,
-    className,
-}) => (
+export const BasePill: React.FC<{
+    children: React.ReactNode;
+    style?: React.CSSProperties;
+    className?: string;
+    title?: string;
+}> = ({ children, style, className, title }) => (
     <span
+        title={title}
         className={`bookmark-pill ${className || ''}`}
         style={{
             marginRight: '6px',
@@ -25,6 +27,7 @@ export const BasePill: React.FC<{ children: React.ReactNode; style?: React.CSSPr
             justifyContent: 'center',
             flexShrink: 0,
             verticalAlign: 'middle',
+            boxSizing: 'border-box',
             border: '1px solid transparent',
             ...style,
         }}

@@ -6,7 +6,7 @@
 import * as React from 'react';
 import wordWrap from 'word-wrap';
 import { JjStatusEntry } from '../../jj-types';
-import { BookmarkPill } from './Bookmark';
+import { BookmarkPill, BasePill } from './Bookmark';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
 
 interface CommitDetailsProps {
@@ -170,30 +170,38 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
             <div style={{ marginBottom: '12px' }}>
                 <h2 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     Commit Details
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            gap: '6px',
+                            flexWrap: 'wrap',
+                            fontSize: '11px',
+                            fontWeight: 'normal',
+                        }}
+                    >
                         {isImmutable && (
-                            <span
+                            <BasePill
                                 style={badgeStyle('var(--vscode-gitDecoration-untrackedResourceForeground)')}
                                 title="This commit cannot be modified"
                             >
                                 Immutable
-                            </span>
+                            </BasePill>
                         )}
                         {isEmpty && (
-                            <span
+                            <BasePill
                                 style={badgeStyle('var(--vscode-gitDecoration-ignoredResourceForeground)')}
                                 title="This commit has no file changes"
                             >
                                 Empty
-                            </span>
+                            </BasePill>
                         )}
                         {isConflict && (
-                            <span
+                            <BasePill
                                 style={badgeStyle('var(--vscode-gitDecoration-conflictingResourceForeground)')}
                                 title="This commit has unresolved conflicts"
                             >
-                                Conflict
-                            </span>
+                                Conflicted
+                            </BasePill>
                         )}
                         {bookmarks?.map((b) => (
                             <BookmarkPill key={`${b.name}-${b.remote}`} bookmark={b} />
@@ -548,10 +556,8 @@ function getFileColor(status: string): string {
 
 function badgeStyle(color: string): React.CSSProperties {
     return {
-        fontSize: '10px',
-        padding: '2px 6px',
-        borderRadius: '10px',
-        border: `1px solid ${color}`,
+        border: `1px solid color-mix(in srgb, ${color}, transparent 50%)`,
+        backgroundColor: `color-mix(in srgb, ${color}, transparent 90%)`,
         color: color,
         textTransform: 'uppercase',
         fontWeight: 'bold',
