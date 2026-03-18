@@ -28,13 +28,13 @@ describe('JjService Subdirectory Mapping', () => {
         const subService = new JjService(workspacePath);
         const discoveredRoot = await subService.getRepoRoot();
 
-        // Ask jj to evaluate the repository root from the top-level repo path 
-        // to get the exact canonicalized string format that Rust generates 
-        // for this system. This avoids Node.js string-matching quirks with 
+        // Ask jj to evaluate the repository root from the top-level repo path
+        // to get the exact canonicalized string format that Rust generates
+        // for this system. This avoids Node.js string-matching quirks with
         // Windows 8.3 short paths or macOS symlinks altogether!
         const rootService = new JjService(repo.path);
         const expectedRoot = await rootService.getRepoRoot();
-        
+
         expect(discoveredRoot).toBe(expectedRoot);
     });
 

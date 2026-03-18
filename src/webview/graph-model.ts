@@ -22,8 +22,10 @@ export interface GraphEdge {
     y1: number;
     x2: number;
     y2: number;
+    curveY?: number; // Row index where the line bends horizontally
     color: string;
     type: 'parent' | 'merge'; // 'parent' usually means from Child -> Parent (Vertical/Fork). 'merge' means incoming?
+    isJoining?: boolean; // True if this edge seamlessly merges into another edge's trunk
 }
 
 export interface GraphLayout {

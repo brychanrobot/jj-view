@@ -69,12 +69,14 @@ export class JjService {
         let repoReal = repoRoot;
         let workspaceReal = this.workspaceRoot;
 
-        try { repoReal = await fs.realpath(repoRoot); } catch {}
-        try { workspaceReal = await fs.realpath(this.workspaceRoot); } catch {}
+        try {
+            repoReal = await fs.realpath(repoRoot);
+        } catch {}
+        try {
+            workspaceReal = await fs.realpath(this.workspaceRoot);
+        } catch {}
 
-        const relativeToWorkspace = path.isAbsolute(filePath)
-            ? path.relative(this.workspaceRoot, filePath)
-            : filePath;
+        const relativeToWorkspace = path.isAbsolute(filePath) ? path.relative(this.workspaceRoot, filePath) : filePath;
 
         const repoToWorkspace = path.relative(repoReal, workspaceReal);
         return path.normalize(path.join(repoToWorkspace, relativeToWorkspace));

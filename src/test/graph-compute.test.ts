@@ -20,7 +20,7 @@ function renderToAscii(
             change_id: string;
             description: string;
         }[];
-        edges: { x1: number; y1: number; x2: number; y2: number }[];
+        edges: { x1: number; y1: number; x2: number; y2: number; curveY?: number; isJoining?: boolean }[];
     },
     headId: string,
 ): string {
@@ -46,13 +46,9 @@ function renderToAscii(
         const edgeRoutes = layout.edges.map((e) => {
             if (e.x1 === e.x2) return { ...e, yBend: e.y1 }; // Straight
 
-            let lastY = e.y1;
-            for (const n of layout.nodes) {
-                if (n.x === e.x2 && n.y > e.y1 && n.y < e.y2) {
-                    lastY = Math.max(lastY, n.y);
-                }
-            }
-            return { ...e, yBend: lastY + 0.5 };
+            // jj log curves around row offsets. It typically curves just before the target
+            // row `curveY`, so visual yBend is exactly midway above curveY
+            return { ...e, yBend: (e.curveY ?? e.y2) - 0.5 };
         });
 
         // 1. Commit Row
@@ -76,7 +72,7 @@ function renderToAscii(
                         return e.x1 === x && Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y;
                     } else {
                         if (x === e.x1 && node.y < e.yBend && node.y > e.y1) return true;
-                        if (x === e.x2 && node.y > e.yBend && node.y < e.y2) return true;
+                        if (x === e.x2 && node.y > e.yBend && node.y < e.y2 && !e.isJoining) return true;
                         return false;
                     }
                 });
@@ -87,10 +83,28 @@ function renderToAscii(
                 lineStr += ' ';
             }
         }
-        while (lineStr.length < width * 2 - 1) {
-            lineStr += ' ';
-        }
-        rows.push(`${lineStr.trimEnd()}  ${log.change_id.substring(0, 8)} ${log.description.split('\n')[0]}`.trimEnd());
+        // Find furthest active lane for this row to determine padding width
+        let maxActiveLane = node.x;
+        edgeRoutes.forEach((e) => {
+            if (e.y2 >= layout.rows.length - 1) return; // Skip edges to root marker
+            if (e.y1 === node.y) {
+                // If an edge originates from this node (a fork), the target lane is active
+                maxActiveLane = Math.max(maxActiveLane, e.x2);
+            }
+            if (e.x1 === e.x2) {
+                if (Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y)
+                    maxActiveLane = Math.max(maxActiveLane, e.x1);
+            } else {
+                if (node.y < e.yBend && node.y > e.y1) maxActiveLane = Math.max(maxActiveLane, e.x1);
+                if (node.y > e.yBend && node.y < e.y2) maxActiveLane = Math.max(maxActiveLane, e.x2);
+            }
+        });
+
+        const paddedStr = lineStr.trimEnd();
+        const requiredLength = maxActiveLane * 2 + 1;
+        const finalStr = paddedStr.padEnd(requiredLength, ' ');
+
+        rows.push(`${finalStr}  ${log.change_id.substring(0, 8)} ${log.description.split('\n')[0]}`.trimEnd());
 
         if (log.parents.length === 0) {
             continue; // No spacer rows needed after a root commit.
@@ -216,7 +230,7 @@ function renderToAscii(
                             } else {
                                 // Diagonal edge: occupies x1 before yBend, and x2 after yBend
                                 if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
-                                if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                if (x === e.x2 && yMid >= e.yBend && yMid < e.y2 && !e.isJoining) return true;
                                 return false;
                             }
                         });
@@ -538,6 +552,66 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
 
         const headLog = logs.find((l) => l.is_working_copy);
         const headId = headLog ? headLog.change_id : '';
+
+        const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
+        const expectedOutput = repo.getLogOutput(userTemplate).trim();
+        const generatedOutput = renderToAscii(layout, headId).trim();
+
+        expect(generatedOutput).toBe(expectedOutput);
+    });
+
+    test('Multiple Children Curve Routing (Stack Layout Fix)', async () => {
+        // Setup:
+        // Root -> P
+        // P -> A
+        // P -> B
+        // P -> C
+        await buildGraph(repo, [
+            { label: 'root', description: 'Root' },
+            { label: 'p', description: 'P', parents: ['root'] },
+            { label: 'a', description: 'A', parents: ['p'] },
+            { label: 'b', description: 'B', parents: ['p'] },
+            { label: 'c', description: 'C', parents: ['p'], isWorkingCopy: true },
+        ]);
+
+        const logs = await jjService.getLog();
+        const layout = computeGraphLayout(logs);
+
+        const headLog = logs.find((l) => l.is_working_copy);
+        const headId = headLog ? headLog.change_id : '';
+
+        const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
+        const expectedOutput = repo.getLogOutput(userTemplate).trim();
+        const generatedOutput = renderToAscii(layout, headId).trim();
+
+        expect(generatedOutput).toBe(expectedOutput);
+    });
+
+    test('Complex Overlapping Multi-Child Layout (Issue with lanes assigned incorrectly)', async () => {
+        await buildGraph(repo, [
+            { label: 'lv', description: 'lv' },
+            { label: 'vq', description: 'vq', parents: ['lv'] },
+            { label: 'mp', description: 'mp', parents: ['vq'] },
+            { label: 'xn', description: 'xn', parents: ['lv'] },
+            { label: 'yz', description: 'yz', parents: ['lv'] },
+            { label: 'on', description: 'on', parents: ['lv'] },
+            { label: 'zo', description: 'zo', parents: ['lv'] },
+            { label: 'kp', description: 'kp', parents: ['vq', 'zo'] },
+            { label: 'lr', description: 'lr', parents: ['kp'] },
+            { label: 'pl', description: 'pl', parents: ['lr'] },
+            { label: 'mn', description: 'mn', parents: ['pl'] },
+            { label: 'tx', description: 'tx', parents: ['pl'] },
+            { label: 'rt', description: 'rt', parents: ['kp'] },
+            { label: 'po', description: 'po', parents: ['rt'] },
+            { label: 'sm', description: 'sm', parents: ['po'] },
+            { label: 'yu', description: 'yu', parents: ['sm'] },
+            { label: 'vx', description: 'vx', parents: ['yu'] },
+            { label: 'ux', description: 'ux', parents: ['vx'] },
+            { label: 'wr', description: 'wr', parents: ['ux'], isWorkingCopy: true },
+        ]);
+
+        const layout = computeGraphLayout(await jjService.getLog());
+        const headId = layout.nodes[0].changeId;
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
         const expectedOutput = repo.getLogOutput(userTemplate).trim();

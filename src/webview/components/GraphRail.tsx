@@ -53,10 +53,17 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             // Straight Vertical
             d = `M ${sx} ${sy} L ${ex} ${ey}`;
         } else {
-            // Rail Routing: Bend at the row boundary just above the parent to keep the structure clean.
-            // We use the top of the parent's row as the midpoint for the S-curve.
-            const prevRowY = rowOffsets[y2] ? rowOffsets[y2] - ROW_HEADER_HEIGHT : ey - ROW_HEADER_HEIGHT;
-            const midY = prevRowY + ROW_HEADER_HEIGHT;
+            // Rail Routing
+            const cY = edge.curveY ?? y2;
+            let midY: number;
+
+            if (rowOffsets[cY] !== undefined) {
+                // S-curve crosses boundary right above the curve row
+                midY = rowOffsets[cY];
+            } else {
+                // If it curves offscreen, use ey but subtract the offset to get the row boundary
+                midY = ey - CY_OFFSET;
+            }
 
             // Direction for horizontal
             const dirX = x2 > x1 ? 1 : -1;
@@ -86,8 +93,10 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             // End: (ex, midY + R)
             d += ` Q ${ex} ${midY} ${ex} ${midY + R}`;
 
-            // Vertical to End
-            d += ` L ${ex} ${ey}`;
+            if (!edge.isJoining) {
+                // Vertical to End
+                d += ` L ${ex} ${ey}`;
+            }
         }
 
         return (

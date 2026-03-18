@@ -134,27 +134,62 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
     // 5. Resolve Edges
     pendingEdges.forEach((pe) => {
         const target = nodeMap.get(pe.targetCommitId);
+        let targetX: number;
+        let targetY: number;
+
+        let isJoining = false;
         if (target) {
-            edges.push({
-                x1: pe.x1,
-                y1: pe.y1,
-                x2: target.x,
-                y2: target.y,
-                color: pe.color,
-                type: 'parent',
-            });
+            targetY = target.y;
+            // Cross-lane edges (pe.x1 !== pe.targetLane) are "joining" an existing
+            // vertical line in pe.targetLane. They should merge into that lane, not
+            // chase the target if it later moved to a different lane.
+            // Same-lane edges (pe.x1 === pe.targetLane) "own" the lane and follow
+            // the target to its final position (e.g. when a later sibling rebalances
+            // the parent leftward).
+            targetX = pe.x1 !== pe.targetLane ? pe.targetLane : target.x;
+
+            // For joining edges where the target moved lanes (targetX !== target.x),
+            // cap y2 at the curveY of the "owning" edge — the edge that travels
+            // vertically through pe.targetLane and then curves to target.x.
+            // This prevents the joining edge from drawing a vertical line past
+            // where the lane actually curves away.
+            if (targetX !== target.x) {
+                const ownerEdge = edges.find((e) => e.x1 === pe.targetLane && e.x2 === target.x && e.y2 === target.y);
+
+                if (ownerEdge) {
+                    targetY = ownerEdge.curveY ?? ownerEdge.y2;
+                    isJoining = true;
+                }
+            }
         } else {
-            // Parent is off-screen.
-            // Draw to the bottom of the graph at the assigned lane.
-            edges.push({
-                x1: pe.x1,
-                y1: pe.y1,
-                x2: pe.targetLane,
-                y2: sortedRows.length,
-                color: pe.color,
-                type: 'parent',
-            });
+            targetX = pe.targetLane;
+            targetY = sortedRows.length;
         }
+
+        let curveY = targetY;
+        if (pe.x1 !== targetX) {
+            // For joining edges, also check the target lane for blocking nodes.
+            // Owning edges only check their source lane — they travel vertically
+            // through the source lane and curve at the end.
+            const checkTargetLane = pe.x1 !== pe.targetLane;
+            for (let y = pe.y1 + 1; y < targetY; y++) {
+                if (nodes[y] && (nodes[y].x === pe.x1 || (checkTargetLane && nodes[y].x === targetX))) {
+                    curveY = y;
+                    break;
+                }
+            }
+        }
+
+        edges.push({
+            x1: pe.x1,
+            y1: pe.y1,
+            x2: targetX,
+            y2: targetY,
+            curveY,
+            color: pe.color,
+            type: 'parent',
+            isJoining,
+        });
     });
 
     const width = Math.max(
