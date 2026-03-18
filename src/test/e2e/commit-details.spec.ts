@@ -72,6 +72,27 @@ test.describe('Commit Details E2E', () => {
                 description: 'add feature',
                 files: { 'f.txt': 'modified content' },
             },
+            {
+                label: 'empty-commit',
+                parents: ['initial'],
+                description: 'empty and tagged',
+                tags: ['test-e2e-tag'],
+            },
+            {
+                label: 'conflict-1',
+                parents: ['initial'],
+                files: { 'f.txt': 'conflict 1' },
+            },
+            {
+                label: 'conflict-2',
+                parents: ['initial'],
+                files: { 'f.txt': 'conflict 2' },
+            },
+            {
+                label: 'conflicted-commit',
+                parents: ['conflict-1', 'conflict-2'],
+                description: 'conflicted commit',
+            },
         ]);
 
         const setup = await launchVSCode(repo);
@@ -108,7 +129,12 @@ test.describe('Commit Details E2E', () => {
         const details = await getDetailsWebview(page);
 
         // Verify change ID is displayed in full (32 chars)
-        const idText = await details.locator('span[title]').first().textContent();
+        const changeIdDiv = details
+            .locator('div')
+            .filter({ has: details.getByText('Change:', { exact: true }) })
+            .last();
+        const changeIdSpan = changeIdDiv.locator('span[title]').first();
+        const idText = await changeIdSpan.textContent();
         expect(idText).toContain(nodes['initial'].changeId);
         expect(nodes['initial'].changeId.length).toBe(32);
 
@@ -358,5 +384,52 @@ test.describe('Commit Details E2E', () => {
 
         const bodyInput = page.locator('.setting-item').filter({ hasText: 'Body Width Ruler' }).locator('input');
         await expect(bodyInput).toHaveValue('72');
+    });
+
+    test('Displays pills and person info correctly', async () => {
+        // Configure 'initial' to be immutable using its exact commit ID
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes['initial'].commitId}")`);
+
+        // Wait for the file watcher to detect the change and refresh the graph.
+        await page.waitForTimeout(1000);
+
+        // Refresh the webview by focusing it to pick up graph updates
+        await focusJJLog(page);
+
+        const webview = await getLogWebview(page);
+
+        // 1. Check Empty and Tag pill, Author, Committer
+        const emptyRow = webview.locator('.commit-row', { hasText: 'empty and tagged' });
+        await expect(emptyRow).toBeVisible({ timeout: 15000 });
+        await emptyRow.click();
+        const details1 = await getDetailsWebview(page);
+
+        await expect(details1.getByText('Empty', { exact: true })).toBeVisible();
+        await expect(details1.getByText('test-e2e-tag', { exact: true })).toBeVisible();
+
+        // Check Author and Committer info are rendered
+        await expect(details1.getByText('Author:', { exact: true })).toBeVisible();
+        await expect(details1.getByText('Committer:', { exact: true })).toBeVisible();
+        await expect(details1.locator('strong', { hasText: 'Test User' })).toHaveCount(2);
+        await expect(details1.locator('span', { hasText: '<test@example.com>' })).toHaveCount(2);
+
+        // 3. Check Immutable pill
+        // Click another commit then click back to force the panel to fetch the latest state
+        await webview.locator('.commit-row', { hasText: 'add feature' }).click();
+        await page.waitForTimeout(500);
+        await focusJJLog(page);
+
+        const currentWebview = await getLogWebview(page);
+        const initialRow = currentWebview.locator('.commit-row', { hasText: 'initial setup' });
+
+        // Click once to open the panel
+        await initialRow.click();
+
+        await expect(async () => {
+            // Fetch the details frame dynamically because it may detach and recreate if the extension
+            // reloads the webview during a background refresh
+            const frame = await getDetailsWebview(page);
+            await expect(frame.getByTitle('This commit cannot be modified')).toBeVisible({ timeout: 1000 });
+        }).toPass({ timeout: 20000 });
     });
 });

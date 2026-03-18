@@ -293,13 +293,16 @@ const App: React.FC = () => {
         return (
             <CommitDetails
                 changeId={detailsCommit.changeId}
+                commitId={detailsCommit.commitId}
                 description={detailsCommit.description}
                 files={detailsCommit.files}
                 isImmutable={detailsCommit.isImmutable}
                 isEmpty={detailsCommit.isEmpty}
                 isConflict={detailsCommit.isConflict}
                 author={detailsCommit.author}
+                committer={detailsCommit.committer}
                 bookmarks={detailsCommit.bookmarks}
+                tags={detailsCommit.tags}
                 titleWidthRuler={detailsCommit.titleWidthRuler}
                 bodyWidthRuler={detailsCommit.bodyWidthRuler}
                 minChangeIdLength={detailsCommit.minChangeIdLength}

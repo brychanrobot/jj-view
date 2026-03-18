@@ -62,6 +62,26 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
     );
 };
 
+export const TagPill: React.FC<{ tag: string; style?: React.CSSProperties }> = ({ tag, style }) => {
+    const accentColor = 'var(--vscode-charts-green)'; // Using a distinct color for tags
+    const backgroundColor = `color-mix(in srgb, ${accentColor}, transparent 90%)`;
+    const borderColor = `color-mix(in srgb, ${accentColor}, transparent 50%)`;
+
+    return (
+        <BasePill
+            style={{
+                backgroundColor,
+                color: accentColor,
+                border: `1px solid ${borderColor}`,
+                ...style,
+            }}
+        >
+            <span className="codicon codicon-tag" style={{ marginRight: '4px', fontSize: '11px', flexShrink: 0 }} />
+            {tag}
+        </BasePill>
+    );
+};
+
 export const DraggableBookmark: React.FC<{ bookmark: JjBookmark }> = ({ bookmark }) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `bookmark-${bookmark.name}-${bookmark.remote || 'local'}`,

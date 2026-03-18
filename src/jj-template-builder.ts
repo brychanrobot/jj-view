@@ -89,6 +89,11 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
             remote: { type: 'nullable', expr: 'item.remote()', valueExpr: 'item.remote()' },
         },
     },
+    tags: {
+        type: 'stringArray',
+        expr: 'tags',
+        itemExpr: 'item.name()',
+    },
     is_immutable: { type: 'raw', expr: 'immutable' },
     is_working_copy: { type: 'raw', expr: 'current_working_copy' },
     is_empty: { type: 'raw', expr: 'empty' },

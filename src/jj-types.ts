@@ -38,6 +38,7 @@ export interface JjLogEntry {
     };
     parents: string[];
     bookmarks?: JjBookmark[];
+    tags?: string[];
     is_working_copy?: boolean;
     is_immutable?: boolean;
     is_empty?: boolean;

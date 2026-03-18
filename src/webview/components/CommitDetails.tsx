@@ -6,11 +6,13 @@
 import * as React from 'react';
 import wordWrap from 'word-wrap';
 import { JjStatusEntry } from '../../jj-types';
-import { BookmarkPill, BasePill } from './Bookmark';
+import { BookmarkPill, BasePill, TagPill } from './Bookmark';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
+import { PersonInfo } from './PersonInfo';
 
 interface CommitDetailsProps {
     changeId: string;
+    commitId: string;
     description: string;
     files: Array<{
         path: string;
@@ -22,7 +24,9 @@ interface CommitDetailsProps {
     isEmpty?: boolean;
     isConflict?: boolean;
     author?: { name: string; email: string; timestamp: string };
+    committer?: { name: string; email: string; timestamp: string };
     bookmarks?: Array<{ name: string; remote?: string }>;
+    tags?: string[];
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
@@ -33,13 +37,16 @@ interface CommitDetailsProps {
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
     changeId,
+    commitId,
     description,
     files,
     isImmutable,
     isEmpty,
     isConflict,
     author,
+    committer,
     bookmarks,
+    tags,
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
@@ -206,12 +213,15 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         {bookmarks?.map((b) => (
                             <BookmarkPill key={`${b.name}-${b.remote}`} bookmark={b} />
                         ))}
+                        {tags?.map((t) => (
+                            <TagPill key={t} tag={t} />
+                        ))}
                     </div>
                 </h2>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground)' }}>ID:</span>
+                        <span style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground)' }}>Change:</span>
                         <span
                             style={{ fontSize: '13px', color: 'var(--vscode-foreground)', fontFamily: 'monospace' }}
                             title={changeId}
@@ -234,16 +244,33 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             <span className="codicon codicon-copy" style={{ fontSize: '14px' }}></span>
                         </button>
                     </div>
-                    {author && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                            <span style={{ color: 'var(--vscode-descriptionForeground)' }}>Author:</span>
-                            <strong style={{ color: 'var(--vscode-foreground)' }}>{author.name}</strong>
-                            <span style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 4px' }}>•</span>
-                            <span style={{ color: 'var(--vscode-foreground)' }}>
-                                {getRelativeTimeString(author.timestamp)}
-                            </span>
-                        </div>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground)' }}>Commit:</span>
+                        <span
+                            style={{ fontSize: '13px', color: 'var(--vscode-foreground)', fontFamily: 'monospace' }}
+                            title={commitId}
+                        >
+                            {commitId.substring(0, 12)}
+                        </span>
+                        <button
+                            onClick={() => navigator.clipboard.writeText(commitId)}
+                            title="Copy Commit ID"
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: '2px',
+                                cursor: 'pointer',
+                                color: 'var(--vscode-icon-foreground)',
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}
+                        >
+                            <span className="codicon codicon-copy" style={{ fontSize: '14px' }}></span>
+                        </button>
+                    </div>
+
+                    <PersonInfo person={author} label="Author" />
+                    <PersonInfo person={committer} label="Committer" />
                 </div>
             </div>
 
@@ -562,22 +589,4 @@ function badgeStyle(color: string): React.CSSProperties {
         textTransform: 'uppercase',
         fontWeight: 'bold',
     };
-}
-
-function getRelativeTimeString(timestamp: string): string {
-    const time = new Date(timestamp).getTime();
-    if (isNaN(time)) return timestamp;
-
-    const now = Date.now();
-    const diff = now - time;
-
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
-    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-    if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
-    return 'just now';
 }

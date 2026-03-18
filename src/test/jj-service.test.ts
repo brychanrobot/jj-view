@@ -567,6 +567,33 @@ describe('JjService Unit Tests', () => {
         expect(grandchild.parents_immutable![0]).toBe(false);
     });
 
+    test('getLog parses tags correctly', async () => {
+        const ids = await buildGraph(repo, [
+            {
+                label: 'commit',
+                description: 'tagged commit',
+            },
+            {
+                label: 'child',
+                parents: ['commit'],
+                description: 'child commit',
+                isWorkingCopy: true, // moves @ here
+            },
+        ]);
+
+        const changeId = ids['commit'].changeId;
+        repo.tag('test-tag-1', changeId);
+        repo.tag('test-tag-2', changeId);
+
+        const [log] = await jjService.getLog({ revision: changeId });
+
+        expect(log.tags).toBeDefined();
+        expect(Array.isArray(log.tags)).toBe(true);
+        expect(log.tags).toContain('test-tag-1');
+        expect(log.tags).toContain('test-tag-2');
+        expect(log.tags?.length).toBe(2);
+    });
+
     test('getLog parses author and committer with full details', async () => {
         repo.describe('author test');
         const [log] = await jjService.getLog({ revision: '@' });

@@ -126,6 +126,10 @@ export class TestRepo {
         this.exec(['bookmark', 'create', name, '-r', revision]);
     }
 
+    tag(name: string, revision: string) {
+        this.exec(['tag', 'set', name, '-r', revision]);
+    }
+
     abandon(revision: string) {
         this.exec(['abandon', revision]);
     }
@@ -250,6 +254,7 @@ export interface CommitDefinition {
     description?: string;
     files?: Record<string, string>;
     bookmarks?: string[];
+    tags?: string[];
     isWorkingCopy?: boolean;
 }
 
@@ -296,6 +301,13 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
         if (commit.bookmarks) {
             for (const bookmark of commit.bookmarks) {
                 repo.bookmark(bookmark, '@');
+            }
+        }
+
+        // Apply tags
+        if (commit.tags) {
+            for (const tag of commit.tags) {
+                repo.tag(tag, '@');
             }
         }
     }
