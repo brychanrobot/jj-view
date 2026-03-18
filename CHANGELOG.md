@@ -1,9 +1,16 @@
 # Changelog
 
-## 1.19.1
+## 1.20.0
+
+### Features
+
+- **Commit Details**: Show commit author, committer, and tags in details view.
 
 ### Fixes
 
+- **Styling**: Improve styling and alignment of status and bookmark pills.
+- **Auto-Update**: The commit details panel now automatically updates when the underlying commit changes or is abandoned.
+- **Graph Layout**: Curve graph edges around intersecting nodes to prevent lines drawing through unrelated nodes.
 - **Diff Cache Resolution**: Fixed an issue where diff views and merge conflicts would fail to load when a VS Code workspace is a subdirectory of a jj repository. The extension now correctly maps absolute workspace paths to repo-relative paths for bulk diff cache lookups.
 - **Initialization**: Prevent the extension from trying to initialize file watchers when a workspace does not contain a `.jj` directory in its root.
 
