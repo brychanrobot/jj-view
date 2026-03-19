@@ -31,6 +31,6 @@ export async function rebaseOntoSelectedCommand(scmProvider: JjScmProvider, jj: 
         );
         await vscode.commands.executeCommand('jj-view.refresh');
     } catch (err: unknown) {
-        showJjError(err, 'Error rebasing', scmProvider.outputChannel);
+        await showJjError(err, 'Error rebasing', jj, scmProvider.outputChannel);
     }
 }

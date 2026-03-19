@@ -90,7 +90,7 @@ export async function discardChangeCommand(
         workspaceEdit.replace(uri, modifiedRange, originalTextStr);
         await vscode.workspace.applyEdit(workspaceEdit);
         await modifiedDoc.save();
-    } catch (e) {
-        showJjError(e, 'Failed to discard change', scmProvider.outputChannel);
+    } catch (e: unknown) {
+        await showJjError(e, 'Failed to discard change', scmProvider.jj, scmProvider.outputChannel);
     }
 }

@@ -37,13 +37,13 @@ export async function setBookmarkCommand(
                     await withDelayedProgress(`Setting bookmark ${name}...`, jj.moveBookmark(name, revision));
                     await scmProvider.refresh({ reason: 'after bookmark set' });
                 } catch (e: unknown) {
-                    showJjError(e, 'Error setting bookmark', scmProvider.outputChannel);
+                    await showJjError(e, 'Error setting bookmark', jj, scmProvider.outputChannel);
                 }
             }
         });
 
         quickPick.show();
     } catch (e: unknown) {
-        showJjError(e, 'Error checking bookmarks', scmProvider.outputChannel);
+        await showJjError(e, 'Error checking bookmarks', jj, scmProvider.outputChannel);
     }
 }

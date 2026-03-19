@@ -35,6 +35,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    public get jj(): JjService {
+        return this._jj;
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,

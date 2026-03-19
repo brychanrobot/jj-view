@@ -67,6 +67,6 @@ export async function squashIntoCommand(scmProvider: JjScmProvider, jj: JjServic
 
         await scmProvider.refresh({ reason: 'after squash into ancestor' });
     } catch (e: unknown) {
-        showJjError(e, 'Error squashing into ancestor', scmProvider.outputChannel);
+        await showJjError(e, 'Error squashing into ancestor', jj, scmProvider.outputChannel);
     }
 }

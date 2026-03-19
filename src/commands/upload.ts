@@ -44,7 +44,7 @@ export async function uploadCommand(
     } catch (e: unknown) {
         const CONFIGURE = 'Configure Upload...';
         const extraActions = hasCustomCommand ? [] : [CONFIGURE];
-        const selection = await showJjError(e, 'Upload failed', outputChannel, extraActions);
+        const selection = await showJjError(e, 'Upload failed', jj, outputChannel, extraActions);
 
         if (selection === CONFIGURE) {
             vscode.commands.executeCommand('workbench.action.openSettings', 'jj-view.uploadCommand');

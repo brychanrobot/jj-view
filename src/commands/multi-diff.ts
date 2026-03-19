@@ -55,7 +55,7 @@ export async function showMultiFileDiffCommand(
                 await vscode.commands.executeCommand('vscode.changes', title, resourceTuples);
             })(),
         );
-    } catch (err) {
-        showJjError(err, 'Failed to open multi-file diff', outputChannel);
+    } catch (err: unknown) {
+        await showJjError(err, 'Failed to open multi-file diff', jj, outputChannel);
     }
 }

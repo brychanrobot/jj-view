@@ -15,6 +15,6 @@ export async function showDetailsCommand(logWebviewProvider: JjLogWebviewProvide
     try {
         await logWebviewProvider.createCommitDetailsPanel(revision);
     } catch (e: unknown) {
-        showJjError(e, 'Error showing details', logWebviewProvider.outputChannel);
+        await showJjError(e, 'Error showing details', logWebviewProvider.jj, logWebviewProvider.outputChannel);
     }
 }

@@ -42,6 +42,6 @@ export async function newBeforeCommand(scmProvider: JjScmProvider, jj: JjService
         await withDelayedProgress('Creating new change...', jj.new({ insertBefore: revisions }));
         scmProvider.refresh();
     } catch (e: unknown) {
-        showJjError(e, `Error creating new commit before ${revisions.join(', ')}`, scmProvider.outputChannel);
+        await showJjError(e, `Error creating new commit before ${revisions.join(', ')}`, jj, scmProvider.outputChannel);
     }
 }

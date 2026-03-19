@@ -99,7 +99,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
 
         await scmProvider.refresh({ reason: 'after squash' });
     } catch (e: unknown) {
-        showJjError(e, 'Error squashing', scmProvider.outputChannel);
+        await showJjError(e, 'Error squashing', jj, scmProvider.outputChannel);
     }
 }
 
@@ -193,7 +193,7 @@ export async function completeSquashCommand(scmProvider: JjScmProvider, jj: JjSe
         if (err.code === 'ENOENT') {
             vscode.window.showErrorMessage('No pending squash operation found.');
         } else {
-            showJjError(e, 'Failed to complete squash', scmProvider.outputChannel);
+            await showJjError(e, 'Failed to complete squash', jj, scmProvider.outputChannel);
         }
     }
 }

@@ -16,6 +16,6 @@ export async function showCurrentChangeCommand(jj: JjService, outputChannel: vsc
             vscode.window.showErrorMessage('No log entry found for current revision.');
         }
     } catch (err: unknown) {
-        showJjError(err, 'Error getting jj log', outputChannel);
+        await showJjError(err, 'Error getting jj log', jj, outputChannel);
     }
 }

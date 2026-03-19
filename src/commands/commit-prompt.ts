@@ -31,6 +31,6 @@ export async function commitPromptCommand(scmProvider: JjScmProvider, jj: JjServ
         await withDelayedProgress('Committing...', jj.commit(message));
         await scmProvider.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
-        showJjError(err, 'Error committing change', scmProvider.outputChannel);
+        await showJjError(err, 'Error committing change', jj, scmProvider.outputChannel);
     }
 }

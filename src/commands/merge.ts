@@ -51,6 +51,6 @@ export async function newMergeChangeCommand(
         await jj.new({ parents: revisions });
         await scmProvider.refresh();
     } catch (e: unknown) {
-        showJjError(e, 'Failed to create merge', scmProvider.outputChannel);
+        await showJjError(e, 'Failed to create merge', jj, scmProvider.outputChannel);
     }
 }

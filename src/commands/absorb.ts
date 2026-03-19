@@ -19,6 +19,6 @@ export async function absorbCommand(scmProvider: JjScmProvider, jj: JjService, a
         await scmProvider.refresh({ reason: 'after absorb' });
         vscode.window.setStatusBarMessage('Absorb completed.', 3000);
     } catch (e: unknown) {
-        showJjError(e, 'Absorb failed', scmProvider.outputChannel);
+        await showJjError(e, 'Absorb failed', jj, scmProvider.outputChannel);
     }
 }

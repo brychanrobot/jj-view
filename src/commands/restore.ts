@@ -19,6 +19,6 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
         await withDelayedProgress('Restoring files...', jj.restore(paths));
         await scmProvider.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
-        showJjError(e, 'Error restoring files', scmProvider.outputChannel);
+        await showJjError(e, 'Error restoring files', jj, scmProvider.outputChannel);
     }
 }

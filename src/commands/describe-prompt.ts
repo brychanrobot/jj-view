@@ -31,6 +31,6 @@ export async function describePromptCommand(scmProvider: JjScmProvider, jj: JjSe
         await withDelayedProgress('Setting description...', jj.describe(description));
         await scmProvider.refresh({ reason: 'after describe' });
     } catch (err: unknown) {
-        showJjError(err, 'Error setting description', scmProvider.outputChannel);
+        await showJjError(err, 'Error setting description', jj, scmProvider.outputChannel);
     }
 }

@@ -17,6 +17,6 @@ export async function duplicateCommand(scmProvider: JjScmProvider, jj: JjService
         await withDelayedProgress('Duplicating...', jj.duplicate(revision));
         await scmProvider.refresh({ reason: 'after duplicate' });
     } catch (e: unknown) {
-        showJjError(e, 'Error duplicating commit', scmProvider.outputChannel);
+        await showJjError(e, 'Error duplicating commit', jj, scmProvider.outputChannel);
     }
 }

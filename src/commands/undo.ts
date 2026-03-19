@@ -13,6 +13,6 @@ export async function undoCommand(scmProvider: JjScmProvider, jj: JjService) {
         await withDelayedProgress('Undoing...', jj.undo());
         await scmProvider.refresh();
     } catch (e: unknown) {
-        showJjError(e, 'Error undoing', scmProvider.outputChannel);
+        await showJjError(e, 'Error undoing', jj, scmProvider.outputChannel);
     }
 }

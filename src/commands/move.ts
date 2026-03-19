@@ -73,7 +73,7 @@ export async function moveToParentInDiffCommand(scmProvider: JjScmProvider, jj: 
         await jj.movePartialToParent(relPath, ranges, revision);
         vscode.window.showInformationMessage(`Moved changes from ${revision} to parent.`);
     } catch (e: unknown) {
-        showJjError(e, 'Failed to move changes', scmProvider.outputChannel);
+        await showJjError(e, 'Failed to move changes', jj, scmProvider.outputChannel);
     } finally {
         await scmProvider.refresh();
     }

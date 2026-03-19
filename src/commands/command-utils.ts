@@ -6,6 +6,9 @@
 import { JjResourceState } from '../jj-scm-provider';
 import { ScmContextValue } from '../jj-context-keys';
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { JjService } from '../jj-service';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -211,11 +214,29 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
 export async function showJjError(
     error: unknown,
     prefix: string,
+    jj: JjService,
     outputChannel?: vscode.OutputChannel,
     extraActions: string[] = [],
 ): Promise<string | undefined> {
     const message = getErrorMessage(error);
-    const fullMessage = `${prefix}: ${message}`;
+    let fullMessage = `${prefix}: ${message}`;
+
+    const isLockError = JjService.isIndexLockError(error);
+    const DELETE_LOCK = 'Delete Lock File';
+    let lockPath: string | undefined;
+
+    if (isLockError) {
+        try {
+            const repoRoot = await jj.getRepoRoot();
+            lockPath = path.join(repoRoot, '.git', 'index.lock');
+            fullMessage = `${prefix}: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`;
+            if (!extraActions.includes(DELETE_LOCK)) {
+                extraActions = [DELETE_LOCK, ...extraActions];
+            }
+        } catch (e) {
+            // Ignore if we can't figure out the repo root
+        }
+    }
 
     if (!process.env.VITEST) {
         console.error(fullMessage, error);
@@ -227,6 +248,14 @@ export async function showJjError(
 
     if (selection === SHOW_LOG) {
         outputChannel?.show();
+    } else if (selection === DELETE_LOCK && lockPath) {
+        try {
+            await fs.unlink(lockPath);
+            outputChannel?.appendLine(`[Info] Deleted lock file at ${lockPath}`);
+        } catch (e) {
+            outputChannel?.appendLine(`[Error] Failed to delete lock file: ${getErrorMessage(e)}`);
+            vscode.window.showErrorMessage(`Failed to delete lock file: ${getErrorMessage(e)}`);
+        }
     }
     return selection;
 }

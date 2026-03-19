@@ -10,6 +10,6 @@ export async function refreshCommand(scmProvider: JjScmProvider) {
     try {
         await scmProvider.refresh({ reason: 'manual refresh command', forceSnapshot: true });
     } catch (err: unknown) {
-        showJjError(err, 'Error refreshing', scmProvider.outputChannel);
+        await showJjError(err, 'Error refreshing', scmProvider.jj, scmProvider.outputChannel);
     }
 }

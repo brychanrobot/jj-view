@@ -54,6 +54,6 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
         await scmProvider.refresh();
         vscode.window.showInformationMessage(`Abandoned ${revisions.length} change(s).`);
     } catch (e: unknown) {
-        showJjError(e, 'Error abandoning commit', scmProvider.outputChannel);
+        await showJjError(e, 'Failed to abandon', jj, scmProvider.outputChannel);
     }
 }

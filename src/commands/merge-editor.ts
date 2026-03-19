@@ -18,6 +18,6 @@ export async function openMergeEditorCommand(scmProvider: JjScmProvider, arg: un
     try {
         await scmProvider.openMergeEditor(resourceStates);
     } catch (e: unknown) {
-        showJjError(e, 'Error opening merge editor', scmProvider.outputChannel);
+        await showJjError(e, 'Error opening merge editor', scmProvider.jj, scmProvider.outputChannel);
     }
 }

@@ -57,6 +57,11 @@ export class JjService {
         return this._lastWriteTime;
     }
 
+    static isIndexLockError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.includes('index.lock') || message.includes('Could not acquire lock');
+    }
+
     private toRelative(filePath: string): string {
         if (path.isAbsolute(filePath)) {
             return path.relative(this.workspaceRoot, filePath);

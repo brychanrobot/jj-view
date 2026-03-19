@@ -30,6 +30,6 @@ export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args
         await withDelayedProgress('Creating new change...', jj.new({ parents }));
         await scmProvider.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        showJjError(e, 'Error creating new commit', scmProvider.outputChannel);
+        await showJjError(e, 'Error creating new commit', jj, scmProvider.outputChannel);
     }
 }

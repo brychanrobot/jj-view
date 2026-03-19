@@ -23,6 +23,6 @@ export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjSe
         await withDelayedProgress('Setting description...', jj.describe(description, revision));
         await scmProvider.refresh({ reason: 'after describe' });
     } catch (e: unknown) {
-        showJjError(e, 'Error setting description', scmProvider.outputChannel);
+        await showJjError(e, 'Error setting description', jj, scmProvider.outputChannel);
     }
 }

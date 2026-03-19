@@ -146,7 +146,7 @@ export async function squashChangeCommand(
             await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
             await vscode.window.showTextDocument(uri, { viewColumn, preview: false });
         }
-    } catch (e) {
-        showJjError(e, 'Failed to squash change', scmProvider.outputChannel);
+    } catch (e: unknown) {
+        await showJjError(e, 'Failed to squash change', jj, scmProvider.outputChannel);
     }
 }

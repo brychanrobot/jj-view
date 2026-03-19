@@ -50,7 +50,7 @@ export class JjScmProvider implements vscode.Disposable {
 
     constructor(
         _context: vscode.ExtensionContext,
-        private jj: JjService,
+        public readonly jj: JjService,
         workspaceRoot: string,
         public readonly outputChannel: vscode.OutputChannel,
         public readonly contentProvider?: JjDocumentContentProvider,
@@ -406,7 +406,35 @@ export class JjScmProvider implements vscode.Disposable {
                 this._sourceControl.count = this._workingCopyGroup.resourceStates.length;
             } catch (e: unknown) {
                 const err = e as { message?: string };
-                if (
+                if (JjService.isIndexLockError(e)) {
+                    const repoRoot = await this.jj.getRepoRoot();
+                    const lockPath = path.join(repoRoot, '.git', 'index.lock');
+                    const DELETE_LOCK = 'Delete Lock File';
+                    vscode.window
+                        .showErrorMessage(
+                            `jj failed: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`,
+                            DELETE_LOCK,
+                            'Show Log',
+                        )
+                        .then(async (selection) => {
+                            if (selection === DELETE_LOCK) {
+                                try {
+                                    await fs.unlink(lockPath);
+                                    this.outputChannel.appendLine(`[Info] Deleted lock file at ${lockPath}`);
+                                    await this.refresh({ forceSnapshot: true, reason: 'lock file deleted' });
+                                } catch (unlinkErr) {
+                                    this.outputChannel.appendLine(
+                                        `[Error] Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
+                                    );
+                                    vscode.window.showErrorMessage(
+                                        `Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
+                                    );
+                                }
+                            } else if (selection === 'Show Log') {
+                                this.outputChannel.show();
+                            }
+                        });
+                } else if (
                     err.message &&
                     ((err.message.includes('Object') && err.message.includes('not found')) ||
                         err.message.includes('No such file or directory'))
