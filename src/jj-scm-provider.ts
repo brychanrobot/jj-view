@@ -188,8 +188,8 @@ export class JjScmProvider implements vscode.Disposable {
 
                 const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
 
-                // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
-                const currentEntry = bulkLog.find((e) => e.is_working_copy) || bulkLog[0];
+                // Extract current entry from bulk log (it should be the first one with is_current_working_copy or just the first entry)
+                const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
                 this._currentEntry = currentEntry;
                 const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
 
