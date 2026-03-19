@@ -35,7 +35,6 @@ export enum ScmContextValue {
     // Group States
     WorkingCopyGroup = 'jj.group.workingCopy',
     ConflictGroup = 'jj.group.conflict',
-    AncestorGroup = 'jj.group.ancestor',
     AncestorGroupMutable = 'jj.group.ancestor:mutable',
     AncestorGroupSquashable = 'jj.group.ancestor:squashable',
 
@@ -44,7 +43,7 @@ export enum ScmContextValue {
     WorkingCopySquashable = 'jj.resource.workingCopy:squashable',
     WorkingCopySquashableMulti = 'jj.resource.workingCopy:squashable:multi',
     Conflict = 'jj.resource.conflict',
-    Ancestor = 'jj.resource.ancestor',
+    AncestorMutable = 'jj.resource.ancestor:mutable',
     AncestorSquashable = 'jj.resource.ancestor:squashable',
     AncestorSquashableMulti = 'jj.resource.ancestor:squashable:multi',
 }

@@ -272,7 +272,7 @@ export class JjScmProvider implements vscode.Disposable {
 
                         for (let i = 0; i < parentEntries.length; i++) {
                             const parentEntry = parentEntries[i];
-                            if (!parentEntry) continue;
+                            if (!parentEntry || parentEntry.is_immutable) continue;
 
                             const prefix = isMerge ? `@-${ancestorDepth}^${i + 1}` : `@-${ancestorDepth}`;
 
@@ -366,11 +366,9 @@ export class JjScmProvider implements vscode.Disposable {
 
                     // Reuse existing group or create new one
                     let group: vscode.SourceControlResourceGroup;
-                    const contextValue = ancestorEntry.is_immutable
-                        ? ScmContextValue.AncestorGroup
-                        : canSquash
-                          ? ScmContextValue.AncestorGroupSquashable
-                          : ScmContextValue.AncestorGroupMutable;
+                    const contextValue = canSquash
+                        ? ScmContextValue.AncestorGroupSquashable
+                        : ScmContextValue.AncestorGroupMutable;
 
                     if (i < this._parentGroups.length) {
                         group = this._parentGroups[i];
@@ -583,7 +581,7 @@ export class JjScmProvider implements vscode.Disposable {
                     ? options.multipleAncestors
                         ? ScmContextValue.AncestorSquashableMulti
                         : ScmContextValue.AncestorSquashable
-                    : ScmContextValue.Ancestor,
+                    : ScmContextValue.AncestorMutable,
             revision: revision,
         };
     }

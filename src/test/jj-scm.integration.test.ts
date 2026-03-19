@@ -148,7 +148,7 @@ suite('JJ SCM Provider Integration Test', function () {
         );
         assert.ok(resourceState, 'Parent resource should be visible');
         const expectedContext = [
-            ScmContextValue.Ancestor,
+            ScmContextValue.AncestorMutable,
             ScmContextValue.AncestorSquashable,
             ScmContextValue.AncestorSquashableMulti,
         ];
@@ -177,7 +177,7 @@ suite('JJ SCM Provider Integration Test', function () {
         }
 
         const expectedContext2 = [
-            ScmContextValue.Ancestor,
+            ScmContextValue.AncestorMutable,
             ScmContextValue.AncestorSquashable,
             ScmContextValue.AncestorSquashableMulti,
         ];
@@ -793,12 +793,8 @@ suite('JJ SCM Provider Integration Test', function () {
 
             await scmProvider.refresh();
             let parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
-            // Root is immutable, so parent group should be immutable
-            assert.strictEqual(
-                parentGroups[0].contextValue,
-                ScmContextValue.AncestorGroup,
-                'Parent (Root) should be immutable',
-            );
+            // Root is immutable, so no parent group should be created
+            assert.strictEqual(parentGroups.length, 0, 'Should have 0 parent groups when parent is immutable');
 
             // 2. Create C2 on top of C1
             repo.new([], 'C2');
@@ -807,9 +803,9 @@ suite('JJ SCM Provider Integration Test', function () {
 
             await scmProvider.refresh();
             parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
-            assert.strictEqual(parentGroups.length, 1, 'Should only show 1 ancestor group (direct parent)');
+            assert.strictEqual(parentGroups.length, 1, 'Should show 1 ancestor group (direct parent)');
 
-            // This is the key assertion: Did the reused group update its context value?
+            // This is the key assertion: Did the group get the correct context value?
             assert.strictEqual(
                 parentGroups[0].contextValue,
                 ScmContextValue.AncestorGroupMutable,
@@ -889,7 +885,6 @@ suite('JJ SCM Provider Integration Test', function () {
         // Since @ is a merge, its parents are 'left commit' and 'right commit'.
         assert.ok(
             [
-                ScmContextValue.AncestorGroup,
                 ScmContextValue.AncestorGroupMutable,
                 ScmContextValue.AncestorGroupSquashable,
             ].includes(parentGroups[0].contextValue as ScmContextValue),
