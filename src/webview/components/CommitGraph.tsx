@@ -24,6 +24,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 }) => {
     const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
     const displayRows = layout.rows || commits;
+    const nodeMap = React.useMemo(() => {
+        const map = new Map<string, any>();
+        layout.nodes.forEach((n) => map.set(n.commitId, n));
+        return map;
+    }, [layout.nodes]);
 
     // Width of a lane in pixels
     const LANE_WIDTH = 16;
@@ -91,13 +96,17 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 {displayRows.map((commit) => {
                     const isSelected = selectedCommitIds?.has(commit.change_id);
                     const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                    const node = nodeMap.get(commit.commit_id);
+                    const rowPaddingLeft = node
+                        ? computeGraphAreaWidth(node.x + 1, LANE_WIDTH, LEFT_MARGIN, GAP)
+                        : graphAreaWidth;
 
                     return (
                         <div
                             key={commit.commit_id}
                             style={{
                                 height: height,
-                                paddingLeft: graphAreaWidth,
+                                paddingLeft: rowPaddingLeft,
                                 display: 'flex',
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',
