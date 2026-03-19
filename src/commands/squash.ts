@@ -115,7 +115,7 @@ async function openSquashDescriptionEditor(jj: JjService, paths: string[], revis
     const combined = `${parentDesc}\n\n${currentDesc}`.trim();
 
     // 3. Write to temporary file
-    const squashMsgPath = path.join(jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_MSG');
+    const squashMsgPath = path.join(jj.repoRoot, '.jj', 'vscode', 'SQUASH_MSG');
     await fs.mkdir(path.dirname(squashMsgPath), { recursive: true });
 
     const content = `${combined}\n\n# Please enter the commit message for your changes.\n# Lines starting with '#' will be ignored.\n# When finished, run the "Complete Squash" command or click the checkmark button in the editor title.`;
@@ -132,13 +132,13 @@ async function openSquashDescriptionEditor(jj: JjService, paths: string[], revis
         revision,
         parentRev,
     };
-    await fs.writeFile(path.join(jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_META.json'), JSON.stringify(meta));
+    await fs.writeFile(path.join(jj.repoRoot, '.jj', 'vscode', 'SQUASH_META.json'), JSON.stringify(meta));
 }
 
 export async function completeSquashCommand(scmProvider: JjScmProvider, jj: JjService) {
     // 1. Read metadata
-    const metaPath = path.join(jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_META.json');
-    const msgPath = path.join(jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_MSG');
+    const metaPath = path.join(jj.repoRoot, '.jj', 'vscode', 'SQUASH_META.json');
+    const msgPath = path.join(jj.repoRoot, '.jj', 'vscode', 'SQUASH_MSG');
 
     try {
         const metaContent = await fs.readFile(metaPath, 'utf-8');

@@ -43,7 +43,7 @@ suite('Extension Test Suite', () => {
         assert.ok(api.jj, 'jj service not exported');
 
         // Verify JJ service is bound to the correct workspace
-        assert.strictEqual(api.jj.workspaceRoot, repo.path, 'JJ service root mismatch');
+        assert.strictEqual(api.jj.repoRoot, repo.path, 'JJ service root mismatch');
 
         // Verify scmProvider has contentProvider (essential for cache invalidation fix)
         assert.ok(api.scmProvider.contentProvider, 'contentProvider not assigned to scmProvider');

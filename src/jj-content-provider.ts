@@ -12,23 +12,39 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
         return this._onDidChange.event;
     }
 
-    // Cache keyed by "base|filePath" → { left, right }
-    private _cache = new Map<string, { left: string; right: string }>();
-    // Track all URIs that have been served so we can fire onDidChange for them
-    private _knownUris = new Set<string>();
+    // Cache keyed by repoRoot → Map("base|filePath" → { left, right })
+    private _cache = new Map<string, Map<string, { left: string; right: string }>>();
+    // Track all URIs keyed by repoRoot → Set(uriStr)
+    private _knownUris = new Map<string, Set<string>>();
 
-    constructor(private jj: JjService) {}
+    constructor(private getJjService: (uri: vscode.Uri) => JjService | undefined) {}
 
     /**
      * Clear the entire cache and notify VS Code that all known URIs have changed.
      * Called from refresh() to ensure stale content is never served.
      */
-    invalidateCache() {
-        this._cache.clear();
-        for (const uriStr of this._knownUris) {
-            this._onDidChange.fire(vscode.Uri.parse(uriStr));
+    invalidateCache(repoRoot?: string) {
+        if (repoRoot) {
+            // Clear cache for this repo
+            this._cache.get(repoRoot)?.clear();
+
+            // Notify for this repo
+            const uris = this._knownUris.get(repoRoot);
+            if (uris) {
+                for (const uriStr of uris) {
+                    this._onDidChange.fire(vscode.Uri.parse(uriStr));
+                }
+                uris.clear();
+            }
+        } else {
+            this._cache.clear();
+            for (const repoUris of this._knownUris.values()) {
+                for (const uriStr of repoUris) {
+                    this._onDidChange.fire(vscode.Uri.parse(uriStr));
+                }
+            }
+            this._knownUris.clear();
         }
-        this._knownUris.clear();
     }
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -44,14 +60,32 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
         const filePath = explicitPath || uri.fsPath;
         const cacheKey = `${base}|${filePath}`;
 
+        const jj = this.getJjService(uri);
+        if (!jj) {
+            return '';
+        }
+
+        const repoRoot = jj.repoRoot;
+
         // Track this URI for future invalidation
-        this._knownUris.add(uri.toString());
+        let repoUris = this._knownUris.get(repoRoot);
+        if (!repoUris) {
+            repoUris = new Set();
+            this._knownUris.set(repoRoot, repoUris);
+        }
+        repoUris.add(uri.toString());
 
         // Check cache first
-        let content = this._cache.get(cacheKey);
+        let repoCache = this._cache.get(repoRoot);
+        if (!repoCache) {
+            repoCache = new Map();
+            this._cache.set(repoRoot, repoCache);
+        }
+
+        let content = repoCache.get(cacheKey);
         if (!content) {
-            content = await this.jj.getDiffContent(base, filePath);
-            this._cache.set(cacheKey, content);
+            content = await jj.getDiffContent(base, filePath);
+            repoCache.set(cacheKey, content);
         }
 
         return side === 'left' ? content.left : content.right;

@@ -9,8 +9,10 @@ import * as sinon from 'sinon';
 import { JjService } from '../jj-service';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
+import { JjRepository, JjRepositoryManager } from '../repository-manager';
 import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
+import { JjScmProvider } from '../jj-scm-provider';
 
 suite('Webview Selection Integration Test', function () {
     let jj: JjService;
@@ -64,7 +66,15 @@ suite('Webview Selection Integration Test', function () {
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
+        const repositoryManager = createMock<JjRepositoryManager>({
+            onDidChangeActiveRepository: () => ({ dispose: () => {} }),
+            activeRepository: {
+                jj,
+                gerritService,
+                scmProvider: { handleSelectionChange: async (_commitIds: string[]) => {} } as JjScmProvider,
+            } as JjRepository,
+        });
+        provider = new JjLogWebviewProvider(extensionUri, repositoryManager, () => {}, outputChannel);
 
         // Spy on vscode.commands.executeCommand; stub jj-view.* to avoid errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');

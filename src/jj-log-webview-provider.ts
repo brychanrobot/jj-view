@@ -5,30 +5,65 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { JjService } from './jj-service';
+
 import { JjContextKey } from './jj-context-keys';
 import { JjLogEntry } from './jj-types';
 import { createDiffUris } from './uri-utils';
 import { formatDisplayChangeId, shortenChangeId } from './utils/jj-utils';
 
-import { GerritService } from './gerrit-service';
+import { JjRepositoryManager, JjRepository } from './repository-manager';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
     private _view?: vscode.WebviewView;
-    private _cachedCommits: JjLogEntry[] = [];
+    private _cachedCommitsMap = new Map<string, JjLogEntry[]>();
+    private _gerritListener: vscode.Disposable | undefined;
+    private _selectedRepository: JjRepository | undefined = undefined;
+    private _activeRepository: JjRepository | undefined = undefined;
+
+    private get _cachedCommits(): JjLogEntry[] {
+        const repo = this.activeRepository;
+        return repo ? this._cachedCommitsMap.get(repo.rootUri.fsPath) || [] : [];
+    }
+
+    public get activeRepository(): JjRepository | undefined {
+        return this._activeRepository;
+    }
+
+    public get selectedRepository(): JjRepository | undefined {
+        return this._selectedRepository;
+    }
+
+    public setSelectedRepository(repo: JjRepository | undefined) {
+        this._selectedRepository = repo;
+        this.refresh();
+    }
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
-        private readonly _jj: JjService,
-        private readonly _gerrit: GerritService,
+        private readonly _repositoryManager: JjRepositoryManager,
         private readonly _onSelectionChange: (commits: string[]) => void,
         public readonly outputChannel?: vscode.OutputChannel, // Optional
     ) {
-        // Gerrit updates only need to re-render, not re-fetch jj log
-        this._gerrit.onDidUpdate(() => this.refreshGerrit());
+        // Listen for active repository changes
+        this._repositoryManager.onDidChangeActiveRepository(() => {
+            this.refresh();
+        });
 
-        vscode.workspace.onDidChangeConfiguration((e) => {
+        this._repositoryManager.onDidRepositoryRefresh((repo) => {
+            this.outputChannel?.appendLine(
+                `[JjLogWebviewProvider] Repository refreshed: ${path.basename(repo.rootUri.fsPath)}`,
+            );
+            this._cachedCommitsMap.delete(repo.rootUri.fsPath);
+            if (this.activeRepository === repo) {
+                this.refresh();
+            }
+        });
+
+        // Initial setup
+        this.refresh();
+
+        vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
             if (e.affectsConfiguration('jj-view.logTheme')) {
                 this._renderCommits(this._cachedCommits);
             }
@@ -94,8 +129,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'edit':
                     await vscode.commands.executeCommand('jj-view.edit', data.payload);
                     break;
-                case 'select':
-                    const details = await this._jj.showDetails(data.payload.changeId);
+                case 'select': {
+                    const jj = this.activeRepository?.jj;
+                    if (!jj) break;
+                    const details = await jj.showDetails(data.payload.changeId);
                     const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
                     vscode.workspace.openTextDocument({ content: cleanDetails, language: 'plaintext' }).then((doc) =>
                         vscode.window.showTextDocument(doc, {
@@ -104,6 +141,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         }),
                     );
                     break;
+                }
                 case 'undo':
                     await vscode.commands.executeCommand('jj-view.undo');
                     break;
@@ -119,18 +157,27 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'newBefore':
                     await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.changeIds || []));
                     break;
-                case 'resolve':
-                    await this._jj.resolve(data.payload);
+                case 'resolve': {
+                    const jj = this.activeRepository?.jj;
+                    if (!jj) break;
+                    await jj.resolve(data.payload);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
-                case 'moveBookmark':
-                    await this._jj.moveBookmark(data.payload.bookmark, data.payload.targetChangeId);
+                }
+                case 'moveBookmark': {
+                    const jj = this.activeRepository?.jj;
+                    if (!jj) break;
+                    await jj.moveBookmark(data.payload.bookmark, data.payload.targetChangeId);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
-                case 'rebaseCommit':
-                    await this._jj.rebase(data.payload.sourceChangeId, data.payload.targetChangeId, data.payload.mode);
+                }
+                case 'rebaseCommit': {
+                    const jj = this.activeRepository?.jj;
+                    if (!jj) break;
+                    await jj.rebase(data.payload.sourceChangeId, data.payload.targetChangeId, data.payload.mode);
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
+                }
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload);
                     break;
@@ -180,51 +227,92 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     public async refresh() {
-        if (this._view) {
-            const start = performance.now();
-            let commits: JjLogEntry[] = [];
+        if (!this._view) return;
 
-            try {
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
-
-                // Default jj log (usually local heads/roots)
-                const logStart = performance.now();
-                commits = await this._jj.getLog({ omitChanges: true });
-                const logDuration = performance.now() - logStart;
-                this.outputChannel?.appendLine(
-                    `[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`,
-                );
-
-                this._cachedCommits = commits;
-                this._renderCommits(commits);
-
-                const initialRenderDuration = performance.now() - start;
-                this.outputChannel?.appendLine(
-                    `[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`,
-                );
-            } catch (e) {
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
-                return;
-            }
-
-            // Background fetch Gerrit status for commits
-            await this.refreshGerrit();
-
-            // Also refresh details panel if open
-            await this.refreshDetailsPanel();
+        const repo = this._selectedRepository || this._repositoryManager.activeRepository;
+        const isLocked = this._selectedRepository !== undefined;
+        const repoPrefix = repo ? path.basename(repo.rootUri.fsPath) : '';
+        const newTitle = `JJ Log${repoPrefix ? `: ${repoPrefix}` : ''}${isLocked ? '' : ' (Auto)'}`;
+        if (this._view.title !== newTitle) {
+            this._view.title = newTitle;
         }
+
+        if (!repo) {
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] No active repository for refresh.`);
+            return;
+        }
+
+        // Re-bind Gerrit listener if repository changed
+        if (this._activeRepository !== repo) {
+            this.outputChannel?.appendLine(
+                `[JjLogWebviewProvider] Re-binding Gerrit listener to ${path.basename(repo.rootUri.fsPath)}`,
+            );
+            this._activeRepository = repo; // State up-to-date!
+            this._gerritListener?.dispose();
+            this._gerritListener = repo.gerritService.onDidUpdate(() => this.refreshGerrit());
+        }
+
+        const jj = repo.jj;
+
+        // Clean up stale cache
+        const validRoots = new Set(this._repositoryManager.repositories.map((r) => r.rootUri.fsPath));
+        for (const key of this._cachedCommitsMap.keys()) {
+            if (!validRoots.has(key)) {
+                this._cachedCommitsMap.delete(key);
+            }
+        }
+
+        // Render cached commits immediately
+        const cached = this._cachedCommits;
+        if (cached.length > 0) {
+            this._renderCommits(cached);
+        }
+
+        const start = performance.now();
+        let commits: JjLogEntry[] = [];
+
+        try {
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing...`);
+
+            // Default jj log (usually local heads/roots)
+            const logStart = performance.now();
+            commits = await jj.getLog({ omitChanges: true });
+            const logDuration = performance.now() - logStart;
+            this.outputChannel?.appendLine(
+                `[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`,
+            );
+
+            this._cachedCommitsMap.set(repo.rootUri.fsPath, commits);
+            this._renderCommits(commits);
+
+            const initialRenderDuration = performance.now() - start;
+            this.outputChannel?.appendLine(
+                `[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`,
+            );
+        } catch (e) {
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
+            return;
+        }
+
+        // Background fetch Gerrit status for commits
+        await this.refreshGerrit();
+
+        // Also refresh details panel if open
+        await this.refreshDetailsPanel();
     }
 
     /** Re-fetch Gerrit data for cached commits and re-render. */
     private async refreshGerrit() {
-        if (!this._view || this._cachedCommits.length === 0) return;
-        if (!this._gerrit.isEnabled) return;
+        const repo = this.activeRepository;
+        if (!repo || !this._view || this._cachedCommits.length === 0) return;
+        const gerrit = repo.gerritService;
+        if (!gerrit.isEnabled) return;
 
         try {
-            this._gerrit.startPolling();
+            gerrit.startPolling();
 
             const gerritStart = performance.now();
-            const hasChanges = await this._gerrit.ensureFreshStatuses(
+            const hasChanges = await gerrit.ensureFreshStatuses(
                 this._cachedCommits.map((c) => ({
                     commitId: c.commit_id ?? '',
                     changeId: c.change_id,
@@ -249,10 +337,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
 
-        if (this._gerrit.isEnabled) {
-            this._gerrit.populateGerritInfo(commits);
+        const repo = this.activeRepository;
+        if (repo && repo.gerritService.isEnabled) {
+            repo.gerritService.populateGerritInfo(commits);
         } else {
-            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled or no active repo.');
         }
 
         this._view?.webview.postMessage({
@@ -271,6 +360,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        const repo = this.activeRepository;
+        if (!repo) return;
+        const jj = repo.jj;
+
         const changeId = this._currentDetailsChangeId;
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
@@ -281,7 +374,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         // Fetch full log entry - this includes description, changes (file list), and immutability status
         let logs: JjLogEntry[];
         try {
-            logs = await this._jj.getLog({ revision: changeId });
+            logs = await jj.getLog({ revision: changeId });
         } catch (e) {
             // Commit no longer exists (e.g. was abandoned)
             this._activeDetailsPanel.dispose();
@@ -294,7 +387,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         }
 
         const log = logs[0];
-        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
+        const filesWithStats = await jj.getChanges(changeId).catch(() => log.changes || []);
 
         this._activeDetailsPanel.webview.postMessage({
             type: 'updateDetails',
@@ -320,6 +413,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     public async createCommitDetailsPanel(changeId: string) {
+        const repo = this.activeRepository;
+        if (!repo) return;
+        const jj = repo.jj;
+
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
@@ -327,7 +424,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
 
         // Fetch full log entry - this includes description, changes (file list), and immutability status
-        const logs = await this._jj.getLog({ revision: changeId });
+        const logs = await jj.getLog({ revision: changeId });
         if (logs.length === 0) {
             return;
         }
@@ -336,7 +433,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
 
         // Fetch actual changes with additions/deletions stats
-        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
+        const filesWithStats = await jj.getChanges(changeId).catch(() => log.changes || []);
 
         const initialData = {
             view: 'details',
@@ -414,7 +511,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     const changeId = message.payload.changeId;
                     const isImmutable = message.payload.isImmutable;
 
-                    const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, {
+                    const { leftUri, rightUri } = createDiffUris(file, changeId, jj.repoRoot, {
                         editable: !isImmutable,
                     });
 

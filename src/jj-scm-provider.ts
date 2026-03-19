@@ -44,6 +44,9 @@ export class JjScmProvider implements vscode.Disposable {
     private _onRepoStateReady = new vscode.EventEmitter<void>();
     readonly onRepoStateReady: vscode.Event<void> = this._onRepoStateReady.event;
 
+    private _onDidRefresh = new vscode.EventEmitter<void>();
+    readonly onDidRefresh: vscode.Event<void> = this._onDidRefresh.event;
+
     private _refreshScheduler: RefreshScheduler;
     private _fileWatcher: ChangeDetectionManager;
     public decorationProvider: JjDecorationProvider;
@@ -103,8 +106,8 @@ export class JjScmProvider implements vscode.Disposable {
             vscode.workspace.onDidCloseTextDocument(async (doc) => {
                 const basename = path.basename(doc.uri.fsPath);
                 if (basename === 'SQUASH_MSG') {
-                    const metaPath = path.join(this.jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_META.json');
-                    const msgPath = path.join(this.jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_MSG');
+                    const metaPath = path.join(this.jj.repoRoot, '.jj', 'vscode', 'SQUASH_META.json');
+                    const msgPath = path.join(this.jj.repoRoot, '.jj', 'vscode', 'SQUASH_MSG');
 
                     // Check if pending squash exists
                     try {
@@ -163,12 +166,11 @@ export class JjScmProvider implements vscode.Disposable {
                 if (forceSnapshot) {
                     await this.jj.status();
                 }
-                await this.jj.getRepoRoot(); // Pre-warm the repo root cache
                 this._onRepoStateReady.fire();
 
                 // Invalidate caches so stale content is never served
-                this.contentProvider?.invalidateCache();
-                this.editProvider?.invalidateCache();
+                this.contentProvider?.invalidateCache(this.jj.repoRoot);
+                this.editProvider?.invalidateCache(this.jj.repoRoot);
 
                 // 1. Fetch data in parallel for performance
                 const config = vscode.workspace.getConfiguration('jj-view');
@@ -188,7 +190,7 @@ export class JjScmProvider implements vscode.Disposable {
 
                 const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
 
-                // Extract current entry from bulk log (it should be the first one with is_current_working_copy or just the first entry)
+                // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
                 const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
                 this._currentEntry = currentEntry;
                 const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
@@ -425,6 +427,7 @@ export class JjScmProvider implements vscode.Disposable {
                         // Ignore channel closed errors
                     }
                     this._onDidChangeStatus.fire();
+                    this._onDidRefresh.fire();
                 }
             }
         });

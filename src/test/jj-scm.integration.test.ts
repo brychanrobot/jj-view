@@ -9,6 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 import { JjService } from '../jj-service';
+import { JjRepositoryManager, JjRepository } from '../repository-manager';
+
 import { JjScmProvider } from '../jj-scm-provider';
 import { ScmContextValue } from '../jj-context-keys';
 import { squashCommand, completeSquashCommand } from '../commands/squash';
@@ -677,10 +679,19 @@ suite('JJ SCM Provider Integration Test', function () {
                 startPolling: () => {},
                 dispose: () => {},
             });
+            const repositoryManager = createMock<JjRepositoryManager>({
+                onDidChangeActiveRepository: () => ({ dispose: () => {} }),
+                activeRepository: createMock<JjRepository>({
+                    jj,
+                    gerritService,
+                    scmProvider: createMock<JjScmProvider>({
+                        handleSelectionChange: async (_commitIds: string[]) => {},
+                    }),
+                }),
+            });
             const provider = new JjLogWebviewProvider(
                 extensionUri,
-                jj,
-                gerritService,
+                repositoryManager,
                 () => {},
                 scmProvider.outputChannel,
             );

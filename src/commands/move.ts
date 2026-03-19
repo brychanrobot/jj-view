@@ -60,7 +60,7 @@ export async function moveToParentInDiffCommand(scmProvider: JjScmProvider, jj: 
 
     const docUri = editor.document.uri;
     const fsPath = docUri.fsPath;
-    const relPath = path.relative(jj.workspaceRoot, fsPath);
+    const relPath = path.relative(jj.repoRoot, fsPath);
 
     // Extract revision from URI query if present (for diff views)
     const query = new URLSearchParams(docUri.query);

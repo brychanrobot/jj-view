@@ -56,6 +56,48 @@
                     ],
                     "description": "Controls how the extension detects external file changes."
                 },
+                "jj-view.autoRepositoryDetection": {
+                    "type": "string",
+                    "default": "true",
+                    "enum": [
+                        "true",
+                        "false",
+                        "subfolders",
+                        "all",
+                        "openEditors"
+                    ],
+                    "enumDescriptions": [
+                        "Scan workspace roots, direct subfolders, and parents of open editors",
+                        "Only scan workspace roots",
+                        "Scan direct subfolders for repositories",
+                        "Scan subfolders recursively (depth limited by repositoryScanMaxDepth)",
+                        "Only scan parents of open editors"
+                    ],
+                    "description": "Controls how the extension detects repositories in the workspace."
+                },
+                "jj-view.repositoryScanMaxDepth": {
+                    "type": "number",
+                    "default": 1,
+                    "description": "Controls the maximum directory depth that the extension will search to automatically detect repositories within your workspace. -1 for no limit."
+                },
+                "jj-view.repositoryScanIgnoredFolders": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "node_modules"
+                    ],
+                    "description": "Folders to ignore during automatic repository scanning."
+                },
+                "jj-view.scanRepositories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional folders to scan for repositories (can be absolute or relative to workspace root)."
+                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."
@@ -106,6 +148,12 @@
             }
         },
         "commands": [
+            {
+                "command": "jj-view.selectLogRepository",
+                "title": "Select Repository...",
+                "category": "JJ View",
+                "icon": "$(repo)"
+            },
             {
                 "command": "jj-view.upload",
                 "title": "Upload",
@@ -294,6 +342,11 @@
         ],
         "menus": {
             "view/title": [
+                {
+                    "command": "jj-view.selectLogRepository",
+                    "group": "navigation",
+                    "when": "view == jj-view.logView"
+                },
                 {
                     "command": "jj-view.undo",
                     "group": "navigation",

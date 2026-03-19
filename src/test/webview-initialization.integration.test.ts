@@ -9,8 +9,10 @@ import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
+import { JjRepository, JjRepositoryManager } from '../repository-manager';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
+import { JjScmProvider } from '../jj-scm-provider';
 
 function createMockWebviewView() {
     let visibilityListener: (e: void) => void | undefined;
@@ -65,7 +67,15 @@ suite('Webview Initialization Integration Test', function () {
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
+        const repositoryManager = createMock<JjRepositoryManager>({
+            onDidChangeActiveRepository: () => ({ dispose: () => {} }),
+            activeRepository: {
+                jj,
+                gerritService,
+                scmProvider: { handleSelectionChange: async (_commitIds: string[]) => {} } as JjScmProvider,
+            } as JjRepository,
+        });
+        provider = new JjLogWebviewProvider(extensionUri, repositoryManager, () => {}, outputChannel);
     });
 
     teardown(async () => {

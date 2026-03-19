@@ -82,7 +82,7 @@ export async function squashChangeCommand(
 
     const ranges = [{ startLine, endLine }];
 
-    const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
+    const relPath = path.relative(jj.repoRoot, uri.fsPath);
 
     const originalUri = scmProvider.provideOriginalResource(uri) as vscode.Uri;
     let revision = '@';

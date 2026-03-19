@@ -32,18 +32,9 @@ export class JjService {
     private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
-        public readonly workspaceRoot: string,
+        public readonly repoRoot: string,
         public readonly logger: (message: string) => void = () => {},
     ) {}
-
-    private _repoRoot?: string;
-    async getRepoRoot(): Promise<string> {
-        if (this._repoRoot) {
-            return this._repoRoot;
-        }
-        this._repoRoot = await this.run('root', [], { label: 'getRepoRoot' });
-        return this._repoRoot;
-    }
 
     get hasActiveWriteOps(): boolean {
         return this._writeOperationCount > 0;
@@ -59,27 +50,20 @@ export class JjService {
 
     private toRelative(filePath: string): string {
         if (path.isAbsolute(filePath)) {
-            return path.relative(this.workspaceRoot, filePath);
+            return path.relative(this.repoRoot, filePath);
         }
         return filePath;
     }
 
     private async toRepoRelative(filePath: string): Promise<string> {
-        const repoRoot = await this.getRepoRoot();
-        let repoReal = repoRoot;
-        let workspaceReal = this.workspaceRoot;
-
+        if (!path.isAbsolute(filePath)) {
+            return filePath;
+        }
+        let repoReal = this.repoRoot;
         try {
-            repoReal = await fs.realpath(repoRoot);
+            repoReal = await fs.realpath(this.repoRoot);
         } catch {}
-        try {
-            workspaceReal = await fs.realpath(this.workspaceRoot);
-        } catch {}
-
-        const relativeToWorkspace = path.isAbsolute(filePath) ? path.relative(this.workspaceRoot, filePath) : filePath;
-
-        const repoToWorkspace = path.relative(repoReal, workspaceReal);
-        return path.normalize(path.join(repoToWorkspace, relativeToWorkspace));
+        return path.normalize(path.relative(repoReal, filePath));
     }
 
     private getScriptPath(scriptBaseName: string): string {
@@ -174,7 +158,7 @@ export class JjService {
                 }
 
                 const finalOptions = {
-                    cwd: this.workspaceRoot,
+                    cwd: this.repoRoot,
                     env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
                     maxBuffer: 100 * 1024 * 1024,
                     ...options,
@@ -865,7 +849,8 @@ export class JjService {
         fileRelPath: string,
         wantedContent: string,
     ): Promise<void> {
-        const tmpDir = await fs.mkdtemp(path.join(this.workspaceRoot, 'jj-partial-'));
+        const tmpDir = await fs.mkdtemp(path.join(this.repoRoot, 'jj-partial-'));
+
         const tmpFile = path.join(tmpDir, 'wanted_content');
         await fs.writeFile(tmpFile, wantedContent, 'utf8');
 
@@ -932,7 +917,8 @@ export class JjService {
                 'git',
                 ['--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths],
                 {
-                    cwd: this.workspaceRoot,
+                    cwd: this.repoRoot,
+
                     maxBuffer: 10 * 1024 * 1024,
                     timeout,
                     env: { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat' },

@@ -39,7 +39,7 @@ suite('Quick Diff Commands Integration Test', function () {
             dispose: () => {},
             name: 'mock',
         });
-        const contentProvider = new JjDocumentContentProvider(jj);
+        const contentProvider = new JjDocumentContentProvider(() => jj);
         scmProvider = new JjScmProvider(context, jj, repo.path, outputChannel, contentProvider);
 
         // Register a test-specific content provider to handle 'jj-view-test' scheme

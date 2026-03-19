@@ -31,7 +31,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     }
 
     constructor(
-        private workspaceRoot: string,
+        private repoRoot: string,
         private jj: JjService,
         private outputChannel: vscode.OutputChannel,
         private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
@@ -129,12 +129,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        let repoRoot: string;
-        try {
-            repoRoot = await this.jj.getRepoRoot();
-        } catch {
-            return;
-        }
+        const repoRoot = this.jj.repoRoot;
         const opHeadsPath = path.join(repoRoot, '.jj', 'repo', 'op_heads');
 
         // Skip if directory does not exist
@@ -195,7 +190,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules];
 
         this._workingCopyWatcher = new DirectoryWatcher(
-            this.workspaceRoot,
+            this.repoRoot,
             () => {
                 if (this.hasActiveOrRecentWrites) {
                     return;
@@ -208,7 +203,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         );
 
         this.outputChannel.appendLine(
-            `[ChangeDetectionManager] Starting Working Copy Watcher on ${this.workspaceRoot} with backend: ${this.watcherBackend}`,
+            `[ChangeDetectionManager] Starting Working Copy Watcher on ${this.repoRoot} with backend: ${this.watcherBackend}`,
         );
 
         await this._workingCopyWatcher.start(ignore);
@@ -216,7 +211,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
     private async getGitIgnorePatterns(): Promise<string[]> {
         try {
-            const gitIgnorePath = path.join(this.workspaceRoot, '.gitignore');
+            const gitIgnorePath = path.join(this.repoRoot, '.gitignore');
             const data = await fs.readFile(gitIgnorePath, 'utf8');
             return data
                 .split('\n')
@@ -241,7 +236,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
     private async getGitModulesPatterns(): Promise<string[]> {
         try {
-            const gitModulesPath = path.join(this.workspaceRoot, '.gitmodules');
+            const gitModulesPath = path.join(this.repoRoot, '.gitmodules');
             const data = await fs.readFile(gitModulesPath, 'utf8');
             const paths: string[] = [];
 

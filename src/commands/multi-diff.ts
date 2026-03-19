@@ -37,7 +37,7 @@ export async function showMultiFileDiffCommand(
 
                 const resources: [vscode.Uri, vscode.Uri][] = [];
                 for (const entry of changes) {
-                    const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
+                    const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.repoRoot, { editable });
                     resources.push([leftUri, rightUri]);
                 }
 

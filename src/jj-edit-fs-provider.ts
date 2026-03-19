@@ -30,21 +30,24 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._onDidChangeFile.event;
 
     private _pendingWrites = new Map<
-        string,
-        {
-            revision: string;
-            filePath: string;
-            content: string;
-            uri: vscode.Uri;
-            resolve: () => void;
-            reject: (err: unknown) => void;
-        }[]
+        string, // repoRoot
+        Map<
+            string, // revision
+            {
+                revision: string;
+                filePath: string;
+                content: string;
+                uri: vscode.Uri;
+                resolve: () => void;
+                reject: (err: unknown) => void;
+            }[]
+        >
     >();
     private _writeTimer: NodeJS.Timeout | undefined;
-    private _knownUris = new Set<string>();
+    private _knownUris = new Map<string, Set<string>>();
 
     constructor(
-        private jj: JjService,
+        private getJjService: (uri: vscode.Uri) => JjService | undefined,
         public onDidWrite?: () => void,
     ) {}
 
@@ -57,12 +60,24 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
      * Notify VS Code that all known URIs have changed.
      * Called during SCM refresh to ensure open diff editors show up-to-date content.
      */
-    invalidateCache() {
+    invalidateCache(repoRoot?: string) {
         const events: vscode.FileChangeEvent[] = [];
-        for (const uriStr of this._knownUris) {
-            events.push({ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(uriStr) });
+        if (repoRoot) {
+            const uris = this._knownUris.get(repoRoot);
+            if (uris) {
+                for (const uriStr of uris) {
+                    events.push({ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(uriStr) });
+                }
+                uris.clear();
+            }
+        } else {
+            for (const uris of this._knownUris.values()) {
+                for (const uriStr of uris) {
+                    events.push({ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(uriStr) });
+                }
+            }
+            this._knownUris.clear();
         }
-        this._knownUris.clear();
         if (events.length > 0) {
             this._onDidChangeFile.fire(events);
         }
@@ -81,9 +96,20 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
-        this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
-        const content = await this.jj.getFileContent(filePath, revision);
+        const jj = this.getJjService(uri);
+        if (!jj) {
+            throw vscode.FileSystemError.Unavailable('No JjService for URI');
+        }
+
+        const repoRoot = jj.repoRoot;
+        let repoUris = this._knownUris.get(repoRoot);
+        if (!repoUris) {
+            repoUris = new Set();
+            this._knownUris.set(repoRoot, repoUris);
+        }
+        repoUris.add(uri.toString());
+        const content = await jj.getFileContent(filePath, revision);
         return Buffer.from(content, 'utf8');
     }
 
@@ -91,10 +117,22 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         const { revision, filePath } = parseEditUri(uri);
         const text = Buffer.from(content).toString('utf8');
 
+        const jj = this.getJjService(uri);
+        if (!jj) {
+            throw vscode.FileSystemError.Unavailable('No JjService for URI');
+        }
+        const repoRoot = jj.repoRoot;
+
         return new Promise<void>((resolve, reject) => {
-            const pending = this._pendingWrites.get(revision) || [];
+            let repoWrites = this._pendingWrites.get(repoRoot);
+            if (!repoWrites) {
+                repoWrites = new Map();
+                this._pendingWrites.set(repoRoot, repoWrites);
+            }
+
+            const pending = repoWrites.get(revision) || [];
             pending.push({ revision, filePath, content: text, uri, resolve, reject });
-            this._pendingWrites.set(revision, pending);
+            repoWrites.set(revision, pending);
 
             if (this._writeTimer) {
                 clearTimeout(this._writeTimer);
@@ -105,32 +143,41 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     private async flushWrites() {
-        const batches = Array.from(this._pendingWrites.entries());
+        const repoBatches = Array.from(this._pendingWrites.entries());
         this._pendingWrites.clear();
 
-        for (const [revision, requests] of batches) {
-            try {
-                const filesMap = new Map<string, string>();
-                for (const req of requests) {
-                    filesMap.set(req.filePath, req.content);
-                }
+        for (const [_repoRoot, revisionMap] of repoBatches) {
+            const batches = Array.from(revisionMap.entries());
+            for (const [revision, requests] of batches) {
+                try {
+                    if (requests.length === 0) continue;
+                    const jj = this.getJjService(requests[0].uri);
+                    if (!jj) {
+                        throw new Error('No JjService for write');
+                    }
 
-                await this.jj.setFilesContent(revision, filesMap);
+                    const filesMap = new Map<string, string>();
+                    for (const req of requests) {
+                        filesMap.set(req.filePath, req.content);
+                    }
 
-                // Notify VS Code and resolve all promises
-                const changeEvents: vscode.FileChangeEvent[] = [];
-                for (const req of requests) {
-                    changeEvents.push({ type: vscode.FileChangeType.Changed, uri: req.uri });
-                    req.resolve();
-                }
-                this._onDidChangeFile.fire(changeEvents);
+                    await jj.setFilesContent(revision, filesMap);
 
-                // Trigger SCM refresh once per batch
-                this.onDidWrite?.();
-            } catch (err) {
-                // Reject all promises in the batch if it fails
-                for (const req of requests) {
-                    req.reject(err);
+                    // Notify VS Code and resolve all promises
+                    const changeEvents: vscode.FileChangeEvent[] = [];
+                    for (const req of requests) {
+                        changeEvents.push({ type: vscode.FileChangeType.Changed, uri: req.uri });
+                        req.resolve();
+                    }
+                    this._onDidChangeFile.fire(changeEvents);
+
+                    // Trigger SCM refresh once per batch
+                    this.onDidWrite?.();
+                } catch (err) {
+                    // Reject all promises in the batch if it fails
+                    for (const req of requests) {
+                        req.reject(err);
+                    }
                 }
             }
         }

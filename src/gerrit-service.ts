@@ -54,7 +54,7 @@ export class GerritService implements vscode.Disposable {
     private lastRefreshTime: number = 0;
 
     constructor(
-        private workspaceRoot: string,
+        private repoRoot: string,
         private jjService: JjService,
         private outputChannel?: vscode.OutputChannel, // Optional for easier testing
     ) {
@@ -156,7 +156,7 @@ export class GerritService implements vscode.Disposable {
 
         // 2. Check .gitreview file
         try {
-            const gitreviewPath = path.join(this.workspaceRoot, '.gitreview');
+            const gitreviewPath = path.join(this.repoRoot, '.gitreview');
             if (fs.existsSync(gitreviewPath)) {
                 const content = await fs.promises.readFile(gitreviewPath, 'utf8');
                 const match = content.match(/host=(.+)/);

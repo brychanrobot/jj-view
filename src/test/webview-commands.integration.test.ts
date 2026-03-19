@@ -11,6 +11,8 @@ import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
+import { JjRepository, JjRepositoryManager } from '../repository-manager';
+
 import { abandonCommand } from '../commands/abandon';
 import { squashCommand } from '../commands/squash';
 import { newCommand } from '../commands/new';
@@ -88,7 +90,15 @@ suite('Webview Commands End-to-End Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, scm.outputChannel);
+        const repositoryManager = createMock<JjRepositoryManager>({
+            onDidChangeActiveRepository: () => ({ dispose: () => {} }),
+            activeRepository: {
+                jj,
+                gerritService,
+                scmProvider: { handleSelectionChange: async (_commitIds: string[]) => {} } as JjScmProvider,
+            } as JjRepository,
+        });
+        provider = new JjLogWebviewProvider(extensionUri, repositoryManager, () => {}, scm.outputChannel);
 
         // Mock 'vscode.commands.executeCommand'
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
