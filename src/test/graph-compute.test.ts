@@ -16,7 +16,7 @@ function renderToAscii(
         rows: {
             commit_id: string;
             parents: string[];
-            is_working_copy?: boolean;
+            is_current_working_copy?: boolean;
             change_id: string;
             description: string;
         }[];
@@ -60,7 +60,7 @@ function renderToAscii(
                 if (log.parents.length === 0) {
                     symbol = '◆';
                 }
-                if (log.is_working_copy || log.change_id === headId) {
+                if (log.is_current_working_copy || log.change_id === headId) {
                     symbol = '@';
                 }
             } else {
@@ -447,8 +447,8 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const layout = computeGraphLayout(logs);
 
         // NOTE: We need to manually calculate headId because renderToAscii relied on it being in scope/verified.
-        // The logs array has change_id, we can find the one with is_working_copy.
-        const headLog = logs.find((l) => l.is_working_copy);
+        // The logs array has change_id, we can find the one with is_current_working_copy.
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -516,7 +516,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -550,7 +550,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -577,7 +577,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';

@@ -6,7 +6,7 @@
 import * as React from 'react';
 import wordWrap from 'word-wrap';
 import { JjStatusEntry } from '../../jj-types';
-import { BookmarkPill, BasePill, TagPill } from './Bookmark';
+import { BookmarkPill, BasePill, TagPill, WorkspacePill } from './Bookmark';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
 import { PersonInfo } from './PersonInfo';
 
@@ -27,6 +27,7 @@ interface CommitDetailsProps {
     committer?: { name: string; email: string; timestamp: string };
     bookmarks?: Array<{ name: string; remote?: string }>;
     tags?: string[];
+    working_copies?: string[];
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
@@ -47,6 +48,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     committer,
     bookmarks,
     tags,
+    working_copies,
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
@@ -212,6 +214,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         )}
                         {bookmarks?.map((b) => (
                             <BookmarkPill key={`${b.name}-${b.remote}`} bookmark={b} />
+                        ))}
+                        {working_copies?.map((w) => (
+                            <WorkspacePill key={w} workspace={w} />
                         ))}
                         {tags?.map((t) => (
                             <TagPill key={t} tag={t} />

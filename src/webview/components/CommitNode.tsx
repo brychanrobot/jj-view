@@ -7,7 +7,7 @@ import React from 'react';
 import { useDroppable, useDraggable, useDndContext } from '@dnd-kit/core';
 
 import { IconButton } from './IconButton';
-import { BookmarkPill, DraggableBookmark } from './Bookmark';
+import { BookmarkPill, DraggableBookmark, WorkspacePill } from './Bookmark';
 import { GerritClInfo } from '../../jj-types'; // Import GerritClInfo (needs to be available in types or duplicated)
 
 // Exported for DragOverlay in App.tsx
@@ -343,6 +343,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     key={`${bookmark.name}-${bookmark.remote || 'local'}`}
                                     bookmark={bookmark}
                                 />
+                            ))}
+
+                        {commit.working_copies &&
+                            commit.working_copies.map((workspace: string) => (
+                                <WorkspacePill key={workspace} workspace={workspace} />
                             ))}
 
                         {isOver &&

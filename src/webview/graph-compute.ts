@@ -48,7 +48,7 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
             x: nodeLane,
             y: rowIndex,
             color: nodeColor,
-            isWorkingCopy: !!commit.is_working_copy,
+            isCurrentWorkingCopy: !!commit.is_current_working_copy,
             conflict: commit.conflict,
             isEmpty: commit.is_empty,
             isImmutable: commit.is_immutable,
