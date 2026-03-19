@@ -28,6 +28,9 @@ const App: React.FC = () => {
         (initialData?.payload as any)?.minChangeIdLength || 1,
     );
     const [theme, setTheme] = React.useState<string>(initialData?.payload?.theme || 'default');
+    const [graphLabelAlignment, setGraphLabelAlignment] = React.useState<string>(
+        (initialData?.payload as any)?.graphLabelAlignment || 'aligned',
+    );
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
@@ -103,6 +106,9 @@ const App: React.FC = () => {
                         }
                         if (message.theme !== undefined) {
                             setTheme(message.theme);
+                        }
+                        if (message.graphLabelAlignment !== undefined) {
+                            setGraphLabelAlignment(message.graphLabelAlignment);
                         }
                         setLoading(false);
                     }
@@ -346,6 +352,7 @@ const App: React.FC = () => {
                         onAction={handleGraphAction}
                         selectedCommitIds={selectedCommitIds}
                         minChangeIdLength={minChangeIdLength}
+                        graphLabelAlignment={graphLabelAlignment}
                     />
                 </div>
                 {/* 

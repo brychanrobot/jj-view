@@ -14,6 +14,7 @@ interface CommitGraphProps {
     onAction: (action: string, payload: ActionPayload) => void;
     selectedCommitIds?: Set<string>;
     minChangeIdLength: number;
+    graphLabelAlignment?: string;
 }
 
 export const CommitGraph: React.FC<CommitGraphProps> = ({
@@ -21,14 +22,34 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     onAction,
     selectedCommitIds,
     minChangeIdLength,
+    graphLabelAlignment = 'aligned',
 }) => {
-    const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
-    const displayRows = layout.rows || commits;
-
     // Width of a lane in pixels
     const LANE_WIDTH = 16;
     const ROW_HEIGHT_NORMAL = 28;
     const ROW_HEIGHT_EXPANDED = 44; // Reduced to 44px (28 top - 6 overlap + 22 bottom)
+
+    // Total graph width calculation
+    const LEFT_MARGIN = 12; // Match GraphRail
+    // Dynamic sizing based on font
+    // Fallback to 13px if not available
+    const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
+    const GAP = computeGap(fontSize);
+
+    const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
+    const displayRows = layout.rows || commits;
+
+    const compactPaddingMap = React.useMemo(() => {
+        if (graphLabelAlignment !== 'compact') {
+            return undefined;
+        }
+        const map = new Map<string, number>();
+        layout.nodes.forEach((n) => {
+            const padding = computeGraphAreaWidth(n.x + 1, LANE_WIDTH, LEFT_MARGIN, GAP);
+            map.set(n.commitId, padding);
+        });
+        return map;
+    }, [layout.nodes, graphLabelAlignment]);
 
     // Calculate Row Offsets
     // This allows us to have variable height rows while keeping the graph aligned.
@@ -48,14 +69,6 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
         return { rowOffsets: offsets, totalHeight: currentOffset };
     }, [displayRows]);
-
-    // Total graph width calculation
-    const LEFT_MARGIN = 12; // Match GraphRail
-
-    // Dynamic sizing based on font
-    // Fallback to 13px if not available
-    const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
-    const GAP = computeGap(fontSize);
 
     // Determine the max shortest ID length to display
     const maxShortestIdLength = React.useMemo(
@@ -91,13 +104,13 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 {displayRows.map((commit) => {
                     const isSelected = selectedCommitIds?.has(commit.change_id);
                     const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
-
+                    const paddingLeft = compactPaddingMap?.get(commit.commit_id) ?? graphAreaWidth;
                     return (
                         <div
                             key={commit.commit_id}
                             style={{
                                 height: height,
-                                paddingLeft: graphAreaWidth,
+                                paddingLeft: paddingLeft,
                                 display: 'flex',
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',

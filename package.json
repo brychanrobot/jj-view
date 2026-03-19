@@ -93,6 +93,19 @@
                     ],
                     "description": "Color theme for the graph lanes in the JJ Log view."
                 },
+                "jj-view.graphLabelAlignment": {
+                    "type": "string",
+                    "default": "aligned",
+                    "enum": [
+                        "aligned",
+                        "compact"
+                    ],
+                    "enumDescriptions": [
+                        "Keep commit messages aligned in a single column.",
+                        "Place commit messages immediately to the right of their node."
+                    ],
+                    "description": "Controls the horizontal alignment of commit messages in the log view."
+                },
                 "jj-view.commit.titleWidthRuler": {
                     "type": "number",
                     "default": 50,

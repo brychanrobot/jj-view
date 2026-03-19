@@ -29,7 +29,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         this._gerrit.onDidUpdate(() => this.refreshGerrit());
 
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('jj-view.logTheme')) {
+            if (e.affectsConfiguration('jj-view.logTheme') || e.affectsConfiguration('jj-view.graphLabelAlignment')) {
                 this._renderCommits(this._cachedCommits);
             }
         });
@@ -51,23 +51,29 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         // it uses the latest cached data instead of the initial stale data.
         webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
-                const currentTheme = vscode.workspace.getConfiguration('jj-view').get<string>('logTheme', 'default');
+                const config = vscode.workspace.getConfiguration('jj-view');
+                const currentTheme = config.get<string>('logTheme', 'default');
+                const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
                     view: 'graph',
                     payload: {
                         commits: this._cachedCommits,
                         theme: currentTheme,
+                        graphLabelAlignment,
                     },
                 });
             }
         });
 
-        const initialTheme = vscode.workspace.getConfiguration('jj-view').get<string>('logTheme', 'default');
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const initialTheme = config.get<string>('logTheme', 'default');
+        const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
             view: 'graph',
             payload: {
                 commits: this._cachedCommits,
                 theme: initialTheme,
+                graphLabelAlignment,
             },
         });
 
@@ -248,6 +254,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
+        const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
 
         if (this._gerrit.isEnabled) {
             this._gerrit.populateGerritInfo(commits);
@@ -260,6 +267,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             commits,
             minChangeIdLength,
             theme: logTheme,
+            graphLabelAlignment,
         });
     }
 
