@@ -27,10 +27,12 @@ export class TestRepo {
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
     private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
+        const env = { ...process.env, JJ_CONFIG: '' };
         try {
             const output = cp.execFileSync('jj', ['--quiet', ...args], {
                 cwd: this.path,
                 encoding: 'utf-8',
+                env,
                 stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
             });
             return options.trim !== false ? output.trim() : output;
@@ -45,6 +47,7 @@ export class TestRepo {
                     const output = cp.execFileSync('jj', ['--quiet', '--ignore-working-copy', ...args], {
                         cwd: this.path,
                         encoding: 'utf-8',
+                        env,
                         stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
                     });
                     return options.trim !== false ? output.trim() : output;
