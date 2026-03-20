@@ -41,6 +41,7 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
                 'scm.alwaysShowActions': true,
                 'workbench.tips.enabled': false,
                 'window.titleBarStyle': 'custom',
+                'window.dialogStyle': 'custom',
                 'security.workspace.trust.enabled': false,
                 'jj-view.fileWatcherMode': 'watch',
                 'jj-view.minChangeIdLength': 3,

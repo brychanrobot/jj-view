@@ -449,4 +449,43 @@ test.describe('Commit Details E2E', () => {
             await expect(frame.getByTitle('This commit cannot be modified')).toBeVisible({ timeout: 1000 });
         }).toPass({ timeout: 20000 });
     });
+
+    test('Prompts to save when closing a dirty details panel', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+        // Click to open details
+        await featureRow.click();
+
+        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+        await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+        const details = await getDetailsWebview(page);
+        const textarea = details.locator('textarea');
+        await textarea.fill('updated via test before close');
+
+        // Verify dirty indicator logic to make sure the state is registered
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
+        await expect(saveChangesButton).toBeEnabled();
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+
+        // Close the tab using the tab close button
+        const tabCloseButton = tabLocator.getByRole('button', { name: 'Close' });
+        await tabCloseButton.click();
+
+        // Wait for the native VS Code dialog (which is now rendered as custom HTML by our settings)
+        const dialog = page.locator('.monaco-dialog-box');
+        await expect(dialog).toBeVisible({ timeout: 5000 });
+        
+        // Click "Save"
+        const saveDialogButton = dialog.getByRole('button', { name: 'Save', exact: true });
+        await saveDialogButton.click();
+
+        // Verify the description was saved in the repo
+        await expect(async () => {
+            const desc = repo.getDescription(nodes['feature'].changeId);
+            expect(desc).toBe('updated via test before close');
+        }).toPass({ timeout: 10000 });
+    });
 });

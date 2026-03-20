@@ -33,7 +33,7 @@ interface CommitDetailsProps {
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
-    onDirtyStateChange?: (isDirty: boolean) => void;
+    onDirtyStateChange?: (isDirty: boolean, draftDescription: string) => void;
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -84,9 +84,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
     React.useEffect(() => {
         if (onDirtyStateChange) {
-            onDirtyStateChange(isDirty);
+            onDirtyStateChange(isDirty, draftDescription);
         }
-    }, [isDirty, onDirtyStateChange]);
+    }, [isDirty, draftDescription, onDirtyStateChange]);
 
     const handleSave = () => {
         setIsSaving(true);

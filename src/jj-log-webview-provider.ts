@@ -269,6 +269,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
     private _activeDetailsPanel?: vscode.WebviewPanel;
     private _currentDetailsChangeId?: string;
+    private _currentDetailsIsDirty = false;
+    private _currentDetailsDraftDescription?: string;
 
     public async refreshDetailsPanel() {
         if (!this._activeDetailsPanel || !this._currentDetailsChangeId) {
@@ -382,16 +384,36 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 enableScripts: true,
                 localResourceRoots: [this._extensionUri],
                 enableCommandUris: true,
+                retainContextWhenHidden: true,
             },
         );
         this._activeDetailsPanel = panel;
 
         panel.webview.html = this._getHtmlForWebview(panel.webview, initialData);
 
-        panel.onDidDispose(() => {
+        panel.onDidDispose(async () => {
             if (this._activeDetailsPanel === panel) {
+                const wasDirty = this._currentDetailsIsDirty;
+                const draft = this._currentDetailsDraftDescription;
+                const changeId = this._currentDetailsChangeId;
+
                 this._activeDetailsPanel = undefined;
                 this._currentDetailsChangeId = undefined;
+                this._currentDetailsIsDirty = false;
+                this._currentDetailsDraftDescription = undefined;
+
+                if (wasDirty && draft !== undefined && changeId) {
+                    const choice = await vscode.window.showWarningMessage(
+                        `Do you want to save the changes to the commit description?`,
+                        { modal: true },
+                        'Save',
+                        "Don't Save"
+                    );
+                    if (choice === 'Save') {
+                        await vscode.commands.executeCommand('jj-view.setDescription', draft, changeId);
+                    }
+                }
+
                 // Notify graph view to clear selection
                 if (this._view) {
                     this._view.webview.postMessage({ type: 'setSelection', ids: [] });
@@ -446,6 +468,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     if (this._activeDetailsPanel) {
                         const baseTitle = `Commit: ${displayId}`;
                         this._activeDetailsPanel.title = message.payload.isDirty ? `${baseTitle}*` : baseTitle;
+                        this._currentDetailsIsDirty = message.payload.isDirty;
+                        this._currentDetailsDraftDescription = message.payload.draftDescription;
                     }
                     break;
             }

@@ -314,8 +314,8 @@ const App: React.FC = () => {
                 onSave={handleSaveDescription}
                 onOpenDiff={handleOpenDiff}
                 onOpenMultiDiff={handleOpenMultiDiff}
-                onDirtyStateChange={(isDirty) => {
-                    vscode.postMessage({ type: 'dirtyStateChange', payload: { isDirty } });
+                onDirtyStateChange={(isDirty, draftDescription) => {
+                    vscode.postMessage({ type: 'dirtyStateChange', payload: { isDirty, draftDescription } });
                 }}
             />
         );
