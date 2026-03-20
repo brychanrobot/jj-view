@@ -11,6 +11,7 @@ import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
+import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 
 function createMockWebviewView() {
     let visibilityListener: (e: void) => void | undefined;
@@ -65,7 +66,15 @@ suite('Webview Initialization Integration Test', function () {
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
+        provider = new JjLogWebviewProvider(
+            extensionUri,
+            jj,
+            gerritService,
+            commitDetailsProvider,
+            () => {},
+            outputChannel,
+        );
     });
 
     teardown(async () => {

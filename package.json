@@ -20,6 +20,18 @@
     ],
     "main": "./dist/extension.js",
     "contributes": {
+        "customEditors": [
+            {
+                "viewType": "jj-view.commitDetailsEditor",
+                "displayName": "Commit Details",
+                "selector": [
+                    {
+                        "filenamePattern": "*.jj-commit"
+                    }
+                ],
+                "priority": "default"
+            }
+        ],
         "icons": {
             "jj-icon-squash-into": {
                 "description": "Squash into Ancestor icon",

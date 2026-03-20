@@ -18,6 +18,7 @@ import { editCommand } from '../commands/edit';
 import { undoCommand } from '../commands/undo';
 import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
+import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 
 suite('Webview Commands End-to-End Integration Test', function () {
     let jj: JjService;
@@ -88,7 +89,15 @@ suite('Webview Commands End-to-End Integration Test', function () {
             stopPolling: () => {},
             dispose: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, scm.outputChannel);
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
+        provider = new JjLogWebviewProvider(
+            extensionUri,
+            jj,
+            gerritService,
+            commitDetailsProvider,
+            () => {},
+            scm.outputChannel,
+        );
 
         // Mock 'vscode.commands.executeCommand'
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');

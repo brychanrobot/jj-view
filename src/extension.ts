@@ -10,6 +10,7 @@ import { JjScmProvider } from './jj-scm-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
+import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { GerritService } from './gerrit-service';
 import { abandonCommand } from './commands/abandon';
 import { newMergeChangeCommand, MergeCommandArg } from './commands/merge';
@@ -215,11 +216,21 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    const commitDetailsProvider = new JjCommitDetailsEditorProvider(context.extensionUri, jj);
+    context.subscriptions.push(
+        vscode.window.registerCustomEditorProvider(JjCommitDetailsEditorProvider.viewType, commitDetailsProvider, {
+            webviewOptions: {
+                retainContextWhenHidden: true,
+            },
+        }),
+    );
+
     // Register view provider
     const logWebviewProvider = new JjLogWebviewProvider(
         context.extensionUri,
         jj,
         gerritService,
+        commitDetailsProvider,
         (ids) => {
             scmProvider.handleSelectionChange(ids);
         },

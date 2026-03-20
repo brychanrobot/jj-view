@@ -264,7 +264,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         if (scmChanged) {
             this.scmStatusDecorations = scmStatusDecorations;
         }
-        
+
         const cacheCleared = this._clearIgnoredFileDecorationsCache();
 
         if (scmChanged || cacheCleared) {

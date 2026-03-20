@@ -111,6 +111,30 @@ const App: React.FC = () => {
                             setGraphLabelAlignment(message.graphLabelAlignment);
                         }
                         setLoading(false);
+
+                        // Validate current selection against new commits list
+                        setSelectedCommitIds((prevIds) => {
+                            if (prevIds.size === 0) return prevIds;
+
+                            const validIds = Array.from(prevIds).filter((id) =>
+                                message.commits.some((c: any) => c.change_id === id),
+                            );
+
+                            if (validIds.length !== prevIds.size) {
+                                const newIds = new Set(validIds);
+                                const hasImmutable = hasImmutableSelection(newIds, message.commits);
+
+                                vscode.postMessage({
+                                    type: 'selectionChange',
+                                    payload: {
+                                        commitIds: validIds,
+                                        hasImmutableSelection: hasImmutable,
+                                    },
+                                });
+                                return newIds;
+                            }
+                            return prevIds;
+                        });
                     }
                     break;
                 case 'updateDetails':
@@ -121,7 +145,9 @@ const App: React.FC = () => {
                     break;
                 case 'saveComplete':
                     if (view === 'details') {
-                        setDetailsCommit((prev: any) => prev ? { ...prev, description: message.payload.description } : prev);
+                        setDetailsCommit((prev: any) =>
+                            prev ? { ...prev, description: message.payload.description } : prev,
+                        );
                     }
                     break;
                 case 'setSelection':

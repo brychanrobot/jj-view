@@ -11,6 +11,7 @@ import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { GerritService } from '../gerrit-service';
 import { TestRepo } from './test-repo';
 import { createMock, asSinonStub } from './test-utils';
+import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 
 suite('Webview Selection Integration Test', function () {
     let jj: JjService;
@@ -64,7 +65,15 @@ suite('Webview Selection Integration Test', function () {
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
         });
-        provider = new JjLogWebviewProvider(extensionUri, jj, gerritService, () => {}, outputChannel);
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
+        provider = new JjLogWebviewProvider(
+            extensionUri,
+            jj,
+            gerritService,
+            commitDetailsProvider,
+            () => {},
+            outputChannel,
+        );
 
         // Spy on vscode.commands.executeCommand; stub jj-view.* to avoid errors
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');

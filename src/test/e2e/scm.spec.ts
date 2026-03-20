@@ -550,7 +550,6 @@ test.describe('SCM Pane E2E', () => {
             const ignoredRow = page.getByRole('treeitem', { name: /totally-untracked\.txt/i });
             const ignoredLabel = ignoredRow.locator('[aria-label*="Ignored"]');
             await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
-
         } finally {
             await app.close();
             try {

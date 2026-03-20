@@ -72,7 +72,7 @@ describe('JjDecorationProvider', () => {
         scmStatusDecorations.set(uri1.toString(), { path: '/ws/file1.txt', status: 'modified' });
 
         provider.updateScmStatusAndClearIgnoredCache(scmStatusDecorations);
-        
+
         const token = createMock<vscode.CancellationToken>();
         const result = await provider.provideFileDecoration(uri1, token);
         expect(result).toBeDefined();
@@ -205,7 +205,7 @@ describe('JjDecorationProvider', () => {
     it('should fire onDidChangeFileDecorations when clearIgnoredFileDecorationsCache is called', () => {
         provider = new JjDecorationProvider(createMock<JjService>({}), '/ws');
         const fireSpy = vi.spyOn(accessPrivate(provider, '_onDidChangeFileDecorations'), 'fire');
-        
+
         const cache = accessPrivate(provider, 'trackedStatusCache') as Map<string, boolean>;
         cache.set('dummy', true);
 

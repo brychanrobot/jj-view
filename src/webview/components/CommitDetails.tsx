@@ -57,17 +57,35 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     onDirtyStateChange,
 }) => {
     const [draftDescription, setDraftDescription] = React.useState(description);
+    const draftDescriptionRef = React.useRef(draftDescription);
     const [isSaving, setIsSaving] = React.useState(false);
+
+    // Keep the ref strictly in sync with the state for use inside effects
+    // that shouldn't re-run on every keystroke.
+    React.useEffect(() => {
+        draftDescriptionRef.current = draftDescription;
+    }, [draftDescription]);
 
     const isDirty = draftDescription !== description;
 
     const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const backdropRef = React.useRef<HTMLDivElement>(null);
+    const prevDescriptionRef = React.useRef(description);
 
     React.useEffect(() => {
-        setDraftDescription(description);
+        // Synchronize the draft description with the canonical description from the backend.
+        // We only overwrite the draft if the user hasn't made any unsaved edits (the draft
+        // matches the previous description), or if the only difference is trailing whitespace
+        // (to account for formatting adjustments applied by jj during save).
+        if (
+            draftDescriptionRef.current === prevDescriptionRef.current ||
+            draftDescriptionRef.current.trimEnd() === description.trimEnd()
+        ) {
+            setDraftDescription(description);
+        }
         setIsSaving(false);
+        prevDescriptionRef.current = description;
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     }, [description]);
 
@@ -90,8 +108,16 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
     const handleSave = () => {
         setIsSaving(true);
-        onSave(draftDescription);
-        
+
+        // jj enforces a trailing newline. Ensure we have one so our state matches what jj will return
+        let finalDescription = draftDescription;
+        if (!finalDescription.endsWith('\n')) {
+            finalDescription += '\n';
+            setDraftDescription(finalDescription);
+        }
+
+        onSave(finalDescription);
+
         // Fallback to clear the saving state after 15s in case of silent failure
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(() => setIsSaving(false), 15000);
@@ -346,10 +372,12 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             style={{
                                 padding: '2px 8px',
                                 color: 'var(--vscode-button-foreground)',
-                                backgroundColor: isDirty ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
+                                backgroundColor: isDirty
+                                    ? 'var(--vscode-button-background)'
+                                    : 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
                                 border: '1px solid transparent',
                                 cursor: isSaving || !isDirty ? 'default' : 'pointer',
-                                opacity: isSaving ? 0.7 : (!isDirty ? 0.6 : 1),
+                                opacity: isSaving ? 0.7 : !isDirty ? 0.6 : 1,
                                 display: 'flex',
                                 alignItems: 'center',
                                 fontSize: '12px',
@@ -359,7 +387,11 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             }}
                         >
                             <span className={`codicon ${isDirty ? 'codicon-save' : 'codicon-check'}`}></span>
-                            {isSaving ? 'Saving...' : (isDirty ? `Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})` : 'Saved')}
+                            {isSaving
+                                ? 'Saving...'
+                                : isDirty
+                                  ? `Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`
+                                  : 'Saved'}
                         </button>
                     </div>
                 </div>

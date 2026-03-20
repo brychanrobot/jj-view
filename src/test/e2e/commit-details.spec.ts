@@ -16,10 +16,9 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
     const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
         for (const f of frames) {
             try {
-                // First check if the frame itself is valid and has a heading
-                // We don't want to use count() > 0 which can be slow; use visible check
-                const heading = f.locator('h2', { hasText: 'Commit Details' });
-                if (await heading.isVisible({ timeout: 500 })) {
+                // Return the first iframe that is actually visible (not hidden by VS Code's tab switching)
+                // We consider it the active webview if its textarea is visible, meaning it's the actively displayed tab
+                if (await f.locator('textarea').isVisible({ timeout: 50 })) {
                     return f;
                 }
 
@@ -174,15 +173,15 @@ test.describe('Commit Details E2E', () => {
         await textarea.fill('updated feature description');
 
         // Verify dirty indicator logic
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
         await expect(saveChangesButton).toBeEnabled();
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
         // Click Save
         await saveChangesButton.click();
 
-        // Verify the tab title resets
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}$`) })).toBeVisible();
+        // Verify the Save button is disabled (via our Webview state checking it's clean)
+        await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
 
         // Verify the description was saved in the repo
         await expect(async () => {
@@ -210,14 +209,15 @@ test.describe('Commit Details E2E', () => {
         await textarea.fill('saved via keyboard');
 
         // Verify dirty state
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
         // Focus the textarea and press Ctrl+S
         await textarea.focus();
         await page.keyboard.press('Control+s');
 
-        // Verify the tab title resets
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}$`) })).toBeVisible();
+        // Verify the Save button is disabled (via our Webview state checking it's clean)
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
+        await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
 
         // Verify the description was saved in the repo
         await expect(async () => {
@@ -468,7 +468,7 @@ test.describe('Commit Details E2E', () => {
         // Verify dirty indicator logic to make sure the state is registered
         const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
         await expect(saveChangesButton).toBeEnabled();
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
         // Close the tab using the tab close button
         const tabCloseButton = tabLocator.getByRole('button', { name: 'Close' });
@@ -477,7 +477,7 @@ test.describe('Commit Details E2E', () => {
         // Wait for the native VS Code dialog (which is now rendered as custom HTML by our settings)
         const dialog = page.locator('.monaco-dialog-box');
         await expect(dialog).toBeVisible({ timeout: 5000 });
-        
+
         // Click "Save"
         const saveDialogButton = dialog.getByRole('button', { name: 'Save', exact: true });
         await saveDialogButton.click();

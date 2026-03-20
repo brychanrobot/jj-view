@@ -668,6 +668,7 @@ suite('JJ SCM Provider Integration Test', function () {
             // Use JjLogWebviewProvider
             const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
             const { GerritService } = await import('../gerrit-service');
+            const { JjCommitDetailsEditorProvider } = await import('../jj-commit-details-editor-provider');
             const extensionUri = vscode.Uri.file(__dirname); // Mock URI
             const gerritService = createMock<InstanceType<typeof GerritService>>({
                 onDidUpdate: () => {
@@ -677,10 +678,12 @@ suite('JJ SCM Provider Integration Test', function () {
                 startPolling: () => {},
                 dispose: () => {},
             });
+            const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
             const provider = new JjLogWebviewProvider(
                 extensionUri,
                 jj,
                 gerritService,
+                commitDetailsProvider,
                 () => {},
                 scmProvider.outputChannel,
             );

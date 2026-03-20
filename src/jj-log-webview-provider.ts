@@ -4,12 +4,11 @@
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 import { JjLogEntry } from './jj-types';
-import { createDiffUris } from './uri-utils';
-import { formatDisplayChangeId, shortenChangeId } from './utils/jj-utils';
+import { shortenChangeId } from './utils/jj-utils';
+import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 
 import { GerritService } from './gerrit-service';
 
@@ -22,6 +21,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _extensionUri: vscode.Uri,
         private readonly _jj: JjService,
         private readonly _gerrit: GerritService,
+        private readonly _commitDetailsProvider: JjCommitDetailsEditorProvider,
         private readonly _onSelectionChange: (commits: string[]) => void,
         public readonly outputChannel?: vscode.OutputChannel, // Optional
     ) {
@@ -144,17 +144,26 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload);
                     break;
-                case 'selectionChange':
-                    if (data.payload.commitIds.length === 0 && this._activeDetailsPanel) {
-                        // Close details panel if selection is cleared
-                        // Must clear reference first to avoid loop with onDidDispose
-                        const panel = this._activeDetailsPanel;
-                        this._activeDetailsPanel = undefined;
-                        panel.dispose();
-                    }
-
+                case 'selectionChange': {
                     const count = data.payload.commitIds.length;
                     const hasImmutable = !!data.payload.hasImmutableSelection;
+
+                    if (count !== 1) {
+                        const tabsToClose: vscode.Tab[] = [];
+                        for (const tabGroup of vscode.window.tabGroups.all) {
+                            for (const tab of tabGroup.tabs) {
+                                if (
+                                    tab.input instanceof vscode.TabInputCustom &&
+                                    tab.input.viewType === JjCommitDetailsEditorProvider.viewType
+                                ) {
+                                    tabsToClose.push(tab);
+                                }
+                            }
+                        }
+                        if (tabsToClose.length > 0) {
+                            await vscode.window.tabGroups.close(tabsToClose);
+                        }
+                    }
 
                     // Compute Capabilities
                     const allowAbandon = count > 0 && !hasImmutable;
@@ -185,6 +194,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         this._onSelectionChange(data.payload.commitIds);
                     }
                     break;
+                }
             }
         });
     }
@@ -221,7 +231,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             await this.refreshGerrit();
 
             // Also refresh details panel if open
-            await this.refreshDetailsPanel();
+            await this._commitDetailsProvider.refresh();
         }
     }
 
@@ -275,213 +285,35 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private _activeDetailsPanel?: vscode.WebviewPanel;
-    private _currentDetailsChangeId?: string;
-    private _currentDetailsIsDirty = false;
-    private _currentDetailsDraftDescription?: string;
-
-    public async refreshDetailsPanel() {
-        if (!this._activeDetailsPanel || !this._currentDetailsChangeId) {
-            return;
-        }
-
-        const changeId = this._currentDetailsChangeId;
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const logTheme = config.get<string>('logTheme', 'default');
-        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
-        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
-
-        // Fetch full log entry - this includes description, changes (file list), and immutability status
-        let logs: JjLogEntry[];
-        try {
-            logs = await this._jj.getLog({ revision: changeId });
-        } catch (e) {
-            // Commit no longer exists (e.g. was abandoned)
-            this._activeDetailsPanel.dispose();
-            return;
-        }
-
-        if (logs.length === 0) {
-            this._activeDetailsPanel.dispose();
-            return;
-        }
-
-        const log = logs[0];
-        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
-
-        this._activeDetailsPanel.webview.postMessage({
-            type: 'updateDetails',
-            payload: {
-                changeId,
-                commitId: log.commit_id,
-                description: log.description,
-                files: filesWithStats,
-                isImmutable: log.is_immutable,
-                author: log.author,
-                committer: log.committer,
-                bookmarks: log.bookmarks || [],
-                tags: log.tags || [],
-                isEmpty: log.is_empty,
-                isConflict: log.conflict,
-                minChangeIdLength,
-                theme: logTheme,
-                titleWidthRuler,
-                bodyWidthRuler,
-            },
-        });
-    }
-
     public async createCommitDetailsPanel(changeId: string) {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const logTheme = config.get<string>('logTheme', 'default');
-        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
-        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
-
-        // Fetch full log entry - this includes description, changes (file list), and immutability status
-        const logs = await this._jj.getLog({ revision: changeId });
-        if (logs.length === 0) {
-            return;
-        }
-
-        const log = logs[0];
-        const displayId = formatDisplayChangeId(changeId, log.change_id_shortest, minChangeIdLength);
-
-        // Fetch actual changes with additions/deletions stats
-        const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
-
-        const initialData = {
-            view: 'details',
-            payload: {
-                changeId,
-                commitId: log.commit_id,
-                description: log.description,
-                files: filesWithStats,
-                isImmutable: log.is_immutable,
-                author: log.author,
-                committer: log.committer,
-                bookmarks: log.bookmarks || [],
-                tags: log.tags || [],
-                isEmpty: log.is_empty,
-                isConflict: log.conflict,
-                minChangeIdLength,
-                theme: logTheme,
-                titleWidthRuler,
-                bodyWidthRuler,
-            },
-        };
-
-        this._currentDetailsChangeId = changeId;
-
-        if (this._activeDetailsPanel) {
-            this._activeDetailsPanel.title = `Commit: ${displayId}`;
-            this._activeDetailsPanel.webview.html = this._getHtmlForWebview(
-                this._activeDetailsPanel.webview,
-                initialData,
-            );
-            this._activeDetailsPanel.reveal();
-            return;
-        }
-
-        const panel = vscode.window.createWebviewPanel(
-            'jj-view.commitDetails',
-            `Commit: ${displayId}`,
-            vscode.ViewColumn.Active,
-            {
-                enableScripts: true,
-                localResourceRoots: [this._extensionUri],
-                enableCommandUris: true,
-                retainContextWhenHidden: true,
-            },
-        );
-        this._activeDetailsPanel = panel;
-
-        panel.webview.html = this._getHtmlForWebview(panel.webview, initialData);
-
-        panel.onDidDispose(async () => {
-            if (this._activeDetailsPanel === panel) {
-                const wasDirty = this._currentDetailsIsDirty;
-                const draft = this._currentDetailsDraftDescription;
-                const changeId = this._currentDetailsChangeId;
-
-                this._activeDetailsPanel = undefined;
-                this._currentDetailsChangeId = undefined;
-                this._currentDetailsIsDirty = false;
-                this._currentDetailsDraftDescription = undefined;
-
-                if (wasDirty && draft !== undefined && changeId) {
-                    const choice = await vscode.window.showWarningMessage(
-                        `Do you want to save the changes to the commit description?`,
-                        { modal: true },
-                        'Save',
-                        "Don't Save"
-                    );
-                    if (choice === 'Save') {
-                        await vscode.commands.executeCommand('jj-view.setDescription', draft, changeId);
-                    }
-                }
-
-                // Notify graph view to clear selection
-                if (this._view) {
-                    this._view.webview.postMessage({ type: 'setSelection', ids: [] });
-                }
-            }
+        const shortId = shortenChangeId(changeId, minChangeIdLength);
+        const uri = vscode.Uri.from({
+            scheme: 'jj-commit',
+            authority: 'commit',
+            path: `/Commit: ${shortId}`,
+            query: `changeId=${changeId}`,
         });
 
-        panel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.type) {
-                case 'webviewLoaded':
-                    // Panel handles its own state via initialData
-                    break;
-                case 'saveDescription': {
-                    const success = await vscode.commands.executeCommand<boolean>(
-                        'jj-view.setDescription',
-                        message.payload.description,
-                        message.payload.changeId,
-                    );
-                    if (this._activeDetailsPanel) {
-                        if (success) {
-                            this._activeDetailsPanel.webview.postMessage({
-                                type: 'saveComplete',
-                                payload: { description: message.payload.description }
-                            });
-                        } else {
-                            this._activeDetailsPanel.webview.postMessage({ type: 'saveFailed' });
-                        }
+        const tabsToClose: vscode.Tab[] = [];
+        for (const tabGroup of vscode.window.tabGroups.all) {
+            for (const tab of tabGroup.tabs) {
+                if (
+                    tab.input instanceof vscode.TabInputCustom &&
+                    tab.input.viewType === JjCommitDetailsEditorProvider.viewType
+                ) {
+                    if (tab.input.uri.toString() !== uri.toString()) {
+                        tabsToClose.push(tab);
                     }
-                    break;
                 }
-                case 'openDiff': {
-                    const file = message.payload.file;
-                    const changeId = message.payload.changeId;
-                    const isImmutable = message.payload.isImmutable;
-
-                    const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, {
-                        editable: !isImmutable,
-                    });
-
-                    await vscode.commands.executeCommand(
-                        'vscode.diff',
-                        leftUri,
-                        rightUri,
-                        `${path.basename(file.path)} (${shortenChangeId(changeId, minChangeIdLength)})${!isImmutable ? ' (Editable)' : ''}`,
-                    );
-                    break;
-                }
-                case 'openMultiDiff':
-                    await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.changeId);
-                    break;
-                case 'dirtyStateChange':
-                    if (this._activeDetailsPanel) {
-                        const baseTitle = `Commit: ${displayId}`;
-                        this._activeDetailsPanel.title = message.payload.isDirty ? `${baseTitle}*` : baseTitle;
-                        this._currentDetailsIsDirty = message.payload.isDirty;
-                        this._currentDetailsDraftDescription = message.payload.draftDescription;
-                    }
-                    break;
             }
-        });
+        }
+        if (tabsToClose.length > 0) {
+            await vscode.window.tabGroups.close(tabsToClose);
+        }
+
+        await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
     }
 
     private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
