@@ -113,6 +113,11 @@ const App: React.FC = () => {
                         setDetailsCommit(message.payload);
                     }
                     break;
+                case 'saveComplete':
+                    if (view === 'details') {
+                        setDetailsCommit((prev: any) => prev ? { ...prev, description: message.payload.description } : prev);
+                    }
+                    break;
                 case 'setSelection':
                     // External request to set selection (e.g. from closing details tab)
                     const newIds = new Set<string>(message.ids || []);
@@ -309,6 +314,9 @@ const App: React.FC = () => {
                 onSave={handleSaveDescription}
                 onOpenDiff={handleOpenDiff}
                 onOpenMultiDiff={handleOpenMultiDiff}
+                onDirtyStateChange={(isDirty) => {
+                    vscode.postMessage({ type: 'dirtyStateChange', payload: { isDirty } });
+                }}
             />
         );
     }

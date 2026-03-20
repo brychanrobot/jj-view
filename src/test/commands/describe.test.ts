@@ -40,22 +40,36 @@ describe('setDescriptionCommand', () => {
     });
 
     test('updates description from string argument', async () => {
-        await setDescriptionCommand(scmProvider, jj, ['new description']);
+        const result = await setDescriptionCommand(scmProvider, jj, ['new description']);
+        expect(result).toBe(true);
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('new description');
     });
 
     test('updates description from input box when message is omitted', async () => {
         scmProvider.sourceControl.inputBox.value = 'from input box';
-        await setDescriptionCommand(scmProvider, jj, []);
+        const result = await setDescriptionCommand(scmProvider, jj, []);
+        expect(result).toBe(true);
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('from input box');
     });
 
+    test('returns false if description is empty or omitted', async () => {
+        // input box is empty, and args is empty
+        const result = await setDescriptionCommand(scmProvider, jj, []);
+        expect(result).toBe(false);
+    });
+
     test('updates description for specific revision', async () => {
         repo.new([], 'child');
-        await setDescriptionCommand(scmProvider, jj, ['updated parent', '@-']);
+        const result = await setDescriptionCommand(scmProvider, jj, ['updated parent', '@-']);
+        expect(result).toBe(true);
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('updated parent');
+    });
+
+    test('returns false on jj describe failure', async () => {
+        const result = await setDescriptionCommand(scmProvider, jj, ['description', 'invalid_rev']);
+        expect(result).toBe(false);
     });
 });

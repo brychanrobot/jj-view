@@ -165,13 +165,24 @@ test.describe('Commit Details E2E', () => {
 
         const details = await getDetailsWebview(page);
 
+        // the button initially says "Saved" and is disabled
+        const saveButton = details.locator('button', { hasText: /^Saved/ });
+        await expect(saveButton).toBeDisabled();
+
         // Edit the description
         const textarea = details.locator('textarea');
         await textarea.fill('updated feature description');
 
+        // Verify dirty indicator logic
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
+        await expect(saveChangesButton).toBeEnabled();
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+
         // Click Save
-        const saveButton = details.locator('button', { hasText: 'Save' });
-        await saveButton.click();
+        await saveChangesButton.click();
+
+        // Verify the tab title resets
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}$`) })).toBeVisible();
 
         // Verify the description was saved in the repo
         await expect(async () => {
@@ -198,9 +209,15 @@ test.describe('Commit Details E2E', () => {
         const textarea = details.locator('textarea');
         await textarea.fill('saved via keyboard');
 
+        // Verify dirty state
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}\\*$`) })).toBeVisible();
+
         // Focus the textarea and press Ctrl+S
         await textarea.focus();
         await page.keyboard.press('Control+s');
+
+        // Verify the tab title resets
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}$`) })).toBeVisible();
 
         // Verify the description was saved in the repo
         await expect(async () => {

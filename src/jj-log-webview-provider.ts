@@ -404,13 +404,24 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'webviewLoaded':
                     // Panel handles its own state via initialData
                     break;
-                case 'saveDescription':
-                    await vscode.commands.executeCommand(
+                case 'saveDescription': {
+                    const success = await vscode.commands.executeCommand<boolean>(
                         'jj-view.setDescription',
                         message.payload.description,
                         message.payload.changeId,
                     );
+                    if (this._activeDetailsPanel) {
+                        if (success) {
+                            this._activeDetailsPanel.webview.postMessage({
+                                type: 'saveComplete',
+                                payload: { description: message.payload.description }
+                            });
+                        } else {
+                            this._activeDetailsPanel.webview.postMessage({ type: 'saveFailed' });
+                        }
+                    }
                     break;
+                }
                 case 'openDiff': {
                     const file = message.payload.file;
                     const changeId = message.payload.changeId;
@@ -431,6 +442,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'openMultiDiff':
                     await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.changeId);
                     break;
+                case 'dirtyStateChange':
+                    if (this._activeDetailsPanel) {
+                        const baseTitle = `Commit: ${displayId}`;
+                        this._activeDetailsPanel.title = message.payload.isDirty ? `${baseTitle}*` : baseTitle;
+                    }
+                    break;
             }
         });
     }
@@ -450,7 +467,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};">
                 <link href="${styleUri}" rel="stylesheet">
                 <link href="${codiconsUri}" rel="stylesheet">
                 <title>JJ Log</title>

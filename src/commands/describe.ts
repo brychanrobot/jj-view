@@ -15,14 +15,16 @@ export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjSe
 
     const description = message ?? scmProvider.sourceControl.inputBox.value;
 
-    if (!description) {
-        return;
+    if (message === undefined && !scmProvider.sourceControl.inputBox.value) {
+        return false;
     }
 
     try {
         await withDelayedProgress('Setting description...', jj.describe(description, revision));
         await scmProvider.refresh({ reason: 'after describe' });
+        return true;
     } catch (e: unknown) {
         await showJjError(e, 'Error setting description', jj, scmProvider.outputChannel);
+        return false;
     }
 }

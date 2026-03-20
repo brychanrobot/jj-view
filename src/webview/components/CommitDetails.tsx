@@ -33,6 +33,7 @@ interface CommitDetailsProps {
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
+    onDirtyStateChange?: (isDirty: boolean) => void;
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -53,23 +54,47 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
+    onDirtyStateChange,
 }) => {
     const [draftDescription, setDraftDescription] = React.useState(description);
     const [isSaving, setIsSaving] = React.useState(false);
 
+    const isDirty = draftDescription !== description;
+
+    const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const backdropRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
         setDraftDescription(description);
+        setIsSaving(false);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     }, [description]);
+
+    React.useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (event.data.type === 'saveFailed') {
+                setIsSaving(false);
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    React.useEffect(() => {
+        if (onDirtyStateChange) {
+            onDirtyStateChange(isDirty);
+        }
+    }, [isDirty, onDirtyStateChange]);
 
     const handleSave = () => {
         setIsSaving(true);
         onSave(draftDescription);
-        // We expect the backend to maybe close this panel or provide feedback
-        // For now, simple loading state
-        setTimeout(() => setIsSaving(false), 1000);
+        
+        // Fallback to clear the saving state after 15s in case of silent failure
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => setIsSaving(false), 15000);
     };
 
     const handleFormat = () => {
@@ -314,24 +339,27 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             Format Body
                         </button>
                         <button
+                            title={`Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`}
                             onClick={handleSave}
-                            disabled={isSaving}
+                            disabled={isSaving || !isDirty}
+                            className={isDirty && !isSaving ? 'btn-dirty' : ''}
                             style={{
                                 padding: '2px 8px',
                                 color: 'var(--vscode-button-foreground)',
-                                backgroundColor: 'var(--vscode-button-background)',
-                                border: 'none',
-                                cursor: 'pointer',
-                                opacity: isSaving ? 0.7 : 1,
+                                backgroundColor: isDirty ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
+                                border: '1px solid transparent',
+                                cursor: isSaving || !isDirty ? 'default' : 'pointer',
+                                opacity: isSaving ? 0.7 : (!isDirty ? 0.6 : 1),
                                 display: 'flex',
                                 alignItems: 'center',
                                 fontSize: '12px',
                                 gap: '4px',
                                 borderRadius: '2px',
+                                transition: 'background-color 0.2s, color 0.2s',
                             }}
                         >
-                            <span className="codicon codicon-save"></span>
-                            {isSaving ? 'Saving...' : 'Save'}
+                            <span className={`codicon ${isDirty ? 'codicon-save' : 'codicon-check'}`}></span>
+                            {isSaving ? 'Saving...' : (isDirty ? `Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})` : 'Saved')}
                         </button>
                     </div>
                 </div>
@@ -424,6 +452,19 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         .commit-textarea::selection {
                             color: transparent !important;
                             background-color: var(--vscode-editor-selectionBackground) !important;
+                        }
+                        .btn-dirty .codicon-save {
+                            animation: jiggle-icon 2s infinite ease-in-out;
+                            display: inline-block;
+                            transform-origin: center;
+                        }
+                        @keyframes jiggle-icon {
+                            0%, 65%, 100% { transform: rotate(0deg); }
+                            70% { transform: rotate(12deg); }
+                            77% { transform: rotate(-8deg); }
+                            84% { transform: rotate(4deg); }
+                            91% { transform: rotate(-2deg); }
+                            98% { transform: rotate(0deg); }
                         }
                     `}</style>
                 </div>
