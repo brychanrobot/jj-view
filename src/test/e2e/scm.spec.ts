@@ -510,4 +510,53 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('File Watcher automatically updates SCM decorations', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        await buildGraph(repo, [
+            { label: 'initial', description: 'initial', files: { 'tracked.txt': 'base', 'unmodified.txt': 'base' } },
+            { label: 'wc', parents: ['initial'], isWorkingCopy: true },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusSCM(page);
+
+            // Wait for initial load
+            const initialWcGroup = page.getByRole('treeitem', { name: /Working Copy/ });
+            await expect(initialWcGroup).toBeVisible();
+
+            // Wait a bit for file watcher to initialize
+            await page.waitForTimeout(2000);
+
+            // 1. Modify tracked.txt via filesystem (File Watcher picks it up)
+            repo.writeFile('tracked.txt', 'modified');
+
+            // 2. Wait for it to appear with "Modified" decoration
+            const trackedRow = page.getByRole('treeitem', { name: /tracked\.txt.*modified/i });
+            await expect(trackedRow).toBeVisible({ timeout: 15000 });
+
+            // 3. Create a completely untracked file and add it to .gitignore
+            repo.writeFile('.gitignore', 'totally-untracked.txt\n');
+            repo.writeFile('totally-untracked.txt', 'ignored content');
+
+            // 4. Focus the File Explorer pane to see the ignored decoration
+            await page.keyboard.press('Control+Shift+E');
+
+            // 5. Wait for the File Explorer to show the ignored file decoration
+            // VS Code appends " • Ignored" to an inner element's aria-label
+            const ignoredRow = page.getByRole('treeitem', { name: /totally-untracked\.txt/i });
+            const ignoredLabel = ignoredRow.locator('[aria-label*="Ignored"]');
+            await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
+
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

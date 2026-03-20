@@ -646,6 +646,33 @@ export class JjService {
             .filter((line) => line.length > 0);
     }
 
+    /**
+     * Checks which of the provided paths are tracked by jj.
+     * @param paths An array of workspace-relative paths to check.
+     * @returns A subset of the input `paths` that are tracked. Note that for
+     * directories, it returns the tracked files contained within them.
+     */
+    async checkTrackedPaths(paths: string[]): Promise<string[]> {
+        if (paths.length === 0) {
+            return [];
+        }
+
+        // Use a template to ensure clean, machine-readable output.
+        // Paths are passed as positional arguments (filesets).
+        // Since paths is just an array of workspace-relative strings, they act as implicit fileset matches.
+        // E.g., jj file list path/to/a path/to/b
+        const args = ['list', '-T', 'path.display() ++ "\\n"', ...paths];
+        try {
+            const output = await this.run('file', args, { useCachedSnapshot: true, label: 'checkTrackedPaths' });
+            return output
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0);
+        } catch {
+            return [];
+        }
+    }
+
     async moveChanges(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
         const relativePaths = paths.map((p) => this.toRelative(p));
         await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], {

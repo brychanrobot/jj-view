@@ -7,3 +7,4 @@ dist
 codicons/
 test-results/
 media/custom-icons/
+playwright-report/

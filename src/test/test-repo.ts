@@ -125,6 +125,11 @@ export class TestRepo {
         return this.exec(['diff', '-r', revision, '--summary']);
     }
 
+    untrack(path: string | string[]): void {
+        const paths = Array.isArray(path) ? path : [path];
+        this.exec(['file', 'untrack', ...paths]);
+    }
+
     bookmark(name: string, revision: string) {
         this.exec(['bookmark', 'create', name, '-r', revision]);
     }

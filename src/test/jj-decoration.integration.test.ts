@@ -117,4 +117,131 @@ suite('JJ Decoration Integration Test', function () {
         assert.ok(decoration, 'Decoration should be defined for parent file');
         assert.strictEqual(decoration?.badge, 'M', 'Badge should be M for modified file in parent');
     });
+
+    test('Decorations show Correct Status for Ignored Files', async () => {
+        // Create an ignored file by adding a .gitignore and a file matching it
+        repo.writeFile('.gitignore', 'ignored_file.txt\nignored_dir/\n');
+        repo.writeFile('ignored_file.txt', 'this is ignored');
+        repo.writeFile('ignored_dir/test.txt', 'also ignored');
+        repo.writeFile('tracked_file.txt', 'this is tracked');
+
+        // Wait for jj to pick up the ignore rules
+        await scmProvider.refresh();
+
+        // Check decoration for tracked file
+        const trackedUri = vscode.Uri.file(path.join(repo.path, 'tracked_file.txt'));
+        const pTracked = scmProvider.decorationProvider.provideFileDecoration(
+            trackedUri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        // Check decoration for ignored file
+        const ignoredUri = vscode.Uri.file(path.join(repo.path, 'ignored_file.txt'));
+        const pIgnored = scmProvider.decorationProvider.provideFileDecoration(
+            ignoredUri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        // Check decoration for ignored directory
+        const ignoredDirUri = vscode.Uri.file(path.join(repo.path, 'ignored_dir/test.txt'));
+        const pIgnoredDir = scmProvider.decorationProvider.provideFileDecoration(
+            ignoredDirUri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        const [decTracked, decIgnored, decIgnoredDir] = await Promise.all([pTracked, pIgnored, pIgnoredDir]);
+
+        assert.ok(decTracked !== undefined, 'Tracked file should have a decoration (Added)');
+        assert.strictEqual(decTracked?.badge, 'A', 'Tracked file should be Marked as Added by status');
+        assert.strictEqual(decTracked?.tooltip, 'Added', 'Tracked file should NOT be Ignored');
+
+        assert.ok(decIgnored, 'Ignored file should have a decoration');
+        assert.strictEqual(decIgnored?.tooltip, 'Ignored', 'Should have Ignored tooltip');
+
+        assert.ok(decIgnoredDir, 'Ignored directory contents should have a decoration');
+        assert.strictEqual(decIgnoredDir?.tooltip, 'Ignored', 'Should have Ignored tooltip');
+    });
+
+    test('Decorations show Correct Status for .jj directory bypass', async () => {
+        const jjFolder = vscode.Uri.file(path.join(repo.path, '.jj'));
+        const jjContent = vscode.Uri.file(path.join(repo.path, '.jj/config.toml'));
+
+        // Provide decorations
+        const decFolder = scmProvider.decorationProvider.provideFileDecoration(
+            jjFolder,
+            new vscode.CancellationTokenSource().token,
+        ) as vscode.FileDecoration;
+        const decContent = scmProvider.decorationProvider.provideFileDecoration(
+            jjContent,
+            new vscode.CancellationTokenSource().token,
+        ) as vscode.FileDecoration;
+
+        assert.ok(decFolder, '.jj folder should have a decoration');
+        assert.strictEqual(decFolder.tooltip, 'Ignored', 'Should have Ignored tooltip');
+        assert.ok(decContent, '.jj folder contents should have a decoration');
+        assert.strictEqual(decContent.tooltip, 'Ignored', 'Should have Ignored tooltip');
+    });
+
+    test('Decorations handle Force-Tracked Ignored Files', async () => {
+        // Create a file that is tracked FIRST
+        repo.writeFile('force_tracked.txt', 'tracked content');
+        await scmProvider.refresh(); // Snapshots and tracks it
+
+        // Now add it to .gitignore
+        repo.writeFile('.gitignore', 'force_tracked.txt\n');
+        await scmProvider.refresh(); // Snapshots .gitignore, but force_tracked.txt is ALREADY tracked
+
+        const uri = vscode.Uri.file(path.join(repo.path, 'force_tracked.txt'));
+        const trackedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
+            uri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        await trackedDecorationPromise;
+        // Because it was modified in the Working Copy (or Added), it should show up explicitly, BUT let's commit it so it has NO explicit status.
+        repo.describe('commit force tracked');
+        repo.new();
+        await scmProvider.refresh();
+
+        const committedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
+            uri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        const committedDecoration = await committedDecorationPromise;
+
+        // Because it is tracked (despite .gitignore), it should NOT be ignored.
+        // It should be undefined because it has no explicit changes in the new empty working copy.
+        assert.ok(committedDecoration === undefined, 'Force-tracked ignored file should NOT be marked as ignored');
+    });
+
+    test('Decorations clear cache and update on .gitignore change', async () => {
+        const fileName = 'dynamic_ignore.txt';
+        const uri = vscode.Uri.file(path.join(repo.path, fileName));
+
+        // 1. File exists and is tracked in the working copy
+        repo.writeFile(fileName, 'content');
+        await scmProvider.refresh(); // Automatically tracked as 'A'
+
+        const initialTrackedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
+            uri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+        await initialTrackedDecorationPromise;
+        // Here, it would actually be marked as 'A' (Added), but essentially not ignored
+
+        // 2. Ignore it first, then untrack it (jj file untrack requires the file to be ignored)
+        repo.writeFile('.gitignore', fileName + '\n');
+        repo.untrack(fileName);
+        await scmProvider.refresh(); // This clears the decoration cache!
+
+        const finalIgnoredDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
+            uri,
+            new vscode.CancellationTokenSource().token,
+        ) as Promise<vscode.FileDecoration | undefined>;
+
+        const finalIgnoredDecoration = await finalIgnoredDecorationPromise;
+        assert.ok(finalIgnoredDecoration !== undefined, 'Should now be ignored');
+        assert.strictEqual(finalIgnoredDecoration?.tooltip, 'Ignored', 'Should have Ignored tooltip');
+    });
 });

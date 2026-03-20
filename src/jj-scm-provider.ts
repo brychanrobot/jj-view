@@ -57,7 +57,7 @@ export class JjScmProvider implements vscode.Disposable {
         public readonly editProvider?: JjEditFileSystemProvider,
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));
-        this.decorationProvider = new JjDecorationProvider();
+        this.decorationProvider = new JjDecorationProvider(this.jj, workspaceRoot);
         this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
 
         // Create groups in order of display
@@ -396,8 +396,8 @@ export class JjScmProvider implements vscode.Disposable {
                     });
                 }
 
-                // Update Decoration Provider
-                this.decorationProvider.setDecorations(decorationMap);
+                // Update Decoration
+                this.decorationProvider.updateScmStatusAndClearIgnoredCache(decorationMap);
 
                 // Update SCM Count - Only count Working Copy changes
                 // VS Code sums all groups by default if count is not set, so we must set it explicitly.
