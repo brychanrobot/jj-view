@@ -58,6 +58,36 @@ describe('JjService Unit Tests', () => {
         expect(changes.length).toBe(0);
     });
 
+    test('supplies JJ_VIEW_EXTENSION environment variable', async () => {
+        // Write a conditional config that changes the default log revset
+        // only when JJ_VIEW_EXTENSION=1 is present in the environment.
+        // Modern jj stores repo configs outside the repo for security,
+        // so we must query the path dynamically.
+        const configPath = cp
+            .execFileSync('jj', ['config', 'path', '--repo'], { cwd: repo.path, encoding: 'utf-8' })
+            .trim();
+        const configContent = `
+[[--scope]]
+--when.environments = ["JJ_VIEW_EXTENSION=1"]
+[--scope.revsets]
+log = "none()"
+`;
+        // Append to existing config
+        fs.appendFileSync(configPath, configContent, 'utf-8');
+
+        // Verify that JjService picks up the environment variable by
+        // checking the output of getLog without a revision (which uses revsets.log)
+        repo.new(['@'], 'child');
+
+        // JjService execution should use JJ_VIEW_EXTENSION=1, making revsets.log = "none()"
+        const logs = await jjService.getLog();
+        expect(logs.length).toBe(0);
+
+        // TestRepo execution should NOT use JJ_VIEW_EXTENSION=1, making revsets.log = "@"
+        const repoLogDesc = repo.getDescription('@');
+        expect(repoLogDesc).toContain('child');
+    });
+
     describe('new command', () => {
         test('creates a new change', async () => {
             const oldChangeId = repo.getChangeId('@');

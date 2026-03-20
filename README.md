@@ -135,6 +135,21 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.maxMutableAncestors`          | `10`        | Maximum number of mutable ancestors to display in the SCM view.                                                                                                                                                                                                                                      |
 | `jj-view.logTheme`                     | `"default"` | Color theme for the graph lanes in the JJ Log view. Available options: `default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`.                                                                                                                                                               |
 
+## Advanced Configuration
+
+### Conditional `jj` configuration
+
+When `jj-view` executes `jj` commands, it sets the `JJ_VIEW_EXTENSION=1` environment variable. This allows you to configure conditional logic in your `.jjconfig.toml` file to apply specific settings only when interacting with the repository via the VS Code extension.
+
+For example, you can configure a different default log revset for the extension:
+
+```toml
+[[--scope]]
+--when.environments = ["JJ_VIEW_EXTENSION=1"]
+[--scope.revsets]
+log = "trunk().." # Or any other revset you prefer for the graph view
+```
+
 ## File Watcher Mode
 
 The `"watch"` mode uses [parcel-watcher](https://github.com/parcel-bundler/watcher) for native, event-driven file change detection instead of periodic polling. This is more efficient for large repos, but may require additional setup depending on your platform.

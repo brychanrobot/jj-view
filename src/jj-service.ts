@@ -180,7 +180,14 @@ export class JjService {
 
                 const finalOptions = {
                     cwd: this.workspaceRoot,
-                    env: { ...process.env, PAGER: 'cat', JJ_NO_PAGER: '1', JJ_EDITOR: 'cat', EDITOR: 'cat' },
+                    env: {
+                        ...process.env,
+                        PAGER: 'cat',
+                        JJ_NO_PAGER: '1',
+                        JJ_EDITOR: 'cat',
+                        EDITOR: 'cat',
+                        JJ_VIEW_EXTENSION: '1',
+                    },
                     maxBuffer: 100 * 1024 * 1024,
                     ...options,
                 };

@@ -884,10 +884,9 @@ suite('JJ SCM Provider Integration Test', function () {
         // The first parent group is the merge commit itself (for some reason, oh wait! The parents are the parents of @!)
         // Since @ is a merge, its parents are 'left commit' and 'right commit'.
         assert.ok(
-            [
-                ScmContextValue.AncestorGroupMutable,
-                ScmContextValue.AncestorGroupSquashable,
-            ].includes(parentGroups[0].contextValue as ScmContextValue),
+            [ScmContextValue.AncestorGroupMutable, ScmContextValue.AncestorGroupSquashable].includes(
+                parentGroups[0].contextValue as ScmContextValue,
+            ),
             `Unexpected parent context value: ${parentGroups[0].contextValue}`,
         );
     });
