@@ -325,53 +325,57 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         </a>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            onClick={handleFormat}
-                            title={`Format body to ${bodyWidthRuler} characters`}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                padding: '2px 4px',
-                                cursor: 'pointer',
-                                color: 'var(--vscode-textLink-foreground)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                fontSize: '12px',
-                                gap: '4px',
-                            }}
-                        >
-                            <span className="codicon codicon-word-wrap"></span>
-                            Format Body
-                        </button>
-                        <button
-                            title={`Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`}
-                            onClick={handleSave}
-                            disabled={isSaving || !isDirty}
-                            className={isDirty && !isSaving ? 'btn-dirty' : ''}
-                            style={{
-                                padding: '2px 8px',
-                                color: 'var(--vscode-button-foreground)',
-                                backgroundColor: isDirty
-                                    ? 'var(--vscode-button-background)'
-                                    : 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
-                                border: '1px solid transparent',
-                                cursor: isSaving || !isDirty ? 'default' : 'pointer',
-                                opacity: isSaving ? 0.7 : !isDirty ? 0.6 : 1,
-                                display: 'flex',
-                                alignItems: 'center',
-                                fontSize: '12px',
-                                gap: '4px',
-                                borderRadius: '2px',
-                                transition: 'background-color 0.2s, color 0.2s',
-                            }}
-                        >
-                            <span className={`codicon ${isDirty ? 'codicon-save' : 'codicon-check'}`}></span>
-                            {isSaving
-                                ? 'Saving...'
-                                : isDirty
-                                  ? `Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`
-                                  : 'Saved'}
-                        </button>
+                        {!isImmutable && (
+                            <>
+                                <button
+                                    onClick={handleFormat}
+                                    title={`Format body to ${bodyWidthRuler} characters`}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: '2px 4px',
+                                        cursor: 'pointer',
+                                        color: 'var(--vscode-textLink-foreground)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        fontSize: '12px',
+                                        gap: '4px',
+                                    }}
+                                >
+                                    <span className="codicon codicon-word-wrap"></span>
+                                    Format Body
+                                </button>
+                                <button
+                                    title={`Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`}
+                                    onClick={handleSave}
+                                    disabled={isSaving || !isDirty}
+                                    className={isDirty && !isSaving ? 'btn-dirty' : ''}
+                                    style={{
+                                        padding: '2px 8px',
+                                        color: 'var(--vscode-button-foreground)',
+                                        backgroundColor: isDirty
+                                            ? 'var(--vscode-button-background)'
+                                            : 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
+                                        border: '1px solid transparent',
+                                        cursor: isSaving || !isDirty ? 'default' : 'pointer',
+                                        opacity: isSaving ? 0.7 : !isDirty ? 0.6 : 1,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        fontSize: '12px',
+                                        gap: '4px',
+                                        borderRadius: '2px',
+                                        transition: 'background-color 0.2s, color 0.2s',
+                                    }}
+                                >
+                                    <span className={`codicon ${isDirty ? 'codicon-save' : 'codicon-check'}`}></span>
+                                    {isSaving
+                                        ? 'Saving...'
+                                        : isDirty
+                                          ? `Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`
+                                          : 'Saved'}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
                 <div
@@ -425,6 +429,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         className="commit-textarea"
                         ref={textareaRef}
                         value={draftDescription}
+                        disabled={isImmutable}
                         onChange={(e) => setDraftDescription(e.target.value)}
                         onScroll={() => {
                             if (backdropRef.current && textareaRef.current) {

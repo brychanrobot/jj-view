@@ -488,4 +488,33 @@ test.describe('Commit Details E2E', () => {
             expect(desc).toBe('updated via test before close');
         }).toPass({ timeout: 10000 });
     });
+
+    test('Hides buttons and disables editor for immutable commits', async () => {
+        // Configure 'initial' to be immutable
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes['initial'].commitId}")`);
+        await focusJJLog(page);
+
+        const webview = await getLogWebview(page);
+        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+
+        // Click to open details
+        await initialRow.click();
+        const shortId = nodes['initial'].changeId.substring(0, 3);
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
+
+        const details = await getDetailsWebview(page);
+
+        // Verify textarea is disabled
+        const textarea = details.locator('textarea');
+        await expect(textarea).toBeDisabled();
+
+        // Verify buttons are hidden
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
+        await expect(saveChangesButton).toBeHidden();
+
+        const formatButton = details.locator('button', { hasText: 'Format Body' });
+        await expect(formatButton).toBeHidden();
+    });
 });
