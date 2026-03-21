@@ -70,9 +70,10 @@ You MUST run individual test cases when writing a new test or debugging a broken
 **Filtering:**
 You MUST run individual test cases when writing a new test or debugging a broken test.
 
-- **Run a single test case (Recommended):** Use the `-g` flag for grep along with the filename.
+- **Run a single test case (Very Strongly Recommended):** Use the `-g` flag for grep along with the filename.
+    When debugging a flaky test, append `--repeat-each 5 --max-failures 1` to run it multiple times and fail fast.
     ```bash
-    npm run test:e2e -- <filename> -g "<test-name>"
+    npm run test:e2e -- <filename> -g "<test-name>" [--repeat-each 5 --max-failures 1]
     # Example: npm run test:e2e -- scm.spec.ts -g "squash button visibility"
     ```
 - **Run a specific test file:** Pass the filename.

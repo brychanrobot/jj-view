@@ -51,6 +51,7 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
                 'update.mode': 'none',
                 'extensions.autoCheckUpdates': false,
                 'extensions.autoUpdate': false,
+                'explorer.excludeGitIgnore': false,
             },
             null,
             2,
@@ -68,6 +69,10 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
                 {
                     key: 'ctrl+alt+r',
                     command: 'jj-view.refresh',
+                },
+                {
+                    key: 'ctrl+alt+e',
+                    command: 'workbench.files.action.refreshFilesExplorer',
                 },
             ],
             null,

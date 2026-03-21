@@ -546,8 +546,13 @@ test.describe('SCM Pane E2E', () => {
             await page.keyboard.press('Control+Shift+E');
 
             // 5. Wait for the File Explorer to show the ignored file decoration
+            // Force a refresh first because VS Code file watchers can sometimes miss fast external writes in tests
+            await page.keyboard.press('Control+Alt+E');
+
             // VS Code appends " • Ignored" to an inner element's aria-label
             const ignoredRow = page.getByRole('treeitem', { name: /totally-untracked\.txt/i });
+            await expect(ignoredRow).toBeVisible({ timeout: 15000 });
+
             const ignoredLabel = ignoredRow.locator('[aria-label*="Ignored"]');
             await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
         } finally {
