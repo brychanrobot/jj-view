@@ -24,7 +24,9 @@ Visualize your `jj` repo history with a clear, interactive graph.
 
 A dedicated view for inspecting and managing commits.
 
-- **Edit Descriptions**: Easily update commit messages.
+- **Status Indicators**: View clear visual pills for commit properties like Immutable, Empty, Conflicted, Tags and Bookmarks.
+- **Commit Info**: Displays Author, Committer, and Relative Timestamps. Includes a click-to-copy utility for Commit and Change IDs.
+- **Format Body**: Automatically format the commit description body to the configured width.
 - **Diff Management**:
     - **Open Multi-File Diff**: View all changes in the revision in a single scrollable editor.
     - **Single-File Diff**: Click any file to open a side-by-side diff.
@@ -38,7 +40,7 @@ Full integration with VS Code's Source Control view (SCM).
 - **Working Copy**: View modified files, stage changes (via `jj` commit/squash workflows), and restore files.
 - **Commit Management**: Create new changes, set descriptions, and squash changes directly from the SCM panel.
 - **Merge Conflicts**: Identify and resolve conflicts using VS Code's merge editor.
-- **File Decorations**: Automatically highlights modified, added, and conflicted files in the Explorer with color-coded badges.
+- **File Decorations**: Automatically highlights modified, added, conflicted, and ignored files in the Explorer with color-coded badges.
 
 ![SCM View](media/screenshots/scm-view.png)
 _Source Control view managing `jj` changes._
@@ -72,6 +74,8 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Edit`: Edit a specific revision.
 - `JJ View: Duplicate`: Duplicate a change.
 - `JJ View: Abandon`: Abandon (delete) a change.
+- `JJ View: Discard Change`: Discard all files within a change in the SCM view.
+- `JJ View: Squash Change to Parent`: Squash a change into its parent directly from the SCM view.
 - `JJ View: Restore`: Restore files in the working copy.
 - `JJ View: Set Description`: Edit the description of the current change.
 - `JJ View: Set Description (Prompt)`: Edit the description of the current change using an interactive prompt.
@@ -85,6 +89,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 ### History & Merging
 
 - `JJ View: Squash into Parent`: Squash the current change into its parent.
+- `JJ View: Squash into Ancestor`: Squash the current change into an ancestor.
 - `JJ View: Absorb`: Move changes into the mutable ancestor where they belong.
 - `JJ View: Complete Squash`: Finish a squash operation (e.g., from the editor title).
 - `JJ View: New Merge Change`: Create a merge commit.
@@ -134,6 +139,9 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.minChangeIdLength`            | `1`         | Minimum number of characters to display for change IDs. This affects the unique prefix calculation and UI truncation.                                                                                                                                                                                |
 | `jj-view.maxMutableAncestors`          | `10`        | Maximum number of mutable ancestors to display in the SCM view.                                                                                                                                                                                                                                      |
 | `jj-view.logTheme`                     | `"default"` | Color theme for the graph lanes in the JJ Log view. Available options: `default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`.                                                                                                                                                               |
+| `jj-view.graphLabelAlignment`          | `"aligned"` | Controls the horizontal alignment of commit messages in the log view. Available options: `aligned`, `compact`.                                                                                                                                                                                       |
+| `jj-view.commit.titleWidthRuler`       | `50`        | Width at which to display a ruler in the commit details description editor for the title line.                                                                                                                                                                                                       |
+| `jj-view.commit.bodyWidthRuler`        | `72`        | Width at which to display a ruler in the commit details description editor for the body.                                                                                                                                                                                                             |
 
 ## Advanced Configuration
 
