@@ -4,7 +4,7 @@
  */
 
 import * as React from 'react';
-import wordWrap from 'word-wrap';
+import { formatCommitDescription } from '../../utils/format-utils';
 import { JjStatusEntry } from '../../jj-types';
 import { BookmarkPill, BasePill, TagPill } from './Bookmark';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
@@ -123,32 +123,11 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         saveTimeoutRef.current = setTimeout(() => setIsSaving(false), 15000);
     };
 
-    const handleFormat = () => {
-        const lines = draftDescription.split('\n');
-        if (lines.length <= 1) return; // Nothing to format if it's just the title
-
-        const title = lines[0];
-        const bodyLines = lines.slice(1);
-
-        // Find the first non-empty line after the title to start formatting
-        let bodyStartIndex = 0;
-        while (bodyStartIndex < bodyLines.length && bodyLines[bodyStartIndex].trim() === '') {
-            bodyStartIndex++;
+    const handleFormat = async () => {
+        const newDescription = await formatCommitDescription(draftDescription, bodyWidthRuler);
+        if (newDescription !== draftDescription) {
+            setDraftDescription(newDescription);
         }
-
-        const emptyPrefix = '\n'.repeat(bodyStartIndex);
-        const contentToFormat = bodyLines.slice(bodyStartIndex).join('\n');
-
-        if (contentToFormat.trim() === '') return; // Nothing to format
-
-        // Preserve paragraph breaks (double newlines) by splitting, formatting, and rejoining
-        const paragraphs = contentToFormat.split(/\n\s*\n/);
-        const formattedParagraphs = paragraphs.map((p) =>
-            wordWrap(p, { width: bodyWidthRuler, trim: true, indent: '' }),
-        );
-
-        const newDescription = `${title}\n${emptyPrefix}${formattedParagraphs.join('\n\n')}`;
-        setDraftDescription(newDescription);
     };
 
     const renderRuler = (width: number, isTitle: boolean, color: string) => (

@@ -1196,7 +1196,7 @@ log = "none()"
             // Setup: 1 tracked file, 1 untracked file
             repo.writeFile('tracked.txt', 'tracked content');
             repo.describe('commit tracked'); // Committing marks it as tracked
-            
+
             // In jj, files are auto-tracked unless ignored. So to have an untracked file, we ignore it.
             repo.writeFile('.gitignore', 'untracked.txt\n');
             repo.writeFile('untracked.txt', 'untracked content');
@@ -1209,7 +1209,7 @@ log = "none()"
             // Pass a path that causes jj file list to error (outside repo)
             const inputPaths = ['../outside.txt'];
             const paths = await jjService.checkTrackedPaths(inputPaths);
-            
+
             // Should return the exact input paths array
             expect(paths).toEqual(inputPaths);
         });
