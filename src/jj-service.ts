@@ -159,6 +159,15 @@ export class JjService {
             finalArgs.push('--ignore-working-copy');
         }
 
+        finalArgs.unshift(
+            '--config',
+            'ui.log-word-wrap=false',
+            '--config',
+            'ui.color="never"',
+            '--config',
+            'ui.paginate="never"',
+        );
+
         const start = performance.now();
         const allArgs = [command, ...finalArgs];
         const displayArgs = allArgs.slice(0, 2);
