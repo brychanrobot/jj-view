@@ -54,10 +54,13 @@ describe('setDescriptionCommand', () => {
         expect(description.trim()).toBe('from input box');
     });
 
-    test('returns false if description is empty or omitted', async () => {
+    test('allows empty descriptions when invoked from input box', async () => {
         // input box is empty, and args is empty
+        scmProvider.sourceControl.inputBox.value = '   ';
         const result = await setDescriptionCommand(scmProvider, jj, []);
-        expect(result).toBe(false);
+        expect(result).toBe(true);
+        const description = repo.getDescription('@');
+        expect(description.trim()).toBe('');
     });
 
     test('updates description for specific revision', async () => {
@@ -66,6 +69,22 @@ describe('setDescriptionCommand', () => {
         expect(result).toBe(true);
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('updated parent');
+    });
+
+    test('clears description for a non-working-copy commit when provided an empty message', async () => {
+        repo.new([], 'child');
+        jj.describe('parent description', '@-');
+        jj.describe('working copy description', '@');
+        scmProvider.sourceControl.inputBox.value = 'fallback description';
+        
+        // Explicitly clear the parent's description
+        const result = await setDescriptionCommand(scmProvider, jj, ['   ', '@-']);
+        expect(result).toBe(true);
+        const description = repo.getDescription('@-');
+        expect(description.trim()).toBe('');
+        
+        // Ensure working copy wasn't affected
+        expect(repo.getDescription('@').trim()).toBe('working copy description');
     });
 
     test('returns false on jj describe failure', async () => {

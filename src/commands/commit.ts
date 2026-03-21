@@ -3,17 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
 import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
-    const message = scmProvider.sourceControl.inputBox.value;
-    if (!message) {
-        vscode.window.showWarningMessage('Please provide a commit message');
-        return;
-    }
+    const message = scmProvider.sourceControl.inputBox.value.trim();
 
     try {
         await withDelayedProgress('Committing...', jj.commit(message));

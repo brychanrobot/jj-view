@@ -41,14 +41,22 @@ describe('commitCommand', () => {
         vi.clearAllMocks();
     });
 
-    test('shows warning if input box is empty', async () => {
+    test('commits change successfully with empty description', async () => {
+        repo.new(undefined, 'initial');
+        const initialId = repo.getChangeId('@');
+
         const inputBoxMock = scmProvider.sourceControl.inputBox;
-        inputBoxMock.value = '';
+        inputBoxMock.value = '   ';
         await commitCommand(scmProvider, jj);
 
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Please provide a commit message');
-        const desc = repo.getDescription('@');
-        expect(desc).toBe('');
+        const oldChangeDesc = repo.getDescription(initialId);
+        expect(oldChangeDesc.trim()).toBe('');
+
+        const currentDesc = repo.getDescription('@');
+        expect(currentDesc.trim()).toBe('');
+
+        expect(scmProvider.sourceControl.inputBox.value).toBe('   ');
+        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     test('commits change successfully', async () => {

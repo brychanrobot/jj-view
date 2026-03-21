@@ -13,11 +13,15 @@ export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjSe
     const revision =
         (message && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
 
-    const description = message ?? scmProvider.sourceControl.inputBox.value;
-
-    if (message === undefined && !scmProvider.sourceControl.inputBox.value) {
-        return false;
+    let description = message;
+    if (description === undefined) {
+        if (revision === '@') {
+            description = scmProvider.sourceControl.inputBox.value;
+        } else {
+            return false;
+        }
     }
+    description = description.trim();
 
     try {
         await withDelayedProgress('Setting description...', jj.describe(description, revision));
