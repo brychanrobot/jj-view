@@ -669,7 +669,7 @@ export class JjService {
                 .map((line) => line.trim())
                 .filter((line) => line.length > 0);
         } catch {
-            return [];
+            return paths;
         }
     }
 

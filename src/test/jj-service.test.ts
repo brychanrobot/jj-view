@@ -1186,6 +1186,35 @@ log = "none()"
         expect(bookmarks.length).toBe(uniqueBookmarks.size);
     });
 
+    describe('checkTrackedPaths', () => {
+        test('returns empty array when given empty paths', async () => {
+            const paths = await jjService.checkTrackedPaths([]);
+            expect(paths).toEqual([]);
+        });
+
+        test('returns only tracked paths', async () => {
+            // Setup: 1 tracked file, 1 untracked file
+            repo.writeFile('tracked.txt', 'tracked content');
+            repo.describe('commit tracked'); // Committing marks it as tracked
+            
+            // In jj, files are auto-tracked unless ignored. So to have an untracked file, we ignore it.
+            repo.writeFile('.gitignore', 'untracked.txt\n');
+            repo.writeFile('untracked.txt', 'untracked content');
+
+            const paths = await jjService.checkTrackedPaths(['tracked.txt', 'untracked.txt']);
+            expect(paths).toEqual(['tracked.txt']);
+        });
+
+        test('returns all passed paths if jj file list errors', async () => {
+            // Pass a path that causes jj file list to error (outside repo)
+            const inputPaths = ['../outside.txt'];
+            const paths = await jjService.checkTrackedPaths(inputPaths);
+            
+            // Should return the exact input paths array
+            expect(paths).toEqual(inputPaths);
+        });
+    });
+
     test('getGitBlobHashes returns correct blob hashes', async () => {
         const fileName = 'blob.txt';
         const fileContent = 'blob content';
