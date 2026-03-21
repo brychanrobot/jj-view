@@ -71,19 +71,25 @@ export const PersonInfo: React.FC<PersonInfoProps> = ({ person, label }) => {
     const { nameToDisplay, emailToDisplay, fullTime, relTime, hasEmail } = getPersonDisplayStrings(person);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} className="person-info">
-            <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{label}:</span>
-            <strong style={{ color: 'var(--vscode-foreground)' }}>{nameToDisplay}</strong>
+        <div style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }} className="person-info">
+            <span style={{ color: 'var(--vscode-descriptionForeground)', marginRight: '6px', flexShrink: 0 }}>{label}:</span>
+            <strong style={{ color: 'var(--vscode-foreground)', marginRight: '6px', flexShrink: 0 }}>{nameToDisplay}</strong>
             <span
                 style={{
                     color: hasEmail ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-errorForeground)',
                     opacity: 0.7,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 1,
+                    minWidth: 0,
                 }}
+                title={`<${emailToDisplay}>`}
             >
                 &lt;{emailToDisplay}&gt;
             </span>
-            <span style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 4px' }}>•</span>
-            <span style={{ color: 'var(--vscode-foreground)' }} title={fullTime}>
+            <span style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 6px', flexShrink: 0 }}>•</span>
+            <span style={{ color: 'var(--vscode-foreground)', whiteSpace: 'nowrap', flexShrink: 0 }} title={fullTime}>
                 {relTime}
             </span>
         </div>
