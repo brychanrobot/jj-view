@@ -109,11 +109,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     const handleSave = () => {
         setIsSaving(true);
 
-        // jj enforces a trailing newline. Ensure we have one so our state matches what jj will return
-        let finalDescription = draftDescription.trim();
-        if (finalDescription !== '') {
-            finalDescription += '\n';
-        }
+        const finalDescription = draftDescription.trim();
 
         onSave(finalDescription);
 

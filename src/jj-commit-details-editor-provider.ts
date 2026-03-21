@@ -64,7 +64,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         payload: {
                             changeId,
                             commitId: log.commit_id,
-                            description: log.description,
+                            description: (log.description || '').trim(),
                             files: filesWithStats,
                             isImmutable: log.is_immutable,
                             author: log.author,
@@ -184,7 +184,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 payload: {
                     changeId: document.changeId,
                     commitId: log.commit_id,
-                    description: log.description,
+                    description: (log.description || '').trim(),
                     files: filesWithStats,
                     isImmutable: log.is_immutable,
                     author: log.author,

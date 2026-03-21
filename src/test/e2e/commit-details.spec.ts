@@ -226,6 +226,58 @@ test.describe('Commit Details E2E', () => {
         }).toPass({ timeout: 10000 });
     });
 
+    test('Dirty indicator works when starting from an empty message', async () => {
+        // Create a new empty commit using the CLI directly
+        repo.new([nodes['initial'].changeId]);
+        const newCommitId = repo.getChangeId('@');
+        
+        // Wait for the file watcher to detect the change and refresh the graph.
+        await page.waitForTimeout(1000);
+
+        // Refresh the webview by focusing it to pick up graph updates
+        await focusJJLog(page);
+
+        const webview = await getLogWebview(page);
+        
+        // The new commit should be visible and have (no description)
+        const emptyRow = webview.locator('.commit-row', { hasText: '(no description)' }).first();
+
+        // Click to open details
+        await expect(emptyRow).toBeVisible({ timeout: 15000 });
+        await emptyRow.click();
+
+        const shortId = newCommitId.substring(0, 3);
+        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+            timeout: 15000,
+        });
+
+        const details = await getDetailsWebview(page);
+
+        // Edit the description
+        const textarea = details.locator('textarea');
+        await expect(textarea).toHaveValue('');
+        
+        await textarea.fill('brand new message');
+
+        // Verify dirty state
+        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
+        const saveChangesButton = details.locator('button', { hasText: /Save Changes/ });
+        await expect(saveChangesButton).toBeEnabled();
+
+        // Click Save
+        await saveChangesButton.click();
+
+        // Verify the Save button is disabled (via our Webview state checking it's clean)
+        await expect(details.locator('button', { hasText: 'Saved' })).toBeDisabled({ timeout: 15000 });
+        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).not.toHaveClass(/dirty/);
+
+        // Verify the description was saved in the repo
+        await expect(async () => {
+            const desc = repo.getDescription(newCommitId);
+            expect(desc).toBe('brand new message');
+        }).toPass({ timeout: 10000 });
+    });
+
     test('Open file diff from file list', async () => {
         const webview = await getLogWebview(page);
         const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
