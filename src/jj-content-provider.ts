@@ -35,13 +35,12 @@ export class JjDocumentContentProvider implements vscode.TextDocumentContentProv
         const query = new URLSearchParams(uri.query);
         const base = query.get('base');
         const side = query.get('side');
-        const explicitPath = query.get('path');
 
         if (!base || !side) {
             return '';
         }
 
-        const filePath = explicitPath || uri.fsPath;
+        const filePath = uri.fsPath;
         const cacheKey = `${base}|${filePath}`;
 
         // Track this URI for future invalidation

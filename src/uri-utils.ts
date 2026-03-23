@@ -26,7 +26,7 @@ export function createDiffUris(
     const leftUri = vscode.Uri.from({
         scheme: 'jj-view',
         path: leftPath,
-        query: `base=${revision}&side=left&path=${encodeURIComponent(leftPath)}`,
+        query: `base=${revision}&side=left`,
     });
 
     let rightUri: vscode.Uri;
