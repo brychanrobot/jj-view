@@ -71,6 +71,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 
 - `JJ View: New Change`: Create a new empty change at the current head.
 - `JJ View: New Before`: Create a new change _before_ the current revisions (inserts a new parent).
+- `JJ View: New After`: Create a new change _after_ the current revisions (inserts a new child).
 - `JJ View: Edit`: Edit a specific revision.
 - `JJ View: Duplicate`: Duplicate a change.
 - `JJ View: Abandon`: Abandon (delete) a change.

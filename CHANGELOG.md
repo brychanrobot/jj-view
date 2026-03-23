@@ -1,11 +1,37 @@
 # Changelog
 
-## Unreleased
+## 1.21.0
+
+### Features
+
+- Add "New After" command and group context menu items
+- Migrate Commit Details to Custom Editor API
+- Add compact graph label alignment config option
+- Prompt to save unsaved description on commit details close
+- Add dirty state indicators to Commit Details view
+- Show ignored file decorations in the Explorer pane
+- Add `JJ_VIEW_EXTENSION` environment variable for conditional config
+- Exclude immutable commits from the SCM pane
+- Add action to delete stale `.git/index.lock` on error
+- Add more time units to the relative time string (up to years) for
+  author/committer timestamps.
+- Improve commit description formatting using Prettier
+- Recommend disabling built-in Git extension when exploring git-colocated repositories
 
 ### Fixes
 
-- Add more time units to the relative time string (up to years) for
-  author/committer timestamps.
+- Allow explicitly empty commit descriptions
+- Hide editor actions for immutable commits
+- Fix commit details dirty indicator for empty descriptions
+- Ellipsize long emails in commit details header
+- Fix CLI invocations by explicitly disabling UI formatting
+- Fix error handling and add tests for checkTrackedPaths
+- Fix flaky file watcher e2e test by forcing explorer refresh
+
+### Chores
+
+- Docs: update README with missing features and commands
+- Test: run `TestRepo.exec` without user configs
 
 ## 1.20.0
 

@@ -38,16 +38,16 @@ suite('Git Colocation Integration Test Suite', () => {
     test('should show warning for colocated repo', async () => {
         // Mock vscode configuration to ensure git is enabled and warning is not suppressed
         const getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
-        
+
         getConfigurationStub.withArgs('git').returns({
-            get: (key: string) => key === 'enabled' ? true : undefined,
+            get: (key: string) => (key === 'enabled' ? true : undefined),
             has: () => true,
             inspect: () => undefined,
             update: async () => {},
         } as vscode.WorkspaceConfiguration);
 
         getConfigurationStub.withArgs('jj-view').returns({
-            get: (key: string) => key === 'suppressGitColocationWarning' ? false : undefined,
+            get: (key: string) => (key === 'suppressGitColocationWarning' ? false : undefined),
             has: () => true,
             inspect: () => undefined,
             update: async () => {},
@@ -55,7 +55,9 @@ suite('Git Colocation Integration Test Suite', () => {
 
         // Stub getExtension to pretend vscode.git is active (since test environment might disable it)
         const getExtensionStub = sandbox.stub(vscode.extensions, 'getExtension');
-        getExtensionStub.withArgs('vscode.git').returns({ id: 'vscode.git' } as vscode.Extension<vscode.ExtensionContext>);
+        getExtensionStub
+            .withArgs('vscode.git')
+            .returns({ id: 'vscode.git' } as vscode.Extension<vscode.ExtensionContext>);
 
         // Spy on showInformationMessage
         const showInformationMessageSpy = sandbox.stub(vscode.window, 'showInformationMessage');
@@ -64,28 +66,33 @@ suite('Git Colocation Integration Test Suite', () => {
         await checkGitColocation(jjService);
 
         assert.ok(showInformationMessageSpy.calledOnce, 'Warning should be shown');
-        assert.ok(showInformationMessageSpy.firstCall.args[0].includes('Colocated Jujutsu and Git repository detected'), 'Warning message should be correct');
+        assert.ok(
+            showInformationMessageSpy.firstCall.args[0].includes('Colocated Jujutsu and Git repository detected'),
+            'Warning message should be correct',
+        );
     });
 
     test('should not show warning if suppressed', async () => {
         const getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
-        
+
         getConfigurationStub.withArgs('git').returns({
-            get: (key: string) => key === 'enabled' ? true : undefined,
+            get: (key: string) => (key === 'enabled' ? true : undefined),
             has: () => true,
             inspect: () => undefined,
             update: async () => {},
         } as vscode.WorkspaceConfiguration);
 
         getConfigurationStub.withArgs('jj-view').returns({
-            get: (key: string) => key === 'suppressGitColocationWarning' ? true : undefined,
+            get: (key: string) => (key === 'suppressGitColocationWarning' ? true : undefined),
             has: () => true,
             inspect: () => undefined,
             update: async () => {},
         } as vscode.WorkspaceConfiguration);
 
         const getExtensionStub = sandbox.stub(vscode.extensions, 'getExtension');
-        getExtensionStub.withArgs('vscode.git').returns({ id: 'vscode.git' } as vscode.Extension<vscode.ExtensionContext>);
+        getExtensionStub
+            .withArgs('vscode.git')
+            .returns({ id: 'vscode.git' } as vscode.Extension<vscode.ExtensionContext>);
 
         const showInformationMessageSpy = sandbox.stub(vscode.window, 'showInformationMessage');
         showInformationMessageSpy.resolves(undefined);
