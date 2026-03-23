@@ -134,13 +134,15 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 commitId: commit.commit_id,
                 changeId: commit.change_id,
 
-                // Abandon and New Before supported on multi-selection, but also on unselected items
+                // Abandon, New Before, and New After supported on multi-selection, but also on unselected items
                 canAbandon: !isImmutable && (!isSelected || !hasImmutableSelection),
                 canNewBefore: !isImmutable && (!isSelected || !hasImmutableSelection),
+                canNewAfter: !isSelected || !hasImmutableSelection,
 
                 // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
                 canEdit: !isImmutable && (!isSelected || selectionCount <= 1),
                 canDuplicate: !isSelected || selectionCount <= 1,
+                canNewChild: !isSelected || selectionCount <= 1,
 
                 // Rebase source must be mutable, and we rebase ONTO the current selection
                 canRebaseOnto: !isImmutable && !isSelected && selectionCount > 0,

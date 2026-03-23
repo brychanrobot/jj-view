@@ -170,6 +170,78 @@ test.describe('JJ Log Context Menu E2E', () => {
         }).toPass();
     });
 
+    test('New After (Single)', async () => {
+        const webview = await getLogWebview(page);
+
+        await expect(webview.locator('.commit-row', { hasText: 'initial' })).toBeVisible();
+
+        const commit2Id = nodes['commit2'].changeId;
+        const commit1Id = nodes['commit1'].changeId;
+        const initialId = nodes['initial'].changeId;
+
+        // New After initial
+        const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
+        await rightClickAndSelect(page, initialRow, 'New After');
+
+        // After "New After" initial:
+        // root -> dummyId -> initial -> middle (@) -> {commit1, commit2}
+        await expect(async () => {
+            await expectTree(repo, [
+                entry(commit1Id, 'commit1', '*'),
+                entry(commit2Id, 'commit2', '*'),
+                '@ ' + entry('*', '(empty)', initialId),
+                entry(initialId, 'initial', dummyId),
+                entry(dummyId, 'dummy', ROOT_ID),
+            ]);
+        }).toPass();
+    });
+
+    test('Multi-select New After', async () => {
+        const webview = await getLogWebview(page);
+
+        const commit2Id = nodes['commit2'].changeId;
+        const commit1Id = nodes['commit1'].changeId;
+        const initialId = nodes['initial'].changeId;
+
+        // Create children so "insert after" has something to rebase
+        repo.new([commit1Id]);
+        repo.describe('child1');
+        const child1Id = repo.getChangeId('@');
+
+        repo.new([commit2Id]);
+        repo.describe('child2');
+        const child2Id = repo.getChangeId('@');
+
+        await triggerRefresh(page);
+
+        await expect(webview.locator('.commit-row', { hasText: 'child1' })).toBeVisible();
+
+        const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
+        const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+
+        // Select both
+        await selectCommits([commit2Row, commit1Row]);
+
+        // Right click and New After
+        await rightClickAndSelect(page, commit2Row, 'New After');
+
+        // After "New After" on multi-select [commit2, commit1]: a new empty commit
+        // is inserted after both (as their new child).
+        // Then child1 and child2 are rebased on top of the new commit.
+        // Tree: root -> dummyId -> initial -> {commit1, commit2} -> middle (@) -> {child1, child2}
+        await expect(async () => {
+            await expectTree(repo, [
+                entry(child1Id, 'child1', '*'),
+                entry(child2Id, 'child2', '*'),
+                expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[(${commit1Id},${commit2Id}|${commit2Id},${commit1Id})\\] \\(empty\\)$`)),
+                entry(commit2Id, 'commit2', initialId),
+                entry(commit1Id, 'commit1', initialId),
+                entry(initialId, 'initial', dummyId),
+                entry(dummyId, 'dummy', ROOT_ID),
+            ]);
+        }).toPass();
+    });
+
     test('Edit', async () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });

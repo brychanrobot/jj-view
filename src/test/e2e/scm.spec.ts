@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TestRepo, buildGraph } from '../test-repo';
-import { launchVSCode, focusSCM, hoverAndClick } from './e2e-helpers';
+import { launchVSCode, focusSCM, hoverAndClick, expectTree, entry, ROOT_ID } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -63,9 +63,11 @@ test.describe('SCM Pane E2E', () => {
     test('Top-Level Commands: Commit and New Change', async () => {
         const repo = new TestRepo();
         repo.init();
-        await buildGraph(repo, [
+        const commits = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isWorkingCopy: true },
         ]);
+        const initialId = commits['initial'].changeId;
+        const workspaceRootId = repo.getParents(initialId)[0];
 
         const { app, page, userDataDir } = await launchVSCode(repo);
 
@@ -90,15 +92,20 @@ test.describe('SCM Pane E2E', () => {
             // Ensure wait for SCM refresh before next action
             await expect(scmInputRow).not.toContainText('Updated description explicitly', { timeout: 10000 });
 
+            const prevWcId = repo.getWorkingCopyId();
+
             // Click New Change (+)
-            const newButton = page.getByRole('button', { name: 'New Change' }).first();
+            const newButton = page.getByRole('button', { name: 'New', exact: true }).first();
+            await expect(newButton).toBeVisible();
             await newButton.click();
 
-            // Wait for UI to reflect empty input box or wait for a specific commit in repo
-            await expect(async () => {
-                const wcDescription = repo.getDescription('@').trim();
-                expect(wcDescription).toBe('');
-            }).toPass({ timeout: 5000 });
+            // Wait for UI to reflect empty input box and tree to update
+            await expectTree(repo, [
+                expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[${prevWcId}\\] \\(empty\\)$`)),
+                entry(prevWcId, '(empty)', initialId),
+                entry(initialId, 'Updated description explicitly', workspaceRootId),
+                entry(workspaceRootId, '(empty)', ROOT_ID),
+            ]);
         } finally {
             await app.close();
             try {

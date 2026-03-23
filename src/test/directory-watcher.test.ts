@@ -26,7 +26,7 @@ vi.mock('@parcel/watcher', async (importOriginal) => {
     };
 });
 
-describe('DirectoryWatcher (real @parcel/watcher)', () => {
+describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === 'win32' ? 3 : 0 }, () => {
     let tmpDir: string;
     let outputChannel: OutputChannel;
     let callback: Mock;

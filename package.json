@@ -151,7 +151,7 @@
             },
             {
                 "command": "jj-view.new",
-                "title": "New Change",
+                "title": "New",
                 "category": "JJ View",
                 "icon": "$(plus)"
             },
@@ -241,6 +241,12 @@
             {
                 "command": "jj-view.newBefore",
                 "title": "New Before",
+                "category": "JJ View",
+                "icon": "$(source-control)"
+            },
+            {
+                "command": "jj-view.newAfter",
+                "title": "New After",
                 "category": "JJ View",
                 "icon": "$(source-control)"
             },
@@ -342,49 +348,59 @@
             ],
             "webview/context": [
                 {
-                    "command": "jj-view.edit",
-                    "when": "webviewSection == 'commit' && canEdit",
-                    "group": "navigation"
+                    "command": "jj-view.showMultiFileDiff",
+                    "when": "webviewSection == 'commit'",
+                    "group": "1_diff@1"
+                },
+                {
+                    "command": "jj-view.new",
+                    "when": "webviewSection == 'commit' && canNewChild",
+                    "group": "2_edit@1"
                 },
                 {
                     "command": "jj-view.newBefore",
                     "when": "webviewSection == 'commit' && canNewBefore",
-                    "group": "navigation"
+                    "group": "2_edit@2"
+                },
+                {
+                    "command": "jj-view.newAfter",
+                    "when": "webviewSection == 'commit' && canNewAfter",
+                    "group": "2_edit@3"
+                },
+                {
+                    "command": "jj-view.edit",
+                    "when": "webviewSection == 'commit' && canEdit",
+                    "group": "2_edit@4"
                 },
                 {
                     "command": "jj-view.duplicate",
                     "when": "webviewSection == 'commit' && canDuplicate",
-                    "group": "navigation"
-                },
-                {
-                    "command": "jj-view.newMergeChange",
-                    "when": "webviewSection == 'commit' && canMerge",
-                    "group": "navigation"
-                },
-                {
-                    "command": "jj-view.rebaseOntoSelected",
-                    "when": "webviewSection == 'commit' && canRebaseOnto",
-                    "group": "navigation"
+                    "group": "4_changes@1"
                 },
                 {
                     "command": "jj-view.abandon",
                     "when": "webviewSection == 'commit' && canAbandon",
-                    "group": "navigation"
-                },
-                {
-                    "command": "jj-view.setBookmark",
-                    "when": "webviewSection == 'commit'",
-                    "group": "navigation"
+                    "group": "4_changes@2"
                 },
                 {
                     "command": "jj-view.absorb",
                     "when": "webviewSection == 'commit' && canAbsorb",
-                    "group": "navigation"
+                    "group": "4_changes@3"
                 },
                 {
-                    "command": "jj-view.showMultiFileDiff",
+                    "command": "jj-view.rebaseOntoSelected",
+                    "when": "webviewSection == 'commit' && canRebaseOnto",
+                    "group": "5_rebase@1"
+                },
+                {
+                    "command": "jj-view.newMergeChange",
+                    "when": "webviewSection == 'commit' && canMerge",
+                    "group": "5_rebase@2"
+                },
+                {
+                    "command": "jj-view.setBookmark",
                     "when": "webviewSection == 'commit'",
-                    "group": "navigation"
+                    "group": "3_bookmark@1"
                 }
             ],
             "scm/title": [

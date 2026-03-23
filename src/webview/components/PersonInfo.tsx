@@ -72,8 +72,12 @@ export const PersonInfo: React.FC<PersonInfoProps> = ({ person, label }) => {
 
     return (
         <div style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }} className="person-info">
-            <span style={{ color: 'var(--vscode-descriptionForeground)', marginRight: '6px', flexShrink: 0 }}>{label}:</span>
-            <strong style={{ color: 'var(--vscode-foreground)', marginRight: '6px', flexShrink: 0 }}>{nameToDisplay}</strong>
+            <span style={{ color: 'var(--vscode-descriptionForeground)', marginRight: '6px', flexShrink: 0 }}>
+                {label}:
+            </span>
+            <strong style={{ color: 'var(--vscode-foreground)', marginRight: '6px', flexShrink: 0 }}>
+                {nameToDisplay}
+            </strong>
             <span
                 style={{
                     color: hasEmail ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-errorForeground)',

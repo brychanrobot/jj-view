@@ -222,35 +222,64 @@ log = "none()"
             expect(workingCopyId).toBe(middleId);
         });
 
-        test('creates change with parents AND insertBefore', async () => {
-            // Setup: Root -> Parent -> Child
-            // We want to insert 'Middle' between Parent and Child, but also have 'Root' as a parent (merge)
-            // Expected: (Root, Parent) -> Middle -> Child
+        test('creates change inserted after', async () => {
+            // Setup: Parent -> Child
             const ids = await buildGraph(repo, [
-                { label: 'root', description: 'root' },
-                { label: 'parent', parents: ['root'], description: 'parent' },
-                { label: 'child', parents: ['parent'], description: 'child' },
+                { label: 'Parent', description: 'Parent' },
+                { label: 'Child', parents: ['Parent'], description: 'Child', isWorkingCopy: true },
             ]);
 
-            await jjService.new({
+            // Insert 'Middle' after 'Parent'
+            // Expected DAG: Parent -> Middle -> Child
+            const middleId = await jjService.new({ message: 'Middle', insertAfter: [ids['Parent'].changeId] });
+
+            // 1. Verify Middle's parent is Parent
+            const middleParents = repo.getParents(middleId);
+            expect(middleParents).toContain(ids['Parent'].changeId);
+
+            // 2. Verify Child's parent is now Middle
+            const childParents = repo.getParents(ids['Child'].changeId);
+            expect(childParents).toContain(middleId);
+            // Child no longer has Parent directly
+            expect(childParents).not.toContain(ids['Parent'].changeId);
+
+            // 3. Verify @ is at Middle
+            const workingCopyId = repo.getWorkingCopyId();
+            expect(workingCopyId).toBe(middleId);
+        });
+
+        test('creates change inserted after multiple revisions', async () => {
+            // Setup: P1 -> Child1
+            //        P2 -> Child2
+            const ids = await buildGraph(repo, [
+                { label: 'root', description: 'root' },
+                { label: 'P1', parents: ['root'], description: 'P1' },
+                { label: 'P2', parents: ['root'], description: 'P2' },
+                { label: 'Child1', parents: ['P1'], description: 'Child1' },
+                { label: 'Child2', parents: ['P2'], description: 'Child2', isWorkingCopy: true },
+            ]);
+
+            // Insert 'Middle' after P1 and P2
+            // Expected DAG: P1 -> Middle -> Child1
+            //               P2 -/        \-> Child2
+            const middleId = await jjService.new({
                 message: 'Middle',
-                parents: [ids['root'].changeId, ids['parent'].changeId],
-                insertBefore: [ids['child'].changeId],
+                insertAfter: [ids['P1'].changeId, ids['P2'].changeId],
             });
 
-            const userLog = await jjService.getLog();
-            const middle = userLog.find((l) => l.description.includes('Middle'));
-            expect(middle).toBeDefined();
+            // 1. Verify Middle's parents are P1 and P2
+            const middleParents = repo.getParents(middleId);
+            expect(middleParents).toContain(ids['P1'].changeId);
+            expect(middleParents).toContain(ids['P2'].changeId);
 
-            // Check parents of Middle
-            const middleParents = repo.getParents(middle!.change_id);
-            expect(middleParents).toHaveLength(2);
-            expect(middleParents).toContain(ids['root'].changeId);
-            expect(middleParents).toContain(ids['parent'].changeId);
+            // 2. Verify Child1 and Child2's parent is now Middle
+            const child1Parents = repo.getParents(ids['Child1'].changeId);
+            expect(child1Parents).toContain(middleId);
+            expect(child1Parents).not.toContain(ids['P1'].changeId);
 
-            // Check parent of Child (should be Middle)
-            const childParents = repo.getParents(ids['child'].changeId);
-            expect(childParents[0]).toBe(middle!.change_id);
+            const child2Parents = repo.getParents(ids['Child2'].changeId);
+            expect(child2Parents).toContain(middleId);
+            expect(child2Parents).not.toContain(ids['P2'].changeId);
         });
     });
 

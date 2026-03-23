@@ -689,8 +689,10 @@ export class JjService {
         });
     }
 
-    async new(options: { message?: string; parents?: string[]; insertBefore?: string[] } = {}): Promise<string> {
-        const { message, parents = [], insertBefore = [] } = options;
+    async new(
+        options: { message?: string; parents?: string[]; insertBefore?: string[]; insertAfter?: string[] } = {},
+    ): Promise<string> {
+        const { message, parents = [], insertBefore = [], insertAfter = [] } = options;
         const args: string[] = [];
         if (message) {
             args.push('-m', message);
@@ -698,16 +700,16 @@ export class JjService {
         for (const rev of insertBefore) {
             args.push('--insert-before', rev);
         }
-
-        if (insertBefore.length > 0) {
-            // When insertBefore is used, parents must be specified with --insert-after
-            for (const rev of parents) {
-                args.push('--insert-after', rev);
-            }
-        } else {
-            // Standard usage: parents are positional arguments
-            args.push(...parents);
+        for (const rev of insertAfter) {
+            args.push('--insert-after', rev);
         }
+
+        if ((insertBefore.length > 0 || insertAfter.length > 0) && parents.length > 0) {
+            throw new Error('Cannot specify parents along with insertBefore or insertAfter.');
+        }
+
+        // Standard usage: parents are positional arguments
+        args.push(...parents);
 
         await this.run('new', args, { isMutation: true, label: 'new' });
         const output = await this.run('log', ['-r', '@', '--no-graph', '-T', 'change_id'], {

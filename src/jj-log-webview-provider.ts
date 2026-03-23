@@ -129,6 +129,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'newBefore':
                     await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.changeIds || []));
                     break;
+                case 'newAfter':
+                    await vscode.commands.executeCommand('jj-view.newAfter', ...(data.payload.changeIds || []));
+                    break;
                 case 'resolve':
                     await this._jj.resolve(data.payload);
                     await vscode.commands.executeCommand('jj-view.refresh');

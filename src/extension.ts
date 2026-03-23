@@ -26,6 +26,7 @@ import { squashChangeCommand } from './commands/squash-change';
 import { setBookmarkCommand } from './commands/bookmark';
 import { absorbCommand } from './commands/absorb';
 import { newBeforeCommand } from './commands/new-before';
+import { newAfterCommand } from './commands/new-after';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -183,6 +184,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.newBefore', async (...args: unknown[]) => {
             await newBeforeCommand(scmProvider, jj, args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.newAfter', async (...args: unknown[]) => {
+            await newAfterCommand(scmProvider, jj, args);
         }),
     );
 

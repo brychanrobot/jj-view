@@ -76,13 +76,13 @@ describe('setDescriptionCommand', () => {
         jj.describe('parent description', '@-');
         jj.describe('working copy description', '@');
         scmProvider.sourceControl.inputBox.value = 'fallback description';
-        
+
         // Explicitly clear the parent's description
         const result = await setDescriptionCommand(scmProvider, jj, ['   ', '@-']);
         expect(result).toBe(true);
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('');
-        
+
         // Ensure working copy wasn't affected
         expect(repo.getDescription('@').trim()).toBe('working copy description');
     });

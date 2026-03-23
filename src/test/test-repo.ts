@@ -198,6 +198,12 @@ export class TestRepo {
         return output.split(' ');
     }
 
+    getChildren(revision: string): string[] {
+        const output = this.exec(['log', '-r', `children(${revision})`, '-T', 'change_id ++ "\\n"', '--no-graph']);
+        if (!output) return [];
+        return output.trim().split('\n').filter(Boolean);
+    }
+
     track(relativePath: string) {
         this.exec(['file', 'track', relativePath]);
     }

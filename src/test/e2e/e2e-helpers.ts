@@ -215,35 +215,45 @@ export async function getLogWebview(page: Page): Promise<Frame> {
  * Asserts that the repo log matches the expected structure.
  */
 export async function expectTree(repo: TestRepo, expected: unknown[]) {
-    await expect
-        .poll(
-            async () => {
-                // Output format: [@] change_id [parent1,parent2] description
-                const log = repo.getLog(
-                    'all()',
-                    'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"',
-                );
-                const actual = log
-                    .split('\n')
-                    .filter((l) => l.trim())
-                    .filter((line) => !line.startsWith('zzzzzzzz'));
-                return actual;
-            },
-            {
-                timeout: 10000,
-                message: 'Tree mismatch',
-            },
-        )
-        .toEqual(
-            expected.map((e) => {
-                if (typeof e === 'string' && e.includes('*')) {
-                    // Escape regex characters except for our * wildcard
-                    const escaped = e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
-                    return expect.stringMatching(new RegExp(`^${escaped}$`));
-                }
-                return e;
-            }),
-        );
+    let lastActual: string[] = [];
+    try {
+        await expect
+            .poll(
+                async () => {
+                    // Output format: [@] change_id [parent1,parent2] description
+                    const log = repo.getLog(
+                        'all()',
+                        'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"',
+                    );
+                    const actual = log
+                        .split('\n')
+                        .filter((l) => l.trim())
+                        .filter((line) => !line.startsWith('zzzzzzzz'));
+                    lastActual = actual;
+                    return actual;
+                },
+                {
+                    timeout: 10000,
+                    message: 'Tree mismatch',
+                },
+            )
+            .toEqual(
+                expected.map((e) => {
+                    if (typeof e === 'string' && e.includes('*')) {
+                        // Escape regex characters except for our * wildcard
+                        const escaped = e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
+                        return expect.stringMatching(new RegExp(`^${escaped}$`));
+                    }
+                    return e;
+                }),
+            );
+    } catch (e: unknown) {
+        const formatTree = (tree: unknown[]) => tree.map((line) => `  ${String(line)}`).join('\n');
+        if (e instanceof Error) {
+            e.message = `${e.message}\n\nExpected Tree:\n${formatTree(expected)}\n\nActual Tree:\n${formatTree(lastActual)}`;
+        }
+        throw e;
+    }
 }
 
 /** Helper to format an entry for expectTree */

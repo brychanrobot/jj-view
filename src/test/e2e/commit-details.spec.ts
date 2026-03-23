@@ -230,7 +230,7 @@ test.describe('Commit Details E2E', () => {
         // Create a new empty commit using the CLI directly
         repo.new([nodes['initial'].changeId]);
         const newCommitId = repo.getChangeId('@');
-        
+
         // Wait for the file watcher to detect the change and refresh the graph.
         await page.waitForTimeout(1000);
 
@@ -238,7 +238,7 @@ test.describe('Commit Details E2E', () => {
         await focusJJLog(page);
 
         const webview = await getLogWebview(page);
-        
+
         // The new commit should be visible and have (no description)
         const emptyRow = webview.locator('.commit-row', { hasText: '(no description)' }).first();
 
@@ -256,7 +256,7 @@ test.describe('Commit Details E2E', () => {
         // Edit the description
         const textarea = details.locator('textarea');
         await expect(textarea).toHaveValue('');
-        
+
         await textarea.fill('brand new message');
 
         // Verify dirty state
