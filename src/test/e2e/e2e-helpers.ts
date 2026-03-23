@@ -267,14 +267,19 @@ export function entry(changeId: string, description: string, parents?: string | 
  * Uses aria-selected to verify the React state updated.
  */
 export async function selectCommits(rows: Locator[]) {
-    for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        await row.click({
-            modifiers: i > 0 ? ['Meta'] : undefined,
-            force: true, // Bypasses potential hover overlay issues
-        });
-        await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
-    }
+    await expect(async () => {
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const isSelected = (await row.getAttribute('aria-selected')) === 'true';
+            if (!isSelected) {
+                await row.click({
+                    modifiers: i > 0 ? ['Meta'] : undefined,
+                    force: true, // Bypasses potential hover overlay issues
+                });
+            }
+            await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 1000 });
+        }
+    }, 'Failed to select commits reliably').toPass({ timeout: 15000 });
 }
 
 /**
