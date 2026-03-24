@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.21.1
+
+### Fixes
+
+- **Windows Diff Views**: Fix empty left-side diff view on Windows by simplifying URI paths.
+- **Move to Child**: Dynamically resolve the actual child commit and prompt when multiple exist.
+- **File Explorer Decorations**: Eliminate visual flicker of ignored files during SCM refreshes.
+
 ## 1.21.0
 
 ### Features

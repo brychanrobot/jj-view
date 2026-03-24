@@ -21,7 +21,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
     - Analyze the commit messages to determine the correct next version (patch, minor, or major bump) based on standard conventions (e.g., `feat:` is minor, `fix:` is patch).
     - Update the `version` field in `package.json` with the new version.
 5.  **Fetch Commits (If No Match):** If they _do not match_, assume the version in `package.json` was already bumped manually and is correct. Fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
-6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores) from the commits.
+6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores) from the commits. **CRITICAL:** Adopt the canonical style for changelog entries by starting each bullet with a bolded component or feature name, followed by a colon and the description: `- **[Component/Feature Name]**: [Description]`.
 7.  **Update Changelog:** Update `CHANGELOG.md` by prepending the new version and the drafted release notes.
 8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md` and `package.json`) to the user. **Wait for their approval before proceeding.**
 9.  **Commit Changes:** After user approval, commit the changes using `jj commit -m "chore: bump version to <new_version>"`.
