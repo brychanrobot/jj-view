@@ -59,7 +59,7 @@ describe('JjDecorationProvider', () => {
         const scmStatusDecorations = new Map<string, JjStatusEntry>();
         scmStatusDecorations.set('file:///a', { path: 'a', status: 'modified' });
 
-        provider.updateScmStatusAndClearIgnoredCache(scmStatusDecorations);
+        provider.updateScmAndTrackedStatus(scmStatusDecorations);
 
         expect(fireSpy).toHaveBeenCalledTimes(1);
     });
@@ -71,7 +71,7 @@ describe('JjDecorationProvider', () => {
         const scmStatusDecorations = new Map<string, JjStatusEntry>();
         scmStatusDecorations.set(uri1.toString(), { path: '/ws/file1.txt', status: 'modified' });
 
-        provider.updateScmStatusAndClearIgnoredCache(scmStatusDecorations);
+        provider.updateScmAndTrackedStatus(scmStatusDecorations);
 
         const token = createMock<vscode.CancellationToken>();
         const result = await provider.provideFileDecoration(uri1, token);
@@ -86,7 +86,7 @@ describe('JjDecorationProvider', () => {
         const scmStatusDecorations1 = new Map<string, JjStatusEntry>();
         scmStatusDecorations1.set('file:///a', { path: 'a', status: 'modified' });
 
-        provider.updateScmStatusAndClearIgnoredCache(scmStatusDecorations1);
+        provider.updateScmAndTrackedStatus(scmStatusDecorations1);
 
         expect(fireSpy).toHaveBeenCalledTimes(1);
 
@@ -94,7 +94,7 @@ describe('JjDecorationProvider', () => {
         const decorations2 = new Map<string, JjStatusEntry>();
         decorations2.set('file:///a', { path: 'a', status: 'modified' });
 
-        provider.updateScmStatusAndClearIgnoredCache(decorations2);
+        provider.updateScmAndTrackedStatus(decorations2);
 
         // This confirms the fix
         expect(fireSpy).toHaveBeenCalledTimes(1);
@@ -162,13 +162,17 @@ describe('JjDecorationProvider', () => {
         });
         provider = new JjDecorationProvider(mockJjService, '/ws');
 
-        // Exploit accessPrivate to inject cache
-        const cache = accessPrivate(provider, 'trackedStatusCache') as Map<string, boolean>;
-        cache.set('cached_tracked.txt', true);
-        cache.set('cached_ignored.txt', false);
-
         const uriTracked = (await import('vscode')).Uri.file('/ws/cached_tracked.txt');
         const uriIgnored = (await import('vscode')).Uri.file('/ws/cached_ignored.txt');
+
+        // Exploit accessPrivate to inject cache
+        const cache = accessPrivate(provider, 'trackedStatusCache') as Map<
+            string,
+            { isTracked: boolean; uri: vscode.Uri }
+        >;
+        cache.set('cached_tracked.txt', { isTracked: true, uri: uriTracked });
+        cache.set('cached_ignored.txt', { isTracked: false, uri: uriIgnored });
+
         const mockToken = createMock<vscode.CancellationToken>({});
 
         const decTracked = provider.provideFileDecoration(uriTracked, mockToken);
@@ -202,12 +206,16 @@ describe('JjDecorationProvider', () => {
         expect(vi.mocked(mockJjService.checkTrackedPaths).mock.calls[1][0].length).toBe(50);
     });
 
-    it('should fire onDidChangeFileDecorations when clearIgnoredFileDecorationsCache is called', () => {
+    it('should fire event when clearIgnoredFileDecorationsCache is called', async () => {
         provider = new JjDecorationProvider(createMock<JjService>({}), '/ws');
         const fireSpy = vi.spyOn(accessPrivate(provider, '_onDidChangeFileDecorations'), 'fire');
 
-        const cache = accessPrivate(provider, 'trackedStatusCache') as Map<string, boolean>;
-        cache.set('dummy', true);
+        const uri = (await import('vscode')).Uri.file('/ws/dummy');
+        const cache = accessPrivate(provider, 'trackedStatusCache') as Map<
+            string,
+            { isTracked: boolean; uri: vscode.Uri }
+        >;
+        cache.set('dummy', { isTracked: true, uri });
 
         expect(cache.size).toBe(1);
 
@@ -215,5 +223,82 @@ describe('JjDecorationProvider', () => {
 
         expect(cache.size).toBe(0);
         expect(fireSpy).toHaveBeenCalledWith(undefined);
+    });
+
+    it('should fire event when SCM decorations are removed', () => {
+        provider = new JjDecorationProvider(createMock<JjService>({}), '/ws');
+        const fireSpy = vi.spyOn(accessPrivate(provider, '_onDidChangeFileDecorations'), 'fire');
+
+        const scmStatusDecorations1 = new Map<string, JjStatusEntry>();
+        scmStatusDecorations1.set('file:///a', { path: 'a', status: 'modified' });
+
+        provider.updateScmAndTrackedStatus(scmStatusDecorations1);
+        expect(fireSpy).toHaveBeenCalledTimes(1);
+        vi.mocked(fireSpy).mockClear();
+
+        const decorations2 = new Map<string, JjStatusEntry>();
+        // file:///a is removed
+
+        provider.updateScmAndTrackedStatus(decorations2);
+
+        // Should fire because file:///a was removed
+        expect(fireSpy).toHaveBeenCalledTimes(1);
+        const firedUris = vi.mocked(fireSpy).mock.calls[0][0] as vscode.Uri[];
+        expect(firedUris[0].toString()).toBe('file:///a');
+    });
+
+    it('should fire event when tracked status changes during background cache update', async () => {
+        const mockJjService = createMock<JjService>({
+            checkTrackedPaths: vi.fn().mockResolvedValue(['tracked.txt']), // Only tracked.txt is tracked
+        });
+        provider = new JjDecorationProvider(mockJjService, '/ws');
+        const fireSpy = vi.spyOn(accessPrivate(provider, '_onDidChangeFileDecorations'), 'fire');
+
+        const uri1 = (await import('vscode')).Uri.file('/ws/tracked.txt');
+        const uri2 = (await import('vscode')).Uri.file('/ws/ignored.txt');
+
+        // Inject initial cache state (opposite of reality)
+        const cache = accessPrivate(provider, 'trackedStatusCache') as Map<
+            string,
+            { isTracked: boolean; uri: vscode.Uri }
+        >;
+        cache.set('tracked.txt', { isTracked: false, uri: uri1 }); // Currently untracked, but jj answers tracked
+        cache.set('ignored.txt', { isTracked: true, uri: uri2 }); // Currently tracked, but jj answers ignored
+
+        // Private method invocation
+        const updateFn = accessPrivate(provider, 'updateTrackedStatusDecorations') as () => Promise<void>;
+        await updateFn.call(provider);
+
+        expect(mockJjService.checkTrackedPaths).toHaveBeenCalled();
+
+        // It should have fired with both URIs because both changed
+        expect(fireSpy).toHaveBeenCalledTimes(1);
+        const firedUris = vi.mocked(fireSpy).mock.calls[0][0] as vscode.Uri[];
+        expect(firedUris).toHaveLength(2);
+        expect(firedUris.some((u) => u.fsPath.endsWith('tracked.txt'))).toBe(true);
+        expect(firedUris.some((u) => u.fsPath.endsWith('ignored.txt'))).toBe(true);
+
+        // Cache should be updated
+        expect(cache.get('tracked.txt')?.isTracked).toBe(true);
+        expect(cache.get('ignored.txt')?.isTracked).toBe(false);
+    });
+
+    it('should consider a directory tracked if it contains tracked files', async () => {
+        const mockJjService = createMock<JjService>({
+            // checkTrackedPaths returns the files inside, not the dir itself
+            checkTrackedPaths: vi.fn().mockResolvedValue(['my-dir/file.txt']),
+        });
+        provider = new JjDecorationProvider(mockJjService, '/ws');
+
+        const dirUri = (await import('vscode')).Uri.file('/ws/my-dir');
+        const mockToken = createMock<vscode.CancellationToken>({});
+
+        const pDir = provider.provideFileDecoration(dirUri, mockToken);
+
+        await new Promise((r) => setTimeout(r, 60));
+        const resDir = await pDir;
+
+        // If it's considered tracked, it returns undefined instead of the 'Ignored' decoration
+        expect(resDir).toBeUndefined();
     });
 });

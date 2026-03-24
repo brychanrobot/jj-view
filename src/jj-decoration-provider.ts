@@ -20,7 +20,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
     private checkTimeout?: NodeJS.Timeout;
 
     // Cache to prevent re-evaluating the same file status repeatedly
-    private trackedStatusCache = new Map<string, boolean>();
+    private trackedStatusCache = new Map<string, { isTracked: boolean; uri: vscode.Uri }>();
     private resolveCallbacks = new Map<string, (decoration: vscode.FileDecoration | undefined) => void>();
 
     constructor(
@@ -28,21 +28,13 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         private workspaceRoot: string,
     ) {}
 
-    private _clearIgnoredFileDecorationsCache(): boolean {
-        if (this.trackedStatusCache.size > 0 || this.pendingChecks.size > 0) {
-            this.trackedStatusCache.clear();
-            this.pendingChecks.clear();
-            for (const callback of this.resolveCallbacks.values()) {
-                callback(undefined);
-            }
-            this.resolveCallbacks.clear();
-            return true;
-        }
-        return false;
-    }
-
     clearIgnoredFileDecorationsCache() {
-        this._clearIgnoredFileDecorationsCache();
+        this.trackedStatusCache.clear();
+        this.pendingChecks.clear();
+        for (const callback of this.resolveCallbacks.values()) {
+            callback(undefined);
+        }
+        this.resolveCallbacks.clear();
         this._onDidChangeFileDecorations.fire(undefined);
     }
 
@@ -162,30 +154,34 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         }
 
         // 4. Check cache for tracked status
-        const cachedTrackingStatus = this.trackedStatusCache.get(relativePath);
-        if (cachedTrackingStatus === true) {
-            return undefined; // Tracked, no gray decoration needed
-        } else if (cachedTrackingStatus === false) {
-            return new vscode.FileDecoration(
-                undefined,
-                'Ignored',
-                new vscode.ThemeColor('gitDecoration.ignoredResourceForeground'),
-            );
+        const cacheEntry = this.trackedStatusCache.get(relativePath);
+        if (cacheEntry) {
+            return cacheEntry.isTracked
+                ? undefined
+                : new vscode.FileDecoration(
+                      undefined,
+                      'Ignored',
+                      new vscode.ThemeColor('gitDecoration.ignoredResourceForeground'),
+                  );
         }
 
         // 5. Not in cache, schedule a batched check
         return new Promise<vscode.FileDecoration | undefined>((resolve) => {
             this.resolveCallbacks.set(relativePath, resolve);
-            this.pendingChecks.set(relativePath, uri);
-
-            if (this.checkTimeout) {
-                clearTimeout(this.checkTimeout);
-            }
-
-            this.checkTimeout = setTimeout(() => {
-                this.flushPendingChecks();
-            }, 50);
+            this.queueCheck(uri, relativePath);
         });
+    }
+
+    private queueCheck(uri: vscode.Uri, relativePath: string) {
+        this.pendingChecks.set(relativePath, uri);
+
+        if (this.checkTimeout) {
+            clearTimeout(this.checkTimeout);
+        }
+
+        this.checkTimeout = setTimeout(() => {
+            this.flushPendingChecks();
+        }, 50);
     }
 
     private async flushPendingChecks() {
@@ -197,7 +193,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         const callbacksStr = pathsToCheck.map((p) => ({
             path: p,
             uri: this.pendingChecks.get(p)!,
-            resolve: this.resolveCallbacks.get(p)!,
+            resolve: this.resolveCallbacks.get(p),
         }));
 
         this.pendingChecks.clear();
@@ -237,56 +233,112 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                     }
                 }
 
-                this.trackedStatusCache.set(item.path, isTracked);
+                const oldStatus = this.trackedStatusCache.get(item.path)?.isTracked;
+                this.trackedStatusCache.set(item.path, { isTracked, uri: item.uri });
 
-                if (isTracked) {
-                    item.resolve(undefined);
-                } else {
-                    item.resolve(
-                        new vscode.FileDecoration(
-                            undefined,
-                            'Ignored',
-                            new vscode.ThemeColor('gitDecoration.ignoredResourceForeground'),
-                        ),
-                    );
+                const resolve = item.resolve;
+                if (resolve) {
+                    if (isTracked) {
+                        resolve(undefined);
+                    } else {
+                        resolve(
+                            new vscode.FileDecoration(
+                                undefined,
+                                'Ignored',
+                                new vscode.ThemeColor('gitDecoration.ignoredResourceForeground'),
+                            ),
+                        );
+                    }
+                } else if (oldStatus !== undefined && oldStatus !== isTracked) {
+                    this._onDidChangeFileDecorations.fire(item.uri);
                 }
             }
         } catch (e) {
             console.error('Failed to check tracked paths', e);
             for (const item of callbacksStr) {
-                item.resolve(undefined);
+                if (item.resolve) {
+                    item.resolve(undefined);
+                }
             }
         }
     }
 
-    updateScmStatusAndClearIgnoredCache(scmStatusDecorations: Map<string, JjStatusEntry>) {
-        const scmChanged = !this.areDecorationsEqual(this.scmStatusDecorations, scmStatusDecorations);
-        if (scmChanged) {
-            this.scmStatusDecorations = scmStatusDecorations;
+    private async updateTrackedStatusDecorations() {
+        if (!this.jjService || this.trackedStatusCache.size === 0) {
+            return;
         }
 
-        const cacheCleared = this._clearIgnoredFileDecorationsCache();
+        const entries = Array.from(this.trackedStatusCache.entries());
+        const pathsToCheck = entries.map(([p]) => p);
 
-        if (scmChanged || cacheCleared) {
-            this._onDidChangeFileDecorations.fire(undefined); // Refresh all
+        try {
+            const chunkSize = 100;
+            const trackedSet = new Set<string>();
+
+            for (let i = 0; i < pathsToCheck.length; i += chunkSize) {
+                const chunk = pathsToCheck.slice(i, i + chunkSize);
+                const trackedArray = await this.jjService.checkTrackedPaths(chunk);
+                for (const trackedPath of trackedArray) {
+                    trackedSet.add(trackedPath.replace(/\\/g, '/'));
+                }
+            }
+
+            const changedUris: vscode.Uri[] = [];
+
+            for (const [itemPath, cacheEntry] of entries) {
+                const normalizedItemPath = itemPath.replace(/\\/g, '/');
+                let isTracked = trackedSet.has(normalizedItemPath);
+
+                if (!isTracked) {
+                    const prefix = normalizedItemPath + '/';
+                    for (const trackedFile of trackedSet) {
+                        if (trackedFile.startsWith(prefix)) {
+                            isTracked = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (cacheEntry.isTracked !== isTracked) {
+                    this.trackedStatusCache.set(itemPath, { isTracked, uri: cacheEntry.uri });
+                    changedUris.push(cacheEntry.uri);
+                }
+            }
+
+            if (changedUris.length > 0) {
+                this._onDidChangeFileDecorations.fire(changedUris);
+            }
+        } catch (e) {
+            console.error('Failed to revalidate tracked cache', e);
         }
     }
 
-    private areDecorationsEqual(map1: Map<string, JjStatusEntry>, map2: Map<string, JjStatusEntry>): boolean {
-        if (map1.size !== map2.size) {
-            return false;
+    private updateScmStatusDecorations(scmStatusDecorations: Map<string, JjStatusEntry>) {
+        const changedUris: vscode.Uri[] = [];
+
+        // Compare old and new SCM status
+        for (const [key, newEntry] of scmStatusDecorations.entries()) {
+            const oldEntry = this.scmStatusDecorations.get(key);
+            if (!oldEntry || oldEntry.status !== newEntry.status || oldEntry.conflicted !== newEntry.conflicted) {
+                changedUris.push(vscode.Uri.parse(key));
+            }
+        }
+        for (const key of this.scmStatusDecorations.keys()) {
+            if (!scmStatusDecorations.has(key)) {
+                changedUris.push(vscode.Uri.parse(key));
+            }
         }
 
-        for (const [key, val1] of map1) {
-            const val2 = map2.get(key);
-            if (!val2) {
-                return false;
-            }
-            if (val1.path !== val2.path || val1.status !== val2.status || val1.conflicted !== val2.conflicted) {
-                return false;
-            }
+        this.scmStatusDecorations = scmStatusDecorations;
+
+        if (changedUris.length > 0) {
+            this._onDidChangeFileDecorations.fire(changedUris);
         }
-        return true;
+    }
+
+    updateScmAndTrackedStatus(scmStatusDecorations: Map<string, JjStatusEntry>) {
+        this.updateScmStatusDecorations(scmStatusDecorations);
+        this.updateTrackedStatusDecorations();
     }
 
     dispose() {

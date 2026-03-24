@@ -397,7 +397,7 @@ export class JjScmProvider implements vscode.Disposable {
                 }
 
                 // Update Decoration
-                this.decorationProvider.updateScmStatusAndClearIgnoredCache(decorationMap);
+                this.decorationProvider.updateScmAndTrackedStatus(decorationMap);
 
                 // Update SCM Count - Only count Working Copy changes
                 // VS Code sums all groups by default if count is not set, so we must set it explicitly.
