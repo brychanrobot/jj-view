@@ -154,25 +154,24 @@ export class JjService {
     ): Promise<string> {
         const opId = this._nextOpId++;
 
-        const finalArgs = [...args];
-        if (options.useCachedSnapshot) {
-            finalArgs.push('--ignore-working-copy');
-        }
-
-        finalArgs.unshift(
+        const globalArgs = [
             '--config',
             'ui.log-word-wrap=false',
             '--config',
             'ui.color="never"',
             '--config',
             'ui.paginate="never"',
-        );
+        ];
+
+        if (options.useCachedSnapshot) {
+            globalArgs.push('--ignore-working-copy');
+        }
 
         const start = performance.now();
-        const allArgs = [command, ...finalArgs];
-        const displayArgs = allArgs.slice(0, 2);
+        const allArgs = [...globalArgs, command, ...args];
+        const displayArgs = [command, ...args].slice(0, 2);
         const prefix = options.label ? `[${options.label}] ` : '';
-        const commandStr = `${prefix}jj ${displayArgs.join(' ')}${allArgs.length > 2 ? '...' : ''}`;
+        const commandStr = `${prefix}jj ${displayArgs.join(' ')}${[command, ...args].length > 2 ? '...' : ''}`;
 
         const isMutation = !!options.isMutation;
         let timeout: NodeJS.Timeout | undefined;
@@ -201,7 +200,7 @@ export class JjService {
                     ...options,
                 };
 
-                cp.execFile('jj', [command, ...finalArgs], finalOptions, (err, stdout, stderr) => {
+                cp.execFile('jj', allArgs, finalOptions, (err, stdout, stderr) => {
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                     this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);

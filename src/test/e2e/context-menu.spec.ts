@@ -233,7 +233,9 @@ test.describe('JJ Log Context Menu E2E', () => {
             await expectTree(repo, [
                 entry(child1Id, 'child1', '*'),
                 entry(child2Id, 'child2', '*'),
-                expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[(${commit1Id},${commit2Id}|${commit2Id},${commit1Id})\\] \\(empty\\)$`)),
+                expect.stringMatching(
+                    new RegExp(`^@ [a-z0-9]+ \\[(${commit1Id},${commit2Id}|${commit2Id},${commit1Id})\\] \\(empty\\)$`),
+                ),
                 entry(commit2Id, 'commit2', initialId),
                 entry(commit1Id, 'commit1', initialId),
                 entry(initialId, 'initial', dummyId),
