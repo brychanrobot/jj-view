@@ -127,6 +127,11 @@
                     "type": "number",
                     "default": 72,
                     "description": "Width at which to display a ruler in the commit details description editor for the body."
+                },
+                "jj-view.suppressGitColocationWarning": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Suppress the warning to disable the built-in Git extension in colocated repositories."
                 }
             }
         },

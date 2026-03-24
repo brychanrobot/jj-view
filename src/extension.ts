@@ -5,6 +5,8 @@
 
 import * as vscode from 'vscode';
 
+import { checkGitColocation } from './git-colocation';
+
 import { JjService } from './jj-service';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
@@ -314,6 +316,9 @@ export function activate(context: vscode.ExtensionContext) {
             await showMultiFileDiffCommand(jj, outputChannel, ...args);
         }),
     );
+
+    // Fire and forget: check if we should warn about git colocation
+    checkGitColocation(jj).catch((e) => outputChannel.appendLine(`[Extension] Colocation check failed: ${e}`));
 
     return {
         scmProvider,

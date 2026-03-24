@@ -45,6 +45,14 @@ export class JjService {
         return this._repoRoot;
     }
 
+    async getGitRoot(): Promise<string | null> {
+        try {
+            return await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
+        } catch {
+            return null;
+        }
+    }
+
     get hasActiveWriteOps(): boolean {
         return this._writeOperationCount > 0;
     }

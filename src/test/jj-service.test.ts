@@ -58,6 +58,12 @@ describe('JjService Unit Tests', () => {
         expect(changes.length).toBe(0);
     });
 
+    test('getGitRoot returns valid path for git-backed repo', async () => {
+        const gitRoot = await jjService.getGitRoot();
+        expect(gitRoot).toBeTruthy();
+        expect(gitRoot).toContain('.git');
+    });
+
     test('supplies JJ_VIEW_EXTENSION environment variable', async () => {
         // Write a conditional config that changes the default log revset
         // only when JJ_VIEW_EXTENSION=1 is present in the environment.

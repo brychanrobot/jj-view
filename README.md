@@ -142,6 +142,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.graphLabelAlignment`          | `"aligned"` | Controls the horizontal alignment of commit messages in the log view. Available options: `aligned`, `compact`.                                                                                                                                                                                       |
 | `jj-view.commit.titleWidthRuler`       | `50`        | Width at which to display a ruler in the commit details description editor for the title line.                                                                                                                                                                                                       |
 | `jj-view.commit.bodyWidthRuler`        | `72`        | Width at which to display a ruler in the commit details description editor for the body.                                                                                                                                                                                                             |
+| `jj-view.suppressGitColocationWarning` | `false`     | Suppress the warning to disable the built-in Git extension in colocated repositories.                                                                                                                                                                                                                |
 
 ## Advanced Configuration
 
