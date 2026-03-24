@@ -6,51 +6,44 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { JjService } from '../jj-service';
-import { JjScmProvider, JjResourceState } from '../jj-scm-provider';
-import { collectResourceStates, showJjError } from './command-utils';
+import { JjScmProvider } from '../jj-scm-provider';
+import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function moveToChildCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
+    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
 
-    if (resourceStates.length === 0) {
+    if (paths.length === 0) {
         return;
     }
 
-    const grouped = new Map<string, string[]>();
-    for (const r of resourceStates) {
-        const state = r as JjResourceState;
-        const rev = state.revision || '@';
-        if (!grouped.has(rev)) {
-            grouped.set(rev, []);
-        }
-        grouped.get(rev)!.push(r.resourceUri.fsPath);
-    }
+    const revision = extractRevision(args) || '@';
 
-    for (const [revision, paths] of grouped) {
-        if (revision === '@') {
-            const children = await jj.getChildren('@');
-            let targetChild: string | undefined;
+    try {
+        const children = await jj.getChildren(revision);
+        let targetChild: string | undefined;
 
-            if (children.length === 0) {
-                vscode.window.showErrorMessage('No child commits to move changes to.');
-                return;
-            } else if (children.length === 1) {
-                targetChild = children[0];
-            } else {
-                targetChild = await vscode.window.showQuickPick(children, { placeHolder: 'Select child commit' });
-            }
-
-            if (targetChild) {
-                await jj.moveChanges(paths, '@', targetChild);
-            }
-        } else if (revision === '@-') {
-            await jj.moveChanges(paths, '@-', '@');
+        if (children.length === 0) {
+            const revDisplay = revision === '@' ? 'the working copy' : revision;
+            vscode.window.showErrorMessage(`No child commits to move changes to for ${revDisplay}.`);
+            return;
+        } else if (children.length === 1) {
+            targetChild = children[0];
         } else {
-            // Assume generic revision is a parent or ancestor we want to pull changes from into @
-            await jj.moveChanges(paths, revision, '@');
+            targetChild = await vscode.window.showQuickPick(children, {
+                placeHolder: `Select child commit for ${revision}`,
+            });
         }
+
+        if (!targetChild) {
+            return;
+        }
+
+        await withDelayedProgress('Moving changes...', jj.moveChanges(paths, revision, targetChild));
+        await scmProvider.refresh();
+    } catch (e: unknown) {
+        await showJjError(e, 'Error moving changes to child', jj, scmProvider.outputChannel);
     }
-    await scmProvider.refresh();
 }
 
 export async function moveToParentInDiffCommand(scmProvider: JjScmProvider, jj: JjService, editor: vscode.TextEditor) {

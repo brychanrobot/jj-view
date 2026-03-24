@@ -52,4 +52,44 @@ describe('moveToChildCommand', () => {
         const childContent = repo.getFileContent(ids['child'].changeId, fileName);
         expect(childContent).toBe('modified');
     }, 30000);
+
+    test('moves file changes to explicit child using revision', async () => {
+        const fileName = 'move2.txt';
+        // Ancestor (modified) -> Child -> WorkingCopy
+        const ids = await buildGraph(repo, [
+            { label: 'ancestor', description: 'ancestor', files: { [fileName]: 'modified' } },
+            { label: 'child', parents: ['ancestor'], description: 'child' },
+            { label: 'wc', parents: ['child'], description: 'wc', isWorkingCopy: true },
+        ]);
+
+        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const args = [{ resourceUri: fileUri, revision: ids['ancestor'].changeId }];
+
+        await moveToChildCommand(scmProvider, jj, args);
+
+        const childContent = repo.getFileContent(ids['child'].changeId, fileName);
+        expect(childContent).toBe('modified');
+    }, 30000);
+
+    test('prompts for child if multiple children exist', async () => {
+        const fileName = 'move3.txt';
+        // Ancestor (modified) -> Child1
+        //                     -> Child2
+        const ids = await buildGraph(repo, [
+            { label: 'ancestor', description: 'ancestor', files: { [fileName]: 'modified' } },
+            { label: 'child1', parents: ['ancestor'], description: 'child1' },
+            { label: 'child2', parents: ['ancestor'], description: 'child2' },
+        ]);
+
+        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const args = [{ resourceUri: fileUri, revision: ids['ancestor'].changeId }];
+
+        const mockShowQuickPick = vscode.window.showQuickPick as import('vitest').Mock;
+        mockShowQuickPick.mockResolvedValueOnce(ids['child2'].changeId);
+
+        await moveToChildCommand(scmProvider, jj, args);
+
+        const child2Content = repo.getFileContent(ids['child2'].changeId, fileName);
+        expect(child2Content).toBe('modified');
+    }, 30000);
 });

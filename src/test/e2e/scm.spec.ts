@@ -570,4 +570,61 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('Move to Child on Grandparent Commits', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        await buildGraph(repo, [
+            { label: 'initial', description: 'initial', files: { 'base.txt': '1' } },
+            {
+                label: 'grandparent',
+                parents: ['initial'],
+                description: 'grandparent change',
+                files: { 'gp.txt': '1' },
+            },
+            {
+                label: 'parent',
+                parents: ['grandparent'],
+                description: 'parent change',
+                files: { 'p.txt': '1' },
+            },
+            {
+                label: 'wc',
+                parents: ['parent'],
+                description: 'wc change',
+                files: { 'wc.txt': '1' },
+                isWorkingCopy: true,
+            },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusSCM(page);
+
+            // Groups are expanded by default, find the gp.txt file under the grandparent change
+            const gpFile = page.getByRole('treeitem', { name: /gp\.txt/ });
+
+            // Hover over gp.txt and click Move to Child (codicon-arrow-up)
+            const moveToChildIcon = gpFile.locator('.action-item', { has: page.locator('.codicon-arrow-up') }).first();
+            await hoverAndClick(gpFile, moveToChildIcon);
+
+            // Assert via repo that gp.txt from grandparent was moved to parent, NOT the working copy
+            await expect(async () => {
+                const parentChanges = repo.getDiffSummary('@-');
+                expect(parentChanges).toContain('A gp.txt');
+                expect(parentChanges).toContain('A p.txt');
+
+                const wcChanges = repo.getDiffSummary('@');
+                expect(wcChanges).not.toContain('A gp.txt');
+                expect(wcChanges).toContain('A wc.txt');
+            }).toPass({ timeout: 5000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });
