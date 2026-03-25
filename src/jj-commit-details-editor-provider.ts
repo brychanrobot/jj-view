@@ -30,6 +30,9 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
     >();
     public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
+    private readonly _onDidClosePanel = new vscode.EventEmitter<string>();
+    public readonly onDidClosePanel = this._onDidClosePanel.event;
+
     // Track all open panels for refreshing
     private readonly _panels = new Map<string, Set<vscode.WebviewPanel>>();
 
@@ -154,6 +157,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             this._panels.get(document.changeId)?.delete(panel);
             if (this._panels.get(document.changeId)?.size === 0) {
                 this._panels.delete(document.changeId);
+                this._onDidClosePanel.fire(document.changeId);
             }
         });
 

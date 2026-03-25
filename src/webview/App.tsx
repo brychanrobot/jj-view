@@ -165,6 +165,22 @@ const App: React.FC = () => {
                         },
                     });
                     break;
+                case 'panelClosed':
+                    setSelectedCommitIds((prevIds) => {
+                        if (prevIds.has(message.payload.changeId) && prevIds.size === 1) {
+                            const clearedIds = new Set<string>();
+                            vscode.postMessage({
+                                type: 'selectionChange',
+                                payload: {
+                                    commitIds: [],
+                                    hasImmutableSelection: false,
+                                },
+                            });
+                            return clearedIds;
+                        }
+                        return prevIds;
+                    });
+                    break;
             }
         };
 

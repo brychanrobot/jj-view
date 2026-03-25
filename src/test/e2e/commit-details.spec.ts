@@ -539,6 +539,10 @@ test.describe('Commit Details E2E', () => {
             const desc = repo.getDescription(nodes['feature'].changeId);
             expect(desc).toBe('updated via test before close');
         }).toPass({ timeout: 10000 });
+
+        // Verify the node is no longer selected in the graph
+        const updatedFeatureRow = webview.locator('.commit-row', { hasText: 'updated via test before close' });
+        await expect(updatedFeatureRow).toHaveAttribute('aria-selected', 'false', { timeout: 10000 });
     });
 
     test('Hides buttons and disables editor for immutable commits', async () => {

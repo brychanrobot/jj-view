@@ -33,6 +33,13 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 this._renderCommits(this._cachedCommits);
             }
         });
+
+        this._commitDetailsProvider.onDidClosePanel((changeId) => {
+            this._view?.webview.postMessage({
+                type: 'panelClosed',
+                payload: { changeId },
+            });
+        });
     }
 
     public get jj(): JjService {
