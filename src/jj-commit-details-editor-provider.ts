@@ -13,6 +13,7 @@ export class JjCommitDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
     public readonly changeId: string;
     public draftDescription?: string;
+    public persistedDescription?: string;
 
     constructor(uri: vscode.Uri, changeId: string) {
         this.uri = uri;
@@ -35,6 +36,20 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
     // Track all open panels for refreshing
     private readonly _panels = new Map<string, Set<vscode.WebviewPanel>>();
+
+    // Track the last state pushed to the undo stack per document to avoid redundant edits
+    // and to provide a base for the next undo/redo pair.
+    private readonly _documentStates = new Map<
+        string,
+        {
+            lastPushedText: string;
+            lastPushedSelection: { start: number; end: number };
+            debounceTimer?: NodeJS.Timeout;
+            pendingUpdate?: { newText: string; newSelection: { start: number; end: number } };
+            panel: vscode.WebviewPanel;
+            document: JjCommitDocument;
+        }
+    >();
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -88,17 +103,39 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             }
         }
     }
-
     public async saveCustomDocument(
         document: JjCommitDocument,
         _cancellation: vscode.CancellationToken,
     ): Promise<void> {
+        // Ensure any pending typing is pushed to the undo stack before saving
+        // so that the saved state is correctly marked as 'clean'.
+        this._flushDebounce(document.changeId);
+
         if (document.draftDescription !== undefined) {
-            await vscode.commands.executeCommand(
-                'jj-view.setDescription',
-                document.draftDescription,
-                document.changeId,
-            );
+            // Check if this is a 'soft save' (text already matches what's on disk)
+            const isSoftSave = document.draftDescription === document.persistedDescription;
+
+            if (!isSoftSave) {
+                await vscode.commands.executeCommand(
+                    'jj-view.setDescription',
+                    document.draftDescription,
+                    document.changeId,
+                );
+
+                // Update persisted state after successful real save
+                document.persistedDescription = document.draftDescription;
+            }
+
+            // Sync all panels for this changeId to mark them as clean
+            const panels = this._panels.get(document.changeId);
+            if (panels) {
+                for (const panel of panels) {
+                    panel.webview.postMessage({
+                        type: 'saveComplete',
+                        payload: { description: document.draftDescription },
+                    });
+                }
+            }
         }
     }
 
@@ -157,6 +194,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             this._panels.get(document.changeId)?.delete(panel);
             if (this._panels.get(document.changeId)?.size === 0) {
                 this._panels.delete(document.changeId);
+                this._documentStates.delete(document.changeId);
                 this._onDidClosePanel.fire(document.changeId);
             }
         });
@@ -183,12 +221,13 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             const log = logs[0];
             const filesWithStats = await this._jj.getChanges(document.changeId).catch(() => log.changes || []);
 
+            const initialDescription = (log.description || '').trim();
             const initialData = {
                 view: 'details',
                 payload: {
                     changeId: document.changeId,
                     commitId: log.commit_id,
-                    description: (log.description || '').trim(),
+                    description: initialDescription,
                     files: filesWithStats,
                     isImmutable: log.is_immutable,
                     author: log.author,
@@ -206,31 +245,58 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
             panel.webview.html = this._getHtmlForWebview(panel.webview, initialData);
 
+            // Seed document with its initial persisted state
+            document.persistedDescription = initialDescription;
+            document.draftDescription = initialDescription;
+
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.type) {
                     case 'webviewLoaded':
                         break;
-                    case 'dirtyStateChange': {
-                        const isDirty = message.payload.isDirty;
-                        if (isDirty) {
-                            document.draftDescription = message.payload.draftDescription;
-                            // Notify VS Code that the document is dirty
-                            this._onDidChangeCustomDocument.fire({
+                    case 'descriptionChanged': {
+                        const newText = message.payload.description;
+                        const newSelection = {
+                            start: message.payload.selectionStart,
+                            end: message.payload.selectionEnd,
+                        };
+
+                        // Update current document state immediately so 'Save' always has latest
+                        document.draftDescription = newText;
+
+                        // Debounce the undo stack push so typing doesn't create thousands of undo points.
+                        let state = this._documentStates.get(document.changeId);
+                        if (!state) {
+                            state = {
+                                lastPushedText: document.persistedDescription || '',
+                                lastPushedSelection: { start: 0, end: 0 },
+                                panel,
                                 document,
-                                undo: () => {},
-                                redo: () => {},
-                                label: 'Edit Description',
-                            });
+                            };
+                            this._documentStates.set(document.changeId, state);
+                        } else {
+                            // Update the panel reference so flush uses the latest active panel
+                            state.panel = panel;
                         }
+
+                        if (state.debounceTimer) {
+                            clearTimeout(state.debounceTimer);
+                        }
+
+                        state.pendingUpdate = { newText, newSelection };
+                        state.debounceTimer = setTimeout(() => {
+                            this._flushDebounce(document.changeId);
+                        }, 200);
                         break;
                     }
                     case 'saveDescription': {
+                        const newText = message.payload.description;
+                        document.draftDescription = newText;
+
+                        // Flush any pending undo history so it remains 'behind' the save point
+                        this._flushDebounce(document.changeId);
+
                         // Natively trigger save which will call our saveCustomDocument
                         await vscode.commands.executeCommand('workbench.action.files.save');
-                        panel.webview.postMessage({
-                            type: 'saveComplete',
-                            payload: { description: message.payload.description },
-                        });
                         break;
                     }
                     case 'openDiff': {
@@ -257,6 +323,70 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             });
         } catch (e) {
             panel.dispose();
+        }
+    }
+
+    private _flushDebounce(changeId: string) {
+        const state = this._documentStates.get(changeId);
+        if (!state || !state.pendingUpdate) return;
+
+        if (state.debounceTimer) {
+            clearTimeout(state.debounceTimer);
+            state.debounceTimer = undefined;
+        }
+
+        const { newText, newSelection } = state.pendingUpdate;
+        state.pendingUpdate = undefined;
+
+        if (newText === state.lastPushedText) return;
+
+        const oldText = state.lastPushedText;
+        const oldSelection = state.lastPushedSelection;
+
+        const document = state.document;
+
+        this._onDidChangeCustomDocument.fire({
+            document,
+            undo: () => {
+                const s = this._documentStates.get(changeId);
+                if (s) {
+                    s.lastPushedText = oldText;
+                    s.lastPushedSelection = oldSelection;
+                }
+                state.panel.webview.postMessage({
+                    type: 'updateDescription',
+                    payload: {
+                        description: oldText,
+                        selectionStart: oldSelection.start,
+                        selectionEnd: oldSelection.end,
+                    },
+                });
+            },
+            redo: () => {
+                const s = this._documentStates.get(changeId);
+                if (s) {
+                    s.lastPushedText = newText;
+                    s.lastPushedSelection = newSelection;
+                }
+                state.panel.webview.postMessage({
+                    type: 'updateDescription',
+                    payload: {
+                        description: newText,
+                        selectionStart: newSelection.start,
+                        selectionEnd: newSelection.end,
+                    },
+                });
+            },
+            label: 'Edit Description',
+        });
+
+        state.lastPushedText = newText;
+        state.lastPushedSelection = newSelection;
+
+        // Stealth Save: If we just returned to the original persisted text,
+        // trigger a no-op save to clear the dirty indicator on the tab.
+        if (newText === document.persistedDescription) {
+            vscode.commands.executeCommand('workbench.action.files.save');
         }
     }
 

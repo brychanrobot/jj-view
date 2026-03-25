@@ -7,7 +7,7 @@ import { ElectronApplication, type Frame } from 'playwright';
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import { TestRepo, buildGraph, type CommitId } from '../test-repo';
-import { launchVSCode, focusJJLog, getLogWebview } from './e2e-helpers';
+import { launchVSCode, focusJJLog, getLogWebview, undo, redo, save } from './e2e-helpers';
 
 /**
  * Finds the webview frame containing the Commit Details panel.
@@ -211,9 +211,9 @@ test.describe('Commit Details E2E', () => {
         // Verify dirty state
         await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
-        // Focus the textarea and press Ctrl+S
+        // Focus the textarea and press Save
         await textarea.focus();
-        await page.keyboard.press('Control+s');
+        await save(page);
 
         // Verify the Save button is disabled (via our Webview state checking it's clean)
         const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
@@ -572,5 +572,76 @@ test.describe('Commit Details E2E', () => {
 
         const formatButton = details.locator('button', { hasText: 'Format Body' });
         await expect(formatButton).toBeHidden();
+    });
+
+    test('Undo/Redo integration with VS Code', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+        await featureRow.click();
+
+        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+        await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+        const details = await getDetailsWebview(page);
+        const textarea = details.locator('textarea');
+
+        // Stage 1: First edit
+        await textarea.focus();
+        await page.keyboard.press('End');
+        await page.keyboard.type(' first');
+        // Wait for debounce (200ms) plus buffer to ensure VS Code registers the edit.
+        await page.waitForTimeout(500);
+        await expect(tabLocator).toHaveClass(/dirty/);
+        await expect(textarea).toHaveValue('add feature first');
+
+        // Stage 2: Second edit
+        await page.keyboard.type(' second');
+        await page.waitForTimeout(500);
+        await expect(textarea).toHaveValue('add feature first second');
+
+        // Stage 3: Undo once
+        await undo(page);
+        await expect(textarea).toHaveValue('add feature first');
+        await expect(tabLocator).toHaveClass(/dirty/);
+
+        // Stage 4: Undo again
+        await undo(page);
+        await expect(textarea).toHaveValue('add feature');
+        // It should no longer be dirty because we are back to persisted state (and VS Code knows this sequence)
+        await expect(tabLocator).not.toHaveClass(/dirty/);
+
+        // Stage 5: Redo
+        await redo(page);
+        await expect(textarea).toHaveValue('add feature first');
+        await expect(tabLocator).toHaveClass(/dirty/);
+    });
+
+    test('Stealth Save: Dirty state clears when manually returning to original state', async () => {
+        const webview = await getLogWebview(page);
+        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+        await featureRow.click();
+
+        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+        await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+        const details = await getDetailsWebview(page);
+        const textarea = details.locator('textarea');
+
+        // 1. Make an edit to make it dirty
+        await textarea.fill('add feature (edited)');
+        // Wait for debounce and dirty indicator
+        await expect(async () => {
+            await expect(tabLocator).toHaveClass(/dirty/);
+        }).toPass({ timeout: 5000 });
+
+        // 2. Manually revert the change to the original text
+        await textarea.fill('add feature');
+
+        // 3. Verify it clears within the debounce window
+        await expect(async () => {
+            await expect(tabLocator).not.toHaveClass(/dirty/);
+        }).toPass({ timeout: 5000 });
     });
 });

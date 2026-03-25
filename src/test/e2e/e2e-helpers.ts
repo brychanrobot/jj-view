@@ -342,3 +342,20 @@ export async function hoverAndClick(row: Locator, button: Locator) {
         await button.click({ force: true });
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
 }
+
+export const isMac = process.platform === 'darwin';
+
+/** Helper to trigger Undo across platforms (Meta+z on Mac, Control+z otherwise) */
+export async function undo(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z');
+}
+
+/** Helper to trigger Redo across platforms (Meta+Shift+z on Mac, Control+Shift+z otherwise) */
+export async function redo(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+Shift+z' : 'Control+Shift+z');
+}
+
+/** Helper to trigger Save across platforms (Meta+s on Mac, Control+s otherwise) */
+export async function save(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+}

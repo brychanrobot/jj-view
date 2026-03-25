@@ -28,13 +28,18 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
     };
 
     let guestFrame: Frame | undefined;
-    await expect.poll(async () => {
-        guestFrame = await findFrame(page.frames());
-        return guestFrame;
-    }, {
-        timeout: 30000,
-        message: 'Could not find Commit Details webview frame',
-    }).toBeDefined();
+    await expect
+        .poll(
+            async () => {
+                guestFrame = await findFrame(page.frames());
+                return guestFrame;
+            },
+            {
+                timeout: 30000,
+                message: 'Could not find Commit Details webview frame',
+            },
+        )
+        .toBeDefined();
 
     await expect(guestFrame!.locator('textarea')).toBeVisible({ timeout: 10000 });
     return guestFrame!;
@@ -57,7 +62,7 @@ test.describe('Divergent Commits E2E', () => {
 
         // 2. Edit the message (creates A version 2)
         repo.describe('commit A v2');
-        
+
         // 3. Bookmark the old version to make it visible, creating divergence
         repo.bookmark('zombie', commitIdV1);
 
@@ -86,28 +91,28 @@ test.describe('Divergent Commits E2E', () => {
         // Both A v1 (zombie) and A v2 (@) should be visible
         const rowV1 = webview.locator('.commit-row', { hasText: 'commit A v1' });
         const rowV2 = webview.locator('.commit-row', { hasText: 'commit A v2' });
-        
+
         await expect(rowV1).toBeVisible();
         await expect(rowV2).toBeVisible();
 
         // Verify purple suffix in graph for both
         const suffix1 = rowV1.locator('.commit-id').locator('span', { hasText: /\/[012]/ });
         const suffix2 = rowV2.locator('.commit-id').locator('span', { hasText: /\/[012]/ });
-        
+
         await expect(suffix1).toBeVisible();
         await expect(suffix2).toBeVisible();
-        
+
         // Verify the (divergent) label is also visible in the description area
         await expect(rowV1.getByText('(divergent)')).toBeVisible();
         await expect(rowV2.getByText('(divergent)')).toBeVisible();
 
         // 2. Verify Tab Title for A v2
         await rowV2.click();
-        
+
         const changeIdV2 = await rowV2.getAttribute('data-change-id'); // e.g. "uuid/0" or "uuid/1"
         const [uuid, offset] = changeIdV2!.split('/');
         const shortId = uuid.substring(0, 3);
-        
+
         // Big Solidus is \u29F8
         const tabTitle = `Commit: ${shortId}\u29F8${offset}`;
         await expect(page.getByRole('tab', { name: tabTitle })).toBeVisible({
@@ -118,10 +123,10 @@ test.describe('Divergent Commits E2E', () => {
         const details = await getDetailsWebview(page);
         const textarea = details.locator('textarea');
         await textarea.fill('updated A v2 message');
-        
+
         const saveButton = details.locator('button', { hasText: /Save Changes/ });
         await saveButton.click();
-        
+
         // Wait for it to save
         await expect(details.locator('button', { hasText: 'Saved' })).toBeDisabled({ timeout: 15000 });
 
@@ -131,14 +136,14 @@ test.describe('Divergent Commits E2E', () => {
 
         // 4. Abandon the "zombie" commit (A v1) to resolve divergence
         await focusJJLog(page);
-        
+
         // Re-get webview because focus might refresh it
         const webview2 = await getLogWebview(page);
         const rowToAbandon = webview2.locator('.commit-row', { hasText: 'commit A v1' });
-        
+
         await expect(rowToAbandon).toBeVisible();
         await hoverAndClick(rowToAbandon, webview2.locator('.icon-button[title="Abandon Commit"]'));
-        
+
         // 5. Verify divergence is resolved
         await expect(async () => {
             // Trigger refresh to ensure the backend update is picked up synchronously in the test
@@ -147,11 +152,11 @@ test.describe('Divergent Commits E2E', () => {
             const finalWebview = await getLogWebview(page);
             const remainingRows = finalWebview.locator('.commit-row', { hasText: 'updated A v2 message' });
             await expect(remainingRows).toHaveCount(1);
-            
+
             // Should NO LONGER have a slash in the ID area
             const idArea = remainingRows.locator('.commit-id');
             await expect(idArea.locator('span', { hasText: '/' })).toBeHidden();
-            
+
             // Should NO LONGER have the (divergent) label
             await expect(remainingRows.getByText('(divergent)')).toBeHidden();
         }).toPass({ timeout: 20000 });

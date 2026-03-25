@@ -33,7 +33,7 @@ interface CommitDetailsProps {
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
-    onDirtyStateChange?: (isDirty: boolean, draftDescription: string) => void;
+    onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -54,11 +54,12 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
-    onDirtyStateChange,
+    onDescriptionChange,
 }) => {
     const [draftDescription, setDraftDescription] = React.useState(description);
     const draftDescriptionRef = React.useRef(draftDescription);
     const [isSaving, setIsSaving] = React.useState(false);
+    const isApplyingExtensionEdit = React.useRef(false);
 
     // Keep the ref strictly in sync with the state for use inside effects
     // that shouldn't re-run on every keystroke.
@@ -80,9 +81,13 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         // (to account for formatting adjustments applied by jj during save).
         if (
             draftDescriptionRef.current === prevDescriptionRef.current ||
-            draftDescriptionRef.current.trimEnd() === description.trimEnd()
+            draftDescriptionRef.current === description
         ) {
             setDraftDescription(description);
+            // Imperatively update the uncontrolled textarea to match
+            if (textareaRef.current && textareaRef.current.value !== description) {
+                textareaRef.current.value = description;
+            }
         }
         setIsSaving(false);
         prevDescriptionRef.current = description;
@@ -94,22 +99,29 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
             if (event.data.type === 'saveFailed') {
                 setIsSaving(false);
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+            } else if (event.data.type === 'updateDescription') {
+                const { description: newDesc, selectionStart, selectionEnd } = event.data.payload;
+                isApplyingExtensionEdit.current = true;
+                try {
+                    if (textareaRef.current) {
+                        textareaRef.current.value = newDesc;
+                        setDraftDescription(newDesc);
+                        textareaRef.current.focus();
+                        textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+                    }
+                } finally {
+                    isApplyingExtensionEdit.current = false;
+                }
             }
         };
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, []);
 
-    React.useEffect(() => {
-        if (onDirtyStateChange) {
-            onDirtyStateChange(isDirty, draftDescription);
-        }
-    }, [isDirty, draftDescription, onDirtyStateChange]);
-
     const handleSave = () => {
         setIsSaving(true);
 
-        const finalDescription = draftDescription.trim();
+        const finalDescription = textareaRef.current?.value || draftDescription;
 
         onSave(finalDescription);
 
@@ -120,8 +132,13 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
     const handleFormat = async () => {
         const newDescription = await formatCommitDescription(draftDescription, bodyWidthRuler);
-        if (newDescription !== draftDescription) {
+        if (newDescription !== draftDescription && textareaRef.current) {
+            textareaRef.current.value = newDescription;
             setDraftDescription(newDescription);
+            textareaRef.current.focus();
+            const len = newDescription.length;
+            textareaRef.current.setSelectionRange(len, len);
+            onDescriptionChange?.(newDescription, len, len);
         }
     };
 
@@ -200,8 +217,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         >
             {/* Header */}
             <div style={{ marginBottom: '12px' }}>
-                <h2 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    Commit Details
+                <div style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div
                         style={{
                             display: 'flex',
@@ -242,7 +258,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             <TagPill key={t} tag={t} />
                         ))}
                     </div>
-                </h2>
+                </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -423,9 +439,19 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                     <textarea
                         className="commit-textarea"
                         ref={textareaRef}
-                        value={draftDescription}
+                        defaultValue={draftDescription}
                         disabled={isImmutable}
-                        onChange={(e) => setDraftDescription(e.target.value)}
+                        onInput={() => {
+                            if (textareaRef.current) {
+                                const newVal = textareaRef.current.value;
+                                const selectionStart = textareaRef.current.selectionStart;
+                                const selectionEnd = textareaRef.current.selectionEnd;
+                                setDraftDescription(newVal);
+                                if (!isApplyingExtensionEdit.current) {
+                                    onDescriptionChange?.(newVal, selectionStart, selectionEnd);
+                                }
+                            }
+                        }}
                         onScroll={() => {
                             if (backdropRef.current && textareaRef.current) {
                                 backdropRef.current.scrollTop = textareaRef.current.scrollTop;

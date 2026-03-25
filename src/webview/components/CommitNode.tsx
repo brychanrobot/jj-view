@@ -216,7 +216,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     {(() => {
                         const [idPart, offsetPart] = commit.change_id.split('/');
                         const hasShortId = commit.change_id_shortest && idPart.startsWith(commit.change_id_shortest);
-                        
+
                         return (
                             <>
                                 {hasShortId ? (
