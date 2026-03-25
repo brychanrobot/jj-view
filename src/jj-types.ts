@@ -42,6 +42,8 @@ export interface JjLogEntry {
     is_working_copy?: boolean;
     is_immutable?: boolean;
     is_empty?: boolean;
+    is_divergent?: boolean;
+    change_id_offset?: number;
     parents_immutable?: boolean[];
     conflict?: boolean;
     changes?: JjStatusEntry[];

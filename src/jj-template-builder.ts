@@ -62,7 +62,7 @@ export function buildLogTemplate(schema: Record<string, JjTemplateField>): strin
 // Schema for JjLogEntry - defines how to serialize each field
 export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     commit_id: { type: 'string', expr: 'commit_id' },
-    change_id: { type: 'string', expr: 'change_id' },
+    change_id: { type: 'string', expr: 'if(divergent, change_id ++ "/" ++ change_offset, change_id)' },
     change_id_shortest: { type: 'string', expr: 'change_id.shortest()' },
     description: { type: 'json', expr: 'description' },
     author: {
@@ -97,6 +97,8 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     is_immutable: { type: 'raw', expr: 'immutable' },
     is_working_copy: { type: 'raw', expr: 'current_working_copy' },
     is_empty: { type: 'raw', expr: 'empty' },
+    is_divergent: { type: 'raw', expr: 'divergent' },
+    change_id_offset: { type: 'raw', expr: 'if(change_offset, change_offset, "null")' },
     parents: {
         type: 'stringArray',
         expr: 'parents',

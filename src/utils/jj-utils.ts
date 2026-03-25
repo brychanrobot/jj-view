@@ -48,3 +48,16 @@ export function formatDisplayChangeId(changeId: string, shortestId: string | und
     const displayLen = getChangeIdDisplayLength(shortestId, minLen);
     return shortenChangeId(changeId, displayLen);
 }
+/**
+ * Formats a title for the commit details tab.
+ * Shortens the UUID part and appends the offset if divergent.
+ */
+export function formatCommitTitle(
+    commit: { change_id: string; change_id_shortest?: string; is_divergent?: boolean; change_id_offset?: number },
+    minLen: number,
+): string {
+    const displayLen = Math.max(minLen, commit.change_id_shortest?.length || 0);
+    const shortId = commit.change_id.substring(0, displayLen);
+    const offsetSuffix = commit.is_divergent ? `⧸${commit.change_id_offset}` : '';
+    return `Commit: ${shortId}${offsetSuffix}`;
+}

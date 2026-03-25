@@ -1274,4 +1274,38 @@ log = "none()"
         expect(hashes.size).toBe(1);
         expect(hashes.get(fileName)).toBe(expectedHash);
     });
+
+    test('getLog detects divergent commits and offsets', async () => {
+        // 1. Create a commit
+        repo.describe('version 1');
+        const commitIdV1 = repo.getCommitId('@');
+
+        // 2. Edit the commit message (creates V2)
+        repo.describe('version 2');
+        const commitIdV2 = repo.getCommitId('@');
+
+        // 3. Bookmark the old commit ID to make it visible
+        repo.bookmark('old-version', commitIdV1);
+
+        // Now we have two visible commits for the same change ID: commitIdV1 and commitIdV2
+        const logs = await jjService.getLog({ revision: 'all()' });
+
+        const v1Entry = logs.find((l) => l.commit_id === commitIdV1);
+        const v2Entry = logs.find((l) => l.commit_id === commitIdV2);
+
+        expect(v1Entry).toBeDefined();
+        expect(v2Entry).toBeDefined();
+
+        expect(v1Entry!.is_divergent).toBe(true);
+        expect(v2Entry!.is_divergent).toBe(true);
+
+        // Verification of combined change_id
+        expect(v1Entry!.change_id).toMatch(/\/\d+$/);
+        expect(v2Entry!.change_id).toMatch(/\/\d+$/);
+
+        // In this test setup, V1 gets offset 1 and V2 gets offset 0
+        expect(v1Entry!.change_id_offset).toBe(1);
+        expect(v2Entry!.change_id_offset).toBe(0);
+        expect(v1Entry!.change_id_offset).not.toBe(v2Entry!.change_id_offset);
+    });
 });

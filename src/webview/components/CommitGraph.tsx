@@ -120,7 +120,13 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                             <CommitNode
                                 commit={commit}
                                 onClick={(modifiers) =>
-                                    onAction('select', { changeId: commit.change_id, ...modifiers })
+                                    onAction('select', {
+                                        changeId: commit.change_id,
+                                        changeIdShortest: commit.change_id_shortest,
+                                        isDivergent: commit.is_divergent,
+                                        changeIdOffset: commit.change_id_offset,
+                                        ...modifiers,
+                                    })
                                 }
                                 onAction={onAction}
                                 isSelected={isSelected}

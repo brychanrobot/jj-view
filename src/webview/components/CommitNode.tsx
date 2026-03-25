@@ -79,6 +79,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
         }
     } else if (isConflict) {
         backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-red) 10%)';
+    } else if (commit.is_divergent) {
+        backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-purple) 10%)';
     }
 
     // Allow hover background even while dragging (buttons hidden by JSX check)
@@ -87,6 +89,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
         if (isSelected) {
         } else if (isConflict) {
             backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-red) 20%)';
+        } else if (commit.is_divergent) {
+            backgroundColor = 'color-mix(in srgb, transparent, var(--vscode-charts-purple) 20%)';
         } else {
             backgroundColor = 'var(--vscode-list-hoverBackground)';
         }
@@ -188,8 +192,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 style={{
                     marginRight: '8px',
                     flexShrink: 0,
-                    width: `${idDisplayLength}ch`,
                     minWidth: `${idDisplayLength}ch`,
+                    width: 'auto',
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
@@ -209,18 +213,30 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         fontFamily: 'monospace', // Ensure ch units align with text
                     }}
                 >
-                    {commit.change_id_shortest ? (
-                        <>
-                            <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
-                            {commit.change_id.length > commit.change_id_shortest.length && (
-                                <span style={{ opacity: 0.6 }}>
-                                    {commit.change_id.substring(commit.change_id_shortest.length, idDisplayLength)}
-                                </span>
-                            )}
-                        </>
-                    ) : (
-                        commit.change_id.substring(0, idDisplayLength)
-                    )}
+                    {(() => {
+                        const [idPart, offsetPart] = commit.change_id.split('/');
+                        const hasShortId = commit.change_id_shortest && idPart.startsWith(commit.change_id_shortest);
+                        
+                        return (
+                            <>
+                                {hasShortId ? (
+                                    <>
+                                        <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
+                                        {idPart.length > commit.change_id_shortest.length && (
+                                            <span style={{ opacity: 0.6 }}>
+                                                {idPart.substring(commit.change_id_shortest.length, idDisplayLength)}
+                                            </span>
+                                        )}
+                                    </>
+                                ) : (
+                                    idPart.substring(0, idDisplayLength)
+                                )}
+                                {offsetPart && (
+                                    <span style={{ color: 'var(--vscode-charts-purple)' }}>/{offsetPart}</span>
+                                )}
+                            </>
+                        );
+                    })()}
                 </span>
 
                 {/* Overlay Actions */}
@@ -334,6 +350,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             minWidth: 0, // Critical for text-overflow in flex children
                         }}
                     >
+                        {commit.is_divergent && (
+                            <span style={{ color: 'var(--vscode-charts-purple)', marginRight: '4px' }}>
+                                (divergent)
+                            </span>
+                        )}
                         {displayDescription}
                     </span>
 

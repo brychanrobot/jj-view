@@ -9,6 +9,7 @@ import {
     shortenChangeId,
     getChangeIdDisplayLength,
     formatDisplayChangeId,
+    formatCommitTitle,
 } from '../utils/jj-utils';
 
 describe('JJ Utils', () => {
@@ -76,6 +77,49 @@ describe('JJ Utils', () => {
 
         it('should handle short full ID', () => {
             expect(formatDisplayChangeId('abc', 'abc', 8)).toBe('abc');
+        });
+    });
+
+    describe('formatCommitTitle', () => {
+        const fullId = 'abcdefghijklmnopqrstuvwxyz';
+
+        it('should use minLen if shortestId is missing', () => {
+            const commit = { change_id: fullId };
+            expect(formatCommitTitle(commit, 8)).toBe('Commit: abcdefgh');
+        });
+
+        it('should use shortestId length if it is longer than minLen', () => {
+            const commit = { change_id: fullId, change_id_shortest: 'abcd' };
+            expect(formatCommitTitle(commit, 1)).toBe('Commit: abcd');
+        });
+
+        it('should append offset for divergent commits', () => {
+            const commit = {
+                change_id: 'abc/1',
+                is_divergent: true,
+                change_id_offset: 1,
+            };
+            // Note: substring(0, 1) on "abc/1" is "a"
+            expect(formatCommitTitle(commit, 1)).toBe('Commit: a⧸1');
+        });
+
+        it('should truncate offset from base change_id even without splitting', () => {
+            const commit = {
+                change_id: 'vykwzknv/1',
+                is_divergent: true,
+                change_id_offset: 1,
+                change_id_shortest: 'vykw',
+            };
+            // displayLen = 4. "vykwzknv/1".substring(0, 4) = "vykw"
+            expect(formatCommitTitle(commit, 1)).toBe('Commit: vykw⧸1');
+        });
+
+        it('should handle regular commits with no offset', () => {
+            const commit = {
+                change_id: 'abcdef',
+                is_divergent: false,
+            };
+            expect(formatCommitTitle(commit, 8)).toBe('Commit: abcdef');
         });
     });
 });

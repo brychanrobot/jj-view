@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { JjService } from './jj-service';
 import { JjContextKey } from './jj-context-keys';
 import { JjLogEntry } from './jj-types';
-import { shortenChangeId } from './utils/jj-utils';
+import { formatCommitTitle } from './utils/jj-utils';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 
 import { GerritService } from './gerrit-service';
@@ -128,7 +128,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand('jj-view.abandon', data.payload);
                     break;
                 case 'getDetails':
-                    await this.createCommitDetailsPanel(data.payload.changeId);
+                    await this.createCommitDetailsPanel(
+                        data.payload.changeId,
+                        data.payload.changeIdShortest,
+                        data.payload.isDivergent,
+                        data.payload.changeIdOffset,
+                    );
                     break;
                 case 'new':
                     await vscode.commands.executeCommand('jj-view.new');
@@ -295,14 +300,28 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    public async createCommitDetailsPanel(changeId: string) {
+    public async createCommitDetailsPanel(
+        changeId: string,
+        changeIdShortest?: string,
+        isDivergent?: boolean,
+        changeIdOffset?: number,
+    ) {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const shortId = shortenChangeId(changeId, minChangeIdLength);
+        const title = formatCommitTitle(
+            {
+                change_id: changeId,
+                change_id_shortest: changeIdShortest,
+                is_divergent: isDivergent,
+                change_id_offset: changeIdOffset,
+            },
+            minChangeIdLength,
+        );
+
         const uri = vscode.Uri.from({
             scheme: 'jj-commit',
             authority: 'commit',
-            path: `/Commit: ${shortId}`,
+            path: `/${title}`,
             query: `changeId=${changeId}`,
         });
 
