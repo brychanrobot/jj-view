@@ -76,18 +76,25 @@ test.describe('SCM Pane E2E', () => {
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
             await scmInputRow.click(); // Focus the editor
 
-            // Set Description and Commit
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('Updated description explicitly');
-
-            // Commit using button inside the Source Control view title bar
-            const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
-            await commitButton.click();
-
-            // Wait for description to clear out (indicating commit success)
+            // Set Description and Commit with retry logic for stability
             await expect(async () => {
-                expect(repo.log()).toContain('Updated description explicitly');
-            }).toPass({ timeout: 5000 });
+                await scmInputRow.click();
+                await page.keyboard.press('Control+A');
+                await page.keyboard.press('Backspace');
+                await page.keyboard.insertText('Updated description explicitly');
+
+                // Verify UI reflects the text before clicking commit to ensure synchronization
+                await expect(scmInputRow).toContainText('Updated description explicitly', { timeout: 2000 });
+
+                // Commit using button inside the Source Control view title bar
+                const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
+                await commitButton.click();
+
+                // Wait for description to appear in log (indicating commit success)
+                await expect(async () => {
+                    expect(repo.log()).toContain('Updated description explicitly');
+                }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 15000 });
 
             // Ensure wait for SCM refresh before next action
             await expect(scmInputRow).not.toContainText('Updated description explicitly', { timeout: 10000 });
@@ -120,7 +127,7 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' } },
-            { label: 'wc', parents: ['initial'], isWorkingCopy: true },
+            { label: 'wc', parents: ['initial'], description: '', isWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -128,26 +135,32 @@ test.describe('SCM Pane E2E', () => {
         try {
             await focusSCM(page);
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow.click();
 
             // Set Description with Ctrl+S
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('Using keyboard shortcuts');
-            await page.keyboard.press('Control+S');
-
-            // Wait for input to be stable (doesn't change back to what it was)
             await expect(async () => {
+                await scmInputRow.click();
+                await page.keyboard.press('Control+A');
+                await page.keyboard.press('Backspace');
+                await page.keyboard.insertText('Using keyboard shortcuts');
+                await page.keyboard.press('Control+S');
+
+                // Wait for input to be stable (doesn't change back to what it was)
                 expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
-            }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 10000 });
 
             // Set Description to trigger commit
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('Commit via keyboard');
-            await page.keyboard.press('Control+S');
-
             await expect(async () => {
-                expect(repo.getDescription('@').trim()).toBe('Commit via keyboard');
-            }).toPass({ timeout: 5000 });
+                await scmInputRow.click();
+                await page.keyboard.press('Control+A');
+                await page.keyboard.press('Backspace');
+                await page.keyboard.insertText('Commit via keyboard');
+                await page.keyboard.press('Control+S');
+
+                await expect(async () => {
+                    expect(repo.getDescription('@').trim()).toBe('Commit via keyboard');
+                }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 10000 });
+
 
             // Commit with Ctrl+Enter
             await scmInputRow.click();

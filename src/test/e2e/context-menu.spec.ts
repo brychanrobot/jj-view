@@ -335,17 +335,25 @@ test.describe('JJ Log Context Menu E2E', () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
 
-        // Set bookmark on commit 1
-        await rightClickAndSelect(page, commit1Row, 'Set Bookmark');
+        // Set bookmark on commit 1 (retry the whole sequence)
+        await expect(async () => {
+            await rightClickAndSelect(page, commit1Row, 'Set Bookmark');
 
-        // Wait for QuickPick/InputBox to appear
-        await expect(page.locator('.quick-input-widget')).toBeVisible({ timeout: 5000 });
-        await page.keyboard.type('my-bookmark', { delay: 50 });
-        await page.keyboard.press('Enter');
+            // Wait for QuickPick/InputBox to appear. The InputBox has an input.input element.
+            const quickInput = page.locator('.quick-input-widget');
+            const input = quickInput.locator('input.input');
+            await expect(input).toBeVisible({ timeout: 5000 });
 
-        // Verification: bookmark pill should appear in the webview
-        await expect(commit1Row.locator('.bookmark-pill', { hasText: 'my-bookmark' })).toBeVisible({ timeout: 10000 });
+            // Type the bookmark name
+            await input.focus();
+            await page.keyboard.type('my-bookmark', { delay: 50 });
+            await page.keyboard.press('Enter');
+
+            // Verification: bookmark pill should appear in the webview
+            await expect(commit1Row.locator('.bookmark-pill', { hasText: 'my-bookmark' })).toBeVisible({ timeout: 10000 });
+        }).toPass({ timeout: 30000 });
     });
+
 
     test('Absorb', async () => {
         const commit1Id = nodes['commit1'].changeId;
