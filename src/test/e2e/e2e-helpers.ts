@@ -24,7 +24,11 @@ export interface VSCodeContext {
  * Initializes a user data directory with common settings and launches VS Code.
  * Renamed to launchVSCode to avoid confusion with local setup functions in specs.
  */
-export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
+export async function launchVSCode(
+    repo: TestRepo,
+    extraSettings: Record<string, unknown> = {},
+    extraEnv: Record<string, string | undefined> = {},
+): Promise<VSCodeContext> {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-user-data-'));
     const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-extensions-'));
     const userSettingsDir = path.join(userDataDir, 'User');
@@ -52,6 +56,7 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
                 'extensions.autoCheckUpdates': false,
                 'extensions.autoUpdate': false,
                 'explorer.excludeGitIgnore': false,
+                ...extraSettings,
             },
             null,
             2,
@@ -123,9 +128,20 @@ export async function launchVSCode(repo: TestRepo): Promise<VSCodeContext> {
         args.push('--disable-extensions'); // Only disable other extensions when running from source
     }
 
+    const env = { ...process.env } as { [key: string]: string };
+    for (const key in extraEnv) {
+        const val = extraEnv[key];
+        if (val === undefined) {
+            delete env[key];
+        } else {
+            env[key] = val;
+        }
+    }
+
     const app = await electron.launch({
         executablePath: vscodePath,
         args,
+        env,
     });
 
     const page = await app.firstWindow();

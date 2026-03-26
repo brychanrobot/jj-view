@@ -34,6 +34,7 @@ export class JjService {
     constructor(
         public readonly workspaceRoot: string,
         public readonly logger: (message: string) => void = () => {},
+        public binaryPath: string = 'jj',
     ) {}
 
     private _repoRoot?: string;
@@ -208,7 +209,7 @@ export class JjService {
                     ...options,
                 };
 
-                cp.execFile('jj', allArgs, finalOptions, (err, stdout, stderr) => {
+                cp.execFile(this.binaryPath, allArgs, finalOptions, (err, stdout, stderr) => {
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                     this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);

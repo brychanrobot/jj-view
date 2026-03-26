@@ -82,6 +82,21 @@ You MUST run individual test cases when writing a new test or debugging a broken
     # Example: npm run test:e2e -- scm.spec.ts
     ```
 
+### 4. Debugging E2E Tests (DOM Dumping)
+
+**Purpose:** When locators fail in E2E tests, it's often due to the complex, nested structure of VS Code (including shadow roots and iframes). Simply dumping the page content can help identify the correct selectors.
+
+**Common Strategy:**
+
+```typescript
+// Dump the entire page content as a string
+console.log(await page.content());
+
+// Or dump focused parts of the DOM if you suspect nested structures
+const dom = await page.evaluate(() => document.body.innerHTML);
+console.log(dom);
+```
+
 ## Mandatory Debugging Practice
 
 When writing a new test or investigating a failure:

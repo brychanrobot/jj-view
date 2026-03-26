@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { checkGitColocation } from './git-colocation';
 
 import { JjService } from './jj-service';
+import { resolveJjBinary } from './utils/binary-utils';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -59,6 +60,52 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
 
     const jj = new JjService(workspaceRoot, (msg) => outputChannel.appendLine(msg));
+
+    // Resolve jj binary path and handle failure
+    const updateBinaryPath = async () => {
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const preferredPath = config.get<string>('binaryPath');
+
+        let resolvedPath: string | undefined;
+        let errorMessage: string | undefined;
+
+        try {
+            resolvedPath = await resolveJjBinary(preferredPath, workspaceRoot);
+            if (!resolvedPath) {
+                errorMessage = `Could not find 'jj' binary. Please ensure 'jj' is installed and in your PATH, or configure its path manually.`;
+            }
+        } catch (e: unknown) {
+            errorMessage = `Invalid 'jj' binary configuration: ${(e as Error).message}`;
+        }
+
+        if (resolvedPath) {
+            jj.binaryPath = resolvedPath;
+            outputChannel.appendLine(`[Extension] Using jj binary at: ${resolvedPath}`);
+        } else if (errorMessage) {
+            showBinaryError(errorMessage);
+        }
+    };
+
+    const showBinaryError = (message: string) => {
+        const CONFIGURE = 'Configure Path';
+        vscode.window.showErrorMessage(message, CONFIGURE).then((selection) => {
+            if (selection === CONFIGURE) {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'jj-view.binaryPath');
+            }
+        });
+    };
+
+    updateBinaryPath();
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (e.affectsConfiguration('jj-view.binaryPath')) {
+                await updateBinaryPath();
+                scmProvider.refresh();
+            }
+        }),
+    );
+
     const gerritService = new GerritService(workspaceRoot, jj, outputChannel);
     context.subscriptions.push(gerritService);
 

@@ -143,6 +143,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.graphLabelAlignment`          | `"aligned"` | Controls the horizontal alignment of commit messages in the log view. Available options: `aligned`, `compact`.                                                                                                                                                                                       |
 | `jj-view.commit.titleWidthRuler`       | `50`        | Width at which to display a ruler in the commit details description editor for the title line.                                                                                                                                                                                                       |
 | `jj-view.commit.bodyWidthRuler`        | `72`        | Width at which to display a ruler in the commit details description editor for the body.                                                                                                                                                                                                             |
+| `jj-view.binaryPath`                  | `""`        | Optional absolute path to the 'jj' binary. If empty, the extension will search for it in your PATH                                                                                                                                                                     |
 | `jj-view.suppressGitColocationWarning` | `false`     | Suppress the warning to disable the built-in Git extension in colocated repositories.                                                                                                                                                                                                                |
 
 ## Advanced Configuration
@@ -188,7 +189,7 @@ On non-macOS platforms, we recommend installing [Watchman](https://facebook.gith
 
 ## Requirements
 
-- **Jujutsu (jj)**: The `jj` CLI must be installed and available in your system `PATH`.
+- **Jujutsu (jj)**: The `jj` CLI must be installed. By default, it must be available in your system `PATH`, but you can also configure a custom path in the extension settings.
     - [Installation Guide](https://docs.jj-vcs.dev/latest/install-and-setup)
 
 ## Contributing

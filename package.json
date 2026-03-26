@@ -132,6 +132,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Suppress the warning to disable the built-in Git extension in colocated repositories."
+                },
+                "jj-view.binaryPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional absolute path to the 'jj' binary. If empty, the extension will search for it in your PATH."
                 }
             }
         },

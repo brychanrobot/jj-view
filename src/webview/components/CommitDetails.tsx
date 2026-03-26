@@ -79,10 +79,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         // We only overwrite the draft if the user hasn't made any unsaved edits (the draft
         // matches the previous description), or if the only difference is trailing whitespace
         // (to account for formatting adjustments applied by jj during save).
-        if (
-            draftDescriptionRef.current === prevDescriptionRef.current ||
-            draftDescriptionRef.current === description
-        ) {
+        if (draftDescriptionRef.current === prevDescriptionRef.current || draftDescriptionRef.current === description) {
             setDraftDescription(description);
             // Imperatively update the uncontrolled textarea to match
             if (textareaRef.current && textareaRef.current.value !== description) {
