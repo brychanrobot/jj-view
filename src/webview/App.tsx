@@ -2,20 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core';
 import * as React from 'react';
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
+import { JjStatusEntry } from '../jj-types';
+import { BookmarkPill } from './components/Bookmark';
+import { CommitDetails } from './components/CommitDetails';
+import { CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
+import { snapToCursorLeft } from './utils/modifiers';
+import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
 // Define the vscode API from the global scope (see global.d.ts)
 const vscode = window.acquireVsCodeApi();
-
-import { CommitDetails } from './components/CommitDetails';
-import { BookmarkPill } from './components/Bookmark';
-import { CommitDragPreview } from './components/CommitDragPreview';
-import { snapToCursorLeft } from './utils/modifiers';
-import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
-import { JjStatusEntry } from '../jj-types';
 
 const App: React.FC = () => {
     // Initial State from Window (injected by provider)
@@ -408,8 +406,8 @@ const App: React.FC = () => {
                         graphLabelAlignment={graphLabelAlignment}
                     />
                 </div>
-                {/* 
-                  snapCenterToCursor ensures the preview is always centered on the mouse, 
+                {/*
+                  snapCenterToCursor ensures the preview is always centered on the mouse,
                   regardless of where the user grabbed the original wide row.
                 */}
                 <DragOverlay

@@ -2,15 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as vscode from 'vscode';
-import { JjService } from './jj-service';
+import { GerritService } from './gerrit-service';
+import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
+import { JjService } from './jj-service';
 import { JjLogEntry } from './jj-types';
 import { formatCommitTitle } from './utils/jj-utils';
-import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
-
-import { GerritService } from './gerrit-service';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';

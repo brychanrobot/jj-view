@@ -2,21 +2,19 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import * as parcelWatcher from '@parcel/watcher';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as os from 'os';
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import * as path from 'path';
+import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { OutputChannel } from 'vscode';
 import { DirectoryWatcher } from '../directory-watcher';
 import { createMock } from './test-utils';
-import type { OutputChannel } from 'vscode';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
     return createVscodeMock();
 });
-
-import * as parcelWatcher from '@parcel/watcher';
 
 vi.mock('@parcel/watcher', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@parcel/watcher')>();

@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { _electron as electron } from 'playwright';
 import { test } from '@playwright/test';
-import * as path from 'path';
+import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
+import { _electron as electron } from 'playwright';
 import { TestRepo, buildGraph } from '../test-repo';
-import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
 /**
  * Playwright test to generate high-quality screenshots for the README.

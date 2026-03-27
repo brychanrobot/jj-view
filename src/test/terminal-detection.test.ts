@@ -2,17 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// sort-imports-ignore (needed so that we can import after `vscode` is mocked)
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as vscode from 'vscode';
+import { handleTerminalExecution } from '../extension';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
     return createVscodeMock();
 });
 
-import { handleTerminalExecution } from '../extension';
+// Import after mock
 import type { GerritService } from '../gerrit-service';
-import type * as vscode from 'vscode';
 
 describe('handleTerminalExecution', () => {
     let gerritService: { forceRefresh: ReturnType<typeof vi.fn>; requestRefreshWithBackoffs: ReturnType<typeof vi.fn> };

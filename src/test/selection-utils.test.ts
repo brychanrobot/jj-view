@@ -2,8 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { calculateNextSelection, hasImmutableSelection } from '../webview/utils/selection-utils';
 
 describe('selection-utils', () => {

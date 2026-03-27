@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { uploadCommand } from '../../commands/upload';
-import { JjService } from '../../jj-service';
-import { GerritService } from '../../gerrit-service';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
+import { uploadCommand } from '../../commands/upload';
+import { GerritService } from '../../gerrit-service';
+import { JjService } from '../../jj-service';
 
 // Mock dependencies
 const mockConfig = {

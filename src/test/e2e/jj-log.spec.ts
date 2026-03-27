@@ -2,11 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import { TestRepo, buildGraph } from '../test-repo';
-import { launchVSCode, focusJJLog, getLogWebview, expectTree, entry, ROOT_ID } from './e2e-helpers';
+import { ROOT_ID, entry, expectTree, focusJJLog, getLogWebview, launchVSCode } from './e2e-helpers';
 
 test.describe('JJ Log Pane E2E', () => {
     test('Webview Initialization & Rendering', async () => {

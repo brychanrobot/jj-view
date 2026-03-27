@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as prettier from 'prettier/standalone';
 import * as markdownPlugin from 'prettier/plugins/markdown';
+import * as prettier from 'prettier/standalone';
 
 export async function formatCommitDescription(description: string, bodyWidthRuler: number): Promise<string> {
     // Separate the title, any empty lines immediately following it, and the content body.

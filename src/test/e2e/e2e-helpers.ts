@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { _electron as electron, Page, type Frame, ElectronApplication } from 'playwright';
-import { expect, Locator } from '@playwright/test';
-import * as path from 'path';
+import { Locator, expect } from '@playwright/test';
+import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
+import { ElectronApplication, type Frame, Page, _electron as electron } from 'playwright';
 import { TestRepo } from '../test-repo';
-import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
 export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
 

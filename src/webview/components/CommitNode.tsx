@@ -2,13 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import React from 'react';
-import { useDroppable, useDraggable, useDndContext } from '@dnd-kit/core';
-
-import { IconButton } from './IconButton';
+// Needs to be available in types or duplicated.
+import { GerritClInfo } from '../../jj-types';
 import { BookmarkPill, DraggableBookmark } from './Bookmark';
-import { GerritClInfo } from '../../jj-types'; // Import GerritClInfo (needs to be available in types or duplicated)
+import { IconButton } from './IconButton';
 
 // Exported for DragOverlay in App.tsx
 export { BookmarkPill } from './Bookmark';

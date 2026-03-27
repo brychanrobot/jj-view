@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as vscode from 'vscode';
-import { JjService } from '../jj-service';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { collectResourceStates, extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 
 export async function absorbCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {

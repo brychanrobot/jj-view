@@ -2,12 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// sort-imports-ignore (needed so that we can import after `vscode` is mocked)
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { accessPrivate, createMock } from './test-utils';
-import { JjStatusEntry } from '../jj-types'; // Retained as it's used
 import { JjService } from '../jj-service';
+import { JjStatusEntry } from '../jj-types';
+import { accessPrivate, createMock } from './test-utils';
 
 // Mock vscode
 vi.mock('vscode', () => {

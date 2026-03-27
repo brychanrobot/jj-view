@@ -2,11 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as vscode from 'vscode';
 import * as path from 'path';
-import { JjService } from '../jj-service';
+import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function moveToChildCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {

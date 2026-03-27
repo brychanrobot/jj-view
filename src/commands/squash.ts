@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as vscode from 'vscode';
-import * as path from 'path';
 import * as fs from 'fs/promises';
-import { JjService } from '../jj-service';
+import * as path from 'path';
+import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {

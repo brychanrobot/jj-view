@@ -2,53 +2,49 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as vscode from 'vscode';
-
+import { abandonCommand } from './commands/abandon';
+import { absorbCommand } from './commands/absorb';
+import { setBookmarkCommand } from './commands/bookmark';
+import { commitCommand } from './commands/commit';
+import { commitPromptCommand } from './commands/commit-prompt';
+import { setDescriptionCommand } from './commands/describe';
+import { describePromptCommand } from './commands/describe-prompt';
+import { showDetailsCommand } from './commands/details';
+import { discardChangeCommand } from './commands/discard-change';
+import { duplicateCommand } from './commands/duplicate';
+import { editCommand } from './commands/edit';
+import { MergeCommandArg, newMergeChangeCommand } from './commands/merge';
+import { openMergeEditorCommand } from './commands/merge-editor';
+import { moveToChildCommand, moveToParentInDiffCommand } from './commands/move';
+import { showMultiFileDiffCommand } from './commands/multi-diff';
+import { newCommand } from './commands/new';
+import { newAfterCommand } from './commands/new-after';
+import { newBeforeCommand } from './commands/new-before';
+import { openFileCommand } from './commands/open';
+import { CommitMenuContext, rebaseOntoSelectedCommand } from './commands/rebase';
+import { refreshCommand } from './commands/refresh';
+import { restoreCommand } from './commands/restore';
+import { showCurrentChangeCommand } from './commands/show';
+import { completeSquashCommand, squashCommand } from './commands/squash';
+import { squashChangeCommand } from './commands/squash-change';
+import { squashIntoCommand } from './commands/squash-into';
+import { undoCommand } from './commands/undo';
+import { uploadCommand } from './commands/upload';
+import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
-
-import { JjService } from './jj-service';
-import { resolveJjBinary } from './utils/binary-utils';
-import { JjScmProvider } from './jj-scm-provider';
+import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
-import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
-import { GerritService } from './gerrit-service';
-import { abandonCommand } from './commands/abandon';
-import { newMergeChangeCommand, MergeCommandArg } from './commands/merge';
-import { squashCommand, completeSquashCommand } from './commands/squash';
-import { squashIntoCommand } from './commands/squash-into';
-import { moveToChildCommand, moveToParentInDiffCommand } from './commands/move';
-import { restoreCommand } from './commands/restore';
-import { setDescriptionCommand } from './commands/describe';
-import { newCommand } from './commands/new';
-import { uploadCommand } from './commands/upload';
-import { discardChangeCommand } from './commands/discard-change';
-import { squashChangeCommand } from './commands/squash-change';
-import { setBookmarkCommand } from './commands/bookmark';
-import { absorbCommand } from './commands/absorb';
-import { newBeforeCommand } from './commands/new-before';
-import { newAfterCommand } from './commands/new-after';
+import { JjScmProvider } from './jj-scm-provider';
+import { JjService } from './jj-service';
+import { resolveJjBinary } from './utils/binary-utils';
 
 export interface Api {
     scmProvider: JjScmProvider;
     jj: JjService;
 }
-
-import { undoCommand } from './commands/undo';
-import { duplicateCommand } from './commands/duplicate';
-import { editCommand } from './commands/edit';
-import { showDetailsCommand } from './commands/details';
-import { showCurrentChangeCommand } from './commands/show';
-import { commitCommand } from './commands/commit';
-import { commitPromptCommand } from './commands/commit-prompt';
-import { describePromptCommand } from './commands/describe-prompt';
-import { rebaseOntoSelectedCommand, CommitMenuContext } from './commands/rebase';
-import { openMergeEditorCommand } from './commands/merge-editor';
-import { refreshCommand } from './commands/refresh';
-import { openFileCommand } from './commands/open';
-import { showMultiFileDiffCommand } from './commands/multi-diff';
 
 export function activate(context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders) {

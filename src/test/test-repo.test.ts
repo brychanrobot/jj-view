@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TestRepo, buildGraph } from './test-repo';
 import * as cp from 'child_process';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { TestRepo, buildGraph } from './test-repo';
 
 describe('TestRepo', () => {
     let repo: TestRepo;

@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as cp from 'child_process';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as os from 'os';
+import * as path from 'path';
+import { LOG_ENTRY_SCHEMA, buildLogTemplate } from './jj-template-builder';
 import { JjLogEntry, JjStatusEntry } from './jj-types';
 import { PatchHelper, SelectionRange } from './patch-helper';
-import { buildLogTemplate, LOG_ENTRY_SCHEMA } from './jj-template-builder';
 
 export interface JjLogOptions {
     revision?: string;

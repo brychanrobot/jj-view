@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import typescriptEslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
+import typescriptEslint from 'typescript-eslint';
 
 export default [
     {

@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { JjResourceState } from '../jj-scm-provider';
-import { ScmContextValue } from '../jj-context-keys';
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as vscode from 'vscode';
+import { ScmContextValue } from '../jj-context-keys';
+import { JjResourceState } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated

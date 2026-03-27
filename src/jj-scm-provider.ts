@@ -2,22 +2,19 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as vscode from 'vscode';
-import { JjService } from './jj-service';
-import { JjStatusEntry, JjLogEntry } from './jj-types';
-import { ChangeDetectionManager } from './change-detection-manager';
-
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
+import * as vscode from 'vscode';
+import { ChangeDetectionManager } from './change-detection-manager';
+import { getErrorMessage } from './commands/command-utils';
+import { completeSquashCommand } from './commands/squash';
 import { JjDocumentContentProvider } from './jj-content-provider';
+import { JjContextKey, ScmContextValue } from './jj-context-keys';
+import { JjDecorationProvider } from './jj-decoration-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
-import { JjDecorationProvider } from './jj-decoration-provider';
-import { JjContextKey, ScmContextValue } from './jj-context-keys';
-import { completeSquashCommand } from './commands/squash';
-import { getErrorMessage } from './commands/command-utils';
+import { JjService } from './jj-service';
+import { JjLogEntry, JjStatusEntry } from './jj-types';
 import { RefreshScheduler } from './refresh-scheduler';
 import { createDiffUris } from './uri-utils';
 import { formatDisplayChangeId } from './utils/jj-utils';

@@ -2,9 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
 import { computeGraphLayout } from '../webview/graph-compute';
 import { TestRepo, buildGraph } from './test-repo';

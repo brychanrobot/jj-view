@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { showCurrentChangeCommand } from '../../commands/show';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
-import * as vscode from 'vscode';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');

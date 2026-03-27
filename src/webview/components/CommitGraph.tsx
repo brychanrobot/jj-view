@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as React from 'react';
 import { computeGraphLayout } from '../graph-compute';
+import { computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
+import { ActionPayload, CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
-import { CommitNode, ActionPayload } from './CommitNode';
-import { computeGap, computeMaxShortestIdLength, computeGraphAreaWidth } from '../layout-utils';
 
 interface CommitGraphProps {
     commits: any[];

@@ -2,16 +2,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { JjService } from '../jj-service';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjDocumentContentProvider } from '../jj-content-provider';
+import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashChangeCommand } from '../commands/squash-change';
+import { JjDocumentContentProvider } from '../jj-content-provider';
+import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 

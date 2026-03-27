@@ -2,13 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { absorbCommand } from '../../commands/absorb';
 import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo, buildGraph } from '../test-repo';
-import { absorbCommand } from '../../commands/absorb';
 
 suite('Absorb Integration Test', function () {
     this.timeout(60000);

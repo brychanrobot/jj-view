@@ -2,13 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, afterEach, vi, Mock } from 'vitest';
-import { JjService } from '../../jj-service';
-import { showJjError } from '../../commands/command-utils';
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Mock, afterEach, describe, expect, test, vi } from 'vitest';
+import * as vscode from 'vscode';
+import { showJjError } from '../../commands/command-utils';
+import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 
 vi.mock('vscode', async () => {

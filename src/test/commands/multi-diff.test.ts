@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { showMultiFileDiffCommand } from '../../commands/multi-diff';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';

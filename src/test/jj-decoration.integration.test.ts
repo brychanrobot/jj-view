@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
-import { createMock, accessPrivate } from './test-utils';
+import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ Decoration Integration Test', function () {
     let scmProvider: JjScmProvider;

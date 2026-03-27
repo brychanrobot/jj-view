@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { GraphLayout, GraphNode, GraphEdge } from './graph-model';
 import { JjLogEntry } from '../jj-types';
+import { GraphEdge, GraphLayout, GraphNode } from './graph-model';
 
 function getColor(lane: number): string {
     return `var(--jj-lane-${lane % 7})`;

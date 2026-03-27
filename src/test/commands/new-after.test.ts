@@ -2,12 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-import { JjService } from '../../jj-service';
-import { JjScmProvider } from '../../jj-scm-provider';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { newAfterCommand } from '../../commands/new-after';
+import { JjScmProvider } from '../../jj-scm-provider';
+import { JjService } from '../../jj-service';
 import { TestRepo, buildGraph } from '../test-repo';
 
 // Mock vscode

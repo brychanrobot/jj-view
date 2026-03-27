@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMock, asMock } from '../test-utils';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { newMergeChangeCommand } from '../../commands/merge';
+import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo, buildGraph } from '../test-repo';
-import { JjScmProvider } from '../../jj-scm-provider';
-import * as vscode from 'vscode';
+import { asMock, createMock } from '../test-utils';
 
 vi.mock('vscode', () => ({
     Uri: { file: (path: string) => ({ fsPath: path }) },

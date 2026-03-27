@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
+import React from 'react';
 import { JjBookmark } from '../../jj-types';
 
 export const BasePill: React.FC<{

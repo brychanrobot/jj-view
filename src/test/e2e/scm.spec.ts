@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TestRepo, buildGraph } from '../test-repo';
-import { launchVSCode, focusSCM, hoverAndClick, expectTree, entry, ROOT_ID } from './e2e-helpers';
+import { ROOT_ID, entry, expectTree, focusSCM, hoverAndClick, launchVSCode } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -160,7 +159,6 @@ test.describe('SCM Pane E2E', () => {
                     expect(repo.getDescription('@').trim()).toBe('Commit via keyboard');
                 }).toPass({ timeout: 5000 });
             }).toPass({ timeout: 10000 });
-
 
             // Commit with Ctrl+Enter
             await scmInputRow.click();

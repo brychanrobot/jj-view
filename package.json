@@ -12,12 +12,8 @@
     "engines": {
         "vscode": "^1.104.0"
     },
-    "categories": [
-        "Other"
-    ],
-    "activationEvents": [
-        "workspaceContains:.jj"
-    ],
+    "categories": ["Other"],
+    "activationEvents": ["workspaceContains:.jj"],
     "main": "./dist/extension.js",
     "contributes": {
         "customEditors": [
@@ -58,10 +54,7 @@
                 "jj-view.fileWatcherMode": {
                     "type": "string",
                     "default": "polling",
-                    "enum": [
-                        "polling",
-                        "watch"
-                    ],
+                    "enum": ["polling", "watch"],
                     "enumDescriptions": [
                         "Use periodic status checks (default).",
                         "Use a file watcher (parcel-watcher) for efficient updates (only on changes)."
@@ -95,23 +88,13 @@
                 "jj-view.logTheme": {
                     "type": "string",
                     "default": "default",
-                    "enum": [
-                        "default",
-                        "oceanic",
-                        "sunset",
-                        "neon",
-                        "pastel",
-                        "monochrome"
-                    ],
+                    "enum": ["default", "oceanic", "sunset", "neon", "pastel", "monochrome"],
                     "description": "Color theme for the graph lanes in the JJ Log view."
                 },
                 "jj-view.graphLabelAlignment": {
                     "type": "string",
                     "default": "aligned",
-                    "enum": [
-                        "aligned",
-                        "compact"
-                    ],
+                    "enum": ["aligned", "compact"],
                     "enumDescriptions": [
                         "Keep commit messages aligned in a single column.",
                         "Place commit messages immediately to the right of their node."
@@ -564,6 +547,7 @@
     },
     "devDependencies": {
         "@playwright/test": "^1.58.0",
+        "@trivago/prettier-plugin-sort-imports": "^6.0.2",
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
         "@types/parcel__watcher": "^2.0.5",

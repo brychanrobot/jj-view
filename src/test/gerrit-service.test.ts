@@ -2,15 +2,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'; // Vitest
-import * as vscode from 'vscode';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+// Vitest
+import * as vscode from 'vscode';
 import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
-import { TestRepo } from './test-repo';
 import { FakeGerritServer } from './fake-gerrit-server';
+import { TestRepo } from './test-repo';
 
 // Mock VS Code
 const mockConfig = {

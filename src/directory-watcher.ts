@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { AsyncSubscription, BackendType, Event, subscribe } from '@parcel/watcher';
 import * as vscode from 'vscode';
-import { subscribe, AsyncSubscription, Event, BackendType } from '@parcel/watcher';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 

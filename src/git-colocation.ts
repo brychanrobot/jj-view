@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as vscode from 'vscode';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { JjService } from './jj-service';
 
 /** Checks if the repository is git-colocated and prompts the user to disable the Git extension if necessary. */

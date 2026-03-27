@@ -2,23 +2,21 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import * as sinon from 'sinon';
-
-import { JjService } from '../jj-service';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjLogWebviewProvider } from '../jj-log-webview-provider';
-import { GerritService } from '../gerrit-service';
+import * as vscode from 'vscode';
 import { abandonCommand } from '../commands/abandon';
-import { squashCommand } from '../commands/squash';
-import { newCommand } from '../commands/new';
 import { editCommand } from '../commands/edit';
+import { newCommand } from '../commands/new';
+import { squashCommand } from '../commands/squash';
 import { undoCommand } from '../commands/undo';
-import { TestRepo } from './test-repo';
-import { createMock, asSinonStub } from './test-utils';
+import { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
+import { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
+import { TestRepo } from './test-repo';
+import { asSinonStub, createMock } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', function () {
     let jj: JjService;

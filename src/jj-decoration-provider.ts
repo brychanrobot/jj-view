@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as vscode from 'vscode';
-import { JjStatusEntry } from './jj-types';
 import { JjService } from './jj-service';
+import { JjStatusEntry } from './jj-types';
 
 export class JjDecorationProvider implements vscode.FileDecorationProvider {
     private readonly _onDidChangeFileDecorations: vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined> =

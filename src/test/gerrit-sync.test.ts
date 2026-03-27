@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
-import { TestRepo } from './test-repo';
 import { JjLogEntry } from '../jj-types';
+import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 vi.mock('vscode', () => ({

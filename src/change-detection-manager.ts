@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as vscode from 'vscode';
-import * as path from 'path';
+import { BackendType } from '@parcel/watcher';
 import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { DirectoryWatcher } from './directory-watcher';
 import { JjService } from './jj-service';
 import { Poller } from './poller';
-import { DirectoryWatcher } from './directory-watcher';
-import { BackendType } from '@parcel/watcher';
 
 export class ChangeDetectionManager implements vscode.Disposable {
     private _disposed = false;

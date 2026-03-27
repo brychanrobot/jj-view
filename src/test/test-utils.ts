@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { Mock } from 'vitest';
 import { SinonStub } from 'sinon';
+import { Mock } from 'vitest';
 
 export /**
  * Creates a partial mock of type T.

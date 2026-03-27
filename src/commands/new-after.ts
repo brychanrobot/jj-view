@@ -2,11 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as vscode from 'vscode';
+import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
-import { JjScmProvider } from '../jj-scm-provider';
 
 export async function newAfterCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     let revisions: string[] = [];

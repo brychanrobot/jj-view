@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as React from 'react';
-import { formatCommitDescription } from '../../utils/format-utils';
 import { JjStatusEntry } from '../../jj-types';
-import { BookmarkPill, BasePill, TagPill } from './Bookmark';
+import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
+import { BasePill, BookmarkPill, TagPill } from './Bookmark';
 import { PersonInfo } from './PersonInfo';
 
 interface CommitDetailsProps {

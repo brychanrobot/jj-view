@@ -2,19 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { ElectronApplication } from 'playwright';
-import { test, expect, Page } from '@playwright/test';
+import { Page, expect, test } from '@playwright/test';
 import * as fs from 'fs';
-import { TestRepo, buildGraph, type CommitId } from '../test-repo';
+import { ElectronApplication } from 'playwright';
+import { type CommitId, TestRepo, buildGraph } from '../test-repo';
 import {
-    launchVSCode,
+    ROOT_ID,
+    entry,
+    expectTree,
     focusJJLog,
     getLogWebview,
-    expectTree,
-    entry,
+    launchVSCode,
     rightClickAndSelect,
-    ROOT_ID,
     selectCommits,
     triggerRefresh,
 } from './e2e-helpers';
@@ -350,10 +349,11 @@ test.describe('JJ Log Context Menu E2E', () => {
             await page.keyboard.press('Enter');
 
             // Verification: bookmark pill should appear in the webview
-            await expect(commit1Row.locator('.bookmark-pill', { hasText: 'my-bookmark' })).toBeVisible({ timeout: 10000 });
+            await expect(commit1Row.locator('.bookmark-pill', { hasText: 'my-bookmark' })).toBeVisible({
+                timeout: 10000,
+            });
         }).toPass({ timeout: 30000 });
     });
-
 
     test('Absorb', async () => {
         const commit1Id = nodes['commit1'].changeId;

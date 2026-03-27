@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect } from 'vitest';
-import { filterMenuActions, MenuAction } from '../../common/menu-filter';
+import { describe, expect, test } from 'vitest';
+import { MenuAction, filterMenuActions } from '../../common/menu-filter';
 
 describe('filterMenuActions', () => {
     const actions: MenuAction[] = [

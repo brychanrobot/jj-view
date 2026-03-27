@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { JjService } from '../jj-service';
 import * as cp from 'child_process';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { JjService } from '../jj-service';
 
 // Mock child_process to control execution and simulate hangs
 vi.mock('child_process');

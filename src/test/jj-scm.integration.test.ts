@@ -2,19 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as fsp from 'fs/promises';
-import { JjService } from '../jj-service';
-import { JjScmProvider } from '../jj-scm-provider';
-import { ScmContextValue } from '../jj-context-keys';
-import { squashCommand, completeSquashCommand } from '../commands/squash';
+import * as path from 'path';
+import * as vscode from 'vscode';
 import { moveToChildCommand, moveToParentInDiffCommand } from '../commands/move';
+import { completeSquashCommand, squashCommand } from '../commands/squash';
+import { ScmContextValue } from '../jj-context-keys';
+import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { TestRepo, buildGraph } from './test-repo';
-import { createMock, accessPrivate } from './test-utils';
+import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', function () {
     let jj: JjService;

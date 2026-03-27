@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
-import { JjScmProvider } from '../jj-scm-provider';
 
 export async function duplicateCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const revision = extractRevisions(args)[0];

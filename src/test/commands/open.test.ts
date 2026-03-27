@@ -2,10 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, afterEach, vi } from 'vitest';
-import { openFileCommand } from '../../commands/open';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
+import { openFileCommand } from '../../commands/open';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', () => {
