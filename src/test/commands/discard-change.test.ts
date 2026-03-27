@@ -22,69 +22,77 @@ const mockDocuments = new Map<
     }
 >();
 
-vi.mock('vscode', () => ({
-    Uri: {
-        file: (filePath: string) => ({
-            fsPath: filePath,
-            toString: () => `file://${filePath}`,
-            with: (params: { scheme: string; query: string }) => ({
-                scheme: params.scheme,
-                query: params.query,
-                fsPath: filePath,
-                toString: () => `${params.scheme}://${filePath}?${params.query}`,
-            }),
-        }),
-    },
-    Position: class {
+vi.mock('vscode', () => {
+    class MockUri {
         constructor(
-            public line: number,
-            public character: number,
+            public fsPath: string,
+            public scheme: string = 'file',
+            public query: string = '',
         ) {}
-    },
-    Range: class {
-        constructor(
-            public startLine: number | vscode.Position,
-            public startChar: number | vscode.Position,
-            public endLine?: number,
-            public endChar?: number,
-        ) {}
-    },
-    window: {
-        showErrorMessage: vi.fn(),
-    },
-    workspace: {
-        openTextDocument: vi.fn().mockImplementation((uri: { fsPath: string; scheme?: string }) => {
-            const doc = mockDocuments.get(uri.toString?.() ?? uri.fsPath);
-            if (doc) return Promise.resolve(doc);
-            // Fallback: read from filesystem
-            const content = fs.existsSync(uri.fsPath) ? fs.readFileSync(uri.fsPath, 'utf-8') : '';
-            const lines = content.split('\n');
-            return Promise.resolve({
-                getText: (range?: { startLine: number; startChar: number }) => {
-                    if (!range) return content;
-                    // Simplified range extraction
-                    return content;
-                },
-                lineAt: (line: number) => ({
-                    rangeIncludingLineBreak: {
-                        end: { line, character: (lines[line] || '').length + 1 },
+        static file(fsPath: string) {
+            return new MockUri(fsPath);
+        }
+        toString() {
+            return `${this.scheme}://${this.fsPath}${this.query ? '?' + this.query : ''}`;
+        }
+        with(params: { scheme?: string; query?: string }) {
+            return new MockUri(this.fsPath, params.scheme ?? this.scheme, params.query ?? this.query);
+        }
+    }
+
+    return {
+        Uri: MockUri,
+        Position: class {
+            constructor(
+                public line: number,
+                public character: number,
+            ) {}
+        },
+        Range: class {
+            constructor(
+                public startLine: number | vscode.Position,
+                public startChar: number | vscode.Position,
+                public endLine?: number,
+                public endChar?: number,
+            ) {}
+        },
+        window: {
+            showErrorMessage: vi.fn(),
+        },
+        workspace: {
+            openTextDocument: vi.fn().mockImplementation((uri: { fsPath: string; scheme?: string }) => {
+                const doc = mockDocuments.get(uri.toString?.() ?? uri.fsPath);
+                if (doc) return Promise.resolve(doc);
+                // Fallback: read from filesystem
+                const content = fs.existsSync(uri.fsPath) ? fs.readFileSync(uri.fsPath, 'utf-8') : '';
+                const lines = content.split('\n');
+                return Promise.resolve({
+                    getText: (range?: { startLine: number; startChar: number }) => {
+                        if (!range) return content;
+                        // Simplified range extraction
+                        return content;
                     },
-                }),
-                save: vi.fn().mockResolvedValue(true),
-            });
-        }),
-        applyEdit: vi.fn().mockResolvedValue(true),
-    },
-    WorkspaceEdit: class {
-        private edits: Array<{ uri: vscode.Uri; range: vscode.Range; text: string }> = [];
-        replace(uri: vscode.Uri, range: vscode.Range, text: string) {
-            this.edits.push({ uri, range, text });
-        }
-        getEdits() {
-            return this.edits;
-        }
-    },
-}));
+                    lineAt: (line: number) => ({
+                        rangeIncludingLineBreak: {
+                            end: { line, character: (lines[line] || '').length + 1 },
+                        },
+                    }),
+                    save: vi.fn().mockResolvedValue(true),
+                });
+            }),
+            applyEdit: vi.fn().mockResolvedValue(true),
+        },
+        WorkspaceEdit: class {
+            private edits: Array<{ uri: vscode.Uri; range: vscode.Range; text: string }> = [];
+            replace(uri: vscode.Uri, range: vscode.Range, text: string) {
+                this.edits.push({ uri, range, text });
+            }
+            getEdits() {
+                return this.edits;
+            }
+        },
+    };
+});
 
 describe('discardChangeCommand', () => {
     let repo: TestRepo;

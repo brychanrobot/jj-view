@@ -37,6 +37,7 @@ export class JjScmProvider implements vscode.Disposable {
     private _lastKnownCommitId: string = '';
     private _selectedCommitIds: string[] = [];
     private _currentEntry: JjLogEntry | undefined;
+    private _workingCopyStatuses = new Map<string, JjStatusEntry>();
 
     private _onDidChangeStatus = new vscode.EventEmitter<void>();
     readonly onDidChangeStatus: vscode.Event<void> = this._onDidChangeStatus.event;
@@ -311,6 +312,8 @@ export class JjScmProvider implements vscode.Disposable {
 
                 // Working Copy Changes
                 const changes = currentEntry?.changes || [];
+                this._workingCopyStatuses.clear();
+
                 if (currentEntry) {
                     const config = vscode.workspace.getConfiguration('jj-view');
                     const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
@@ -331,6 +334,7 @@ export class JjScmProvider implements vscode.Disposable {
                         multipleAncestors: ancestorsToDisplay.length > 1,
                     });
                     decorationMap.set(state.resourceUri.toString(), c);
+                    this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
                     return state;
                 });
 
@@ -587,6 +591,11 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
+        const statusEntry = this._workingCopyStatuses.get(uri.fsPath);
+        if (!statusEntry || statusEntry.status === 'added') {
+            return undefined;
+        }
+
         const query = new URLSearchParams(uri.query);
         const revision = query.get('jj-revision') || '@';
         return uri.with({ scheme: 'jj-view', query: `base=${revision}&side=left` });

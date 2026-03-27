@@ -84,9 +84,9 @@ export async function squashChangeCommand(
 
     const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
 
-    const originalUri = scmProvider.provideOriginalResource(uri) as vscode.Uri;
+    const originalUri = scmProvider.provideOriginalResource(uri);
     let revision = '@';
-    if (originalUri && originalUri.query) {
+    if (originalUri && originalUri instanceof vscode.Uri && originalUri.query) {
         const queryParams = new URLSearchParams(originalUri.query);
         revision = queryParams.get('base') || '@';
     }

@@ -49,8 +49,8 @@ export async function discardChangeCommand(
     const change = changes[index];
 
     try {
-        const originalUri = scmProvider.provideOriginalResource(uri) as vscode.Uri;
-        if (!originalUri) {
+        const originalUri = await scmProvider.provideOriginalResource(uri);
+        if (!originalUri || !(originalUri instanceof vscode.Uri)) {
             throw new Error('Could not determine original resource');
         }
 

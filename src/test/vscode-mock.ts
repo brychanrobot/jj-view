@@ -16,45 +16,37 @@ import { vi } from 'vitest';
 export function createVscodeMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
-        Uri: {
-            file: (fsPath: string) => {
-                return {
-                    fsPath,
-                    path: fsPath,
-                    scheme: 'file',
-                    query: '',
-                    with: function (change: { query?: string }) {
-                        return { ...this, ...change };
-                    },
-                };
-            },
-            from: (components: { scheme: string; path: string; query?: string }) => {
-                return {
-                    scheme: components.scheme,
-                    path: components.path,
-                    query: components.query || '',
-                    fsPath: components.path,
-                    with: function (change: { query?: string }) {
-                        return { ...this, ...change };
-                    },
-                };
-            },
-            parse: (uriString: string) => {
+        Uri: class MockUri {
+            constructor(
+                public fsPath: string,
+                public scheme: string = 'file',
+                public query: string = '',
+                public path: string = fsPath,
+            ) {}
+            static file(fsPath: string) {
+                return new MockUri(fsPath);
+            }
+            static from(components: { scheme: string; path: string; query?: string }) {
+                return new MockUri(components.path, components.scheme, components.query || '', components.path);
+            }
+            static parse(uriString: string) {
                 return { _isUriBaseCtorMock: true, value: uriString };
-            },
-            joinPath: (base: { path: string; scheme: string }, ...paths: string[]) => {
-                // formatted join
+            }
+            static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
                 const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
-                return {
-                    scheme: base.scheme,
-                    path: combined,
-                    fsPath: combined,
-                    query: '',
-                    with: function (change: { query?: string }) {
-                        return { ...this, ...change };
-                    },
-                };
-            },
+                return new MockUri(combined, base.scheme, '', combined);
+            }
+            toString() {
+                return `${this.scheme}://${this.fsPath}${this.query ? '?' + this.query : ''}`;
+            }
+            with(change: { scheme?: string; query?: string }) {
+                return new MockUri(
+                    this.fsPath,
+                    change.scheme ?? this.scheme,
+                    change.query ?? this.query,
+                    this.path,
+                );
+            }
         },
         env: {
             openExternal: vi.fn(),
