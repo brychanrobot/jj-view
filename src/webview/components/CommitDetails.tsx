@@ -483,7 +483,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                     />
                     <style>{`
                         .commit-textarea::selection {
-                            color: transparent !important;
+                            color: var(--vscode-input-foreground) !important;
                             background-color: var(--vscode-editor-selectionBackground) !important;
                         }
                         .btn-dirty .codicon-save {
