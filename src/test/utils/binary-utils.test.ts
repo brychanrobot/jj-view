@@ -146,4 +146,14 @@ func main() {
         const resultWhitespace = await resolveJjBinary('   ');
         expect(resultWhitespace).toBe('jj');
     });
+
+    test('resolveJjBinary handles non-standard version strings', async () => {
+        const binName = os.platform() === 'win32' ? 'jj-non-standard.exe' : 'jj-non-standard';
+        const binPath = path.join(tempDir, binName);
+        const versionString = 'jj 0.35-dev';
+        createExecutable(binPath, versionString);
+
+        const result = await resolveJjBinary(binPath);
+        expect(result).toBe(binPath);
+    });
 });

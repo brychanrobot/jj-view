@@ -57,8 +57,8 @@ async function getJjVersion(binaryPath: string): Promise<string | undefined> {
                 return;
             }
 
-            // Expected output format: "jj 0.39.0" or similar
-            const match = stdout.trim().match(/^jj\s+(\d+\.\d+\.\d+)/);
+            // Expected output format: "jj 0.39.0" or "jj 0.35.0-6dfd142d5583"
+            const match = stdout.trim().match(/^jj\s+(.+)$/);
             if (match) {
                 resolve(match[1]);
             } else {
