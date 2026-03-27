@@ -28,7 +28,7 @@ This document outlines the coding standards, testing strategies, and architectur
 
 ### Formatting & Linting
 
-- Use **ESLint** for code quality (`npm run lint`).
+- Use **ESLint** for code quality (`pnpm lint`).
 
 ## Testing Strategy
 
@@ -43,8 +43,8 @@ This project employs a split testing strategy to ensure both logic correctness a
 ### 1. Unit Tests
 
 - **Tool**: [Vitest](https://vitest.dev/)
-- **Command**: `npm run test:unit`
-    - _Note_: Please narrow the run by passing all or part of the filename to the command when iterating on a test. For example: `npm run test:unit merge-editor`.
+- **Command**: `pnpm test:unit`
+    - _Note_: Please narrow the run by passing all or part of the filename to the command when iterating on a test. For example: `pnpm test:unit merge-editor`.
 - **Pattern**: `src/test/**/*.test.ts` (Excluding `*.integration.test.ts`)
 - **Scope**:
     - Test individual classes and functions in isolation.
@@ -67,8 +67,8 @@ This project employs a split testing strategy to ensure both logic correctness a
 ### 2. Integration Tests
 
 - **Tool**: [VS Code Test Electron](https://github.com/microsoft/vscode-test)
-- **Command**: `npm run test:integration`
-    - _Note_: This command automatically executes `npm run compile-tests` before running.
+- **Command**: `pnpm test:integration`
+    - _Note_: This command automatically executes `pnpm build:tests` before running.
     - _Note_: You can narrow the run by using -- --grep "pattern". Plese do this when iterating on a test to speed up the process.
 - **Pattern**: `src/test/**/*.integration.test.ts`
 - **Scope**:

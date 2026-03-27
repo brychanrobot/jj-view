@@ -14,10 +14,16 @@ jobs:
               with:
                   fetch-depth: 0
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
             - name: Install Node.js
               uses: actions/setup-node@v4
               with:
                   node-version: 22
+                  cache: 'pnpm'
 
             - name: Install jj (Jujutsu)
               uses: taiki-e/install-action@v2
@@ -25,10 +31,10 @@ jobs:
                   tool: jj-cli
 
             - name: Install Dependencies
-              run: npm ci
+              run: pnpm install --frozen-lockfile
 
             - name: Publish to OpenVSX and VS Code Marketplace
-              run: npm run publish
+              run: pnpm release
               env:
                   OVSX_PAT: ${{ secrets.OVSX_PAT }}
                   VSCE_PAT: ${{ secrets.VSCE_PAT }}

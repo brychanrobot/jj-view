@@ -12,8 +12,12 @@
     "engines": {
         "vscode": "^1.104.0"
     },
-    "categories": ["Other"],
-    "activationEvents": ["workspaceContains:.jj"],
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "workspaceContains:.jj"
+    ],
     "main": "./dist/extension.js",
     "contributes": {
         "customEditors": [
@@ -54,7 +58,10 @@
                 "jj-view.fileWatcherMode": {
                     "type": "string",
                     "default": "polling",
-                    "enum": ["polling", "watch"],
+                    "enum": [
+                        "polling",
+                        "watch"
+                    ],
                     "enumDescriptions": [
                         "Use periodic status checks (default).",
                         "Use a file watcher (parcel-watcher) for efficient updates (only on changes)."
@@ -88,13 +95,23 @@
                 "jj-view.logTheme": {
                     "type": "string",
                     "default": "default",
-                    "enum": ["default", "oceanic", "sunset", "neon", "pastel", "monochrome"],
+                    "enum": [
+                        "default",
+                        "oceanic",
+                        "sunset",
+                        "neon",
+                        "pastel",
+                        "monochrome"
+                    ],
                     "description": "Color theme for the graph lanes in the JJ Log view."
                 },
                 "jj-view.graphLabelAlignment": {
                     "type": "string",
                     "default": "aligned",
-                    "enum": ["aligned", "compact"],
+                    "enum": [
+                        "aligned",
+                        "compact"
+                    ],
                     "enumDescriptions": [
                         "Keep commit messages aligned in a single column.",
                         "Place commit messages immediately to the right of their node."
@@ -518,36 +535,37 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "npm run check-types && npm run lint && node esbuild.js --production",
-        "build": "npm run check-types && npm run lint && node esbuild.js",
+        "vscode:prepublish": "pnpm check-types && pnpm lint && node esbuild.js --production",
+        "build": "pnpm check-types && pnpm lint && node esbuild.js",
         "build:icons": "svgtofont -s media/custom-icons-src -o media/custom-icons",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-        "package": "vsce package",
-        "publish": "ovsx publish && vsce publish",
+        "package": "pnpm vsce package --no-dependencies",
+        "release": "pnpm ovsx publish && pnpm vsce publish --no-dependencies",
         "clean:tests": "rimraf out",
-        "build:tests": "npm run clean:tests && tsc -p . --outDir out",
+        "build:tests": "tsc -p . --outDir out",
         "watch-tests": "tsc -p . -w --outDir out",
-        "pretest": "npm run build && npm run build:tests && npm run lint",
+        "pretest": "pnpm build && pnpm build:tests && pnpm lint",
         "check-types": "tsc --noEmit",
-        "lint": "npm run format && eslint src && npm run check-license",
-        "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' **",
-        "fix-license": "go run github.com/google/addlicense@v1.1.1 -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' **",
+        "lint": "pnpm format && eslint src && pnpm check-license",
+        "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' -ignore='pnpm-lock.yaml' **",
+        "fix-license": "go run github.com/google/addlicense@v1.1.1 -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' -ignore='pnpm-lock.yaml' **",
         "format": "prettier --write .",
         "check-format": "prettier --check .",
         "test": "npm-run-all -p --print-label test:unit test:integration:all",
-        "test:integration": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test.mjs",
-        "test:activation": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test-activation.mjs",
-        "test:integration:all": "node esbuild.js && npm run build:tests && vscode-test --config .vscode-test.mjs && vscode-test --config .vscode-test-activation.mjs",
+        "test:integration": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test.mjs",
+        "test:activation": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test-activation.mjs",
+        "test:integration:all": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test.mjs && vscode-test --config .vscode-test-activation.mjs",
         "test:screenshots": "playwright test",
-        "test:e2e": "node esbuild.js && npm run build:tests && playwright test -c playwright.e2e.config.ts",
+        "test:e2e": "node esbuild.js && pnpm build:tests && playwright test -c playwright.e2e.config.ts",
         "test:unit": "vitest run",
         "release:encode": "ts-node .agents/scripts/encode-release-notes.ts"
     },
     "devDependencies": {
         "@playwright/test": "^1.58.0",
         "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+        "@types/adm-zip": "^0.5.8",
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
         "@types/parcel__watcher": "^2.0.5",
@@ -558,6 +576,7 @@
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^3.7.1",
+        "adm-zip": "^0.5.16",
         "esbuild": "^0.27.1",
         "eslint": "^9.39.1",
         "eslint-config-prettier": "^10.1.8",
@@ -583,5 +602,14 @@
         "prettier": "^3.8.1",
         "react": "^19.2.3",
         "react-dom": "^19.2.3"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "@parcel/watcher",
+            "esbuild",
+            "keytar",
+            "ttf2woff2",
+            "@vscode/vsce-sign"
+        ]
     }
 }

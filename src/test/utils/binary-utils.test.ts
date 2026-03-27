@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import * as cp from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { resolveJjBinary } from '../../utils/binary-utils';
 
 describe('binary-utils real-file tests', () => {
@@ -43,7 +42,7 @@ describe('binary-utils real-file tests', () => {
 
     const createExecutable = (filePath: string, output: string = 'jj 0.1.0') => {
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        
+
         const goSourcePath = filePath + '.go';
         const goSource = `
 package main

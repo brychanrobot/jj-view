@@ -34,7 +34,7 @@ const esbuildProblemMatcherPlugin = {
 
 function formatFile(filePath) {
     try {
-        execSync(`npx prettier --write "${filePath}"`, { stdio: 'inherit' });
+        execSync(`pnpm prettier --write "${filePath}"`, { stdio: 'inherit' });
         console.log(`[build] Formatted ${filePath}`);
     } catch (e) {
         console.error(`[build] Failed to format ${filePath}: ${e.message}`);
@@ -51,7 +51,7 @@ async function main() {
         sourcesContent: false,
         platform: 'node',
         outfile: 'dist/extension.js',
-        external: ['vscode', '@parcel/watcher'],
+        external: ['vscode'],
         logLevel: 'silent',
         plugins: [esbuildProblemMatcherPlugin],
     });
@@ -118,35 +118,40 @@ async function copyAssets() {
 
 /**
  * Install all platform-specific @parcel/watcher binaries so the VSIX is universal.
- * npm only installs the optional dep for the current platform, so we use
- * `npm pack` to download tarballs for missing platforms and extract them.
+ * We download tarballs directly from the npm registry for all platforms and
+ * place them in dist/node_modules so they are bundled in the VSIX.
  */
 async function installNativeDeps() {
     const watcherPkg = require('@parcel/watcher/package.json');
     const optionalDeps = watcherPkg.optionalDependencies || {};
+    const distNodeModules = path.join(__dirname, 'dist', 'node_modules');
 
     for (const [name, version] of Object.entries(optionalDeps)) {
-        const destDir = path.join(__dirname, 'node_modules', name);
-        if (fs.existsSync(destDir)) {
-            continue;
-        }
+        const destDir = path.join(distNodeModules, name);
+        const cleanVersion = version.replace(/^[\^~>=<]+/, '');
+        const unscoped = name.split('/').pop();
+        const tarballUrl = `https://registry.npmjs.org/${name}/-/${unscoped}-${cleanVersion}.tgz`;
 
-        const spec = `${name}@${version}`;
-        console.log(`[build] Installing ${spec}...`);
+        console.log(`[build] Downloading ${name}@${cleanVersion}...`);
         try {
-            const tmpDir = os.tmpdir();
-            const tarball = execSync(`npm pack ${spec} --pack-destination "${tmpDir}"`, {
-                encoding: 'utf-8',
-            }).trim();
-            const tarballPath = path.join(tmpDir, tarball);
+            const response = await fetch(tarballUrl);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const buffer = Buffer.from(await response.arrayBuffer());
+            const tarballPath = path.join(os.tmpdir(), `${unscoped}-${cleanVersion}.tgz`);
+            fs.writeFileSync(tarballPath, buffer);
+
+            fs.rmSync(destDir, { recursive: true, force: true });
             fs.mkdirSync(destDir, { recursive: true });
+
             execSync(`tar xzf "${tarballPath}" --strip-components=1 -C "${destDir}"`, {
                 stdio: 'inherit',
             });
             fs.unlinkSync(tarballPath);
-            console.log(`[build] Installed ${spec}`);
+            console.log(`[build] Installed ${name}@${cleanVersion}`);
         } catch (e) {
-            console.warn(`[build] Failed to install ${spec}: ${e.message}`);
+            console.warn(`[build] Failed to install ${name}@${cleanVersion}: ${e.message}`);
         }
     }
 }
@@ -167,7 +172,7 @@ async function buildIcons() {
     if (!fs.existsSync(iconDir)) {
         fs.mkdirSync(iconDir, { recursive: true });
     }
-    execSync('npm run build:icons', { stdio: 'inherit' });
+    execSync('pnpm run build:icons', { stdio: 'inherit' });
 }
 
 // Run prerequisite tasks before main build

@@ -39,12 +39,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 return `${this.scheme}://${this.fsPath}${this.query ? '?' + this.query : ''}`;
             }
             with(change: { scheme?: string; query?: string }) {
-                return new MockUri(
-                    this.fsPath,
-                    change.scheme ?? this.scheme,
-                    change.query ?? this.query,
-                    this.path,
-                );
+                return new MockUri(this.fsPath, change.scheme ?? this.scheme, change.query ?? this.query, this.path);
             }
         },
         env: {

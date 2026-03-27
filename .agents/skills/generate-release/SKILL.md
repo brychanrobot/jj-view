@@ -25,7 +25,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
 7.  **Update Changelog:** Update `CHANGELOG.md` by prepending the new version and the drafted release notes.
 8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md` and `package.json`) to the user. **Wait for their approval before proceeding.**
 9.  **Commit Changes:** After user approval, commit the changes using `jj commit -m "chore: bump version to <new_version>"`.
-10. **Encode Notes:** Use the encoding script to encode the release notes for a URL: `npm run release:encode -- "<release_notes>"`. The script is located at `.agents/scripts/encode-release-notes.ts`.
+10. **Encode Notes:** Use the encoding script to encode the release notes for a URL: `pnpm release:encode -- "<release_notes>"`. The script is located at `.agents/scripts/encode-release-notes.ts`.
 11. **Generate Release Link:** Craft a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
 12. **Final Output:** Present the finalized Release Notes and the one-click Release Link directly to the user.
     - Include links to both marketplaces in the release notes output:
@@ -37,7 +37,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
 
 ## Edge Cases
 
-- If `npm run release:encode` fails, ensure the arguments are wrapped in quotes.
+- If `pnpm release:encode` fails, ensure the arguments are wrapped in quotes.
 
 ## Completion Criteria
 

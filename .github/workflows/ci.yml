@@ -24,11 +24,16 @@ jobs:
               with:
                   fetch-depth: 0
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
             - name: Install Node.js
               uses: actions/setup-node@v4
               with:
                   node-version: 22
-                  cache: 'npm'
+                  cache: 'pnpm'
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -41,43 +46,47 @@ jobs:
                   tool: jj-cli
 
             - name: Install Dependencies
-              run: npm ci
+              run: pnpm install --frozen-lockfile
 
             - name: Lint
               if: runner.os == 'Linux'
-              run: npm run lint
+              run: pnpm lint
 
             - name: Check Types
               if: runner.os == 'Linux'
-              run: npm run check-types
+              run: pnpm check-types
 
             - name: Build Extension (Verification)
-              run: npm run build
-
-            - name: Run Unit Tests
-              run: npm run test:unit
-
-            - name: Run Integration Tests (Linux)
-              if: runner.os == 'Linux'
-              run: xvfb-run -a npm run test:integration
-
-            - name: Run Integration Tests (macOS/Windows)
-              if: runner.os != 'Linux'
-              run: npm run test:integration
+              run: pnpm build
 
             - name: Package Extension
               if: runner.os == 'Linux'
-              run: npx @vscode/vsce package --out jj-view.vsix
+              run: pnpm package --out jj-view.vsix
+
+            - name: Verify VSIX Contents
+              if: runner.os == 'Linux'
+              run: pnpm exec ts-node scripts/verify-vsix.ts jj-view.vsix
+
+            - name: Run Unit Tests
+              run: pnpm test:unit
+
+            - name: Run Integration Tests (Linux)
+              if: runner.os == 'Linux'
+              run: xvfb-run -a pnpm test:integration
+
+            - name: Run Integration Tests (macOS/Windows)
+              if: runner.os != 'Linux'
+              run: pnpm test:integration
 
             - name: Install Playwright Browsers & Dependencies
               if: runner.os == 'Linux'
-              run: npx playwright install --with-deps chromium
+              run: pnpm playwright install --with-deps chromium
 
             - name: Run E2E Tests (Linux)
               if: runner.os == 'Linux'
               env:
                   VSIX_PATH: jj-view.vsix
-              run: xvfb-run -a npm run test:e2e
+              run: xvfb-run -a pnpm test:e2e
 
             - name: Generate Release Info
               if: runner.os == 'Linux'

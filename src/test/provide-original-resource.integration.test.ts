@@ -2,12 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import * as path from 'path';
-import { JjService } from '../jj-service';
+import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -48,7 +47,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', function () {
     test('returns undefined for added file', async () => {
         const fileName = 'added.txt';
         repo.writeFile(fileName, 'new content');
-        
+
         await scmProvider.refresh({ forceSnapshot: true });
 
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
@@ -97,7 +96,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', function () {
 
         assert.ok(originalUri, 'Should return a URI for modified files');
         assert.strictEqual(originalUri.scheme, 'jj-view', 'Scheme should be jj-view');
-        
+
         const query = new URLSearchParams(originalUri.query);
         assert.strictEqual(query.get('base'), '@', 'Base should be @ by default');
         assert.strictEqual(query.get('side'), 'left', 'Side should be left');

@@ -14,7 +14,7 @@ The repository uses three different test runners for different layers of testing
 ### 1. Unit Tests (Vitest)
 
 **Purpose:** Fast feedback tests for individual classes and functions in isolation without starting the VS Code Extension Host.
-**Command:** `npm run test:unit`
+**Command:** `pnpm test:unit`
 **Location Pattern:** `src/test/**/*.test.ts` (excluding `*.integration.test.ts`)
 **Key Rules:**
 
@@ -26,19 +26,19 @@ You MUST run individual test cases when writing a new test or debugging a broken
 
 - **Run a single test case (Recommended):** Use the `-t` flag with the test name (you may also include the filename to narrow it down further).
     ```bash
-    npm run test:unit -- <filename> -t "<test name>"
-    # Example: npm run test:unit -- merge-editor.test.ts -t "should open merge editor"
+    pnpm test:unit -- <filename> -t "<test name>"
+    # Example: pnpm test:unit -- merge-editor.test.ts -t "should open merge editor"
     ```
 - **Run a specific test file:** Pass part of the filename.
     ```bash
-    npm run test:unit -- <filename>
-    # Example: npm run test:unit -- merge-editor
+    pnpm test:unit -- <filename>
+    # Example: pnpm test:unit -- merge-editor
     ```
 
 ### 2. Integration Tests (VS Code Test Electron)
 
 **Purpose:** Tests that require the VS Code Extension Host to verify extension activation, command registration, and real VS Code API interactions.
-**Command:** `npm run test:integration`
+**Command:** `pnpm test:integration`
 **Location Pattern:** `src/test/**/*.integration.test.ts`
 **Key Rules:**
 
@@ -52,15 +52,15 @@ You MUST run individual test cases when writing a new test or debugging a broken
 
 - **Run a single test case (Recommended):** Use the `--grep` flag with the specific test case name or a pattern that uniquely identifies it.
     ```bash
-    npm run test:integration -- --grep "<test case name>"
-    # Example: npm run test:integration -- --grep "should register commands"
+    pnpm test:integration -- --grep "<test case name>"
+    # Example: pnpm test:integration -- --grep "should register commands"
     ```
     _(Note for Integration tests: `vscode-test` passes arguments to Mocha under the hood. Using an exact string in `--grep` is the best way to isolate a single test case.)_
 
 ### 3. End-to-End (E2E) Tests (Playwright)
 
 **Purpose:** End-to-end testing of the extension's behavior in VS Code, interacting with the real UI to ensure the user perspective functions correctly.
-**Command:** `npm run test:e2e` (also `npm run test:screenshots` for visual regression)
+**Command:** `pnpm test:e2e` (also `pnpm test:screenshots` for visual regression)
 **Location Pattern:** `src/test/e2e/**/*.spec.ts`
 **Key Rules:**
 
@@ -73,13 +73,13 @@ You MUST run individual test cases when writing a new test or debugging a broken
 - **Run a single test case (Very Strongly Recommended):** Use the `-g` flag for grep along with the filename.
   When debugging a flaky test, append `--repeat-each 5 --max-failures 1` to run it multiple times and fail fast.
     ```bash
-    npm run test:e2e -- <filename> -g "<test-name>" [--repeat-each 5 --max-failures 1]
-    # Example: npm run test:e2e -- scm.spec.ts -g "squash button visibility"
+    pnpm test:e2e -- <filename> -g "<test-name>" [--repeat-each 5 --max-failures 1]
+    # Example: pnpm test:e2e -- scm.spec.ts -g "squash button visibility"
     ```
 - **Run a specific test file:** Pass the filename.
     ```bash
-    npm run test:e2e -- <filename>
-    # Example: npm run test:e2e -- scm.spec.ts
+    pnpm test:e2e -- <filename>
+    # Example: pnpm test:e2e -- scm.spec.ts
     ```
 
 ### 4. Debugging E2E Tests (DOM Dumping)

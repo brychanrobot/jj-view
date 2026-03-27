@@ -2,9 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
-import * as path from 'path';
 import * as cp from 'child_process';
+import * as path from 'path';
 
 /**
  * Resolves the path to the 'jj' binary by verifying it through 'jj --version'.

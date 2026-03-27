@@ -2,11 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as os from 'os';
+import * as path from 'path';
 import { TestRepo } from '../test-repo';
 import { launchVSCode } from './e2e-helpers';
 
