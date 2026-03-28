@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { JjScmProvider } from '../jj-scm-provider';
@@ -15,17 +17,20 @@ suite('Quick Diff Integration Test', function () {
     let scmProvider: JjScmProvider;
     let viewFileSystemProvider: JjViewFileSystemProvider;
     let repo: TestRepo;
+    let canonicalPath: string;
     let disposable: vscode.Disposable;
 
     setup(async () => {
         repo = new TestRepo();
         repo.init();
+        // Canonicalize path to resolve RUNNER~1 short names on Windows
+        canonicalPath = fs.realpathSync(repo.path);
 
         const context = createMock<vscode.ExtensionContext>({
             subscriptions: [],
         });
 
-        jj = new JjService(repo.path);
+        jj = new JjService(canonicalPath);
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -37,7 +42,7 @@ suite('Quick Diff Integration Test', function () {
         scmProvider = new JjScmProvider(
             context,
             jj,
-            repo.path,
+            canonicalPath,
             outputChannel,
             viewFileSystemProvider,
         );
@@ -51,14 +56,41 @@ suite('Quick Diff Integration Test', function () {
     });
 
     teardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        // Small delay to allow VS Code to settle before disposing providers
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         if (scmProvider) {
             scmProvider.dispose();
         }
         if (disposable) {
             disposable.dispose();
         }
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
+
+    /**
+     * Helper to wait for an onDidChangeFile event.
+     * More robust than immediate assertions after an action.
+     */
+    async function waitForEvent(
+        event: vscode.Event<vscode.FileChangeEvent[]>,
+        predicate: (events: vscode.FileChangeEvent[]) => boolean,
+        timeout = 2000,
+    ): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                handle.dispose();
+                reject(new Error(`Event timeout after ${timeout}ms`));
+            }, timeout);
+            const handle = event((e) => {
+                if (predicate(e)) {
+                    clearTimeout(timer);
+                    handle.dispose();
+                    resolve();
+                }
+            });
+        });
+    }
 
     test('SCM refresh triggers content provider invalidation', async () => {
         const fileName = 'refresh-test.txt';
@@ -66,7 +98,7 @@ suite('Quick Diff Integration Test', function () {
         repo.new(undefined, 'test');
         repo.writeFile(fileName, 'modified\n');
 
-        const fileUri = vscode.Uri.file(repo.path + '/' + fileName);
+        const fileUri = vscode.Uri.file(canonicalPath + '/' + fileName);
         const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
 
         // Track calls to readFile
@@ -84,16 +116,15 @@ suite('Quick Diff Integration Test', function () {
         assert.strictEqual(readCount, 1, 'Should have read once');
 
         // 2. Subscribe to events
-        let eventFired = false;
-        viewFileSystemProvider.onDidChangeFile((events) => {
-            if (events.some((e) => e.uri.toString() === originalUri.toString())) {
-                eventFired = true;
-            }
+        const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
+            return events.some(
+                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
+            );
         });
 
         // 3. Trigger refresh - this should fire the event
         await scmProvider.refresh();
-        assert.ok(eventFired, 'onDidChangeFile should have been fired for the original resource');
+        await eventPromise;
     });
 
     test('jj squash triggers diff base refresh', async () => {
@@ -103,24 +134,24 @@ suite('Quick Diff Integration Test', function () {
         repo.new();
         repo.writeFile(fileName, 'modified in WC\n');
 
-        const fileUri = vscode.Uri.file(repo.path + '/' + fileName);
+        const fileUri = vscode.Uri.file(path.join(canonicalPath, fileName));
         const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
 
         // Register URI by reading once
         await viewFileSystemProvider.readFile(originalUri);
 
-        let eventFired = false;
-        viewFileSystemProvider.onDidChangeFile((events) => {
-            if (events.some((e) => e.uri.toString() === originalUri.toString())) {
-                eventFired = true;
-            }
+        // 2. Subscribe to events
+        const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
+            return events.some(
+                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
+            );
         });
 
         // Perform squash via the service (simulating user action)
         await jj.squash();
         await scmProvider.refresh();
 
-        assert.ok(eventFired, 'onDidChangeFile should have been fired after squash');
+        await eventPromise;
     });
 
     test('jj edit triggers refresh for new working copy base', async () => {
@@ -137,23 +168,23 @@ suite('Quick Diff Integration Test', function () {
         // Start editing v1
         repo.edit(v1Id);
 
-        const fileUri = vscode.Uri.file(repo.path + '/' + fileName);
+        const fileUri = vscode.Uri.file(canonicalPath + '/' + fileName);
         const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
 
         // Register URI by reading once
         await viewFileSystemProvider.readFile(originalUri);
 
-        let eventFired = false;
-        viewFileSystemProvider.onDidChangeFile((events) => {
-            if (events.some((e) => e.uri.toString() === originalUri.toString())) {
-                eventFired = true;
-            }
+        // 2. Subscribe to events
+        const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
+            return events.some(
+                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
+            );
         });
 
         // Switch back to v2
         await jj.edit(v2Id);
         await scmProvider.refresh();
 
-        assert.ok(eventFired, 'onDidChangeFile should have been fired after switching base via edit');
+        await eventPromise;
     });
 });

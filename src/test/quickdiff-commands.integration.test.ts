@@ -17,18 +17,21 @@ import { createMock } from './test-utils';
 suite('Quick Diff Commands Integration Test', function () {
     let jj: JjService;
     let repo: TestRepo;
+    let canonicalPath: string;
     let scmProvider: JjScmProvider;
     let jjViewProviderDisposable: vscode.Disposable | undefined;
 
     setup(async () => {
         repo = new TestRepo();
         repo.init();
+        // Canonicalize path to resolve RUNNER~1 short names on Windows
+        canonicalPath = fs.realpathSync(repo.path);
 
         const context = createMock<vscode.ExtensionContext>({
             subscriptions: [],
         });
 
-        jj = new JjService(repo.path);
+        jj = new JjService(canonicalPath);
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -43,7 +46,7 @@ suite('Quick Diff Commands Integration Test', function () {
         scmProvider = new JjScmProvider(
             context,
             jj,
-            repo.path,
+            canonicalPath,
             outputChannel,
             viewFileSystemProvider,
         );
@@ -63,6 +66,10 @@ suite('Quick Diff Commands Integration Test', function () {
     });
 
     teardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        // Small delay to allow VS Code to settle before disposing providers
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         if (scmProvider) {
             scmProvider.dispose();
         }
@@ -70,7 +77,6 @@ suite('Quick Diff Commands Integration Test', function () {
             jjViewProviderDisposable.dispose();
             jjViewProviderDisposable = undefined;
         }
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Discard Change reverts file content on disk', async () => {
@@ -92,7 +98,7 @@ suite('Quick Diff Commands Integration Test', function () {
             },
         ]);
 
-        const filePath = path.join(repo.path, fileName);
+        const filePath = path.join(canonicalPath, fileName);
         const fileUri = vscode.Uri.file(filePath);
 
         // Verify initial state
@@ -136,7 +142,7 @@ suite('Quick Diff Commands Integration Test', function () {
             },
         ]);
 
-        const filePath = path.join(repo.path, fileName);
+        const filePath = path.join(canonicalPath, fileName);
         const fileUri = vscode.Uri.file(filePath);
 
         // Construct LineChange for modification
