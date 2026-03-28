@@ -20,9 +20,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     // Track all URIs that have been served so we can fire onDidChangeFile for them
     private _knownUris = new Set<string>();
 
-    constructor(
-        private jj: JjService,
-    ) {}
+    constructor(private jj: JjService) {}
 
     watch(): vscode.Disposable {
         // No-op: we fire change events manually during refresh

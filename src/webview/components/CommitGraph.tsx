@@ -87,7 +87,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     const graphAreaWidth = computeGraphAreaWidth(layout.width, LANE_WIDTH, LEFT_MARGIN, GAP);
 
     return (
-        <div className="commit-graph" style={{ position: 'relative' }}>
+        <div className="commit-graph" style={{ position: 'relative', paddingBottom: '20px' }}>
             {/* SVG Graph Overlay */}
             <GraphRail
                 nodes={layout.nodes}
