@@ -603,6 +603,49 @@ log = "none()"
         expect(log.change_id_shortest!.length).toBeLessThan(log.change_id.length);
     });
 
+    test('getLog populates nearest_visible_ancestors with gaps', async () => {
+        // Setup: A -> B -> C -> D
+        const ids = await buildGraph(repo, [
+            { label: 'A', description: 'commit A' },
+            { label: 'B', parents: ['A'], description: 'commit B' },
+            { label: 'C', parents: ['B'], description: 'commit C' },
+            { label: 'D', parents: ['C'], description: 'commit D' },
+        ]);
+
+        const idA = ids['A'].changeId;
+        const idD = ids['D'].changeId;
+
+        // Fetch only A and D. B and C are "missing".
+        // Nearest visible ancestor of D in (A|D) should be A.
+        const logs = await jjService.getLog({
+            revision: `(${idA} | ${idD})`,
+            includeNearestVisibleAncestors: true,
+        });
+
+        const logD = logs.find((l) => l.change_id === idD);
+        const logA = logs.find((l) => l.change_id === idA);
+
+        expect(logD).toBeDefined();
+        expect(logA).toBeDefined();
+
+        // Immediate parent of D is C
+        expect(logD!.parents).toContain(ids['C'].commitId);
+        expect(logD!.parent_change_ids).toContain(ids['C'].changeId);
+
+        // Nearest visible ancestor of D in (A|D) is A
+        expect(logD!.nearest_visible_ancestors).toContain(idA);
+        expect(logD!.nearest_visible_ancestors?.length).toBe(1);
+
+        // A's nearest visible ancestors should be empty (no ancestors in (A|D))
+        expect(logA!.nearest_visible_ancestors?.length).toBe(0);
+    });
+
+    test('getLog does not populate nearest_visible_ancestors by default', async () => {
+        repo.describe('test');
+        const [log] = await jjService.getLog({ revision: '@' });
+        expect(log.nearest_visible_ancestors).toBeUndefined();
+    });
+
     test('getLog detects empty status correctly', async () => {
         const filePath = path.join(repo.path, 'not-empty.txt');
         fs.writeFileSync(filePath, 'content');

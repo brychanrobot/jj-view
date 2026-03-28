@@ -37,6 +37,8 @@ export interface JjLogEntry {
         timestamp: string;
     };
     parents: string[];
+    parent_change_ids?: string[];
+    nearest_visible_ancestors?: string[];
     bookmarks?: JjBookmark[];
     tags?: string[];
     working_copies?: string[];

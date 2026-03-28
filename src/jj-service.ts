@@ -6,7 +6,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { LOG_ENTRY_SCHEMA, buildLogTemplate } from './jj-template-builder';
+import { LOG_ENTRY_SCHEMA, buildLogTemplate, CHANGE_ID_EXPR } from './jj-template-builder';
 import { JjLogEntry, JjStatusEntry } from './jj-types';
 import { PatchHelper, SelectionRange } from './patch-helper';
 
@@ -14,6 +14,7 @@ export interface JjLogOptions {
     revision?: string;
     limit?: number;
     omitChanges?: boolean;
+    includeNearestVisibleAncestors?: boolean;
 }
 
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
@@ -264,28 +265,26 @@ export class JjService {
     }
 
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
-        const { revision, limit, omitChanges } = options;
+        const { revision, limit, omitChanges, includeNearestVisibleAncestors } = options;
 
         let schema = LOG_ENTRY_SCHEMA;
         if (omitChanges) {
             schema = { ...LOG_ENTRY_SCHEMA };
-            delete schema['changes'];
+            delete schema.changes;
         }
 
         const args = ['-T', buildLogTemplate(schema)];
         if (revision) {
             args.push('-r', revision);
         }
-        if (limit) {
+
+        if (limit !== undefined) {
             args.push('-n', limit.toString());
-        } else if (!revision) {
-            // Safety: If no revision is specified (default view), limit to 200 entries
-            // to prevent buffer overflows and UI performance issues on huge repos.
-            args.push('-n', '200');
         }
 
         const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
         const entries: JjLogEntry[] = [];
+        const visibleIds = new Set<string>();
 
         for (const line of output.trim().split('\n')) {
             if (!line) {
@@ -297,13 +296,81 @@ export class JjService {
             }
             const jsonPart = line.substring(jsonStart);
             try {
-                const raw = JSON.parse(jsonPart);
-                entries.push(raw as JjLogEntry);
+                const entry = JSON.parse(jsonPart) as JjLogEntry;
+                entries.push(entry);
+                visibleIds.add(entry.change_id);
             } catch (e) {
                 console.error('Failed to parse log entry:', line, e);
             }
         }
+
+        if (includeNearestVisibleAncestors) {
+            await this._resolveNearestVisibleAncestors(entries, visibleIds, revision);
+        }
+
         return entries;
+    }
+
+    private async _resolveNearestVisibleAncestors(
+        entries: JjLogEntry[],
+        visibleIds: Set<string>,
+        revision?: string,
+    ): Promise<void> {
+        // Determine the search set for nearest ancestors.
+        // If an explicit revision was provided, we use that.
+        // Otherwise, we default to the configured log revset (or a safe fallback).
+        let searchSet = revision;
+        if (!searchSet) {
+            try {
+                searchSet = await this.run('config', ['get', 'revsets.log'], {
+                    useCachedSnapshot: true,
+                    label: 'getLog:revsets.log',
+                });
+            } catch {
+                searchSet = 'present(@) | ancestors(immutable_heads().., 2) | trunk()';
+            }
+        }
+
+        const followUps: Promise<void>[] = [];
+        for (const entry of entries) {
+            const parentChangeIds = entry.parent_change_ids || [];
+            const hasMissingParents = parentChangeIds.some((p) => !visibleIds.has(p));
+            if (!hasMissingParents) {
+                entry.nearest_visible_ancestors = parentChangeIds;
+                continue;
+            }
+
+            // Some parents are not in the current log slice. Find the nearest ones in the search set.
+            // We use the same change ID expression for the output to ensure consistency.
+            followUps.push(
+                (async () => {
+                    try {
+                        const results = await this.run(
+                            'log',
+                            [
+                                '-r',
+                                `heads(::(${entry.change_id}-) & (${searchSet}))`,
+                                '--no-graph',
+                                '-T',
+                                CHANGE_ID_EXPR + ' ++ "\\n"',
+                            ],
+                            { useCachedSnapshot: true, label: `nearestAncestors:${entry.change_id}` },
+                        );
+                        entry.nearest_visible_ancestors = results
+                            .split('\n')
+                            .map((l) => l.trim())
+                            .filter(Boolean);
+                    } catch (e) {
+                        this.logger(`Warning: failed to fetch nearest ancestors for ${entry.change_id}: ${e}`);
+                        entry.nearest_visible_ancestors = [];
+                    }
+                })(),
+            );
+        }
+
+        if (followUps.length > 0) {
+            await Promise.all(followUps);
+        }
     }
 
     async getLogIds(options: JjLogOptions = {}): Promise<string[]> {

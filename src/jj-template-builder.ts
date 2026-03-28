@@ -58,11 +58,14 @@ export function buildLogTemplate(schema: Record<string, JjTemplateField>): strin
     });
     return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}\\n"`;
 }
+export const CHANGE_ID_EXPR = 'if(divergent, change_id ++ "/" ++ change_offset, change_id)';
+export const CHANGE_ID_ITEM_EXPR =
+    'if(item.divergent(), item.change_id() ++ "/" ++ item.change_offset(), item.change_id())';
 
 // Schema for JjLogEntry - defines how to serialize each field
 export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     commit_id: { type: 'string', expr: 'commit_id' },
-    change_id: { type: 'string', expr: 'if(divergent, change_id ++ "/" ++ change_offset, change_id)' },
+    change_id: { type: 'string', expr: CHANGE_ID_EXPR },
     change_id_shortest: { type: 'string', expr: 'change_id.shortest()' },
     description: { type: 'json', expr: 'description' },
     author: {
@@ -108,6 +111,11 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
         type: 'stringArray',
         expr: 'parents',
         itemExpr: 'item.commit_id()',
+    },
+    parent_change_ids: {
+        type: 'stringArray',
+        expr: 'parents',
+        itemExpr: CHANGE_ID_ITEM_EXPR,
     },
     parents_immutable: {
         type: 'rawArray',
