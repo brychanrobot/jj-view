@@ -129,6 +129,21 @@ async function installNativeDeps() {
     for (const [name, version] of Object.entries(optionalDeps)) {
         const destDir = path.join(distNodeModules, name);
         const cleanVersion = version.replace(/^[\^~>=<]+/, '');
+
+        // Check if the dependency is already installed with the correct version
+        const pkgPath = path.join(destDir, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                if (pkg.version === cleanVersion) {
+                    console.log(`[build] Skipping ${name}@${cleanVersion} (already installed)`);
+                    continue;
+                }
+            } catch (e) {
+                console.warn(`[build] Failed to read ${pkgPath}, re-installing...`);
+            }
+        }
+
         const unscoped = name.split('/').pop();
         const tarballUrl = `https://registry.npmjs.org/${name}/-/${unscoped}-${cleanVersion}.tgz`;
 
