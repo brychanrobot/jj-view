@@ -6,7 +6,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashChangeCommand } from '../../commands/squash-change';
-import { JjDocumentContentProvider } from '../../jj-content-provider';
+import { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
 import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
@@ -43,7 +43,7 @@ describe('squashChangeCommand', () => {
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
             provideOriginalResource: vi.fn().mockImplementation(() => undefined),
-            contentProvider: createMock<JjDocumentContentProvider>({ invalidateCache: vi.fn() }),
+            viewFileSystemProvider: createMock<JjViewFileSystemProvider>({ invalidateCache: vi.fn() }),
         });
     });
 

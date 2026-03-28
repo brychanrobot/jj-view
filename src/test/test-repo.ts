@@ -141,6 +141,17 @@ export class TestRepo {
         this.exec(['abandon', revision]);
     }
 
+    squash(revision?: string, destination?: string) {
+        const args = ['squash'];
+        if (revision) {
+            args.push('-r', revision);
+        }
+        if (destination) {
+            args.push('-d', destination);
+        }
+        this.exec(args);
+    }
+
     writeFile(relativePath: string, content: string) {
         const fullPath = path.join(this.path, relativePath);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });

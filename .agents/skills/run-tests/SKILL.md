@@ -50,12 +50,17 @@ You MUST run individual test cases when writing a new test or debugging a broken
 **Filtering:**
 You MUST run individual test cases when writing a new test or debugging a broken test.
 
-- **Run a single test case (Recommended):** Use the `--grep` flag with the specific test case name or a pattern that uniquely identifies it.
+- **Run a specific test file (Recommended for focus):** Use the `--run` flag followed by the path to the **compiled** test file in the `out/` directory.
     ```bash
-    pnpm test:integration -- --grep "<test case name>"
-    # Example: pnpm test:integration -- --grep "should register commands"
+    pnpm test:integration --run out/test/filename.integration.test.js
+    # Example: pnpm test:integration --run out/test/quick-diff.integration.test.js
     ```
-    _(Note for Integration tests: `vscode-test` passes arguments to Mocha under the hood. Using an exact string in `--grep` is the best way to isolate a single test case.)_
+- **Run a single test case:** Use the `--grep` flag with the specific test case name or a pattern that uniquely identifies it.
+    ```bash
+    pnpm test:integration --grep "<test case name>"
+    # Example: pnpm test:integration --grep "should register commands"
+    ```
+    _(Note: `vscode-test` passes arguments to Mocha under the hood. For `pnpm`, you can pass these flags directly if they are not picked up by pnpm itself, or use `--` to be safe: `pnpm test:integration -- --grep "pattern"`)_
 
 ### 3. End-to-End (E2E) Tests (Playwright)
 

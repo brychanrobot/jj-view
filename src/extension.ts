@@ -34,8 +34,8 @@ import { uploadCommand } from './commands/upload';
 import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
-import { JjDocumentContentProvider } from './jj-content-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
+import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjService } from './jj-service';
@@ -105,17 +105,26 @@ export function activate(context: vscode.ExtensionContext) {
     const gerritService = new GerritService(workspaceRoot, jj, outputChannel);
     context.subscriptions.push(gerritService);
 
-    const contentProvider = new JjDocumentContentProvider(jj);
+    const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
     const editProvider = new JjEditFileSystemProvider(jj);
-    const scmProvider = new JjScmProvider(context, jj, workspaceRoot, outputChannel, contentProvider, editProvider);
+    const scmProvider = new JjScmProvider(
+        context,
+        jj,
+        workspaceRoot,
+        outputChannel,
+        viewFileSystemProvider,
+        editProvider,
+    );
 
     // Wire up the edit provider to trigger scm refreshes
     editProvider.onDidWrite = () => scmProvider.refresh();
 
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
 
-    // Register Document Content Provider for read-only access to old file versions
-    context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('jj-view', contentProvider));
+    // Register FileSystemProvider for read-only access to old file versions (for diffs)
+    context.subscriptions.push(
+        vscode.workspace.registerFileSystemProvider('jj-view', viewFileSystemProvider, { isReadonly: true }),
+    );
 
     // Register FileSystemProvider for editable access to mutable revision files
     context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editProvider));

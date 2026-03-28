@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashChangeCommand } from '../commands/squash-change';
-import { JjDocumentContentProvider } from '../jj-content-provider';
+import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { TestRepo, buildGraph } from './test-repo';
@@ -16,8 +16,9 @@ import { createMock } from './test-utils';
 
 suite('Quick Diff Commands Integration Test', function () {
     let jj: JjService;
-    let scmProvider: JjScmProvider;
     let repo: TestRepo;
+    let scmProvider: JjScmProvider;
+    let jjViewProviderDisposable: vscode.Disposable | undefined;
 
     setup(async () => {
         repo = new TestRepo();
@@ -38,14 +39,22 @@ suite('Quick Diff Commands Integration Test', function () {
             dispose: () => {},
             name: 'mock',
         });
-        const contentProvider = new JjDocumentContentProvider(jj);
-        scmProvider = new JjScmProvider(context, jj, repo.path, outputChannel, contentProvider);
+        const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
+        scmProvider = new JjScmProvider(
+            context,
+            jj,
+            repo.path,
+            outputChannel,
+            viewFileSystemProvider,
+        );
 
         // Register a test-specific content provider to handle 'jj-view-test' scheme
         // This avoids conflict with the main extension's 'jj-view' provider
-        context.subscriptions.push(
-            vscode.workspace.registerTextDocumentContentProvider('jj-view-test', contentProvider),
+        jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider(
+            'jj-view-test',
+            viewFileSystemProvider,
         );
+        context.subscriptions.push(jjViewProviderDisposable);
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
@@ -56,6 +65,10 @@ suite('Quick Diff Commands Integration Test', function () {
     teardown(async () => {
         if (scmProvider) {
             scmProvider.dispose();
+        }
+        if (jjViewProviderDisposable) {
+            jjViewProviderDisposable.dispose();
+            jjViewProviderDisposable = undefined;
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

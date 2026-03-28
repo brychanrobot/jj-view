@@ -34,9 +34,9 @@ suite('Extension Test Suite', () => {
         // Verify scmProvider is exported
         assert.ok(api.scmProvider, 'scmProvider not exported');
 
-        // Verify dependency injection: contentProvider must be assigned for cache invalidation
-        // This catches the bug where contentProvider wasn't passed to scmProvider constructor
-        assert.ok(api.scmProvider.contentProvider, 'contentProvider not assigned to scmProvider');
+        // Verify dependency injection: viewFileSystemProvider must be assigned for cache invalidation
+        // This catches the bug where viewFileSystemProvider wasn't passed to scmProvider constructor
+        assert.ok(api.scmProvider.viewFileSystemProvider, 'viewFileSystemProvider not assigned to scmProvider');
 
         // Verify other basics
         assert.ok(api.jj, 'jj service not exported');
@@ -44,7 +44,7 @@ suite('Extension Test Suite', () => {
         // Verify JJ service is bound to the correct workspace
         assert.strictEqual(api.jj.workspaceRoot, repo.path, 'JJ service root mismatch');
 
-        // Verify scmProvider has contentProvider (essential for cache invalidation fix)
-        assert.ok(api.scmProvider.contentProvider, 'contentProvider not assigned to scmProvider');
+        // Verify scmProvider has viewFileSystemProvider (essential for cache invalidation fix)
+        assert.ok(api.scmProvider.viewFileSystemProvider, 'viewFileSystemProvider not assigned to scmProvider');
     });
 });

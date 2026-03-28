@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import { getErrorMessage } from './commands/command-utils';
 import { completeSquashCommand } from './commands/squash';
-import { JjDocumentContentProvider } from './jj-content-provider';
+import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -51,7 +51,7 @@ export class JjScmProvider implements vscode.Disposable {
         public readonly jj: JjService,
         workspaceRoot: string,
         public readonly outputChannel: vscode.OutputChannel,
-        public readonly contentProvider?: JjDocumentContentProvider,
+        public readonly viewFileSystemProvider?: JjViewFileSystemProvider,
         public readonly editProvider?: JjEditFileSystemProvider,
     ) {
         this._sourceControl = vscode.scm.createSourceControl('jj', 'Jujutsu', vscode.Uri.file(workspaceRoot));
@@ -163,10 +163,6 @@ export class JjScmProvider implements vscode.Disposable {
                 }
                 await this.jj.getRepoRoot(); // Pre-warm the repo root cache
                 this._onRepoStateReady.fire();
-
-                // Invalidate caches so stale content is never served
-                this.contentProvider?.invalidateCache();
-                this.editProvider?.invalidateCache();
 
                 // 1. Fetch data in parallel for performance
                 const config = vscode.workspace.getConfiguration('jj-view');
@@ -452,6 +448,15 @@ export class JjScmProvider implements vscode.Disposable {
                         // Ignore channel closed errors
                     }
                     this._onDidChangeStatus.fire();
+
+                    // Invalidate caches once state is fully updated to ensure 
+                    // that when VS Code re-queries, it sees the most up-to-date state.
+                    this.viewFileSystemProvider?.invalidateCache();
+                    this.editProvider?.invalidateCache();
+
+                    // Re-assigning quickDiffProvider is a known workaround to force 
+                    // VS Code to re-evaluate provideOriginalResource for all open editors.
+                    this._sourceControl.quickDiffProvider = this;
                 }
             }
         });
