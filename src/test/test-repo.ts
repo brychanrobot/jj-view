@@ -270,6 +270,17 @@ export class TestRepo {
         ]);
         return output.trim() === 'true';
     }
+
+    workspaceAdd(name: string, revision?: string): string {
+        const workspacePath = path.join(this.path, name);
+        fs.mkdirSync(workspacePath, { recursive: true });
+        const args = ['workspace', 'add', workspacePath];
+        if (revision) {
+            args.push('-r', revision);
+        }
+        this.exec(args);
+        return workspacePath;
+    }
 }
 
 export interface CommitDefinition {
@@ -279,7 +290,7 @@ export interface CommitDefinition {
     files?: Record<string, string>;
     bookmarks?: string[];
     tags?: string[];
-    isWorkingCopy?: boolean;
+    isCurrentWorkingCopy?: boolean;
 }
 
 export interface CommitId {
@@ -336,9 +347,9 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
         }
     }
 
-    // Handle isWorkingCopy
+    // Handle isCurrentWorkingCopy
     for (const commit of commits) {
-        if (commit.isWorkingCopy && commit.label) {
+        if (commit.isCurrentWorkingCopy && commit.label) {
             const entry = labelToId[commit.label];
             if (entry) {
                 repo.edit(entry.changeId);

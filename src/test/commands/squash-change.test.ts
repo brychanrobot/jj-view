@@ -6,9 +6,9 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashChangeCommand } from '../../commands/squash-change';
-import { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
 import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
+import { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 

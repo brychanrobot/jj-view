@@ -14,7 +14,7 @@ function renderToAscii(
         rows: {
             commit_id: string;
             parents: string[];
-            is_working_copy?: boolean;
+            is_current_working_copy?: boolean;
             change_id: string;
             description: string;
         }[];
@@ -58,7 +58,7 @@ function renderToAscii(
                 if (log.parents.length === 0) {
                     symbol = '◆';
                 }
-                if (log.is_working_copy || log.change_id === headId) {
+                if (log.is_current_working_copy || log.change_id === headId) {
                     symbol = '@';
                 }
             } else {
@@ -272,7 +272,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         await buildGraph(repo, [
             { label: 'root', description: 'Root' },
             { label: 'c1', description: 'C1', parents: ['root'] },
-            { label: 'c2', description: 'C2', parents: ['c1'], isWorkingCopy: true },
+            { label: 'c2', description: 'C2', parents: ['c1'], isCurrentWorkingCopy: true },
         ]);
 
         const logs = await jjService.getLog();
@@ -438,15 +438,15 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             // Fork 3: Orcs (from Cool)
             { label: 'orcs', description: 'Orcs are coming', parents: ['cool'] },
             // HEAD (from vpm)
-            { label: 'head', description: 'tqlynzyq', parents: ['vpm'], isWorkingCopy: true },
+            { label: 'head', description: 'tqlynzyq', parents: ['vpm'], isCurrentWorkingCopy: true },
         ]);
 
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
         // NOTE: We need to manually calculate headId because renderToAscii relied on it being in scope/verified.
-        // The logs array has change_id, we can find the one with is_working_copy.
-        const headLog = logs.find((l) => l.is_working_copy);
+        // The logs array has change_id, we can find the one with is_current_working_copy.
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -508,13 +508,13 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'merge', description: 'Merge', parents: ['main', 'side'] },
             { label: 'chain', description: 'Chain', parents: ['merge'] },
             { label: 'branch', description: 'Branch', parents: ['main'] },
-            { label: 'wc', description: 'WC', parents: ['main'], isWorkingCopy: true },
+            { label: 'wc', description: 'WC', parents: ['main'], isCurrentWorkingCopy: true },
         ]);
 
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -541,14 +541,14 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'yukr', description: 'yukr', parents: ['smyx'] },
             { label: 'mpsp', description: 'testing child: feature B', parents: ['vqpn'] },
             { label: 'vxmy', description: 'vxmy', parents: ['yukr'] },
-            { label: 'uoym', description: 'uoym', parents: ['zonk'], isWorkingCopy: true },
+            { label: 'uoym', description: 'uoym', parents: ['zonk'], isCurrentWorkingCopy: true },
         ]);
 
         const jjService = new JjService(repo.path);
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -569,13 +569,13 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'p', description: 'P', parents: ['root'] },
             { label: 'a', description: 'A', parents: ['p'] },
             { label: 'b', description: 'B', parents: ['p'] },
-            { label: 'c', description: 'C', parents: ['p'], isWorkingCopy: true },
+            { label: 'c', description: 'C', parents: ['p'], isCurrentWorkingCopy: true },
         ]);
 
         const logs = await jjService.getLog();
         const layout = computeGraphLayout(logs);
 
-        const headLog = logs.find((l) => l.is_working_copy);
+        const headLog = logs.find((l) => l.is_current_working_copy);
         const headId = headLog ? headLog.change_id : '';
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -605,7 +605,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'yu', description: 'yu', parents: ['sm'] },
             { label: 'vx', description: 'vx', parents: ['yu'] },
             { label: 'ux', description: 'ux', parents: ['vx'] },
-            { label: 'wr', description: 'wr', parents: ['ux'], isWorkingCopy: true },
+            { label: 'wr', description: 'wr', parents: ['ux'], isCurrentWorkingCopy: true },
         ]);
 
         const layout = computeGraphLayout(await jjService.getLog());

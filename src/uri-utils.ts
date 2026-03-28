@@ -11,8 +11,8 @@ export function createDiffUris(
     root: string,
     options: { editable?: boolean; workingCopyChangeId?: string } = {},
 ): { leftUri: vscode.Uri; rightUri: vscode.Uri; resourceUri: vscode.Uri } {
-    const isWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
-    const resourceUri = isWorkingCopy
+    const isCurrentWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
+    const resourceUri = isCurrentWorkingCopy
         ? vscode.Uri.joinPath(vscode.Uri.file(root), entry.path)
         : vscode.Uri.joinPath(vscode.Uri.file(root), entry.path).with({ query: `jj-revision=${revision}` });
 
@@ -29,7 +29,7 @@ export function createDiffUris(
     });
 
     let rightUri: vscode.Uri;
-    if (isWorkingCopy) {
+    if (isCurrentWorkingCopy) {
         rightUri = resourceUri;
     } else if (options.editable) {
         // Editable: use jj-edit scheme backed by FileSystemProvider

@@ -84,7 +84,7 @@ describe('abandonCommand', () => {
 
         const graph = await buildGraph(repo, [
             { label: 'Keep Me', description: 'Keep Me' }, // Root commit C1
-            { label: 'Abandon Me', description: 'Abandon Me', parents: ['Keep Me'], isWorkingCopy: true }, // Child commit C2 (@)
+            { label: 'Abandon Me', description: 'Abandon Me', parents: ['Keep Me'], isCurrentWorkingCopy: true }, // Child commit C2 (@)
         ]);
 
         const keepId = graph['Keep Me'].changeId;
@@ -106,7 +106,10 @@ describe('abandonCommand', () => {
     });
 
     test('abandons clicked commit if not in selection', async () => {
-        const graph = await buildGraph(repo, [{ label: 'C1' }, { label: 'C2', parents: ['C1'], isWorkingCopy: true }]);
+        const graph = await buildGraph(repo, [
+            { label: 'C1' },
+            { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
+        ]);
         const c1 = graph['C1'].changeId;
 
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([]);
@@ -125,7 +128,10 @@ describe('abandonCommand', () => {
     });
 
     test('abandons clicked commit AND selection if clicked is part of selection', async () => {
-        const graph = await buildGraph(repo, [{ label: 'C1' }, { label: 'C2', parents: ['C1'], isWorkingCopy: true }]);
+        const graph = await buildGraph(repo, [
+            { label: 'C1' },
+            { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
+        ]);
         const c1 = graph['C1'].changeId;
         const c2 = graph['C2'].changeId;
 
@@ -140,7 +146,10 @@ describe('abandonCommand', () => {
     });
 
     test('abandons only clicked commit if clicked is NOT in selection', async () => {
-        const graph = await buildGraph(repo, [{ label: 'C1' }, { label: 'C2', parents: ['C1'], isWorkingCopy: true }]);
+        const graph = await buildGraph(repo, [
+            { label: 'C1' },
+            { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
+        ]);
         const c1 = graph['C1'].changeId;
         const c2 = graph['C2'].changeId;
 

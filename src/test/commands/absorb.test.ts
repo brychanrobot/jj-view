@@ -44,7 +44,7 @@ describe('absorbCommand', () => {
                 parents: ['parent'],
                 description: 'child',
                 files: { [fileName]: 'line1\nline2 modified\n' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -73,7 +73,7 @@ describe('absorbCommand', () => {
                 parents: ['A'],
                 description: 'B',
                 files: { [fileName]: 'base\nlineA modified\n' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

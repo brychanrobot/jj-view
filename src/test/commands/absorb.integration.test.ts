@@ -44,7 +44,7 @@ suite('Absorb Integration Test', function () {
                 parents: ['parent'],
                 description: 'child',
                 files: { 'file.txt': 'line 1\nline 2 changed\nline 3\n' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -60,7 +60,7 @@ suite('Absorb Integration Test', function () {
             { label: 'root', description: 'root', files: { 'file.txt': 'base\n' } },
             { label: 'A', parents: ['root'], description: 'A', files: { 'file.txt': 'base\nlineA\n' } },
             { label: 'B', parents: ['A'], description: 'B', files: { 'file.txt': 'base\nlineA modified\n' } },
-            { label: 'C', parents: ['B'], description: 'C', isWorkingCopy: true },
+            { label: 'C', parents: ['B'], description: 'C', isCurrentWorkingCopy: true },
         ]);
 
         await absorbCommand(scmProvider, jj, [{ commitId: ids['B'].changeId }]);

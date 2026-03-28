@@ -48,7 +48,7 @@ describe('TestRepo', () => {
                 description: 'Commit C',
                 parents: ['B'],
                 files: { 'c.txt': 'content C' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -105,7 +105,7 @@ describe('TestRepo', () => {
         expect(parentDesc(bId)).toContain('Root');
     });
 
-    it('buildGraph respects isWorkingCopy', async () => {
+    it('buildGraph respects isCurrentWorkingCopy', async () => {
         await buildGraph(repo, [
             {
                 label: 'A',
@@ -115,7 +115,7 @@ describe('TestRepo', () => {
                 label: 'B',
                 description: 'Commit B',
                 parents: ['A'],
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

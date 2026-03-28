@@ -24,7 +24,7 @@ test.describe('JJ Log Pane E2E', () => {
                 parents: ['initial'],
                 description: 'working tree',
                 files: { 'file.txt': 'mod' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
                 bookmarks: ['main'],
             },
         ]);
@@ -68,7 +68,7 @@ test.describe('JJ Log Pane E2E', () => {
                 parents: ['initial'],
                 description: 'working tree',
                 files: { 'file.txt': 'mod' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -145,7 +145,7 @@ test.describe('JJ Log Pane E2E', () => {
                 parents: ['branch'],
                 description: 'working tree',
                 files: { 'file.txt': 'mod' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

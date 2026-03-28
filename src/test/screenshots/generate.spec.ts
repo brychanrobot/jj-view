@@ -68,13 +68,13 @@ test('generate screenshots', async () => {
             label: 'merge-conflict',
             parents: ['conflict-side-1', 'conflict-side-2'],
             description: 'Merge: resolve theme conflict',
-            isWorkingCopy: false,
+            isCurrentWorkingCopy: false,
         },
         {
             label: 'working-copy',
             parents: ['merge-conflict'],
             description: 'refactor: polish joke delivery',
-            isWorkingCopy: true,
+            isCurrentWorkingCopy: true,
         },
     ]);
 

@@ -42,7 +42,7 @@ describe('JjService Unit Tests', () => {
     test('getWorkingCopyChanges detects modified file', async () => {
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'initial' } },
-            { parents: ['initial'], files: { 'file.txt': 'modified' }, isWorkingCopy: true },
+            { parents: ['initial'], files: { 'file.txt': 'modified' }, isCurrentWorkingCopy: true },
         ]);
 
         const changes = await jjService.getWorkingCopyChanges();
@@ -147,7 +147,7 @@ log = "none()"
                     label: 'Child',
                     parents: ['Parent'],
                     description: 'Child',
-                    isWorkingCopy: true,
+                    isCurrentWorkingCopy: true,
                 },
             ]);
             // Insert 'Middle' before 'Child'
@@ -174,7 +174,7 @@ log = "none()"
             // Parent2
             const ids = await buildGraph(repo, [
                 { label: 'p1', description: 'parent 1' },
-                { label: 'p2', description: 'parent 2', isWorkingCopy: true },
+                { label: 'p2', description: 'parent 2', isCurrentWorkingCopy: true },
             ]);
 
             const p1Id = ids['p1'].changeId;
@@ -231,7 +231,7 @@ log = "none()"
             // Setup: Parent -> Child
             const ids = await buildGraph(repo, [
                 { label: 'Parent', description: 'Parent' },
-                { label: 'Child', parents: ['Parent'], description: 'Child', isWorkingCopy: true },
+                { label: 'Child', parents: ['Parent'], description: 'Child', isCurrentWorkingCopy: true },
             ]);
 
             // Insert 'Middle' after 'Parent'
@@ -261,7 +261,7 @@ log = "none()"
                 { label: 'P1', parents: ['root'], description: 'P1' },
                 { label: 'P2', parents: ['root'], description: 'P2' },
                 { label: 'Child1', parents: ['P1'], description: 'Child1' },
-                { label: 'Child2', parents: ['P2'], description: 'Child2', isWorkingCopy: true },
+                { label: 'Child2', parents: ['P2'], description: 'Child2', isCurrentWorkingCopy: true },
             ]);
 
             // Insert 'Middle' after P1 and P2
@@ -326,7 +326,7 @@ log = "none()"
     test('cat command returns file content', async () => {
         await buildGraph(repo, [
             { label: 'v1', description: 'v1', files: { 'file.txt': 'version 1' } },
-            { parents: ['v1'], files: { 'file.txt': 'version 2' }, isWorkingCopy: true },
+            { parents: ['v1'], files: { 'file.txt': 'version 2' }, isCurrentWorkingCopy: true },
         ]);
 
         // cat @- should return "version 1"
@@ -346,7 +346,7 @@ log = "none()"
         const filePath = path.join(repo.path, 'file.txt');
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'initial' } },
-            { parents: ['initial'], files: { 'file.txt': 'modified' }, isWorkingCopy: true },
+            { parents: ['initial'], files: { 'file.txt': 'modified' }, isCurrentWorkingCopy: true },
         ]);
         await jjService.restore([filePath]);
 
@@ -358,7 +358,7 @@ log = "none()"
         const filePath = path.join(repo.path, 'file.txt');
         await buildGraph(repo, [
             { label: 'parent', description: 'parent', files: { 'file.txt': 'parent content' } },
-            { parents: ['parent'], files: { 'file.txt': 'child content' }, isWorkingCopy: true },
+            { parents: ['parent'], files: { 'file.txt': 'child content' }, isCurrentWorkingCopy: true },
         ]);
 
         // Squash changes back to parent
@@ -384,7 +384,7 @@ log = "none()"
                 parents: ['parent'],
                 description: 'child',
                 files: { 'squash-rev.txt': 'child' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
         const parentId = ids['parent'].changeId;
@@ -411,7 +411,7 @@ log = "none()"
                 parents: ['A'],
                 description: 'B',
                 files: { [newFileName]: 'new content' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
         const rootId = ids['root'].changeId;
@@ -434,7 +434,7 @@ log = "none()"
                 parents: ['parent'],
                 description: 'child',
                 files: { 'f1.txt': 'child1', 'f2.txt': 'child2' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -458,7 +458,7 @@ log = "none()"
                 description: 'child',
                 // Modify line 2. jj absorb should figure out it belongs to parent
                 files: { [fileName]: 'line1\nline2 modified\n' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -494,7 +494,7 @@ log = "none()"
                 label: 'C', // Working copy
                 parents: ['B'],
                 description: 'C',
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -565,7 +565,7 @@ log = "none()"
                 label: 'child',
                 parents: ['parent'],
                 description: 'child',
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -641,7 +641,7 @@ log = "none()"
                 label: 'child',
                 parents: ['commit'],
                 description: 'child commit',
-                isWorkingCopy: true, // moves @ here
+                isCurrentWorkingCopy: true, // moves @ here
             },
         ]);
 
@@ -754,7 +754,7 @@ log = "none()"
             { label: 'root', description: 'root' },
             { label: 'parent', parents: ['root'], description: 'parent' },
             { label: 'child1', parents: ['parent'], description: 'child1' },
-            { label: 'child2', parents: ['parent'], description: 'child2', isWorkingCopy: true },
+            { label: 'child2', parents: ['parent'], description: 'child2', isCurrentWorkingCopy: true },
         ]);
 
         const logs = await jjService.getLog();
@@ -808,7 +808,7 @@ log = "none()"
                 label: 'HEAD',
                 parents: ['VPM'],
                 description: 'tqlynzyq',
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -1001,7 +1001,7 @@ log = "none()"
             { label: 'base', description: 'base', files: { 'conflict.txt': 'base\n' } },
             { label: 'left', parents: ['base'], description: 'left', files: { 'conflict.txt': 'left\n' } },
             { label: 'right', parents: ['base'], description: 'right', files: { 'conflict.txt': 'right\n' } },
-            { label: 'merge', parents: ['left', 'right'], description: 'merge', isWorkingCopy: true },
+            { label: 'merge', parents: ['left', 'right'], description: 'merge', isCurrentWorkingCopy: true },
         ]);
 
         const conflictedFiles = await jjService.getConflictedFiles();
@@ -1014,7 +1014,7 @@ log = "none()"
             { label: 'base', description: 'base', files: { [fileName]: 'base content\n' } },
             { label: 'left', parents: ['base'], description: 'left', files: { [fileName]: 'left content\n' } },
             { label: 'right', parents: ['base'], description: 'right', files: { [fileName]: 'right content\n' } },
-            { label: 'merge', parents: ['left', 'right'], description: 'merge', isWorkingCopy: true },
+            { label: 'merge', parents: ['left', 'right'], description: 'merge', isCurrentWorkingCopy: true },
         ]);
 
         // Now we have a conflict in conflict.txt
@@ -1032,7 +1032,7 @@ log = "none()"
                 description: 'setup',
                 files: { 'modified.txt': 'initial', 'deleted.txt': 'to delete' },
             },
-            { parents: ['setup'], isWorkingCopy: true },
+            { parents: ['setup'], isCurrentWorkingCopy: true },
         ]);
 
         // Operations
@@ -1084,7 +1084,7 @@ log = "none()"
             { label: 'target', parents: ['root'], description: 'target' },
             { label: 'grandparent', parents: ['root'], description: 'grandparent' },
             { label: 'parent', parents: ['grandparent'], description: 'parent' },
-            { label: 'child', parents: ['parent'], description: 'child', isWorkingCopy: true },
+            { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
         const rootId = ids['root'].changeId;
         const targetId = ids['target'].changeId;
@@ -1306,5 +1306,33 @@ log = "none()"
         expect(v1Entry!.change_id_offset).toBe(1);
         expect(v2Entry!.change_id_offset).toBe(0);
         expect(v1Entry!.change_id_offset).not.toBe(v2Entry!.change_id_offset);
+    });
+
+    test('getLog() includes workspace labels in working_copies field', async () => {
+        const workspaceName = 'repo2';
+
+        // Create commits first
+        const otherCommit = await buildGraph(repo, [{ label: 'other', description: 'other' }]);
+        const otherCommitId = otherCommit['other'].changeId;
+
+        // Current workspace 'default' is at 'other'
+        const currentWcId = repo.getChangeId('@');
+
+        repo.workspaceAdd(workspaceName, otherCommitId);
+
+        const logs = await jjService.getLog({ revision: 'all()' });
+
+        // The second workspace created a new commit on top of otherCommit
+        // Find the commit that has the repo2 workspace label
+        const repo2WcEntry = logs.find((l) => l.working_copies?.some((w) => w.startsWith(workspaceName)));
+
+        expect(repo2WcEntry).toBeDefined();
+        expect(repo2WcEntry!.is_current_working_copy).toBe(false);
+
+        // Find the commit that is the current working copy
+        const currentWcEntry = logs.find((l) => l.is_current_working_copy);
+        expect(currentWcEntry).toBeDefined();
+        expect(currentWcEntry!.change_id).toBe(currentWcId);
+        expect(currentWcEntry!.working_copies).toContain('default@');
     });
 });

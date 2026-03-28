@@ -36,7 +36,7 @@ describe('editCommand', () => {
         // Setup: Parent -> Child. Currently at Child.
         const ids = await buildGraph(repo, [
             { label: 'parent', description: 'parent' },
-            { label: 'child', parents: ['parent'], description: 'child', isWorkingCopy: true },
+            { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
         // Edit parent
@@ -49,7 +49,7 @@ describe('editCommand', () => {
     test('edits from parent resource group header', async () => {
         const ids = await buildGraph(repo, [
             { label: 'parent', description: 'parent' },
-            { label: 'child', parents: ['parent'], description: 'child', isWorkingCopy: true },
+            { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
         const mockState = createMock<JjResourceState>({ revision: ids['parent'].changeId });

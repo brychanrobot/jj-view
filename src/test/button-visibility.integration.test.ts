@@ -59,7 +59,7 @@ suite('Button Visibility Integration Test', function () {
         await buildGraph(repo, [
             { label: 'grandparent', description: 'grandparent' },
             { label: 'parent', description: 'parent', parents: ['grandparent'] },
-            { label: 'child', description: 'child', parents: ['parent'], isWorkingCopy: true },
+            { label: 'child', description: 'child', parents: ['parent'], isCurrentWorkingCopy: true },
         ]);
 
         // Verify structure: grandparent -> parent -> child (@)

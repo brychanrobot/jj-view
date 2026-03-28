@@ -85,7 +85,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { [fileName]: fileContentModified },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

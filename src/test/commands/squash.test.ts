@@ -56,7 +56,7 @@ describe('squashCommand', () => {
                 parents: ['parent'],
                 description: 'child',
                 files: { [fileName]: 'child content' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -125,7 +125,7 @@ describe('squashCommand', () => {
                 parents: ['parent'],
                 description: 'Child Description',
                 files: { [fileName]: 'child content' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

@@ -44,7 +44,7 @@ describe('newBeforeCommand', () => {
         // Setup repo: root -> A -> B
         const ids = await buildGraph(repo, [
             { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B', isWorkingCopy: true },
+            { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
         ]);
         const revA = ids['A'].changeId;
         const revB = ids['B'].changeId;
@@ -69,7 +69,7 @@ describe('newBeforeCommand', () => {
         // Setup repo: root -> A -> B
         const ids = await buildGraph(repo, [
             { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B', isWorkingCopy: true },
+            { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
         ]);
         const revA = ids['A'].changeId;
         const revB = ids['B'].changeId;
@@ -93,7 +93,7 @@ describe('newBeforeCommand', () => {
         // Setup repo: root -> Parent -> A
         const ids = await buildGraph(repo, [
             { label: 'Parent', description: 'Parent' },
-            { label: 'A', parents: ['Parent'], description: 'A', isWorkingCopy: true },
+            { label: 'A', parents: ['Parent'], description: 'A', isCurrentWorkingCopy: true },
         ]);
         const revParent = ids['Parent'].changeId;
         const revA = ids['A'].changeId;

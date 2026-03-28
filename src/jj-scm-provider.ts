@@ -8,13 +8,13 @@ import * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import { getErrorMessage } from './commands/command-utils';
 import { completeSquashCommand } from './commands/squash';
-import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
 import { JjService } from './jj-service';
 import { JjLogEntry, JjStatusEntry } from './jj-types';
+import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { RefreshScheduler } from './refresh-scheduler';
 import { createDiffUris } from './uri-utils';
 import { formatDisplayChangeId } from './utils/jj-utils';
@@ -182,8 +182,8 @@ export class JjScmProvider implements vscode.Disposable {
 
                 const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
 
-                // Extract current entry from bulk log (it should be the first one with is_working_copy or just the first entry)
-                const currentEntry = bulkLog.find((e) => e.is_working_copy) || bulkLog[0];
+                // Extract current entry from bulk log (it should be the first one with is_current_working_copy or just the first entry)
+                const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
                 this._currentEntry = currentEntry;
                 const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
 
@@ -449,12 +449,12 @@ export class JjScmProvider implements vscode.Disposable {
                     }
                     this._onDidChangeStatus.fire();
 
-                    // Invalidate caches once state is fully updated to ensure 
+                    // Invalidate caches once state is fully updated to ensure
                     // that when VS Code re-queries, it sees the most up-to-date state.
                     this.viewFileSystemProvider?.invalidateCache();
                     this.editProvider?.invalidateCache();
 
-                    // Re-assigning quickDiffProvider is a known workaround to force 
+                    // Re-assigning quickDiffProvider is a known workaround to force
                     // VS Code to re-evaluate provideOriginalResource for all open editors.
                     this._sourceControl.quickDiffProvider = this;
                 }
@@ -549,7 +549,7 @@ export class JjScmProvider implements vscode.Disposable {
         } = {},
     ): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
-        const isWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
+        const isCurrentWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
         const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, {
             ...options,
             workingCopyChangeId: this._currentEntry?.change_id,
@@ -564,7 +564,7 @@ export class JjScmProvider implements vscode.Disposable {
             : {
                   command: 'vscode.diff',
                   title: 'Diff',
-                  arguments: [leftUri, rightUri, `${entry.path} (${isWorkingCopy ? 'Working Copy' : revision})`],
+                  arguments: [leftUri, rightUri, `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`],
               };
 
         return {
@@ -577,7 +577,7 @@ export class JjScmProvider implements vscode.Disposable {
             },
             contextValue: entry.conflicted
                 ? ScmContextValue.Conflict
-                : isWorkingCopy
+                : isCurrentWorkingCopy
                   ? options.squashable
                       ? options.multipleAncestors
                           ? ScmContextValue.WorkingCopySquashableMulti

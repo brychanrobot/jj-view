@@ -11,12 +11,12 @@ test.describe('Quick Diff E2E', () => {
     test('Gutter decorations and Diff Editor refresh after squash', async () => {
         const repo = new TestRepo();
         repo.init();
-        
+
         // Initial state: one commit with a file
         const fileName = 'quick-diff-test.txt';
         repo.writeFile(fileName, 'line 1\nline 2\nline 3\n');
         repo.describe('base');
-        
+
         // Working copy modification: add a line
         repo.new();
         repo.writeFile(fileName, 'line 1\nline 2\nline 2.5\nline 3\n');
@@ -47,14 +47,14 @@ test.describe('Quick Diff E2E', () => {
             await expect(async () => {
                 // Focus editor
                 await editor.click();
-                
+
                 // Attempt edge-click (as user showed in screenshot, the visual bar is far-left)
                 const target = gutter.first();
                 const box = await target.boundingBox();
                 if (box) {
                     await page.mouse.click(box.x + 1, box.y + box.height / 2, { delay: 100 });
                 }
-                
+
                 // Wait for Peek View to appear
                 await expect(peekView).toBeVisible({ timeout: 5000 });
             }).toPass({ timeout: 20000 });
@@ -65,7 +65,7 @@ test.describe('Quick Diff E2E', () => {
             // 4. Perform Squash (Mutation)
             // We use the CLI via TestRepo to simulate an external change that triggers a refresh
             repo.squash();
-            
+
             // 5. Verify Refresh in UI
             // The Peek View should ideally close or update.
             // And the gutter indicator must disappear.
@@ -79,7 +79,6 @@ test.describe('Quick Diff E2E', () => {
             // Since it's squashed, it might still show up briefly or disappear.
             // Actually, after squash, the file matches the parent, so it should disappear from SCM.
             await expect(scmFileRow).not.toBeVisible({ timeout: 10000 });
-
         } finally {
             await app.close();
             try {

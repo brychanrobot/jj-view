@@ -6,9 +6,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
+import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -37,15 +37,9 @@ suite('Quick Diff Integration Test', function () {
             dispose: () => {},
             name: 'mock',
         });
-        
+
         viewFileSystemProvider = new JjViewFileSystemProvider(jj);
-        scmProvider = new JjScmProvider(
-            context,
-            jj,
-            canonicalPath,
-            outputChannel,
-            viewFileSystemProvider,
-        );
+        scmProvider = new JjScmProvider(context, jj, canonicalPath, outputChannel, viewFileSystemProvider);
 
         disposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
 
@@ -117,9 +111,7 @@ suite('Quick Diff Integration Test', function () {
 
         // 2. Subscribe to events
         const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
-            return events.some(
-                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
-            );
+            return events.some((e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase());
         });
 
         // 3. Trigger refresh - this should fire the event
@@ -142,9 +134,7 @@ suite('Quick Diff Integration Test', function () {
 
         // 2. Subscribe to events
         const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
-            return events.some(
-                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
-            );
+            return events.some((e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase());
         });
 
         // Perform squash via the service (simulating user action)
@@ -176,9 +166,7 @@ suite('Quick Diff Integration Test', function () {
 
         // 2. Subscribe to events
         const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
-            return events.some(
-                (e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase(),
-            );
+            return events.some((e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase());
         });
 
         // Switch back to v2

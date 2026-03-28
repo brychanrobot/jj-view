@@ -88,7 +88,7 @@ function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControl
     return typeof arg === 'object' && arg !== null && 'id' in arg && 'label' in arg && 'resourceStates' in arg;
 }
 
-export function isWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
+export function isCurrentWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
     return isSourceControlResourceGroup(arg) && arg.id === ScmContextValue.WorkingCopyGroup;
 }
 
@@ -126,7 +126,7 @@ export function extractRevisions(args: unknown[]): string[] {
             continue;
         }
 
-        if (isWorkingCopyResourceGroup(arg)) {
+        if (isCurrentWorkingCopyResourceGroup(arg)) {
             revisions.push('@');
             continue;
         }

@@ -43,7 +43,7 @@ describe('restoreCommand', () => {
                 parents: ['parent'],
                 description: 'child',
                 files: { [fileName]: 'modified' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

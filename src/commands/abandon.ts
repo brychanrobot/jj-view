@@ -5,13 +5,13 @@
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { extractRevision, isWorkingCopyResourceGroup, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevision, isCurrentWorkingCopyResourceGroup, showJjError, withDelayedProgress } from './command-utils';
 
 export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     let revisions: string[] = [];
 
     // 1. Check if triggered from Working Copy header (ignore selection)
-    if (args.some((arg) => isWorkingCopyResourceGroup(arg))) {
+    if (args.some((arg) => isCurrentWorkingCopyResourceGroup(arg))) {
         revisions = ['@'];
     } else {
         // 2. Check explicit argument (e.g. context menu click)

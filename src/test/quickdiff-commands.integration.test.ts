@@ -8,9 +8,9 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashChangeCommand } from '../commands/squash-change';
-import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
+import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { TestRepo, buildGraph } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -43,20 +43,11 @@ suite('Quick Diff Commands Integration Test', function () {
             name: 'mock',
         });
         const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
-        scmProvider = new JjScmProvider(
-            context,
-            jj,
-            canonicalPath,
-            outputChannel,
-            viewFileSystemProvider,
-        );
+        scmProvider = new JjScmProvider(context, jj, canonicalPath, outputChannel, viewFileSystemProvider);
 
         // Register a test-specific content provider to handle 'jj-view-test' scheme
         // This avoids conflict with the main extension's 'jj-view' provider
-        jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider(
-            'jj-view-test',
-            viewFileSystemProvider,
-        );
+        jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
         context.subscriptions.push(jjViewProviderDisposable);
 
         // Override provideOriginalResource to return the test scheme
@@ -94,7 +85,7 @@ suite('Quick Diff Commands Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { [fileName]: fileContentModified },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -138,7 +129,7 @@ suite('Quick Diff Commands Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { [fileName]: fileContentModified },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

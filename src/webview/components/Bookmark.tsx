@@ -81,6 +81,25 @@ export const TagPill: React.FC<{ tag: string; style?: React.CSSProperties }> = (
     );
 };
 
+export const WorkspacePill: React.FC<{ workspace: string; style?: React.CSSProperties }> = ({ workspace, style }) => {
+    const accentColor = 'var(--vscode-charts-yellow)'; // Yellow/orange for workspaces
+    const backgroundColor = `color-mix(in srgb, ${accentColor}, transparent 90%)`;
+    const borderColor = `color-mix(in srgb, ${accentColor}, transparent 50%)`;
+
+    return (
+        <BasePill
+            style={{
+                backgroundColor,
+                color: accentColor,
+                border: `1px solid ${borderColor}`,
+                ...style,
+            }}
+        >
+            {workspace}
+        </BasePill>
+    );
+};
+
 export const DraggableBookmark: React.FC<{ bookmark: JjBookmark }> = ({ bookmark }) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `bookmark-${bookmark.name}-${bookmark.remote || 'local'}`,

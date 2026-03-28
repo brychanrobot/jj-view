@@ -132,7 +132,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
         );
 
         let content;
-        if (node.isWorkingCopy) {
+        if (node.isCurrentWorkingCopy) {
             content = (
                 <>
                     <circle cx={cx} cy={cy} r="8" fill="var(--vscode-sideBar-background)" />

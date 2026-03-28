@@ -10,7 +10,8 @@ export interface GraphNode {
     x: number; // Lane index
     y: number; // Row index
     color: string;
-    isWorkingCopy: boolean;
+    isCurrentWorkingCopy: boolean;
+    workingCopies?: string[];
     conflict?: boolean;
     isEmpty?: boolean;
     isImmutable?: boolean;

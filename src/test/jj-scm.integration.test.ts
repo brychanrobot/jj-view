@@ -85,7 +85,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['initial'],
                 files: { 'test.txt': 'modified' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -131,7 +131,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
             {
                 parents: ['parent'],
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -206,7 +206,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
             {
                 parents: ['parent'],
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -262,7 +262,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { 'partial-move.txt': contentMod },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -322,7 +322,7 @@ suite('JJ SCM Provider Integration Test', function () {
                 label: 'merge',
                 parents: ['left', 'right'],
                 description: 'merge',
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -401,7 +401,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { 'squash-test.txt': 'child content' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -434,7 +434,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { 'f1.txt': 'c1', 'f2.txt': 'c2' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -508,7 +508,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['parent'],
                 description: 'Child Desc',
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
         await scmProvider.refresh({ forceSnapshot: true });
@@ -607,7 +607,7 @@ suite('JJ SCM Provider Integration Test', function () {
             {
                 parents: ['parent'],
                 files: { 'move-to-child.txt': 'child content' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -751,7 +751,7 @@ suite('JJ SCM Provider Integration Test', function () {
             },
             {
                 parents: ['parent'],
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 

@@ -6,7 +6,7 @@ import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import React from 'react';
 // Needs to be available in types or duplicated.
 import { GerritClInfo } from '../../jj-types';
-import { BookmarkPill, DraggableBookmark } from './Bookmark';
+import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
 import { IconButton } from './IconButton';
 
 // Exported for DragOverlay in App.tsx
@@ -40,7 +40,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     hasImmutableSelection,
     idDisplayLength = 8, // Default fallback
 }) => {
-    const isWorkingCopy = commit.is_working_copy;
+    const isCurrentWorkingCopy = commit.is_current_working_copy;
     const isImmutable = commit.is_immutable;
     const isConflict = commit.conflict;
     const isEmpty = commit.is_empty;
@@ -126,7 +126,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
             ref={setCombinedRef}
             {...listeners}
             {...attributes}
-            className={`commit-row ${isWorkingCopy ? 'working-copy' : ''}`}
+            className={`commit-row ${isCurrentWorkingCopy ? 'working-copy' : ''}`}
             aria-selected={isSelected}
             data-change-id={commit.change_id}
             data-selected={isSelected}
@@ -335,7 +335,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
-                            fontWeight: isWorkingCopy ? 'bold' : 'normal',
+                            fontWeight: isCurrentWorkingCopy ? 'bold' : 'normal',
                             color: isImmutable
                                 ? 'var(--vscode-descriptionForeground)'
                                 : isEmpty
@@ -366,6 +366,12 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     bookmark={bookmark}
                                 />
                             ))}
+                        {commit.working_copies &&
+                            commit.working_copies.length > 0 &&
+                            commit.working_copies.map((workspace: string) => (
+                                <WorkspacePill key={workspace} workspace={workspace} />
+                            ))}
+                        {commit.tags && commit.tags.map((tag: string) => <TagPill key={tag} tag={tag} />)}
 
                         {isOver &&
                             active?.data?.current?.type === 'bookmark' &&

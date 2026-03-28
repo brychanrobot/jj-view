@@ -39,7 +39,7 @@ describe('moveToChildCommand', () => {
         const fileName = 'move.txt';
         // Parent (modified) -> Child
         const ids = await buildGraph(repo, [
-            { label: 'parent', description: 'parent', files: { [fileName]: 'modified' }, isWorkingCopy: true },
+            { label: 'parent', description: 'parent', files: { [fileName]: 'modified' }, isCurrentWorkingCopy: true },
             { label: 'child', parents: ['parent'], description: 'child' },
         ]);
 
@@ -58,7 +58,7 @@ describe('moveToChildCommand', () => {
         const ids = await buildGraph(repo, [
             { label: 'ancestor', description: 'ancestor', files: { [fileName]: 'modified' } },
             { label: 'child', parents: ['ancestor'], description: 'child' },
-            { label: 'wc', parents: ['child'], description: 'wc', isWorkingCopy: true },
+            { label: 'wc', parents: ['child'], description: 'wc', isCurrentWorkingCopy: true },
         ]);
 
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));

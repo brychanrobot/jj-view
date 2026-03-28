@@ -35,10 +35,10 @@ import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
-import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjService } from './jj-service';
+import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { resolveJjBinary } from './utils/binary-utils';
 
 export interface Api {

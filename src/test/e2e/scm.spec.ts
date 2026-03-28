@@ -20,14 +20,14 @@ test.describe('SCM Pane E2E', () => {
                 label: 'merge',
                 parents: ['conflict-side-1', 'conflict-side-2'],
                 description: 'merge',
-                isWorkingCopy: false,
+                isCurrentWorkingCopy: false,
             },
             {
                 label: 'wc',
                 parents: ['merge'],
                 description: 'my working copy',
                 files: { 'new-file.ts': 'console.log("hello");\n' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -63,7 +63,7 @@ test.describe('SCM Pane E2E', () => {
         const repo = new TestRepo();
         repo.init();
         const commits = await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isWorkingCopy: true },
+            { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isCurrentWorkingCopy: true },
         ]);
         const initialId = commits['initial'].changeId;
         const workspaceRootId = repo.getParents(initialId)[0];
@@ -126,7 +126,7 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' } },
-            { label: 'wc', parents: ['initial'], description: '', isWorkingCopy: true },
+            { label: 'wc', parents: ['initial'], description: '', isCurrentWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -192,7 +192,7 @@ test.describe('SCM Pane E2E', () => {
                 parents: ['ancestor'],
                 description: 'wc change',
                 files: { 'w.txt': '1' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -251,7 +251,7 @@ test.describe('SCM Pane E2E', () => {
                 parents: ['initial'],
                 description: 'wc change',
                 files: { 'file.txt': 'mod', 'file2.txt': 'mod2', 'file3.txt': 'mod3' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -408,7 +408,7 @@ test.describe('SCM Pane E2E', () => {
                 parents: ['ancestor'],
                 description: 'wc change',
                 files: { 'f1.txt': '2', 'f3.txt': '1' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
@@ -484,7 +484,7 @@ test.describe('SCM Pane E2E', () => {
                 description: 'ancestor change',
                 files: { 'f1.txt': '2', 'f2.txt': '2' },
             },
-            { label: 'wc', parents: ['ancestor'], isWorkingCopy: true },
+            { label: 'wc', parents: ['ancestor'], isCurrentWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -534,7 +534,7 @@ test.describe('SCM Pane E2E', () => {
         repo.init();
         await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'tracked.txt': 'base', 'unmodified.txt': 'base' } },
-            { label: 'wc', parents: ['initial'], isWorkingCopy: true },
+            { label: 'wc', parents: ['initial'], isCurrentWorkingCopy: true },
         ]);
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -604,7 +604,7 @@ test.describe('SCM Pane E2E', () => {
                 parents: ['parent'],
                 description: 'wc change',
                 files: { 'wc.txt': '1' },
-                isWorkingCopy: true,
+                isCurrentWorkingCopy: true,
             },
         ]);
 
