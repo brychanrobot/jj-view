@@ -26,6 +26,7 @@ export interface GraphEdge {
     color: string;
     type: 'parent' | 'merge'; // 'parent' usually means from Child -> Parent (Vertical/Fork). 'merge' means incoming?
     isJoining?: boolean; // True if this edge seamlessly merges into another edge's trunk
+    isElided?: boolean; // True if this edge connects to a non-direct ancestor (history gap)
 }
 
 export interface GraphLayout {

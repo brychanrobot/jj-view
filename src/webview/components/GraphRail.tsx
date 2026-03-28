@@ -20,6 +20,7 @@ const CX = W / 2;
 const CY_OFFSET = ROW_HEADER_HEIGHT / 2; // Graph is centered in the primary line (14px)
 const LEFT_MARGIN = 12; // Shift graph right to prevent clipping of halos
 const R = 8; // Max radius (W/2) for smooth curves
+const BOTTOM_PADDING = 20; // Extra room for trailing elision markers at the bottom
 
 export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, height, rowOffsets, selectedNodes }) => {
     // Layering: Leftmost lanes (lower x) should render visually on TOP.
@@ -44,7 +45,9 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
 
         const ex = x2 * W + CX + LEFT_MARGIN;
         // End Y
-        const ey = (rowOffsets[y2] || 0) + CY_OFFSET;
+        const isTrailing = y2 === rowOffsets.length - 1;
+        // Trailing edges extend 12px past the last row before being "broken" by the tilde
+        const ey = (rowOffsets[y2] || 0) + (isTrailing ? 12 : CY_OFFSET);
 
         let d = '';
 
@@ -61,7 +64,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
                 midY = rowOffsets[cY];
             } else {
                 // If it curves offscreen, use ey but subtract the offset to get the row boundary
-                midY = ey - CY_OFFSET;
+                midY = isTrailing ? ey : ey - CY_OFFSET;
             }
 
             // Direction for horizontal
@@ -98,16 +101,41 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
             }
         }
 
+        const ElisionMarker = () => {
+            if (!edge.isElided) return null;
+
+            // Simple pixel midpoint measures the total gap accurately.
+            const visualMid = (sy + ey) / 2;
+            let mx = sx;
+            let my = visualMid;
+
+            if (isTrailing) {
+                // For trailing edges, put it at the very end of the extended edge
+                mx = ex;
+                my = ey - 2;
+            }
+
+            return (
+                <g key={`elision-${index}`} transform={`translate(${mx}, ${my})`}>
+                    {/* Background cutout to create a clean gap in the colored line */}
+                    <rect x="-5" y="-6" width="10" height="12" fill="var(--vscode-sideBar-background)" />
+                    {/* Tilde marker ~ in disabled gray */}
+                    <path
+                        d="M -4,1 C -4,-2 -1,-2 0,0 C 1,2 4,2 4,-1"
+                        stroke="var(--vscode-descriptionForeground)"
+                        strokeWidth="2"
+                        fill="none"
+                        strokeLinecap="round"
+                    />
+                </g>
+            );
+        };
+
         return (
-            <path
-                key={`edge-${index}`}
-                d={d}
-                stroke={color}
-                strokeWidth="2"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
+            <React.Fragment key={`edge-group-${index}`}>
+                <path d={d} stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                <ElisionMarker />
+            </React.Fragment>
         );
     };
 
@@ -221,8 +249,8 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
 
     // Determine graph SVG dimensions
     const svgWidth = width * W + LEFT_MARGIN + W; // Width + margin + extra buffer
-    // SVG Height is now passed in explicitly based on total row height
-    const svgHeight = height;
+    // SVG Height includes padding for trailing markers
+    const svgHeight = height + BOTTOM_PADDING;
 
     return (
         <svg

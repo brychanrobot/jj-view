@@ -10,10 +10,11 @@ import { TestRepo, buildGraph } from './test-repo';
 // Helper: ASCII renderer to verify layout against jj log output
 function renderToAscii(
     layout: {
-        nodes: { x: number; y: number; commitId: string }[];
+        nodes: { x: number; y: number; changeId: string }[];
         rows: {
             commit_id: string;
             parents: string[];
+            nearest_visible_ancestors?: string[];
             is_current_working_copy?: boolean;
             change_id: string;
             description: string;
@@ -23,8 +24,8 @@ function renderToAscii(
     headId: string,
 ): string {
     const rows: string[] = [];
-    const nodesById = new Map<string, { x: number; y: number; commitId: string }>(
-        layout.nodes.map((n) => [n.commitId, n]),
+    const nodesById = new Map<string, { x: number; y: number; changeId: string }>(
+        layout.nodes.map((n) => [n.changeId, n]),
     );
 
     // Calculate maximum width (number of lanes) used by any node or edge
@@ -35,7 +36,7 @@ function renderToAscii(
 
     for (let i = 0; i < layout.rows.length; i++) {
         const log = layout.rows[i];
-        const node = nodesById.get(log.commit_id);
+        const node = nodesById.get(log.change_id);
         if (!node) {
             continue;
         }
@@ -55,7 +56,7 @@ function renderToAscii(
             let symbol = ' ';
             if (node.x === x) {
                 symbol = '○';
-                if (log.parents.length === 0) {
+                if ((log.nearest_visible_ancestors || log.parents).length === 0) {
                     symbol = '◆';
                 }
                 if (log.is_current_working_copy || log.change_id === headId) {
@@ -104,7 +105,7 @@ function renderToAscii(
 
         rows.push(`${finalStr}  ${log.change_id.substring(0, 8)} ${log.description.split('\n')[0]}`.trimEnd());
 
-        if (log.parents.length === 0) {
+        if ((log.nearest_visible_ancestors || log.parents).length === 0) {
             continue; // No spacer rows needed after a root commit.
         }
 
@@ -115,7 +116,8 @@ function renderToAscii(
 
             // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row
             // to save vertical space.
-            const isStraightToRoot = nextLog.parents.length === 0 && log.description === '';
+            const isStraightToRoot =
+                (nextLog.nearest_visible_ancestors || nextLog.parents).length === 0 && log.description === '';
             const spacerCount = isStraightToRoot ? 1 : 2;
 
             for (let s = 0; s < spacerCount; s++) {
@@ -275,7 +277,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'c2', description: 'C2', parents: ['c1'], isCurrentWorkingCopy: true },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const nodes = layout.nodes;
@@ -333,7 +335,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'child2', description: 'Child2', parents: ['parent'] },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const nodes = layout.nodes;
@@ -386,7 +388,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'merge', description: 'MergeChild', parents: ['p1', 'p2'] },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const mergeNode = layout.nodes.find((n) => logs[n.y].description.includes('MergeChild'));
@@ -441,7 +443,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'head', description: 'tqlynzyq', parents: ['vpm'], isCurrentWorkingCopy: true },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         // NOTE: We need to manually calculate headId because renderToAscii relied on it being in scope/verified.
@@ -511,7 +513,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'wc', description: 'WC', parents: ['main'], isCurrentWorkingCopy: true },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const headLog = logs.find((l) => l.is_current_working_copy);
@@ -545,7 +547,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         ]);
 
         const jjService = new JjService(repo.path);
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const headLog = logs.find((l) => l.is_current_working_copy);
@@ -572,7 +574,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'c', description: 'C', parents: ['p'], isCurrentWorkingCopy: true },
         ]);
 
-        const logs = await jjService.getLog();
+        const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 
         const headLog = logs.find((l) => l.is_current_working_copy);
@@ -608,7 +610,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'wr', description: 'wr', parents: ['ux'], isCurrentWorkingCopy: true },
         ]);
 
-        const layout = computeGraphLayout(await jjService.getLog());
+        const layout = computeGraphLayout(await jjService.getLog({ includeNearestVisibleAncestors: true }));
         const headId = layout.nodes[0].changeId;
 
         const userTemplate = 'change_id.shortest(8) ++ " " ++ description ++ "\\n\\n"';
@@ -616,5 +618,40 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const generatedOutput = renderToAscii(layout, headId).trim();
 
         expect(generatedOutput).toBe(expectedOutput);
+    });
+
+    test('History Elision Marker', async () => {
+        // Setup:
+        // A -> B -> C
+        // if we log {A, C}, the edge from C -> A should be elided.
+        await buildGraph(repo, [
+            { label: 'a', description: 'A' },
+            { label: 'b', description: 'B', parents: ['a'] },
+            { label: 'c', description: 'C', parents: ['b'] },
+        ]);
+
+        const allLogs = await jjService.getLog({});
+        const aLog = allLogs.find((l) => l.description.trim() === 'A');
+        const cLog = allLogs.find((l) => l.description.trim() === 'C');
+
+        expect(aLog).toBeDefined();
+        expect(cLog).toBeDefined();
+
+        // Manually simulate a gap by passing C and A but not B.
+        // We need to ensure C's nearest_visible_ancestors correctly points to A.
+        const cEntry = { ...cLog!, nearest_visible_ancestors: [aLog!.change_id] };
+        const logs = [cEntry, aLog!];
+
+        const layout = computeGraphLayout(logs);
+
+        const cNode = layout.nodes.find((n) => n.changeId === cLog!.change_id);
+        const aNode = layout.nodes.find((n) => n.changeId === aLog!.change_id);
+
+        expect(cNode).toBeDefined();
+        expect(aNode).toBeDefined();
+
+        const edge = layout.edges.find((e) => e.y1 === cNode!.y && e.y2 === aNode!.y);
+        expect(edge).toBeDefined();
+        expect(edge!.isElided).toBe(true);
     });
 });
