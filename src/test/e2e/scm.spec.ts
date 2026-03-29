@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TestRepo, buildGraph } from '../test-repo';
-import { ROOT_ID, entry, expectTree, focusSCM, hoverAndClick, launchVSCode } from './e2e-helpers';
+import { ROOT_ID, entry, expectTree, focusSCM, hoverAndClick, launchVSCode, setScmDescription } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -43,7 +43,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(mergeConflictsHeader).toBeVisible();
             await expect(workingCopyHeader).toBeVisible();
 
-            // Verify ancestor groups (merge commit is empty, so we see its parents @-2^1 and @-2^2)
+            // Verify ancestor groups (merge commit is empty, showing parents @-2^1 and @-2^2)
             await expect(page.getByRole('treeitem', { name: /@-2\^1:.*side 1/ })).toBeVisible({ timeout: 5000 });
             await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible();
 
@@ -75,25 +75,17 @@ test.describe('SCM Pane E2E', () => {
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
             await scmInputRow.click(); // Focus the editor
 
-            // Set Description and Commit with retry logic for stability
+            // Set Description and Commit with robust helper
+            await setScmDescription(page, 'Updated description explicitly');
+
+            // Commit using button inside the Source Control view title bar
+            const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
+            await commitButton.click();
+
+            // Wait for description to appear in log (indicating commit success)
             await expect(async () => {
-                await scmInputRow.click();
-                await page.keyboard.press('Control+A');
-                await page.keyboard.press('Backspace');
-                await page.keyboard.insertText('Updated description explicitly');
-
-                // Verify UI reflects the text before clicking commit to ensure synchronization
-                await expect(scmInputRow).toContainText('Updated description explicitly', { timeout: 2000 });
-
-                // Commit using button inside the Source Control view title bar
-                const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
-                await commitButton.click();
-
-                // Wait for description to appear in log (indicating commit success)
-                await expect(async () => {
-                    expect(repo.log()).toContain('Updated description explicitly');
-                }).toPass({ timeout: 5000 });
-            }).toPass({ timeout: 15000 });
+                expect(repo.log()).toContain('Updated description explicitly');
+            }).toPass({ timeout: 5000 });
 
             // Ensure wait for SCM refresh before next action
             await expect(scmInputRow).not.toContainText('Updated description explicitly', { timeout: 10000 });
@@ -135,40 +127,26 @@ test.describe('SCM Pane E2E', () => {
             await focusSCM(page);
             const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
 
-            // Set Description with Ctrl+S
+            // Set Description and Save with Control+S
             await expect(async () => {
-                await scmInputRow.click();
-                await page.keyboard.press('Control+A');
-                await page.keyboard.press('Backspace');
-                await page.keyboard.insertText('Using keyboard shortcuts');
+                await setScmDescription(page, 'Using keyboard shortcuts');
                 await page.keyboard.press('Control+S');
 
-                // Wait for input to be stable (doesn't change back to what it was)
+                // Wait for input to be stable (picked up by the backend)
                 expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
-            }).toPass({ timeout: 10000 });
+            }).toPass({ timeout: 15000 });
 
-            // Set Description to trigger commit
+            // Set Description and Commit with Control+Enter
             await expect(async () => {
-                await scmInputRow.click();
-                await page.keyboard.press('Control+A');
-                await page.keyboard.press('Backspace');
-                await page.keyboard.insertText('Commit via keyboard');
-                await page.keyboard.press('Control+S');
+                await setScmDescription(page, 'Commit via keyboard');
+                await page.keyboard.press('Control+Enter');
 
-                await expect(async () => {
-                    expect(repo.getDescription('@').trim()).toBe('Commit via keyboard');
-                }).toPass({ timeout: 5000 });
-            }).toPass({ timeout: 10000 });
-
-            // Commit with Ctrl+Enter
-            await scmInputRow.click();
-            await page.keyboard.press('Control+Enter');
-
-            // Wait for commit to appear in log
-            await expect(async () => {
+                // Wait for it to be committed and appear in log
                 const log = repo.log();
                 expect(log).toContain('Commit via keyboard');
-            }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 15000 });
+
+            // Wait for input to clear in UI
 
             // Wait for input to clear in UI
             await expect(scmInputRow).not.toContainText('Commit via keyboard', { timeout: 10000 });
@@ -271,7 +249,7 @@ test.describe('SCM Pane E2E', () => {
 
             // File-Level Squash (file.txt)
             // Hover over file.txt in Working Copy and click Squash into Parent
-            // It shares the same codicon-arrow-down icon as the group squash action
+            // file.txt and the group squash action share the same codicon-arrow-down icon
             const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
             // Use role and more flexible title matching for reliability across VS Code versions
             const squashFileIcon = wcFileRow.getByRole('button', { name: /Squash into (Parent|Ancestor)/ }).first();
@@ -292,8 +270,7 @@ test.describe('SCM Pane E2E', () => {
             // Wait for Diff Editor
             await page.waitForSelector('.monaco-diff-editor');
 
-            // In VS Code, diff editors have left and right.
-            // We want to edit the right side (working copy).
+            // Edit the right side of the diff editor (the working copy)
             const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
             await rightEditor.click();
 
@@ -325,15 +302,9 @@ test.describe('SCM Pane E2E', () => {
                 expect(content).toBe('edited from diff');
             }).toPass({ timeout: 20000 });
 
-            // Squash Into Ancestor (file.txt)
-            // Need a setup with a grandparent. Let's create one on the fly.
-            // Oh wait, `initial` is the parent of `wc`. Let's use `initial` as the grandparent.
-            // Actually, we need to commit `wc` to make a parent, then create a new `wc` on top.
+            // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
             await focusSCM(page);
-            const scmInputRow2 = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow2.click();
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('commit wc');
+            await setScmDescription(page, 'commit wc');
             await page.keyboard.press('Control+Enter');
 
             await expect(async () => {
@@ -356,7 +327,7 @@ test.describe('SCM Pane E2E', () => {
             const squashIcon = newWcFileRow.getByRole('button', { name: 'Squash into Parent', exact: true }).first();
             await expect(squashIcon).toBeVisible();
 
-            // The squashInto action should be visible because we have two mutable ancestors (the previous wc commit, and initial).
+            // The squashInto action should be visible since there are two mutable ancestors
             const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash into Ancestor/ }).first();
             await hoverAndClick(newWcFileRow, squashIntoIcon);
 
@@ -433,12 +404,15 @@ test.describe('SCM Pane E2E', () => {
             const detailsIcon = ancestorRow
                 .locator('.action-item', { has: page.locator('.codicon-list-selection') })
                 .first();
-            await hoverAndClick(ancestorRow, detailsIcon);
 
-            // Assert that the Commit Details panel opened (it opens as an editor tab)
-            await expect(page.getByRole('tab', { name: /^Commit: / })).toBeVisible({ timeout: 5000 });
+            // Assert that the Commit Details panel opens (it opens as an editor tab)
+            // Use toPass to retry the entire Open Details sequence in case the icon/click was missed during SCM refresh.
+            await expect(async () => {
+                await hoverAndClick(ancestorRow, detailsIcon);
+                await expect(page.getByRole('tab', { name: /^Commit: / })).toBeVisible({ timeout: 5000 });
+            }).toPass({ timeout: 20000 });
 
-            // Ensure we switch focus back to SCM View if needed, though sidebar might still be visible
+            // Return focus to SCM View
             await focusSCM(page);
 
             // 3. Move to Child (Pull from Ancestor)

@@ -374,3 +374,29 @@ export async function redo(page: Page) {
 export async function save(page: Page) {
     await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
 }
+
+/**
+ * Robustly sets the description in the SCM input field.
+ * Uses Playwright's .fill() most of the time, but includes
+ * explicit validation to prevent partial/mangled entries.
+ */
+export async function setScmDescription(page: Page, description: string) {
+    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+
+    await expect(async () => {
+        // 1. Ensure the SCM input is visible and focused
+        await scmInputRow.click();
+        const textbox = scmInputRow.getByRole('textbox');
+        await expect(textbox).toBeVisible({ timeout: 2000 });
+
+        // 2. Clear the input
+        await page.keyboard.press('Control+A');
+        await page.keyboard.press('Backspace');
+
+        // 3. Set the description
+        await page.keyboard.insertText(description);
+
+        // 4. Validate the text EXACTLY matches the requested description.
+        await expect(scmInputRow).toHaveText(description, { timeout: 2000 });
+    }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 15000 });
+}

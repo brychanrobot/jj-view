@@ -1,6 +1,6 @@
 ---
 name: run_tests
-description: Explains how to write and run tests in the jj-view repository, detailing the test suites, their purposes, and how to filter test runs down to single test cases.
+description: Explains how to write and run tests in the jj-view repository, detailing the test suites, their purposes, and how to filter test runs down to single test cases. You must read this before editing or debuggins tests.
 ---
 
 # Testing in JJ View
@@ -26,13 +26,13 @@ You MUST run individual test cases when writing a new test or debugging a broken
 
 - **Run a single test case (Recommended):** Use the `-t` flag with the test name (you may also include the filename to narrow it down further).
     ```bash
-    pnpm test:unit -- <filename> -t "<test name>"
-    # Example: pnpm test:unit -- merge-editor.test.ts -t "should open merge editor"
+    pnpm test:unit <filename> -t "<test name>"
+    # Example: pnpm test:unit merge-editor.test.ts -t "should open merge editor"
     ```
 - **Run a specific test file:** Pass part of the filename.
     ```bash
-    pnpm test:unit -- <filename>
-    # Example: pnpm test:unit -- merge-editor
+    pnpm test:unit <filename>
+    # Example: pnpm test:unit merge-editor
     ```
 
 ### 2. Integration Tests (VS Code Test Electron)
@@ -60,7 +60,7 @@ You MUST run individual test cases when writing a new test or debugging a broken
     pnpm test:integration --grep "<test case name>"
     # Example: pnpm test:integration --grep "should register commands"
     ```
-    _(Note: `vscode-test` passes arguments to Mocha under the hood. For `pnpm`, you can pass these flags directly if they are not picked up by pnpm itself, or use `--` to be safe: `pnpm test:integration -- --grep "pattern"`)_
+    _(Note: `vscode-test` passes arguments to Mocha under the hood. For `pnpm`, you can pass these flags directly if they are not picked up by pnpm itself, or use `--` to be safe: `pnpm test:integration --grep "pattern"`)_
 
 ### 3. End-to-End (E2E) Tests (Playwright)
 
@@ -75,16 +75,19 @@ You MUST run individual test cases when writing a new test or debugging a broken
 **Filtering:**
 You MUST run individual test cases when writing a new test or debugging a broken test.
 
-- **Run a single test case (Very Strongly Recommended):** Use the `-g` flag for grep along with the filename.
+- **Run a single test case (Required):** Use the `-g` flag for grep. 
+  You can also provide the filename to narrow it down further, but just using `-g` with a unique pattern is often more convenient.
   When debugging a flaky test, append `--repeat-each 5 --max-failures 1` to run it multiple times and fail fast.
     ```bash
-    pnpm test:e2e -- <filename> -g "<test-name>" [--repeat-each 5 --max-failures 1]
-    # Example: pnpm test:e2e -- scm.spec.ts -g "squash button visibility"
+    pnpm test:e2e [-g "<test-name>"] [<filename>] [--repeat-each 5 --max-failures 1]
+    # Examples:
+    # pnpm test:e2e -g "Additional Actions"
+    # pnpm test:e2e scm.spec.ts -g "squash"
     ```
 - **Run a specific test file:** Pass the filename.
     ```bash
-    pnpm test:e2e -- <filename>
-    # Example: pnpm test:e2e -- scm.spec.ts
+    pnpm test:e2e <filename>
+    # Example: pnpm test:e2e scm.spec.ts
     ```
 
 ### 4. Debugging E2E Tests (DOM Dumping)
