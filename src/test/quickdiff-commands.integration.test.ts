@@ -19,6 +19,7 @@ suite('Quick Diff Commands Integration Test', function () {
     let repo: TestRepo;
     let canonicalPath: string;
     let scmProvider: JjScmProvider;
+    let viewFileSystemProvider: JjViewFileSystemProvider;
     let jjViewProviderDisposable: vscode.Disposable | undefined;
 
     setup(async () => {
@@ -42,7 +43,7 @@ suite('Quick Diff Commands Integration Test', function () {
             dispose: () => {},
             name: 'mock',
         });
-        const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
+        viewFileSystemProvider = new JjViewFileSystemProvider(jj);
         scmProvider = new JjScmProvider(context, jj, canonicalPath, outputChannel, viewFileSystemProvider);
 
         // Register a test-specific content provider to handle 'jj-view-test' scheme
@@ -50,10 +51,12 @@ suite('Quick Diff Commands Integration Test', function () {
         jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
         context.subscriptions.push(jjViewProviderDisposable);
 
-        // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
             return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
         };
+
+        // Await the initial refresh to ensure state is ready before tests start
+        await scmProvider.refresh();
     });
 
     teardown(async () => {

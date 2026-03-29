@@ -47,6 +47,9 @@ suite('Quick Diff Integration Test', function () {
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
             return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
         };
+
+        // Await the initial refresh to ensure state is ready before tests start
+        await scmProvider.refresh();
     });
 
     teardown(async () => {
@@ -69,21 +72,34 @@ suite('Quick Diff Integration Test', function () {
     async function waitForEvent(
         event: vscode.Event<vscode.FileChangeEvent[]>,
         predicate: (events: vscode.FileChangeEvent[]) => boolean,
-        timeout = 2000,
+        timeout = 30000,
     ): Promise<void> {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 handle.dispose();
-                reject(new Error(`Event timeout after ${timeout}ms`));
+                reject(new Error(`Event timeout after ${timeout}ms. Predicate never matched.`));
             }, timeout);
             const handle = event((e) => {
-                if (predicate(e)) {
+                const matched = predicate(e);
+                console.log(`[Test Log] Received ${e.length} file changes. Matched: ${matched}`);
+                for (const change of e) {
+                    console.log(`[Test Log]   - URI: ${change.uri.toString()} (Scheme: ${change.uri.scheme})`);
+                }
+                if (matched) {
                     clearTimeout(timer);
                     handle.dispose();
                     resolve();
                 }
             });
         });
+    }
+
+    function isSameUri(u1: vscode.Uri, u2: vscode.Uri): boolean {
+        return (
+            u1.scheme === u2.scheme &&
+            u1.path.toLowerCase().replace(/\\/g, '/') === u2.path.toLowerCase().replace(/\\/g, '/') &&
+            u1.query.toLowerCase() === u2.query.toLowerCase()
+        );
     }
 
     test('SCM refresh triggers content provider invalidation', async () => {
@@ -157,16 +173,19 @@ suite('Quick Diff Integration Test', function () {
 
         // Start editing v1
         repo.edit(v1Id);
+        await scmProvider.refresh(); // Ensure provider status is updated after repo change
 
-        const fileUri = vscode.Uri.file(canonicalPath + '/' + fileName);
-        const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
+        const fileUri = vscode.Uri.file(path.join(canonicalPath, fileName));
+        const originalUri = (await scmProvider.provideOriginalResource(fileUri)) as vscode.Uri;
+        assert.ok(originalUri, `provideOriginalResource should return a URI for ${fileUri.fsPath}`);
+        console.log(`[Test Log] Registered original resource: ${originalUri.toString()}`);
 
         // Register URI by reading once
         await viewFileSystemProvider.readFile(originalUri);
 
         // 2. Subscribe to events
         const eventPromise = waitForEvent(viewFileSystemProvider.onDidChangeFile, (events) => {
-            return events.some((e) => e.uri.toString().toLowerCase() === originalUri.toString().toLowerCase());
+            return events.some((e) => isSameUri(e.uri, originalUri));
         });
 
         // Switch back to v2

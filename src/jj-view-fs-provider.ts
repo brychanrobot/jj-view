@@ -20,7 +20,9 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     // Track all URIs that have been served so we can fire onDidChangeFile for them
     private _knownUris = new Set<string>();
 
-    constructor(private jj: JjService) {}
+    constructor(
+        private jj: JjService,
+    ) {}
 
     watch(): vscode.Disposable {
         // No-op: we fire change events manually during refresh
@@ -40,6 +42,8 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         }
         this._knownUris.clear();
         if (events.length > 0) {
+            const msg = `[JjViewFS] Invalidation firing for ${events.length} URIs: ${events.map((e) => e.uri.toString()).join(', ')}`;
+            console.log(msg); // Direct stdout for CI logs
             this._onDidChangeFile.fire(events);
         }
     }
