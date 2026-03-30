@@ -29,7 +29,7 @@ describe('JjService Timeout Tests', () => {
             return {} as cp.ChildProcess;
         });
 
-        const uploadPromise = jjService.upload(['git', 'push'], '@');
+        const uploadPromise = jjService.upload('@', 'git', 'push');
 
         // Advance 2 minutes - should still be pending (upload timeout is 6 mins)
         // We use advanceTimersByTimeAsync to ensure pending timers are processed

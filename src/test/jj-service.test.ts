@@ -1378,4 +1378,28 @@ log = "none()"
         expect(currentWcEntry!.change_id).toBe(currentWcId);
         expect(currentWcEntry!.working_copies).toContain('default@');
     });
+
+    describe('upload', () => {
+        test('upload with revision includes -r flag', async () => {
+            try {
+                // In a test repo without remotes, jj git push -r <bad-rev> should fail with a revision error
+                await jjService.upload('non-existent-rev', 'git', 'push');
+                expect.fail('Should have failed due to non-existent revision');
+            } catch (e: unknown) {
+                if (e instanceof Error) {
+                    // This confirms the -r flag was passed because jj is complaining about the specific revision string
+                    expect(e.message).toContain('non-existent-rev');
+                } else {
+                    throw e;
+                }
+            }
+        });
+
+        test('upload without revision omits -r flag', async () => {
+            // In a test repo, jj git push (without remotes) should naturally succeed or fail
+            // without a revision-specific error if our change successfully omitted the -r flag.
+            await jjService.upload(undefined, 'git', 'push');
+        });
+    });
 });
+

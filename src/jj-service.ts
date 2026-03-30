@@ -961,8 +961,12 @@ export class JjService {
         return this.run('diff', ['--git', '-r', revision, relativePath], { useCachedSnapshot: true });
     }
 
-    async upload(commandArgs: string[], revision: string): Promise<string> {
-        return this.run(commandArgs[0], [...commandArgs.slice(1), '-r', revision], {
+    async upload(revision: string | undefined, command: string, ...args: string[]): Promise<string> {
+        const finalArgs = [...args];
+        if (revision) {
+            finalArgs.push('-r', revision);
+        }
+        return this.run(command, finalArgs, {
             isMutation: true,
             timeout: UPLOAD_TIMEOUT_MS,
         });

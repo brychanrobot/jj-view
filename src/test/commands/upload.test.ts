@@ -51,7 +51,7 @@ describe('uploadCommand', () => {
         await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         // Should use the custom command
-        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push', '--force'], 'rev-123');
+        expect(jjService.upload).toHaveBeenCalledWith('rev-123', 'git', 'push', '--force');
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
@@ -61,7 +61,7 @@ describe('uploadCommand', () => {
         await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         // Default for non-Gerrit is git push
-        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-123');
+        expect(jjService.upload).toHaveBeenCalledWith('rev-123', 'git', 'push');
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
@@ -71,7 +71,7 @@ describe('uploadCommand', () => {
         // This simulates the webview payload: { changeId: 'rev-object' }
         await uploadCommand(jjService, gerritService, [{ changeId: 'rev-object' }], mockOutputChannel);
 
-        expect(jjService.upload).toHaveBeenCalledWith(['git', 'push'], 'rev-object');
+        expect(jjService.upload).toHaveBeenCalledWith('rev-object', 'git', 'push');
     });
 
     test('suggests configuration when upload fails and no custom command set', async () => {

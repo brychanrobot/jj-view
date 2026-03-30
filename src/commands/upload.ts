@@ -13,29 +13,27 @@ export async function uploadCommand(
     args: unknown[],
     outputChannel: vscode.OutputChannel,
 ): Promise<void> {
-    const revision = extractRevision(args) || '@';
+    const revision = extractRevision(args);
     const config = vscode.workspace.getConfiguration('jj-view');
     const customCommand = config.get<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
-        let args: string[] = [];
+        let commandStr = '';
         if (hasCustomCommand) {
-            args = customCommand!.trim().split(/\s+/);
+            commandStr = customCommand!.trim();
         } else {
             const isGerrit = await gerrit.isGerrit();
-            if (isGerrit) {
-                args = ['gerrit', 'upload'];
-            } else {
-                args = ['git', 'push'];
-            }
+            commandStr = isGerrit ? 'gerrit upload' : 'git push';
         }
 
-        if (args.length === 0) {
+        if (commandStr.length === 0) {
             vscode.window.showErrorMessage('Invalid upload command configuration.');
             return;
         }
 
-        await withDelayedProgress(`Uploading revision ${revision.substring(0, 8)}...`, jj.upload(args, revision));
+        const [subcommand, ...commandArgs] = commandStr.split(/\s+/);
+        const title = revision ? `Uploading revision ${revision.substring(0, 8)}...` : 'Uploading...';
+        await withDelayedProgress(title, jj.upload(revision, subcommand, ...commandArgs));
 
         gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);
