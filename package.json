@@ -398,6 +398,11 @@
                     "group": "4_changes@3"
                 },
                 {
+                    "command": "jj-view.upload",
+                    "when": "webviewSection == 'commit' && canUpload",
+                    "group": "3_bookmark@2"
+                },
+                {
                     "command": "jj-view.rebaseOntoSelected",
                     "when": "webviewSection == 'commit' && canRebaseOnto",
                     "group": "5_rebase@1"

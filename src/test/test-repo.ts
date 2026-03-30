@@ -281,6 +281,10 @@ export class TestRepo {
         this.exec(args);
         return workspacePath;
     }
+
+    gitImport() {
+        this.exec(['git', 'import']);
+    }
 }
 
 export interface CommitDefinition {

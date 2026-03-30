@@ -196,10 +196,8 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Multi-select New After', async () => {
-        const webview = await getLogWebview(page);
-
-        const commit2Id = nodes['commit2'].changeId;
         const commit1Id = nodes['commit1'].changeId;
+        const commit2Id = nodes['commit2'].changeId;
         const initialId = nodes['initial'].changeId;
 
         // Create children so "insert after" has something to rebase
@@ -213,6 +211,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         await triggerRefresh(page);
 
+        const webview = await getLogWebview(page);
         await expect(webview.locator('.commit-row', { hasText: 'child1' })).toBeVisible();
 
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
@@ -373,9 +372,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Re-locate one last time for the context menu action
         const finalRow = webview.locator('.commit-row', { hasText: 'commit1' });
         // Absorb into commit 1
-        console.log('DEBUG TEST: Attempting to right-click and Absorb on commit1');
         await rightClickAndSelect(page, finalRow, 'Absorb');
-        console.log('DEBUG TEST: rightClickAndSelect completed without throwing');
 
         // Verification: commit 1 should now have the change, and f.txt should no longer be modified in @
         await expect(async () => {
@@ -397,5 +394,68 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Verification: A diff editor should open.
         const shortId = nodes['initial'].changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
+    });
+
+    test.describe('Upload Action', () => {
+        test('Upload fails with invalid remote', async () => {
+            const webview = await getLogWebview(page);
+            const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+
+            // 1. Add an invalid 'origin' remote (non-existent local path) to force immediate failure
+            repo.addRemote('origin', '/tmp/non-existent-jj-remote-directory');
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+            repo.bookmark('fail-branch', nodes['commit1'].changeId);
+            
+            // 2. Un-hide notifications toast locally
+            await page.addStyleTag({
+                content: '.notifications-toasts { display: block !important; visibility: visible !important; }',
+            });
+
+            // 3. Trigger "Upload"
+            await rightClickAndSelect(page, commit1Row, 'Upload');
+
+            // 4. Assert "Upload failed"
+            const toastContainer = page.locator('.notifications-toasts');
+            await expect(toastContainer).toContainText(/Upload failed/i, { timeout: 20000 });
+            await page.keyboard.press('Escape');
+        });
+
+        test('Upload succeeds with local remote', async () => {
+            const webview = await getLogWebview(page);
+            const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+
+            // 1. Create and initialize a remote repository
+            const remoteRepo = new TestRepo();
+            remoteRepo.init();
+            
+            // 2. Add as 'origin' to the main repo
+            repo.addRemote('origin', remoteRepo.path);
+            
+            // 3. Configure jj to push new bookmarks
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+            
+            // 4. Create a bookmark on commit1
+            const changeId = nodes['commit1'].changeId;
+            repo.bookmark('test-branch', changeId);
+
+            // 5. Trigger "Upload"
+            await rightClickAndSelect(page, commit1Row, 'Upload');
+
+            // 6. Verify the commit reached the remote repo
+            const pushedCommitId = repo.getCommitId('test-branch');
+            
+            await expect.poll(async () => {
+                try {
+                    // Import git changes into the remote jj repo so it sees the push
+                    remoteRepo.gitImport();
+                    const remoteCommitId = remoteRepo.getCommitId('test-branch');
+                    return remoteCommitId === pushedCommitId;
+                } catch {
+                    return false;
+                }
+            }, { timeout: 20000 }).toBe(true);
+
+            remoteRepo.dispose();
+        });
     });
 });

@@ -141,6 +141,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 canAbandon: !isImmutable && (!isSelected || !hasImmutableSelection),
                 canNewBefore: !isImmutable && (!isSelected || !hasImmutableSelection),
                 canNewAfter: !isSelected || !hasImmutableSelection,
+                canUpload: !isImmutable && (!isSelected || !hasImmutableSelection),
 
                 // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
                 canEdit: !isImmutable && (!isSelected || selectionCount <= 1),
