@@ -701,6 +701,10 @@ export class JjService {
         return this.run('undo', [], { isMutation: true, label: 'undo' });
     }
 
+    async redo(): Promise<string> {
+        return this.run('redo', [], { isMutation: true, label: 'redo' });
+    }
+
     async getGitRemotes(): Promise<{ name: string; url: string }[]> {
         try {
             const output = await this.run('git', ['remote', 'list'], { label: 'getGitRemotes' });

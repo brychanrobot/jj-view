@@ -23,6 +23,7 @@ import { newAfterCommand } from './commands/new-after';
 import { newBeforeCommand } from './commands/new-before';
 import { openFileCommand } from './commands/open';
 import { CommitMenuContext, rebaseOntoSelectedCommand } from './commands/rebase';
+import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
 import { restoreCommand } from './commands/restore';
 import { showCurrentChangeCommand } from './commands/show';
@@ -333,6 +334,11 @@ export function activate(context: vscode.ExtensionContext) {
         await logWebviewProvider.refresh(); // Extra refresh for log
     });
 
+    const redoCmd = vscode.commands.registerCommand('jj-view.redo', async () => {
+        await redoCommand(scmProvider, jj);
+        await logWebviewProvider.refresh(); // Extra refresh for log
+    });
+
     const rebaseOntoSelectedCmd = vscode.commands.registerCommand(
         'jj-view.rebaseOntoSelected',
         async (arg: CommitMenuContext) => {
@@ -341,6 +347,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(undoCmd);
+    context.subscriptions.push(redoCmd);
     context.subscriptions.push(rebaseOntoSelectedCmd);
 
     context.subscriptions.push(disposable);

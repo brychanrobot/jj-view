@@ -122,6 +122,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'undo':
                     await vscode.commands.executeCommand('jj-view.undo');
                     break;
+                case 'redo':
+                    await vscode.commands.executeCommand('jj-view.redo');
+                    break;
                 case 'abandon':
                     await vscode.commands.executeCommand('jj-view.abandon', data.payload);
                     break;

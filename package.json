@@ -232,6 +232,12 @@
                 "icon": "$(discard)"
             },
             {
+                "command": "jj-view.redo",
+                "title": "Redo",
+                "category": "JJ View",
+                "icon": "$(redo)"
+            },
+            {
                 "command": "jj-view.duplicate",
                 "title": "Duplicate",
                 "category": "JJ View"
@@ -337,6 +343,11 @@
             "view/title": [
                 {
                     "command": "jj-view.undo",
+                    "group": "navigation",
+                    "when": "view == jj-view.logView"
+                },
+                {
+                    "command": "jj-view.redo",
                     "group": "navigation",
                     "when": "view == jj-view.logView"
                 },

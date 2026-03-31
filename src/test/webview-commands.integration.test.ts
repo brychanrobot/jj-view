@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { abandonCommand } from '../commands/abandon';
 import { editCommand } from '../commands/edit';
 import { newCommand } from '../commands/new';
+import { redoCommand } from '../commands/redo';
 import { squashCommand } from '../commands/squash';
 import { undoCommand } from '../commands/undo';
 import { GerritService } from '../gerrit-service';
@@ -115,6 +116,9 @@ suite('Webview Commands End-to-End Integration Test', function () {
             if (command === 'jj-view.undo') {
                 return undoCommand(scm, jj);
             }
+            if (command === 'jj-view.redo') {
+                return redoCommand(scm, jj);
+            }
             if (command === 'jj-view.refresh') {
                 return;
             }
@@ -220,7 +224,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
         assert.strictEqual(newWcId, targetId, 'Working copy should match target ID');
     });
 
-    test('Undo command reverts changes', async () => {
+    test('Undo and redo reverts and unreverts changes', async () => {
         repo.new();
         repo.describe('State 1');
         const id1 = repo.getChangeId('@');
@@ -237,8 +241,15 @@ suite('Webview Commands End-to-End Integration Test', function () {
             payload: {},
         });
 
-        const wcId = repo.getChangeId('@');
-        assert.strictEqual(wcId, id1, 'Should undo back to first commit');
+        assert.strictEqual(repo.getChangeId('@'), id1, 'Should undo back to first commit');
+
+        // Redo
+        await messageHandler({
+            type: 'redo',
+            payload: {},
+        });
+
+        assert.strictEqual(repo.getChangeId('@'), id2, 'Should redo back to second commit');
     });
 
     test('Squash command squashes into parent', async () => {
