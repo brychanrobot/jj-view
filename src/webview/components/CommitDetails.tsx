@@ -219,6 +219,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             display: 'flex',
                             gap: '6px',
                             flexWrap: 'wrap',
+                            alignItems: 'center',
                             fontSize: '11px',
                             fontWeight: 'normal',
                         }}

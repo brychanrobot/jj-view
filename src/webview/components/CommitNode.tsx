@@ -359,7 +359,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     </span>
 
                     {/* Right-aligned Bookmarks */}
-                    <span style={{ display: 'flex', marginLeft: 'auto', flexShrink: 0, gap: '4px' }}>
+                    <span
+                        style={{ display: 'flex', marginLeft: 'auto', flexShrink: 0, gap: '4px', alignItems: 'center' }}
+                    >
                         {commit.bookmarks &&
                             commit.bookmarks.map((bookmark: any) => (
                                 <DraggableBookmark

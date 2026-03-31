@@ -115,6 +115,8 @@ export const DraggableBookmark: React.FC<{ bookmark: JjBookmark }> = ({ bookmark
         cursor: isDragging ? 'grabbing' : 'grab',
         opacity: isDragging ? 0.3 : 1, // Show pending state
         filter: isDragging ? 'grayscale(100%)' : 'none',
+        display: 'inline-flex',
+        alignItems: 'center',
     };
 
     return (
