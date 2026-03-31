@@ -75,7 +75,7 @@ You MUST run individual test cases when writing a new test or debugging a broken
 **Filtering:**
 You MUST run individual test cases when writing a new test or debugging a broken test.
 
-- **Run a single test case (Required):** Use the `-g` flag for grep. 
+- **Run a single test case (Required):** Use the `-g` flag for grep.
   You can also provide the filename to narrow it down further, but just using `-g` with a unique pattern is often more convenient.
   When debugging a flaky test, append `--repeat-each 5 --max-failures 1` to run it multiple times and fail fast.
     ```bash

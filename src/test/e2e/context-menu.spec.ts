@@ -405,7 +405,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             repo.addRemote('origin', '/tmp/non-existent-jj-remote-directory');
             repo.config('remotes.origin.auto-track-bookmarks', '"*"');
             repo.bookmark('fail-branch', nodes['commit1'].changeId);
-            
+
             // 2. Un-hide notifications toast locally
             await page.addStyleTag({
                 content: '.notifications-toasts { display: block !important; visibility: visible !important; }',
@@ -427,13 +427,13 @@ test.describe('JJ Log Context Menu E2E', () => {
             // 1. Create and initialize a remote repository
             const remoteRepo = new TestRepo();
             remoteRepo.init();
-            
+
             // 2. Add as 'origin' to the main repo
             repo.addRemote('origin', remoteRepo.path);
-            
+
             // 3. Configure jj to push new bookmarks
             repo.config('remotes.origin.auto-track-bookmarks', '"*"');
-            
+
             // 4. Create a bookmark on commit1
             const changeId = nodes['commit1'].changeId;
             repo.bookmark('test-branch', changeId);
@@ -443,17 +443,22 @@ test.describe('JJ Log Context Menu E2E', () => {
 
             // 6. Verify the commit reached the remote repo
             const pushedCommitId = repo.getCommitId('test-branch');
-            
-            await expect.poll(async () => {
-                try {
-                    // Import git changes into the remote jj repo so it sees the push
-                    remoteRepo.gitImport();
-                    const remoteCommitId = remoteRepo.getCommitId('test-branch');
-                    return remoteCommitId === pushedCommitId;
-                } catch {
-                    return false;
-                }
-            }, { timeout: 20000 }).toBe(true);
+
+            await expect
+                .poll(
+                    async () => {
+                        try {
+                            // Import git changes into the remote jj repo so it sees the push
+                            remoteRepo.gitImport();
+                            const remoteCommitId = remoteRepo.getCommitId('test-branch');
+                            return remoteCommitId === pushedCommitId;
+                        } catch {
+                            return false;
+                        }
+                    },
+                    { timeout: 20000 },
+                )
+                .toBe(true);
 
             remoteRepo.dispose();
         });

@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.22.0
+
+### Features
+
+- **Log View**: Implement **visual graph elision** to hide large gaps in commit history.
+- **Log View**: Support **multi-workspace pills**, identifying all working copies associated with a commit.
+- **Log View**: Add visualization for **divergent commits**, including purple highlights and change ID offsets (e.g., `/1`).
+- **SCM**: Add **"Upload"** action to the commit context menu for easier Gerrit/Git pushing.
+- **Configuration**: New `jj-view.binaryPath` setting to manually specify the `jj` location, with active validation on startup.
+
+### Fixes
+
+- **Quick Diff**: Migrated to a native `FileSystemProvider` to eliminate flaky gutter decoration refreshes.
+- **Quick Diff**: Fixed "Added" decorations incorrectly showing for untracked or ignored files.
+- **Commit Details**: Resolved an issue where selected text was unreadable due to the backdrop highlight pattern.
+- **Log View**: Fixed selection state remaining active on the graph after closing a commit details panel.
+
+### Improvements & Refactors
+
+- **Commit Details**: Large-scale refactor for **typing performance**, implementing an uncontrolled textarea and a debounced bridge to VS Code’s native Undo/Redo API.
+- **SCM**: Refactored upload command logic to improve flexibility for custom `uploadCommand` configurations.
+
+### Chores & Maintenance
+
+- **Project**: Fully migrated the repository from npm to **pnpm**.
+- **CI**: Updated all GitHub Actions to latest major versions and standardized on **Node.js 24**.
+- **Testing**: Significant stabilization of E2E and integration tests, particularly on **Windows CI**, using path canonicalization and robust event synchronization.
+- **Formatting**: Integrated `@trivago/prettier-plugin-sort-imports` for consistent project-wide import ordering.
+- **Build**: Skip `@parcel/watcher` binary downloads if correct version is already present.
+
 ## 1.21.1
 
 ### Fixes
