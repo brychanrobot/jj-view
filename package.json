@@ -547,7 +547,7 @@
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
         "package": "pnpm vsce package --no-dependencies",
-        "release": "pnpm ovsx publish && pnpm vsce publish --no-dependencies",
+        "release": "pnpm ovsx publish --no-dependencies && pnpm vsce publish --no-dependencies",
         "clean:tests": "rimraf out",
         "build:tests": "tsc -p . --outDir out",
         "watch-tests": "tsc -p . -w --outDir out",
