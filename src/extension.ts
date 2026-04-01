@@ -46,14 +46,47 @@ export interface Api {
     jj: JjService;
 }
 
+function formatTimestamp(d: Date): string {
+    const datePart = [
+        d.getFullYear(),
+        (d.getMonth() + 1).toString().padStart(2, '0'),
+        d.getDate().toString().padStart(2, '0'),
+    ].join('-');
+
+    const timePart = [
+        d.getHours().toString().padStart(2, '0'),
+        d.getMinutes().toString().padStart(2, '0'),
+        d.getSeconds().toString().padStart(2, '0'),
+    ].join(':');
+
+    const ms = d.getMilliseconds().toString().padStart(3, '0');
+
+    return `${datePart} ${timePart}.${ms}`;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders) {
         return;
     }
 
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const outputChannel = vscode.window.createOutputChannel('JJ View');
-    context.subscriptions.push(outputChannel);
+    const rawOutputChannel = vscode.window.createOutputChannel('JJ View');
+    context.subscriptions.push(rawOutputChannel);
+
+    const outputChannel: vscode.OutputChannel = {
+        name: rawOutputChannel.name,
+        appendLine: (msg: string) => {
+            const timestamp = formatTimestamp(new Date());
+            rawOutputChannel.appendLine(`[${timestamp}] ${msg}`);
+        },
+        append: (msg: string) => rawOutputChannel.append(msg),
+        replace: (value: string) => rawOutputChannel.replace(value),
+        clear: () => rawOutputChannel.clear(),
+        show: (p1?: boolean | vscode.ViewColumn, p2?: boolean) =>
+            typeof p1 === 'number' ? rawOutputChannel.show(p1, p2) : rawOutputChannel.show(p1),
+        hide: () => rawOutputChannel.hide(),
+        dispose: () => rawOutputChannel.dispose(),
+    };
 
     const jj = new JjService(workspaceRoot, (msg) => outputChannel.appendLine(msg));
 
