@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { Locator, expect } from '@playwright/test';
-import { downloadAndUnzipVSCode } from '@vscode/test-electron';
+import { SilentReporter, downloadAndUnzipVSCode } from '@vscode/test-electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -85,7 +85,7 @@ export async function launchVSCode(
     );
 
     const extensionPath = path.resolve(__dirname, '../../../../');
-    const vscodePath = await downloadAndUnzipVSCode();
+    const vscodePath = await downloadAndUnzipVSCode({ reporter: new SilentReporter() });
 
     const args = [
         repo.path,

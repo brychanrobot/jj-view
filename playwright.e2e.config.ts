@@ -11,7 +11,7 @@ export default defineConfig({
     expect: {
         timeout: 10000,
     },
-    reporter: 'line',
+    reporter: 'list',
     use: {
         trace: 'on-first-retry',
     },

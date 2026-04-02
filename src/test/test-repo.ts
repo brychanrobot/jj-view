@@ -327,6 +327,7 @@ export interface CommitId {
 
 export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): Promise<Record<string, CommitId>> {
     const labelToId: Record<string, CommitId> = {};
+    const metadataOps: { type: 'bookmark' | 'tag', name: string, changeId: string }[] = [];
 
     // Helper to resolve parents
     const resolveParents = (parents?: string[]): string[] => {
@@ -349,9 +350,6 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
             }
         }
 
-        // Snapshot changes so they become part of the commit
-        // 'jj new' automatically snapshots the *previous* WC, but here we are in the WC of the *current* commit we just created with 'new'
-
         // Capture ID
         const changeId = repo.getChangeId('@');
         const commitId = repo.getCommitId('@');
@@ -359,18 +357,30 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
             labelToId[commit.label] = { changeId, commitId };
         }
 
-        // Apply bookmarks
+        // Collect bookmarks for later application
         if (commit.bookmarks) {
             for (const bookmark of commit.bookmarks) {
-                repo.bookmark(bookmark, '@');
+                metadataOps.push({ type: 'bookmark', name: bookmark, changeId });
             }
         }
 
-        // Apply tags
+        // Collect tags for later application
         if (commit.tags) {
             for (const tag of commit.tags) {
-                repo.tag(tag, '@');
+                metadataOps.push({ type: 'tag', name: tag, changeId });
             }
+        }
+    }
+
+    // Apply metadata (tags and bookmarks) to specific IDs.
+    // This is done after the initial graph construction loop so that 
+    // metadata operations (which might make commits immutable) don't 
+    // affect the working copy commit (@) during construction.
+    for (const op of metadataOps) {
+        if (op.type === 'bookmark') {
+            repo.bookmark(op.name, op.changeId);
+        } else if (op.type === 'tag') {
+            repo.tag(op.name, op.changeId);
         }
     }
 

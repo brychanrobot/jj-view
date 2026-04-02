@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { test } from '@playwright/test';
-import { downloadAndUnzipVSCode } from '@vscode/test-electron';
+import { SilentReporter, downloadAndUnzipVSCode } from '@vscode/test-electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -119,7 +119,7 @@ if __name__ == "__main__":
 
     // 2. Launch VS Code
     const extensionPath = path.resolve(__dirname, '../../../');
-    const vscodePath = await downloadAndUnzipVSCode();
+    const vscodePath = await downloadAndUnzipVSCode({ reporter: new SilentReporter() });
     const executablePath = vscodePath;
 
     // Launch with strict isolation
