@@ -6,7 +6,15 @@ import { Page, expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import { ElectronApplication, type Frame } from 'playwright';
 import { type CommitId, TestRepo, buildGraph } from '../test-repo';
-import { focusJJLog, getLogWebview, launchVSCode, redo, save, undo } from './e2e-helpers';
+import {
+    expectSettingsOpen,
+    focusJJLog,
+    getLogWebview,
+    launchVSCode,
+    redo,
+    save,
+    undo,
+} from './e2e-helpers';
 
 /**
  * Finds the webview frame containing the Commit Details panel.
@@ -443,15 +451,11 @@ test.describe('Commit Details E2E', () => {
         await settingsLink.click();
 
         // The VS Code Settings tab should open
-        await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible({ timeout: 15000 });
+        const titleItem = await expectSettingsOpen(page, 'Title Width Ruler');
+        await expect(titleItem.locator('input')).toHaveValue('50');
 
-        // Also verify the settings are actually filtered and showing our custom setting
-        // And check their default values (50 and 72)
-        const titleInput = page.locator('.setting-item').filter({ hasText: 'Title Width Ruler' }).locator('input');
-        await expect(titleInput).toHaveValue('50');
-
-        const bodyInput = page.locator('.setting-item').filter({ hasText: 'Body Width Ruler' }).locator('input');
-        await expect(bodyInput).toHaveValue('72');
+        const bodyItem = await expectSettingsOpen(page, 'Body Width Ruler');
+        await expect(bodyItem.locator('input')).toHaveValue('72');
     });
 
     test('Displays pills and person info correctly', async () => {

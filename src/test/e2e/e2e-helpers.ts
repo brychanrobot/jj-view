@@ -376,6 +376,27 @@ export async function save(page: Page) {
 }
 
 /**
+ * Robustly waits for the Settings editor to be open and visible.
+ * Handles both traditional tab-based and newer modal-based layouts.
+ * Returns the locator for the specific setting item.
+ */
+export async function expectSettingsOpen(page: Page, settingName: string | RegExp): Promise<Locator> {
+    let settingItem: Locator | undefined;
+    await expect(async () => {
+        // Look for the settings editor container which is common to both layouts
+        const editor = page.locator('.settings-editor');
+        await expect(editor).toBeVisible({ timeout: 5000 });
+
+        // The settings editor can be slow to filter or render the item.
+        // We search for a .setting-item that contains the text
+        settingItem = page.locator('.setting-item').filter({ hasText: settingName });
+        await expect(settingItem.first()).toBeVisible({ timeout: 5000 });
+    }, `Failed to find Settings editor or specified setting "${settingName}"`).toPass({ timeout: 20000 });
+
+    return settingItem!.first();
+}
+
+/**
  * Robustly sets the description in the SCM input field.
  * Uses Playwright's .fill() most of the time, but includes
  * explicit validation to prevent partial/mangled entries.

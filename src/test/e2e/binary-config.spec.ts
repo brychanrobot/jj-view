@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { TestRepo } from '../test-repo';
-import { launchVSCode } from './e2e-helpers';
+import { expectSettingsOpen, launchVSCode } from './e2e-helpers';
 
 test.describe('JJ Binary Configuration E2E', () => {
     test('Shows error and opens settings for invalid binary path', async () => {
@@ -35,13 +35,8 @@ test.describe('JJ Binary Configuration E2E', () => {
             const configureButton = notification.getByRole('button', { name: 'Configure Path' });
             await configureButton.click();
 
-            // Verify settings editor is open
-            await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible({ timeout: 15000 });
-
-            // Verify the 'Binary Path' setting item is visible and has the invalid path value
-            // (Standard VS Code settings verify pattern)
-            const settingItem = page.locator('.setting-item').filter({ hasText: 'Binary Path' });
-            await expect(settingItem).toBeVisible({ timeout: 10000 });
+            // Verify settings editor is open and find the Binary Path setting
+            const settingItem = await expectSettingsOpen(page, 'Binary Path');
             await expect(settingItem.locator('input')).toHaveValue(invalidPath);
         } finally {
             await app.close();
@@ -80,9 +75,8 @@ test.describe('JJ Binary Configuration E2E', () => {
             await configureButton.click();
 
             // Verify settings
-            await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible({ timeout: 15000 });
-            const settingItem = page.locator('.setting-item').filter({ hasText: 'Binary Path' });
-            await expect(settingItem).toBeVisible({ timeout: 10000 });
+            const settingItem = await expectSettingsOpen(page, 'Binary Path');
+
             // Since we set it to empty string in the setup, the UI should show an empty input
             await expect(settingItem.locator('input')).toHaveValue('');
         } finally {
