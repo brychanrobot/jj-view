@@ -4,7 +4,7 @@
  */
 import * as React from 'react';
 import { computeGraphLayout } from '../graph-compute';
-import { computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
+import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
 import { ActionPayload, CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
 
@@ -43,12 +43,13 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             return undefined;
         }
         const map = new Map<string, number>();
+        const rowMaxX = computeCompactRowMaxX(layout);
         layout.nodes.forEach((n) => {
-            const padding = computeGraphAreaWidth(n.x + 1, LANE_WIDTH, LEFT_MARGIN, GAP);
+            const padding = computeGraphAreaWidth(rowMaxX[n.y] + 1, LANE_WIDTH, LEFT_MARGIN, GAP);
             map.set(n.commitId, padding);
         });
         return map;
-    }, [layout.nodes, graphLabelAlignment]);
+    }, [layout, graphLabelAlignment, GAP, LANE_WIDTH, LEFT_MARGIN]);
 
     // Calculate Row Offsets
     // This allows us to have variable height rows while keeping the graph aligned.

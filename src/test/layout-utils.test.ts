@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../webview/layout-utils';
+import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../webview/layout-utils';
+import { GraphLayout } from '../webview/graph-model';
+import { JjLogEntry } from '../jj-types';
+import { createMock } from './test-utils';
 
 describe('Layout Utils', () => {
     describe('computeGap', () => {
@@ -47,6 +50,56 @@ describe('Layout Utils', () => {
             // graphWidth * laneWidth + leftMargin + gap
             // 2 * 16 + 12 + 10 = 32 + 12 + 10 = 54
             expect(computeGraphAreaWidth(2, 16, 12, 10)).toBe(54);
+        });
+    });
+
+    describe('computeCompactRowMaxX', () => {
+        it('should account for node positions', () => {
+            const layout: GraphLayout = {
+                nodes: [
+                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
+                ],
+                edges: [],
+                width: 3,
+                height: 1,
+                rows: [createMock<JjLogEntry>({})],
+            };
+            const result = computeCompactRowMaxX(layout);
+            expect(result).toEqual([0]);
+        });
+
+        it('should account for vertical edges passing through rows', () => {
+            const layout: GraphLayout = {
+                nodes: [
+                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
+                ],
+                edges: [{ x1: 2, y1: 0, x2: 2, y2: 2, curveY: 2, type: 'parent', color: 'green' }],
+                width: 3,
+                height: 3,
+                rows: [createMock<JjLogEntry>({}), createMock<JjLogEntry>({}), createMock<JjLogEntry>({})],
+            };
+            const result = computeCompactRowMaxX(layout);
+            // Edge at x1=2 for y=0,1. Edge at x2=2 for y=2.
+            expect(result).toEqual([2, 2, 2]);
+        });
+
+        it('should ignore curved segments when determining max lane', () => {
+            const layout: GraphLayout = {
+                nodes: [
+                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
+                ],
+                edges: [
+                    { x1: 4, y1: 0, x2: 0, y2: 2, curveY: 2, type: 'parent', color: 'green' },
+                ],
+                width: 6,
+                height: 3,
+                rows: [createMock<JjLogEntry>({}), createMock<JjLogEntry>({}), createMock<JjLogEntry>({})],
+            };
+            const result = computeCompactRowMaxX(layout);
+            // Node at row 0: x=0. Edge at row 0: y<curveY -> x1=4. max=4.
+            // Edge at row 1: y<curveY -> x1=4. max=4.
+            // Edge at row 2: y>=curveY -> x2=0. max=0.
+            expect(result).toEqual([4, 4, 0]);
         });
     });
 });
