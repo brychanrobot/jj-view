@@ -106,14 +106,13 @@ export async function launchVSCode(
         if (!fs.existsSync(vsixPath)) {
             throw new Error(`VSIX_PATH is set but file does not exist: ${vsixPath}`);
         }
-
         // Import utilities from @vscode/test-electron to find the CLI path
         const { resolveCliPathFromVSCodeExecutablePath } = await import('@vscode/test-electron');
         const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodePath);
 
         // Install the extension via CLI
         const { spawnSync } = await import('child_process');
-        console.log(`Installing VSIX from ${vsixPath}...`);
+        console.log(`Installing VSIX from ${vsixPath} using CLI ${cliPath}...`);
         const result = spawnSync(cliPath, ['--install-extension', vsixPath, '--extensions-dir', extensionsDir], {
             encoding: 'utf-8',
             stdio: 'inherit',

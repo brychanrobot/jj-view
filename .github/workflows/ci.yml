@@ -11,13 +11,8 @@ on:
             - main
 
 jobs:
-    build:
-        permissions:
-            contents: write
-        strategy:
-            matrix:
-                os: [ubuntu-latest, macos-latest, windows-latest]
-        runs-on: ${{ matrix.os }}
+    prepare:
+        runs-on: ubuntu-latest
         steps:
             - name: Checkout
               uses: actions/checkout@v6
@@ -45,51 +40,218 @@ jobs:
               with:
                   tool: jj-cli
 
+            - name: Verify Environment
+              run: |
+                  go version
+                  jj --version
+                  which jj
+
             - name: Install Dependencies
               run: pnpm install --frozen-lockfile
 
             - name: Lint
-              if: runner.os == 'Linux'
               run: pnpm lint
 
             - name: Check Types
-              if: runner.os == 'Linux'
               run: pnpm check-types
 
-            - name: Build Extension (Verification)
-              run: pnpm build
+            - name: Build Extension
+              run: node esbuild.js
+
+            - name: Build Tests
+              run: pnpm build:tests
 
             - name: Package Extension
-              if: runner.os == 'Linux'
               run: pnpm package --out jj-view.vsix
 
             - name: Verify VSIX Contents
-              if: runner.os == 'Linux'
               run: pnpm exec ts-node scripts/verify-vsix.ts jj-view.vsix
+
+            - name: Upload Build Artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: build-outputs
+                  path: |
+                      dist/
+                      out/
+                      jj-view.vsix
+                  retention-days: 1
+
+    unit-tests:
+        needs: prepare
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v5
+              with:
+                  version: 10
+
+            - name: Install Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.21'
+
+            - name: Install jj (Jujutsu)
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: jj-cli
+
+            - name: Verify Environment
+              run: |
+                  go version
+                  jj --version
+                  which jj
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Download Build Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: build-outputs
+                  path: .
 
             - name: Run Unit Tests
               run: pnpm test:unit
 
+    integration-tests:
+        needs: prepare
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v5
+              with:
+                  version: 10
+
+            - name: Install Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.21'
+
+            - name: Install jj (Jujutsu)
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: jj-cli
+
+            - name: Verify Environment
+              run: |
+                  go version
+                  jj --version
+                  which jj
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Download Build Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: build-outputs
+                  path: .
+
             - name: Run Integration Tests (Linux)
               if: runner.os == 'Linux'
-              run: xvfb-run -a pnpm test:integration
+              run: xvfb-run -a pnpm exec vscode-test --config .vscode-test.mjs && xvfb-run -a pnpm exec vscode-test --config .vscode-test-activation.mjs
 
             - name: Run Integration Tests (macOS/Windows)
               if: runner.os != 'Linux'
-              run: pnpm test:integration
+              run: |
+                  pnpm exec vscode-test --config .vscode-test.mjs
+                  pnpm exec vscode-test --config .vscode-test-activation.mjs
 
-            - name: Install Playwright Browsers & Dependencies
-              if: runner.os == 'Linux'
+    e2e-tests:
+        needs: prepare
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v5
+              with:
+                  version: 10
+
+            - name: Install Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - name: Install Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: '1.21'
+
+            - name: Install jj (Jujutsu)
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: jj-cli
+
+            - name: Verify Environment
+              run: |
+                  go version
+                  jj --version
+                  which jj
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Download Build Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: build-outputs
+                  path: .
+
+            - name: Install Playwright Chromium
               run: pnpm playwright install --with-deps chromium
 
-            - name: Run E2E Tests (Linux)
-              if: runner.os == 'Linux'
+            - name: Run E2E Tests
               env:
                   VSIX_PATH: jj-view.vsix
-              run: xvfb-run -a pnpm test:e2e
+              run: xvfb-run -a pnpm exec playwright test -c playwright.e2e.config.ts
+
+    release:
+        needs: [unit-tests, integration-tests, e2e-tests]
+        runs-on: ubuntu-latest
+        if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name != 'pull_request'
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Download Build Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: build-outputs
+                  path: .
 
             - name: Generate Release Info
-              if: runner.os == 'Linux'
               id: release_info
               run: |
                   VERSION=$(jq -r .version package.json)
@@ -123,15 +285,14 @@ jobs:
                   echo "" >> $GITHUB_OUTPUT
                   echo "EOF" >> $GITHUB_OUTPUT
 
-            - name: Upload Artifact
-              if: runner.os == 'Linux'
+            - name: Upload Persistent Artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: jj-view-extension
+                  name: jj-view-extension-packaged
                   path: ${{ steps.release_info.outputs.vsix_name }}
 
             - name: Update Prerelease
-              if: runner.os == 'Linux' && github.ref == 'refs/heads/main'
+              if: github.ref == 'refs/heads/main'
               uses: softprops/action-gh-release@v1
               with:
                   tag_name: prerelease
@@ -142,7 +303,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Release
-              if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
+              if: startsWith(github.ref, 'refs/tags/v')
               uses: softprops/action-gh-release@v1
               with:
                   files: ${{ steps.release_info.outputs.vsix_name }}

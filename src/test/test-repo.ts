@@ -27,8 +27,9 @@ export class TestRepo {
     // and prevent arbitrary command execution in tests.
     private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
         const env = { ...process.env, JJ_CONFIG: '' };
+        const jjBinary = 'jj';
         try {
-            const output = cp.execFileSync('jj', ['--quiet', ...args], {
+            const output = cp.execFileSync(jjBinary, ['--quiet', ...args], {
                 cwd: this.path,
                 encoding: 'utf-8',
                 env,
@@ -36,14 +37,31 @@ export class TestRepo {
             });
             return options.trim !== false ? output.trim() : output;
         } catch (e: unknown) {
-            const err = e as { stdout?: Buffer; stderr?: Buffer };
+            const err = e as {
+                stdout?: Buffer;
+                stderr?: Buffer;
+                code?: string;
+                status?: number;
+                path?: string;
+                message?: string;
+            };
             const stderr = err.stderr?.toString() || '';
+
+            // Handle "Command not found" specifically
+            if (err.code === 'ENOENT') {
+                const pathEnv = process.env.PATH || 'undefined';
+                throw new Error(
+                    `Could not find '${jjBinary}' binary in PATH.\n` +
+                        `Current PATH: ${pathEnv}\n` +
+                        `Check if jj is installed and available in the environment.`,
+                );
+            }
 
             // If the working copy is stale, try again with --ignore-working-copy
             // if we haven't already tried it.
             if (stderr.toLowerCase().includes('working copy is stale') && !args.includes('--ignore-working-copy')) {
                 try {
-                    const output = cp.execFileSync('jj', ['--quiet', '--ignore-working-copy', ...args], {
+                    const output = cp.execFileSync(jjBinary, ['--quiet', '--ignore-working-copy', ...args], {
                         cwd: this.path,
                         encoding: 'utf-8',
                         env,
@@ -56,8 +74,13 @@ export class TestRepo {
             }
 
             // Re-throw with stdout/stderr for easier debugging
+            const stdout = err.stdout?.toString() || 'undefined';
             throw new Error(
-                `Command failed: jj ${args.join(' ')}\nStdout: ${err.stdout?.toString()}\nStderr: ${stderr}`,
+                `Command failed: jj ${args.join(' ')}\n` +
+                    `Status: ${err.status}\n` +
+                    `Stdout: ${stdout}\n` +
+                    `Stderr: ${stderr}\n` +
+                    `Raw Error: ${err.message}`,
             );
         }
     }
