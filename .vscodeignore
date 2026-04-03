@@ -13,6 +13,9 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+tooling/**
+playwright-report/**
+test-results/**
 
 # Dev config and tools
 .jj/**
@@ -23,6 +26,10 @@ vitest.config.ts
 package-lock.json
 .prettierrc
 .prettierignore
+.svgtofontrc.js
+.vscode-test-activation.mjs
+.vscode-test.mjs
+playwright.config.ts
 GEMINI.md
 .agents/**
 media/custom-icons-src/**

@@ -8,3 +8,5 @@ codicons/
 test-results/
 media/custom-icons/
 playwright-report/
+src/webview/themes.generated.ts
+media/themes.generated.css

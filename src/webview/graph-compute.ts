@@ -4,12 +4,9 @@
  */
 import { JjLogEntry } from '../jj-types';
 import { GraphEdge, GraphLayout, GraphNode } from './graph-model';
+import { getColor } from './themes.generated';
 
-function getColor(lane: number): string {
-    return `var(--jj-lane-${lane % 7})`;
-}
-
-export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
+export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'default'): GraphLayout {
     // 1. Build Unique Nodes and Edges
     // The input 'commits' array is already sorted by 'jj log' (graph order).
     // We trust this order implicitly.
@@ -43,7 +40,7 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
         }
 
         // 2. Create Node
-        const nodeColor = getColor(nodeLane);
+        const nodeColor = getColor(nodeLane, themeName);
         const node: GraphNode = {
             commitId: commit.commit_id,
             changeId,
@@ -131,7 +128,7 @@ export function computeGraphLayout(commits: JjLogEntry[]): GraphLayout {
                 y1: rowIndex,
                 targetChangeId: p,
                 targetLane: pLane,
-                color: getColor(pLane),
+                color: getColor(pLane, themeName),
                 isElided: !directParents.has(p),
             });
         }

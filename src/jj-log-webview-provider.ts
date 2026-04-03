@@ -349,6 +349,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const themesUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'themes.generated.css'),
+        );
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'),
         );
@@ -363,6 +366,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};">
                 <link href="${styleUri}" rel="stylesheet">
+                <link href="${themesUri}" rel="stylesheet">
                 <link href="${codiconsUri}" rel="stylesheet">
                 <title>JJ Log</title>
             </head>

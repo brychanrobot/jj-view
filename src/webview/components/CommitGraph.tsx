@@ -14,6 +14,7 @@ interface CommitGraphProps {
     selectedCommitIds?: Set<string>;
     minChangeIdLength: number;
     graphLabelAlignment?: string;
+    theme?: string;
 }
 
 export const CommitGraph: React.FC<CommitGraphProps> = ({
@@ -22,6 +23,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     selectedCommitIds,
     minChangeIdLength,
     graphLabelAlignment = 'aligned',
+    theme = 'default',
 }) => {
     // Width of a lane in pixels
     const LANE_WIDTH = 16;
@@ -35,7 +37,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
     const GAP = computeGap(fontSize);
 
-    const layout = React.useMemo(() => computeGraphLayout(commits), [commits]);
+    const layout = React.useMemo(() => computeGraphLayout(commits, theme), [commits, theme]);
     const displayRows = layout.rows || commits;
 
     const compactPaddingMap = React.useMemo(() => {

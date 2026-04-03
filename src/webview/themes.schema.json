@@ -1,0 +1,48 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "JJ Themes Schema",
+    "description": "Schema for the jj-view log graph themes configuration.",
+    "type": "object",
+    "definitions": {
+        "color-item": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "format": "color-hex",
+                    "pattern": "^#([A-Fa-f0-9]{3}){1,2}$",
+                    "description": "A HEX color code (e.g. #ffffff)."
+                },
+                {
+                    "type": "string",
+                    "pattern": "^var\\(--[a-zA-Z0-9-]+\\)$",
+                    "description": "A VS Code charting color variable (e.g. var(--vscode-charts-green))."
+                }
+            ]
+        },
+        "theme-definition": {
+            "type": "object",
+            "required": ["strategy", "colors"],
+            "additionalProperties": false,
+            "properties": {
+                "strategy": {
+                    "type": "string",
+                    "enum": ["cycle", "clamp"],
+                    "description": "The logic used when the number of graph lanes exceeds the number of colors. 'cycle' wraps back to the first color, while 'clamp' stays on the final color."
+                },
+                "colors": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/color-item" },
+                    "description": "The ordered list of colors for the graph lanes."
+                },
+                "lightColors": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/color-item" },
+                    "description": "Optional list of colors used specifically when the VS Code theme is set to light mode."
+                }
+            }
+        }
+    },
+    "additionalProperties": {
+        "$ref": "#/definitions/theme-definition"
+    }
+}

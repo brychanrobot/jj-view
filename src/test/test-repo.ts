@@ -327,7 +327,7 @@ export interface CommitId {
 
 export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): Promise<Record<string, CommitId>> {
     const labelToId: Record<string, CommitId> = {};
-    const metadataOps: { type: 'bookmark' | 'tag', name: string, changeId: string }[] = [];
+    const metadataOps: { type: 'bookmark' | 'tag'; name: string; changeId: string }[] = [];
 
     // Helper to resolve parents
     const resolveParents = (parents?: string[]): string[] => {
@@ -373,8 +373,8 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
     }
 
     // Apply metadata (tags and bookmarks) to specific IDs.
-    // This is done after the initial graph construction loop so that 
-    // metadata operations (which might make commits immutable) don't 
+    // This is done after the initial graph construction loop so that
+    // metadata operations (which might make commits immutable) don't
     // affect the working copy commit (@) during construction.
     for (const op of metadataOps) {
         if (op.type === 'bookmark') {

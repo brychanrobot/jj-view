@@ -6,15 +6,7 @@ import { Page, expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import { ElectronApplication, type Frame } from 'playwright';
 import { type CommitId, TestRepo, buildGraph } from '../test-repo';
-import {
-    expectSettingsOpen,
-    focusJJLog,
-    getLogWebview,
-    launchVSCode,
-    redo,
-    save,
-    undo,
-} from './e2e-helpers';
+import { expectSettingsOpen, focusJJLog, getLogWebview, launchVSCode, redo, save, undo } from './e2e-helpers';
 
 /**
  * Finds the webview frame containing the Commit Details panel.

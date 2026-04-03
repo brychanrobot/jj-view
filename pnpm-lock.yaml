@@ -89,6 +89,9 @@ importers:
             eslint-config-prettier:
                 specifier: ^10.1.8
                 version: 10.1.8(eslint@9.39.2(jiti@2.6.1))
+            handlebars:
+                specifier: ^4.7.9
+                version: 4.7.9
             npm-run-all:
                 specifier: ^4.1.5
                 version: 4.1.5
@@ -812,6 +815,7 @@ packages:
         engines: { node: '>= 10' }
         cpu: [arm64]
         os: [linux]
+        libc: [glibc]
 
     '@node-rs/crc32-linux-arm64-musl@1.10.6':
         resolution:
@@ -821,6 +825,7 @@ packages:
         engines: { node: '>= 10' }
         cpu: [arm64]
         os: [linux]
+        libc: [musl]
 
     '@node-rs/crc32-linux-x64-gnu@1.10.6':
         resolution:
@@ -830,6 +835,7 @@ packages:
         engines: { node: '>= 10' }
         cpu: [x64]
         os: [linux]
+        libc: [glibc]
 
     '@node-rs/crc32-linux-x64-musl@1.10.6':
         resolution:
@@ -839,6 +845,7 @@ packages:
         engines: { node: '>= 10' }
         cpu: [x64]
         os: [linux]
+        libc: [musl]
 
     '@node-rs/crc32-wasm32-wasi@1.10.6':
         resolution:
@@ -961,6 +968,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [arm]
         os: [linux]
+        libc: [glibc]
 
     '@parcel/watcher-linux-arm-musl@2.5.6':
         resolution:
@@ -970,6 +978,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [arm]
         os: [linux]
+        libc: [musl]
 
     '@parcel/watcher-linux-arm64-glibc@2.5.6':
         resolution:
@@ -979,6 +988,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [arm64]
         os: [linux]
+        libc: [glibc]
 
     '@parcel/watcher-linux-arm64-musl@2.5.6':
         resolution:
@@ -988,6 +998,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [arm64]
         os: [linux]
+        libc: [musl]
 
     '@parcel/watcher-linux-x64-glibc@2.5.6':
         resolution:
@@ -997,6 +1008,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [x64]
         os: [linux]
+        libc: [glibc]
 
     '@parcel/watcher-linux-x64-musl@2.5.6':
         resolution:
@@ -1006,6 +1018,7 @@ packages:
         engines: { node: '>= 10.0.0' }
         cpu: [x64]
         os: [linux]
+        libc: [musl]
 
     '@parcel/watcher-win32-arm64@2.5.6':
         resolution:
@@ -1111,6 +1124,7 @@ packages:
             }
         cpu: [arm]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-arm-musleabihf@4.54.0':
         resolution:
@@ -1119,6 +1133,7 @@ packages:
             }
         cpu: [arm]
         os: [linux]
+        libc: [musl]
 
     '@rollup/rollup-linux-arm64-gnu@4.54.0':
         resolution:
@@ -1127,6 +1142,7 @@ packages:
             }
         cpu: [arm64]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-arm64-musl@4.54.0':
         resolution:
@@ -1135,6 +1151,7 @@ packages:
             }
         cpu: [arm64]
         os: [linux]
+        libc: [musl]
 
     '@rollup/rollup-linux-loong64-gnu@4.54.0':
         resolution:
@@ -1143,6 +1160,7 @@ packages:
             }
         cpu: [loong64]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-ppc64-gnu@4.54.0':
         resolution:
@@ -1151,6 +1169,7 @@ packages:
             }
         cpu: [ppc64]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-riscv64-gnu@4.54.0':
         resolution:
@@ -1159,6 +1178,7 @@ packages:
             }
         cpu: [riscv64]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-riscv64-musl@4.54.0':
         resolution:
@@ -1167,6 +1187,7 @@ packages:
             }
         cpu: [riscv64]
         os: [linux]
+        libc: [musl]
 
     '@rollup/rollup-linux-s390x-gnu@4.54.0':
         resolution:
@@ -1175,6 +1196,7 @@ packages:
             }
         cpu: [s390x]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-x64-gnu@4.54.0':
         resolution:
@@ -1183,6 +1205,7 @@ packages:
             }
         cpu: [x64]
         os: [linux]
+        libc: [glibc]
 
     '@rollup/rollup-linux-x64-musl@4.54.0':
         resolution:
@@ -1191,6 +1214,7 @@ packages:
             }
         cpu: [x64]
         os: [linux]
+        libc: [musl]
 
     '@rollup/rollup-openharmony-arm64@4.54.0':
         resolution:
@@ -3234,6 +3258,14 @@ packages:
                 integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==,
             }
 
+    handlebars@4.7.9:
+        resolution:
+            {
+                integrity: sha512-4E71E0rpOaQuJR2A3xDZ+GM1HyWYv1clR58tC8emQNeQe3RH7MAzSbat+V0wG78LQBo6m6bzSG/L4pBuCsgnUQ==,
+            }
+        engines: { node: '>=0.4.7' }
+        hasBin: true
+
     has-bigints@1.1.0:
         resolution:
             {
@@ -4347,6 +4379,12 @@ packages:
             }
         engines: { node: '>= 0.6' }
 
+    neo-async@2.6.2:
+        resolution:
+            {
+                integrity: sha512-Yd3UES5mWCSqR+qNT93S3UoYUkqAZ9lLg8a7g9rimsWmYGK8cVToA4/sF3RrshdyV3sAGMXVUmpMYOw+dLpOuw==,
+            }
+
     nice-try@1.0.5:
         resolution:
             {
@@ -5285,6 +5323,13 @@ packages:
             }
         engines: { node: '>=0.10.0' }
 
+    source-map@0.6.1:
+        resolution:
+            {
+                integrity: sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==,
+            }
+        engines: { node: '>=0.10.0' }
+
     spdx-correct@3.2.0:
         resolution:
             {
@@ -5824,6 +5869,14 @@ packages:
                 integrity: sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A==,
             }
 
+    uglify-js@3.19.3:
+        resolution:
+            {
+                integrity: sha512-v3Xu+yuwBXisp6QYTcH4UbH+xYJXqnq2m/LtQVWKWzYc1iehYnLixoQDN9FH6/j9/oybfd6W9Ghwkl8+UMKTKQ==,
+            }
+        engines: { node: '>=0.8.0' }
+        hasBin: true
+
     unbox-primitive@1.1.0:
         resolution:
             {
@@ -6110,6 +6163,12 @@ packages:
                 integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==,
             }
         engines: { node: '>=0.10.0' }
+
+    wordwrap@1.0.0:
+        resolution:
+            {
+                integrity: sha512-gvVzJFlPycKc5dZN4yPkP8w7Dc37BtP1yczEneOb4uq34pXZcvrtRTmWV8W+Ume+XCxKgbjM+nevkyFPMybd4Q==,
+            }
 
     workerpool@9.3.4:
         resolution:
@@ -8231,6 +8290,15 @@ snapshots:
 
     graceful-fs@4.2.11: {}
 
+    handlebars@4.7.9:
+        dependencies:
+            minimist: 1.2.8
+            neo-async: 2.6.2
+            source-map: 0.6.1
+            wordwrap: 1.0.0
+        optionalDependencies:
+            uglify-js: 3.19.3
+
     has-bigints@1.1.0: {}
 
     has-flag@3.0.0: {}
@@ -8766,8 +8834,7 @@ snapshots:
         dependencies:
             brace-expansion: 2.0.2
 
-    minimist@1.2.8:
-        optional: true
+    minimist@1.2.8: {}
 
     minipass-collect@2.0.1:
         dependencies:
@@ -8850,6 +8917,8 @@ snapshots:
     natural-compare@1.4.0: {}
 
     negotiator@1.0.0: {}
+
+    neo-async@2.6.2: {}
 
     nice-try@1.0.5: {}
 
@@ -9477,6 +9546,8 @@ snapshots:
 
     source-map-js@1.2.1: {}
 
+    source-map@0.6.1: {}
+
     spdx-correct@3.2.0:
         dependencies:
             spdx-expression-parse: 3.0.1
@@ -9863,6 +9934,9 @@ snapshots:
 
     uc.micro@2.1.0: {}
 
+    uglify-js@3.19.3:
+        optional: true
+
     unbox-primitive@1.1.0:
         dependencies:
             call-bound: 1.0.4
@@ -10035,6 +10109,8 @@ snapshots:
             stackback: 0.0.2
 
     word-wrap@1.2.5: {}
+
+    wordwrap@1.0.0: {}
 
     workerpool@9.3.4: {}
 

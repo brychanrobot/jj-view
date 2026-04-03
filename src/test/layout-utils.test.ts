@@ -3,9 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../webview/layout-utils';
-import { GraphLayout } from '../webview/graph-model';
 import { JjLogEntry } from '../jj-types';
+import { GraphLayout } from '../webview/graph-model';
+import {
+    computeCompactRowMaxX,
+    computeGap,
+    computeGraphAreaWidth,
+    computeMaxShortestIdLength,
+} from '../webview/layout-utils';
 import { createMock } from './test-utils';
 
 describe('Layout Utils', () => {
@@ -56,9 +61,7 @@ describe('Layout Utils', () => {
     describe('computeCompactRowMaxX', () => {
         it('should account for node positions', () => {
             const layout: GraphLayout = {
-                nodes: [
-                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
-                ],
+                nodes: [{ commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false }],
                 edges: [],
                 width: 3,
                 height: 1,
@@ -70,9 +73,7 @@ describe('Layout Utils', () => {
 
         it('should account for vertical edges passing through rows', () => {
             const layout: GraphLayout = {
-                nodes: [
-                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
-                ],
+                nodes: [{ commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false }],
                 edges: [{ x1: 2, y1: 0, x2: 2, y2: 2, curveY: 2, type: 'parent', color: 'green' }],
                 width: 3,
                 height: 3,
@@ -85,12 +86,8 @@ describe('Layout Utils', () => {
 
         it('should ignore curved segments when determining max lane', () => {
             const layout: GraphLayout = {
-                nodes: [
-                    { commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false },
-                ],
-                edges: [
-                    { x1: 4, y1: 0, x2: 0, y2: 2, curveY: 2, type: 'parent', color: 'green' },
-                ],
+                nodes: [{ commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false }],
+                edges: [{ x1: 4, y1: 0, x2: 0, y2: 2, curveY: 2, type: 'parent', color: 'green' }],
                 width: 6,
                 height: 3,
                 rows: [createMock<JjLogEntry>({}), createMock<JjLogEntry>({}), createMock<JjLogEntry>({})],

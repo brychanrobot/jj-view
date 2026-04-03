@@ -49,6 +49,9 @@ jobs:
             - name: Install Dependencies
               run: pnpm install --frozen-lockfile
 
+            - name: Generate Themes
+              run: pnpm build:themes
+
             - name: Lint
               run: pnpm lint
 
@@ -65,7 +68,7 @@ jobs:
               run: pnpm package --out jj-view.vsix
 
             - name: Verify VSIX Contents
-              run: pnpm exec ts-node scripts/verify-vsix.ts jj-view.vsix
+              run: pnpm exec ts-node tooling/verify-vsix.ts jj-view.vsix
 
             - name: Upload Build Artifacts
               uses: actions/upload-artifact@v4
@@ -75,6 +78,8 @@ jobs:
                       dist/
                       out/
                       jj-view.vsix
+                      src/webview/themes.generated.ts
+                      media/themes.generated.css
                   retention-days: 1
 
     unit-tests:

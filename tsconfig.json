@@ -20,7 +20,9 @@
         "playwright.config.ts",
         "playwright.e2e.config.ts",
         "node_modules",
-        ".agents",
-        "scripts"
+        "scripts",
+        "tooling",
+        "playwright-report",
+        "test-results"
     ]
 }

@@ -404,6 +404,7 @@ const App: React.FC = () => {
                         selectedCommitIds={selectedCommitIds}
                         minChangeIdLength={minChangeIdLength}
                         graphLabelAlignment={graphLabelAlignment}
+                        theme={theme}
                     />
                 </div>
                 {/*

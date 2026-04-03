@@ -25,6 +25,13 @@ const requiredEntries = [
     'extension/dist/node_modules/@parcel/watcher-linux-x64-glibc/watcher.node',
     'extension/dist/node_modules/@parcel/watcher-win32-x64/watcher.node',
     'extension/dist/node_modules/@parcel/watcher-darwin-arm64/watcher.node',
+    // Runtime helper scripts
+    'extension/scripts/batch-diff.sh',
+    'extension/scripts/batch-diff.bat',
+    'extension/scripts/batch-edit.sh',
+    'extension/scripts/batch-edit.bat',
+    'extension/scripts/conflict-capture.sh',
+    'extension/scripts/conflict-capture.bat',
 ];
 
 let missing = 0;

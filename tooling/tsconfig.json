@@ -1,0 +1,9 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "rootDir": ".",
+        "outDir": "../out/tooling"
+    },
+    "include": ["**/*.ts"],
+    "exclude": []
+}

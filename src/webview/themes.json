@@ -1,0 +1,35 @@
+{
+    "default": {
+        "strategy": "cycle",
+        "colors": [
+            "var(--vscode-charts-green)",
+            "var(--vscode-charts-orange)",
+            "var(--vscode-charts-blue)",
+            "var(--vscode-charts-red)",
+            "var(--vscode-charts-purple)",
+            "var(--vscode-charts-yellow)",
+            "var(--vscode-charts-foreground)"
+        ]
+    },
+    "oceanic": {
+        "strategy": "clamp",
+        "colors": ["#caf0f8", "#90e0ef", "#00b4d8", "#0096c7", "#0077b6", "#023e8a", "#03045e"]
+    },
+    "sunset": {
+        "strategy": "clamp",
+        "colors": ["#ffea00", "#ffb700", "#ff9e00", "#ff8500", "#ff6d00", "#ff5400", "#ff0000"]
+    },
+    "neon": {
+        "strategy": "cycle",
+        "colors": ["#39ff14", "#ff00ff", "#00ffff", "#ffef00", "#ff0000", "#ff9900", "#bf00ff"]
+    },
+    "pastel": {
+        "strategy": "cycle",
+        "colors": ["#ffb3ba", "#ffdfba", "#ffffba", "#baffc9", "#bae1ff", "#e8baff", "#ffd1ff"]
+    },
+    "monochrome": {
+        "strategy": "clamp",
+        "colors": ["#eeeeee", "#666666", "#555555", "#444444", "#383838", "#303030", "#282828"],
+        "lightColors": ["#111111", "#999999", "#aaaaaa", "#bbbbbb", "#c7c7c7", "#cfcfcf", "#d7d7d7"]
+    }
+}
