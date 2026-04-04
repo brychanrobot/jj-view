@@ -23,5 +23,6 @@
     },
     "[typescriptreact]": {
         "editor.rulers": [120]
-    }
+    },
+    "jj-view.uploadCommand": "upload"
 }

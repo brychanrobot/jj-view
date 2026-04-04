@@ -1,0 +1,20 @@
+[aliases]
+sync = ["util", "exec", "--", "sh", "-c", "jj git fetch && jj rebase -s 'roots(mutable())' -d main --skip-emptied && jj log"]
+upload = ["util", "exec", "--", "pnpm", "exec", "ts-node", "tooling/jj/upload.ts"]
+
+[fix.tools.prettier]
+command = ["pnpm", "exec", "prettier", "--stdin-filepath", "$path"]
+patterns = [
+    "glob:'**/*.ts'",
+    "glob:'**/*.tsx'",
+    "glob:'**/*.js'",
+    "glob:'**/*.jsx'",
+    "glob:'**/*.json'",
+    "glob:'**/*.md'",
+    "glob:'**/*.css'",
+]
+
+[[--scope]]
+--when.environments = ["ANTIGRAVITY_AGENT"]
+[--scope.ui]
+paginate = "never"
