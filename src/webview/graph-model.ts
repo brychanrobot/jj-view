@@ -29,10 +29,16 @@ export interface GraphEdge {
     isElided?: boolean; // True if this edge connects to a non-direct ancestor (history gap)
 }
 
+export interface ElisionRow {
+    type: 'elision';
+}
+
+export type GraphRow = JjLogEntry | ElisionRow;
+
 export interface GraphLayout {
     nodes: GraphNode[];
     edges: GraphEdge[];
     width: number;
     height: number;
-    rows: JjLogEntry[]; // The commits in display order
+    rows: GraphRow[]; // The commits and spacer rows in display order
 }

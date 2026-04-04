@@ -6,6 +6,7 @@ import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import React from 'react';
 // Needs to be available in types or duplicated.
 import { GerritClInfo } from '../../jj-types';
+import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
 import { IconButton } from './IconButton';
 
@@ -182,7 +183,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 outlineOffset: '-2px',
                 touchAction: 'none',
                 minWidth: 0,
-                paddingLeft: '6px',
+                paddingLeft: COMMIT_ROW_PADDING_LEFT,
                 paddingTop: '0',
             }}
         >

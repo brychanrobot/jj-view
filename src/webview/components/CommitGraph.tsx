@@ -3,7 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
+import { JjLogEntry } from '../../jj-types';
 import { computeGraphLayout } from '../graph-compute';
+import {
+    LANE_WIDTH,
+    ROW_HEIGHT_NORMAL,
+    ROW_HEIGHT_EXPANDED,
+    ROW_HEIGHT_ELISION,
+    LEFT_MARGIN,
+    COMMIT_ROW_PADDING_LEFT,
+} from '../layout-constants';
 import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
 import { ActionPayload, CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
@@ -25,13 +34,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     graphLabelAlignment = 'aligned',
     theme = 'default',
 }) => {
-    // Width of a lane in pixels
-    const LANE_WIDTH = 16;
-    const ROW_HEIGHT_NORMAL = 28;
-    const ROW_HEIGHT_EXPANDED = 44; // Reduced to 44px (28 top - 6 overlap + 22 bottom)
-
     // Total graph width calculation
-    const LEFT_MARGIN = 12; // Match GraphRail
     // Dynamic sizing based on font
     // Fallback to 13px if not available
     const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
@@ -44,11 +47,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         if (graphLabelAlignment !== 'compact') {
             return undefined;
         }
-        const map = new Map<string, number>();
+        const map = new Map<number, number>();
         const rowMaxX = computeCompactRowMaxX(layout);
-        layout.nodes.forEach((n) => {
-            const padding = computeGraphAreaWidth(rowMaxX[n.y] + 1, LANE_WIDTH, LEFT_MARGIN, GAP);
-            map.set(n.commitId, padding);
+        rowMaxX.forEach((maxX, y) => {
+            const padding = computeGraphAreaWidth(maxX + 1, LANE_WIDTH, LEFT_MARGIN, GAP);
+            map.set(y, padding);
         });
         return map;
     }, [layout, graphLabelAlignment, GAP, LANE_WIDTH, LEFT_MARGIN]);
@@ -59,10 +62,16 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         let currentOffset = 0;
         const offsets: number[] = [];
 
-        displayRows.forEach((commit) => {
+        displayRows.forEach((row) => {
             offsets.push(currentOffset);
             // Height logic matching the renderer in CommitNode
-            const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+            let height: number;
+            if ('type' in row && row.type === 'elision') {
+                height = ROW_HEIGHT_ELISION;
+            } else {
+                const commit = row as JjLogEntry;
+                height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+            }
             currentOffset += height;
         });
 
@@ -89,6 +98,38 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     // Padding-left for the text area
     const graphAreaWidth = computeGraphAreaWidth(layout.width, LANE_WIDTH, LEFT_MARGIN, GAP);
 
+    const renderElisionRow = (i: number, isLastRow: boolean) => {
+        // Offset to match the start of the Change ID in CommitNode
+        const graphOffset = compactPaddingMap?.get(i) ?? graphAreaWidth;
+        const paddingLeft = graphOffset + COMMIT_ROW_PADDING_LEFT;
+
+        return (
+            <div
+                key={`elision-${i}`}
+                style={{
+                    height: ROW_HEIGHT_ELISION,
+                    paddingLeft,
+                    display: 'flex',
+                    alignItems: 'center',
+                }}
+            >
+                {!isLastRow && (
+                    <div
+                        style={{
+                            flexGrow: 1,
+                            height: '4px',
+                            background:
+                                'linear-gradient(to right, var(--vscode-descriptionForeground) 0%, transparent 80%)',
+                            opacity: 0.1,
+                            marginRight: '20px',
+                            borderRadius: '2px',
+                        }}
+                    />
+                )}
+            </div>
+        );
+    };
+
     return (
         <div className="commit-graph" style={{ position: 'relative', paddingBottom: '20px' }}>
             {/* SVG Graph Overlay */}
@@ -98,15 +139,22 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 width={layout.width}
                 height={totalHeight}
                 rowOffsets={rowOffsets}
+                rows={displayRows}
                 selectedNodes={selectedCommitIds}
             />
 
             {/* Commit List (Text) */}
             <div style={{ position: 'relative', zIndex: 1 }}>
-                {displayRows.map((commit) => {
+                {displayRows.map((row, i) => {
+                    const isLastRow = i === displayRows.length - 1;
+                    if (row && 'type' in row && row.type === 'elision') {
+                        return renderElisionRow(i, isLastRow);
+                    }
+
+                    const commit = row as JjLogEntry;
                     const isSelected = selectedCommitIds?.has(commit.change_id);
                     const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
-                    const paddingLeft = compactPaddingMap?.get(commit.commit_id) ?? graphAreaWidth;
+                    const paddingLeft = compactPaddingMap?.get(i) ?? graphAreaWidth;
                     return (
                         <div
                             key={commit.commit_id}

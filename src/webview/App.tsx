@@ -375,7 +375,10 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className={`app-container theme-${theme}`}>
+        <div
+            className={`app-container theme-${theme}`}
+            style={{ '--commit-left-padding': '6px' } as React.CSSProperties}
+        >
             <DndContext
                 sensors={sensors}
                 collisionDetection={pointerWithin}

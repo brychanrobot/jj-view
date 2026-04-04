@@ -4,51 +4,64 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
+import { JjLogEntry } from '../jj-types';
 import { computeGraphLayout } from '../webview/graph-compute';
+import { GraphLayout, GraphNode } from '../webview/graph-model';
 import { TestRepo, buildGraph } from './test-repo';
 
 // Helper: ASCII renderer to verify layout against jj log output
-function renderToAscii(
-    layout: {
-        nodes: { x: number; y: number; changeId: string }[];
-        rows: {
-            commit_id: string;
-            parents: string[];
-            nearest_visible_ancestors?: string[];
-            is_current_working_copy?: boolean;
-            change_id: string;
-            description: string;
-        }[];
-        edges: { x1: number; y1: number; x2: number; y2: number; curveY?: number; isJoining?: boolean }[];
-    },
-    headId: string,
-): string {
+function renderToAscii(layout: GraphLayout, headId: string): string {
     const rows: string[] = [];
-    const nodesById = new Map<string, { x: number; y: number; changeId: string }>(
-        layout.nodes.map((n) => [n.changeId, n]),
-    );
+    const nodesById = new Map<string, GraphNode>(layout.nodes.map((n: GraphNode) => [n.changeId, n]));
 
-    // Calculate maximum width (number of lanes) used by any node or edge
-    let width = Math.max(1, ...layout.nodes.map((n) => n.x + 1));
+    let width = Math.max(1, ...layout.nodes.map((n: GraphNode) => n.x + 1));
     for (const e of layout.edges) {
         width = Math.max(width, e.x1 + 1, e.x2 + 1);
     }
 
+    const edgeRoutes = layout.edges.map((e) => {
+        if (e.x1 === e.x2) return { ...e, yBend: e.y1 }; // Straight
+
+        // jj log curves around row offsets. It typically curves just before the target
+        // row `curveY`, so visual yBend is exactly midway above curveY
+        return { ...e, yBend: (e.curveY ?? e.y2) - 0.5 };
+    });
+
     for (let i = 0; i < layout.rows.length; i++) {
-        const log = layout.rows[i];
+        const row = layout.rows[i];
+
+        if ('type' in row && row.type === 'elision') {
+            // 0. Elision Row (~)
+            let lineStr = '';
+            for (let x = 0; x < width; x++) {
+                let symbol = ' ';
+                const hasEdge = edgeRoutes.some((e) => {
+                    const isOurElision = e.isElided && e.y1 === i - 1 && (e.x1 === x || e.x2 === x);
+                    if (isOurElision) {
+                        symbol = '~';
+                        return true;
+                    }
+                    if (e.x1 === e.x2) {
+                        return e.x1 === x && e.y1 < i && e.y2 > i;
+                    } else {
+                        if (x === e.x1 && i < e.yBend && i > e.y1) return true;
+                        if (x === e.x2 && i > e.yBend && i < e.y2 && !e.isJoining) return true;
+                        return false;
+                    }
+                });
+                if (hasEdge && symbol === ' ') symbol = '│';
+                lineStr += symbol;
+                if (x < width - 1) lineStr += ' ';
+            }
+            rows.push(lineStr.trimEnd());
+            continue;
+        }
+
+        const log = row as JjLogEntry;
         const node = nodesById.get(log.change_id);
         if (!node) {
             continue;
         }
-
-        // Pre-calculate yBend for all non-straight edges early, so both Commit Row and Spacer Rows can use it.
-        const edgeRoutes = layout.edges.map((e) => {
-            if (e.x1 === e.x2) return { ...e, yBend: e.y1 }; // Straight
-
-            // jj log curves around row offsets. It typically curves just before the target
-            // row `curveY`, so visual yBend is exactly midway above curveY
-            return { ...e, yBend: (e.curveY ?? e.y2) - 0.5 };
-        });
 
         // 1. Commit Row
         let lineStr = '';
@@ -111,7 +124,12 @@ function renderToAscii(
 
         // 2. Spacer Rows (2 lines)
         if (i < layout.rows.length - 1) {
-            const nextLog = layout.rows[i + 1];
+            const nextRow = layout.rows[i + 1];
+            if ('type' in nextRow && nextRow.type === 'elision') {
+                continue; // Skip spacers if an elision row follows
+            }
+
+            const nextLog = nextRow as JjLogEntry;
             const yMid = node.y + 0.5;
 
             // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row

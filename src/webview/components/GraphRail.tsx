@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import { GraphEdge, GraphNode } from '../graph-model';
+import { GraphEdge, GraphNode, GraphRow } from '../graph-model';
+import { LANE_WIDTH, ROW_HEIGHT_ELISION, LEFT_MARGIN, LANE_CENTER_X, ROW_CENTER_Y } from '../layout-constants';
 
 interface GraphRailProps {
     nodes: GraphNode[];
@@ -11,18 +12,26 @@ interface GraphRailProps {
     width: number; // in lanes
     height: number; // total height in pixels
     rowOffsets: number[]; // Exact Y position for each row index
+    rows: GraphRow[];
     selectedNodes?: Set<string>;
 }
 
-const W = 16;
-const ROW_HEADER_HEIGHT = 28; // The "primary" line height where the graph lives
-const CX = W / 2;
-const CY_OFFSET = ROW_HEADER_HEIGHT / 2; // Graph is centered in the primary line (14px)
-const LEFT_MARGIN = 12; // Shift graph right to prevent clipping of halos
+const W = LANE_WIDTH;
+const CX = LANE_CENTER_X;
+const CY_OFFSET = ROW_CENTER_Y;
+const ELISION_ROW_HEIGHT = ROW_HEIGHT_ELISION;
 const R = 8; // Max radius (W/2) for smooth curves
 const BOTTOM_PADDING = 20; // Extra room for trailing elision markers at the bottom
 
-export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, height, rowOffsets, selectedNodes }) => {
+export const GraphRail: React.FC<GraphRailProps> = ({
+    nodes,
+    edges,
+    width,
+    height,
+    rowOffsets,
+    rows,
+    selectedNodes,
+}) => {
     // Layering: Leftmost lanes (lower x) should render visually on TOP.
     // SVG renders elements in order, so the last element appears on top.
     // Therefore, we want lower x values to come LAST in the array.
@@ -45,9 +54,23 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
 
         const ex = x2 * W + CX + LEFT_MARGIN;
         // End Y
-        const isTrailing = y2 === rowOffsets.length - 1;
-        // Trailing edges extend 12px past the last row before being "broken" by the tilde
-        const ey = (rowOffsets[y2] || 0) + (isTrailing ? 12 : CY_OFFSET);
+        const isTrailing = y2 >= rows.length;
+        // Trailing edges extend past the last row. If the last row is an elision row, they should end there.
+        const lastRowIndex = rows.length - 1;
+        const isLastRowElision =
+            rows[lastRowIndex] && 'type' in rows[lastRowIndex] && rows[lastRowIndex].type === 'elision';
+
+        let ey: number;
+        if (isTrailing) {
+            if (isLastRowElision) {
+                // End in the middle of the elision row
+                ey = (rowOffsets[lastRowIndex] || 0) + ELISION_ROW_HEIGHT / 2;
+            } else {
+                ey = (rowOffsets[y2] || rowOffsets[lastRowIndex] || 0) + 12;
+            }
+        } else {
+            ey = (rowOffsets[y2] || 0) + CY_OFFSET;
+        }
 
         let d = '';
 
@@ -104,16 +127,21 @@ export const GraphRail: React.FC<GraphRailProps> = ({ nodes, edges, width, heigh
         const ElisionMarker = () => {
             if (!edge.isElided) return null;
 
-            // Simple pixel midpoint measures the total gap accurately.
-            const visualMid = (sy + ey) / 2;
-            let mx = sx;
-            let my = visualMid;
-
-            if (isTrailing) {
-                // For trailing edges, put it at the very end of the extended edge
-                mx = ex;
-                my = ey - 2;
+            // Find the elision row for this edge.
+            // It should be either y1 + 1 (standard elision after child)
+            // or the last row (if it's a trailing edge).
+            let elisionRowIndex = -1;
+            const nextRow = rows[y1 + 1];
+            if (nextRow && 'type' in nextRow && nextRow.type === 'elision') {
+                elisionRowIndex = y1 + 1;
+            } else if (isTrailing && isLastRowElision) {
+                elisionRowIndex = lastRowIndex;
             }
+
+            if (elisionRowIndex === -1) return null;
+
+            const mx = sx;
+            const my = rowOffsets[elisionRowIndex] + ELISION_ROW_HEIGHT / 2;
 
             return (
                 <g key={`elision-${index}`} transform={`translate(${mx}, ${my})`}>

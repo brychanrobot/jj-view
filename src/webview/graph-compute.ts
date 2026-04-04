@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { JjLogEntry } from '../jj-types';
-import { GraphEdge, GraphLayout, GraphNode } from './graph-model';
+import { GraphEdge, GraphLayout, GraphNode, GraphRow } from './graph-model';
 import { getColor } from './themes.generated';
 
 export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'default'): GraphLayout {
@@ -13,8 +13,27 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
     const allCommits = new Map<string, JjLogEntry>();
     commits.forEach((c) => allCommits.set(c.change_id, c));
 
+    // Pre-calculate display rows and commit-to-row mapping
+    const displayRows: GraphRow[] = [];
+    const commitToRowIndex = new Map<string, number>();
+
+    commits.forEach((commit) => {
+        const rowIndex = displayRows.length;
+        displayRows.push(commit);
+        commitToRowIndex.set(commit.change_id, rowIndex);
+
+        const ancestors = commit.nearest_visible_ancestors || [];
+        const directParents = new Set(commit.parent_change_ids || []);
+        const hasElision =
+            ancestors.some((p) => !directParents.has(p)) || (ancestors.length === 0 && directParents.size > 0);
+
+        if (hasElision) {
+            displayRows.push({ type: 'elision' });
+        }
+    });
+
     // Layout Logic
-    const nodes: GraphNode[] = [];
+    const nodes: GraphNode[] = []; // Sparse array indexed by rowIndex
     const edges: GraphEdge[] = [];
     const pendingEdges: {
         x1: number;
@@ -27,8 +46,9 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
     const lanes: (string | null)[] = [];
     const nodeMap = new Map<string, GraphNode>();
 
-    commits.forEach((commit, rowIndex) => {
+    commits.forEach((commit) => {
         const changeId = commit.change_id;
+        const rowIndex = commitToRowIndex.get(changeId)!;
 
         // 1. Determine my lane
         let nodeLane = lanes.indexOf(changeId);
@@ -53,7 +73,7 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
             isEmpty: commit.is_empty,
             isImmutable: commit.is_immutable,
         };
-        nodes.push(node);
+        nodes[rowIndex] = node;
         nodeMap.set(changeId, node);
 
         // 3. Update Lanes (Clear self and overlapping)
@@ -174,7 +194,7 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
             }
         } else {
             targetX = pe.targetLane;
-            targetY = commits.length;
+            targetY = displayRows.length;
         }
 
         let curveY = targetY;
@@ -207,5 +227,11 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
         nodes.reduce((max, n) => Math.max(max, n.x + 1), 0),
     );
 
-    return { nodes, edges, width, height: commits.length, rows: commits };
+    return {
+        nodes: nodes.filter((n) => !!n), // Flatten sparse array for layout output
+        edges,
+        width,
+        height: displayRows.length,
+        rows: displayRows,
+    };
 }
