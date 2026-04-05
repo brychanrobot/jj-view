@@ -134,17 +134,25 @@ export class ChangeDetectionManager implements vscode.Disposable {
         } catch {
             return;
         }
-        const opHeadsPath = path.join(repoRoot, '.jj', 'repo', 'op_heads');
 
-        // Skip if directory does not exist
+        // Handle non-default workspaces where .jj/repo might be a file containing a path
+        const repoStorePath = await this.resolveRepoStorePath(repoRoot);
+        if (this._disposed) return;
+
+        const opHeadsPath = path.join(repoStorePath, 'op_heads');
+
+        // Final check that the directory exists and we have a real path
+        let realOpHeadsPath: string;
         try {
-            await fs.access(opHeadsPath);
+            realOpHeadsPath = await fs.realpath(opHeadsPath);
         } catch {
             return;
         }
 
+        if (this._disposed) return;
+
         this._opHeadsWatcher = new DirectoryWatcher(
-            opHeadsPath,
+            realOpHeadsPath,
             () => {
                 if (this.hasActiveOrRecentWrites) {
                     return;
@@ -160,6 +168,20 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._opHeadsWatcher.start().catch((err) => {
             this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
         });
+    }
+
+    private async resolveRepoStorePath(workspaceRoot: string): Promise<string> {
+        const repoPath = path.join(workspaceRoot, '.jj', 'repo');
+        try {
+            const stats = await fs.lstat(repoPath);
+            if (stats.isFile()) {
+                const content = await fs.readFile(repoPath, 'utf8');
+                return path.resolve(path.dirname(repoPath), content.trim());
+            }
+            return await fs.realpath(repoPath);
+        } catch {
+            return repoPath;
+        }
     }
 
     private async startWorkingCopyWatching() {
@@ -191,6 +213,8 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
 
         const [gitIgnores, gitModules] = await Promise.all([this.getGitIgnorePatterns(), this.getGitModulesPatterns()]);
+        if (this._disposed) return;
+
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules];
 
         this._workingCopyWatcher = new DirectoryWatcher(

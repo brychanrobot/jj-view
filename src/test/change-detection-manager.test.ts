@@ -240,15 +240,39 @@ describe('ChangeDetectionManager', () => {
             // Wait for op_heads watcher to start
             await waitForLog('OpHeads Watcher] Started');
 
-            // Trigger an op_heads change
-            const opHeadsPath = path.join(repo.path, '.jj', 'repo', 'op_heads', 'new_head');
-            await fs.writeFile(opHeadsPath, 'commitid');
+            // Trigger an op_heads change using a separate TestRepo instance
+            // (Simulates an external jj operation)
+            const triggeringRepo = new TestRepo(repo.path);
+            triggeringRepo.new([], 'trigger refresh');
 
             // Wait for event
             await vi.waitFor(
                 () => {
                     const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'jj operation');
                     expect(found, 'Trigger refresh for jj operation was not called').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
+        });
+
+        it('handles op_heads changes in non-default workspace', async () => {
+            const secondRepo = repo.workspaceAdd('second_workspace');
+            const secondJj = new JjService(secondRepo.path);
+
+            changeManager = new ChangeDetectionManager(secondRepo.path, secondJj, outputChannel, triggerRefreshSpy);
+
+            // Wait for op_heads watcher to start
+            await waitForLog('OpHeads Watcher] Started');
+
+            // Trigger an op_heads change in the second workspace using the secondary TestRepo instance
+            // (Acts as an external operation from the perspective of the ChangeDetectionManager's JjService)
+            secondRepo.new([], 'trigger refresh');
+
+            // Wait for event
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'jj operation');
+                    expect(found, 'Trigger refresh for jj operation was not called in second workspace').toBe(true);
                 },
                 { timeout: 10000, interval: 100 },
             );

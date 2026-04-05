@@ -294,7 +294,7 @@ export class TestRepo {
         return output.trim() === 'true';
     }
 
-    workspaceAdd(name: string, revision?: string): string {
+    workspaceAdd(name: string, revision?: string): TestRepo {
         const workspacePath = path.join(this.path, name);
         fs.mkdirSync(workspacePath, { recursive: true });
         const args = ['workspace', 'add', workspacePath];
@@ -302,7 +302,7 @@ export class TestRepo {
             args.push('-r', revision);
         }
         this.exec(args);
-        return workspacePath;
+        return new TestRepo(workspacePath);
     }
 
     gitImport() {
