@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.23.0
+
+### Features
+
+- **Log View**:
+    - Added support for **dynamic graph themes** (Oceanic, Sunset, Neon, Pastel, Monochrome).
+    - Implement **Redo** command, accessible from the view title and context menus.
+
+### Fixes
+
+- **Log View**:
+    - Improved **compact graph label alignment** to prevent overlapping with vertical graph edges.
+    - Fixed vertical alignment of **bookmarks and status pills**, ensuring a consistent UI in both log and detail views.
+- **Workspaces**: Fixed op_heads change detection in secondary Jujutsu workspaces by correctly resolving repository store paths from file links.
+
+### Chores & Maintenance
+
+- **Tooling**: Introduces a repository-specific JJ configuration system to automate code formatting and simplify upload workflows.
+- **Publishing**: Added --no-dependencies to Open VSX publication to support pnpm's symlinked node_modules structure.
+- **CI**: Optimized the CI pipeline by **parallelizing test execution** and sharing build artifacts across jobs.
+- **Testing**:
+    - Stabilized E2E tests for the **Settings editor**, ensuring robust detection across different VS Code layouts.
+    - Significant cleanup of Playwright test output and refactoring of `TestRepo` metadata helpers.
+
 ## 1.22.0
 
 ### Features
