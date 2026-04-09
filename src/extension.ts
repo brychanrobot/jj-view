@@ -250,7 +250,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.upload', async (...args: unknown[]) => {
-            await uploadCommand(jj, gerritService, args, outputChannel);
+            await uploadCommand(scmProvider, jj, gerritService, args, outputChannel);
         }),
     );
 
@@ -321,7 +321,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Detect terminal 'jj upload' commands and trigger immediate Gerrit refresh
     context.subscriptions.push(
         vscode.window.onDidEndTerminalShellExecution((event) => {
-            handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel);
+            handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel, scmProvider);
         }),
     );
 
@@ -390,11 +390,13 @@ export function handleTerminalExecution(
     commandLine: string,
     gerritService: GerritService,
     outputChannel: vscode.OutputChannel,
+    scmProvider: JjScmProvider,
 ): boolean {
     const cmd = commandLine.trim();
     if (cmd.startsWith('jj') && cmd.includes('upload')) {
         outputChannel.appendLine(`[Extension] Detected terminal upload: "${cmd}"`);
         gerritService.requestRefreshWithBackoffs();
+        scmProvider.refresh();
         return true;
     }
     return false;

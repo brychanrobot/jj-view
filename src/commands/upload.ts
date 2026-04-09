@@ -4,10 +4,12 @@
  */
 import * as vscode from 'vscode';
 import { GerritService } from '../gerrit-service';
+import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
+    scmProvider: JjScmProvider,
     jj: JjService,
     gerrit: GerritService,
     args: unknown[],
@@ -35,6 +37,7 @@ export async function uploadCommand(
         const title = revision ? `Uploading revision ${revision.substring(0, 8)}...` : 'Uploading...';
         await withDelayedProgress(title, jj.upload(revision, subcommand, ...commandArgs));
 
+        await scmProvider.refresh();
         gerrit.requestRefreshWithBackoffs();
         vscode.window.setStatusBarMessage('Upload successful', 3000);
     } catch (e: unknown) {

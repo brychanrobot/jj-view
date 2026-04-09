@@ -6,7 +6,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { uploadCommand } from '../../commands/upload';
 import { GerritService } from '../../gerrit-service';
+import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
+import { createMock } from '../test-utils';
 
 // Mock dependencies
 const mockConfig = {
@@ -29,15 +31,19 @@ describe('uploadCommand', () => {
     let jjService: JjService;
 
     let gerritService: GerritService;
+    let scmProvider: JjScmProvider;
     let mockOutputChannel: vscode.OutputChannel;
 
     beforeEach(() => {
-        jjService = { upload: vi.fn() } as unknown as JjService;
-        gerritService = {
+        jjService = createMock<JjService>({ upload: vi.fn() });
+        gerritService = createMock<GerritService>({
             isGerrit: vi.fn().mockResolvedValue(false),
             requestRefreshWithBackoffs: vi.fn(),
-        } as unknown as GerritService;
-        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+        });
+        scmProvider = createMock<JjScmProvider>({
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn(), show: vi.fn() });
         mockConfig.get.mockReset();
     });
 
@@ -48,20 +54,22 @@ describe('uploadCommand', () => {
             return undefined;
         });
 
-        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
+        await uploadCommand(scmProvider, jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         // Should use the custom command
         expect(jjService.upload).toHaveBeenCalledWith('rev-123', 'git', 'push', '--force');
+        expect(scmProvider.refresh).toHaveBeenCalled();
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     test('falls back to default when custom command is empty', async () => {
         mockConfig.get.mockReturnValue(undefined);
 
-        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
+        await uploadCommand(scmProvider, jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         // Default for non-Gerrit is git push
         expect(jjService.upload).toHaveBeenCalledWith('rev-123', 'git', 'push');
+        expect(scmProvider.refresh).toHaveBeenCalled();
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
@@ -69,7 +77,7 @@ describe('uploadCommand', () => {
         mockConfig.get.mockReturnValue(undefined);
 
         // This simulates the webview payload: { changeId: 'rev-object' }
-        await uploadCommand(jjService, gerritService, [{ changeId: 'rev-object' }], mockOutputChannel);
+        await uploadCommand(scmProvider, jjService, gerritService, [{ changeId: 'rev-object' }], mockOutputChannel);
 
         expect(jjService.upload).toHaveBeenCalledWith('rev-object', 'git', 'push');
     });
@@ -86,7 +94,7 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Configure Upload...');
 
-        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
+        await uploadCommand(scmProvider, jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),
@@ -113,7 +121,7 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Show Log');
 
-        await uploadCommand(jjService, gerritService, ['rev-123'], mockOutputChannel);
+        await uploadCommand(scmProvider, jjService, gerritService, ['rev-123'], mockOutputChannel);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed: upload failed'),

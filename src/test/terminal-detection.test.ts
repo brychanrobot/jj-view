@@ -14,48 +14,48 @@ vi.mock('vscode', async () => {
 
 // Import after mock
 import type { GerritService } from '../gerrit-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import { createMock } from './test-utils';
 
 describe('handleTerminalExecution', () => {
-    let gerritService: { forceRefresh: ReturnType<typeof vi.fn>; requestRefreshWithBackoffs: ReturnType<typeof vi.fn> };
-    let outputChannel: { appendLine: ReturnType<typeof vi.fn> };
+    let gerritService: GerritService;
+    let outputChannel: vscode.OutputChannel;
+    let scmProvider: JjScmProvider;
 
     beforeEach(() => {
-        gerritService = {
+        gerritService = createMock<GerritService>({
             forceRefresh: vi.fn(),
             requestRefreshWithBackoffs: vi.fn(),
-        };
-        outputChannel = { appendLine: vi.fn() };
+        });
+        outputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
+        scmProvider = createMock<JjScmProvider>({
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
     });
 
     it('detects "jj upload" and schedules staggered refreshes', () => {
-        const result = handleTerminalExecution(
-            'jj upload',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
-        );
+        const result = handleTerminalExecution('jj upload', gerritService, outputChannel, scmProvider);
 
         expect(result).toBe(true);
-
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('detects "jj gerrit upload" with arguments', () => {
         const result = handleTerminalExecution(
             'jj gerrit upload --change abc123',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
+            gerritService,
+            outputChannel,
+            scmProvider,
         );
 
         expect(result).toBe(true);
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('ignores non-jj commands', () => {
-        const result = handleTerminalExecution(
-            'git push origin main',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
-        );
+        const result = handleTerminalExecution('git push origin main', gerritService, outputChannel, scmProvider);
 
         expect(result).toBe(false);
         expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
@@ -63,33 +63,22 @@ describe('handleTerminalExecution', () => {
     });
 
     it('ignores jj commands without upload', () => {
-        const result = handleTerminalExecution(
-            'jj log --revisions @',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
-        );
+        const result = handleTerminalExecution('jj log --revisions @', gerritService, outputChannel, scmProvider);
 
         expect(result).toBe(false);
         expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
     });
 
     it('handles leading whitespace in command', () => {
-        const result = handleTerminalExecution(
-            '  jj upload  ',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
-        );
+        const result = handleTerminalExecution('  jj upload  ', gerritService, outputChannel, scmProvider);
 
         expect(result).toBe(true);
         expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('logs detected upload command', () => {
-        handleTerminalExecution(
-            'jj upload',
-            gerritService as unknown as GerritService,
-            outputChannel as unknown as vscode.OutputChannel,
-        );
+        handleTerminalExecution('jj upload', gerritService, outputChannel, scmProvider);
 
         expect(outputChannel.appendLine).toHaveBeenCalledWith('[Extension] Detected terminal upload: "jj upload"');
     });
