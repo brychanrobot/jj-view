@@ -50,10 +50,11 @@ _Source Control view managing `jj` changes._
 Support for common and advanced `jj` operations:
 
 - **Navigation**: Move to parent or child revisions easily.
-- **Undo**: Quickly undo `jj` operations.
+- **Undo/Redo**: Quickly undo or redo `jj` operations.
 - **Squashing**: Squash changes into the parent revision.
 - **Absorbing**: Automatically move changes into the mutable ancestor where they were introduced.
 - **Rebasing**: Rebase changes onto other revisions.
+- **Workspace Management**: Create new `jj` workspaces directly from the UI, with configurable default locations.
 - **Editable Diffs**: Edit any mutable commit directly in the diff editor. Changes are batched and applied on save, with full support for single and multi-file diffs.
 
 ## Commands
@@ -66,6 +67,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Show Current Change`: Focus the graph on the current working copy change.
 - `JJ View: Show Details`: Open a dedicated panel with full details of the selected commit.
 - `JJ View: Undo`: Undo the last `jj` operation.
+- `JJ View: Redo`: Redo the last undone `jj` operation.
 
 ### Change Management
 
@@ -85,6 +87,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
 - `JJ View: Commit (Prompt)`: Commit the current changes in the working copy, prompting for a description message first.
 - `JJ View: Open File`: Open the file associated with a change.
+- `JJ View: Add Workspace`: Create a new `jj` workspace.
 - `JJ View: Show Multi-File Diff`: Open a comprehensive multi-file diff view for the selected revision. These views are editable for mutable commits.
 
 ### History & Merging
@@ -129,22 +132,23 @@ If you use Gerrit, **JJ View** provides enhanced integration:
 
 Customize **JJ View** behavior in VS Code settings.
 
-| Setting                                | Default     | Description                                                                                                                                                                                                                                                                                          |
-| :------------------------------------- | :---------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jj-view.refreshDebounceMillis`        | `100`       | Base debounce time (ms) for SCM refresh based on file events.                                                                                                                                                                                                                                        |
-| `jj-view.refreshDebounceMaxMultiplier` | `4`         | Maximum multiplier for the debounce timeout when events continue to occur.                                                                                                                                                                                                                           |
-| `jj-view.fileWatcherMode`              | `"polling"` | Controls how the extension detects external file changes. `"polling"` uses periodic status checks. `"watch"` uses a native file watcher ([parcel-watcher](https://github.com/parcel-bundler/watcher)) for more efficient, event-driven updates. Falls back to polling if the watcher fails to start. |
-| `jj-view.gerrit.host`                  | `null`      | Gerrit host URL (e.g., https://experiment-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes.                                                                                                                                                      |
-| `jj-view.gerrit.project`               | `null`      | Gerrit project name. If not set, extension attempts to detect it from git remotes.                                                                                                                                                                                                                   |
-| `jj-view.uploadCommand`                | `null`      | Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'.                                                                                                                                                                     |
-| `jj-view.minChangeIdLength`            | `1`         | Minimum number of characters to display for change IDs. This affects the unique prefix calculation and UI truncation.                                                                                                                                                                                |
-| `jj-view.maxMutableAncestors`          | `10`        | Maximum number of mutable ancestors to display in the SCM view.                                                                                                                                                                                                                                      |
-| `jj-view.logTheme`                     | `"default"` | Color theme for the graph lanes in the JJ Log view. Available options: `default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`.                                                                                                                                                               |
-| `jj-view.graphLabelAlignment`          | `"aligned"` | Controls the horizontal alignment of commit messages in the log view. Available options: `aligned`, `compact`.                                                                                                                                                                                       |
-| `jj-view.commit.titleWidthRuler`       | `50`        | Width at which to display a ruler in the commit details description editor for the title line.                                                                                                                                                                                                       |
-| `jj-view.commit.bodyWidthRuler`        | `72`        | Width at which to display a ruler in the commit details description editor for the body.                                                                                                                                                                                                             |
-| `jj-view.binaryPath`                   | `""`        | Optional absolute path to the 'jj' binary. If empty, the extension will search for it in your PATH                                                                                                                                                                                                   |
-| `jj-view.suppressGitColocationWarning` | `false`     | Suppress the warning to disable the built-in Git extension in colocated repositories.                                                                                                                                                                                                                |
+| Setting                                | Default       | Description                                                                                                                                                                                                                                                                                          |
+| :------------------------------------- | :------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jj-view.refreshDebounceMillis`        | `100`         | Base debounce time (ms) for SCM refresh based on file events.                                                                                                                                                                                                                                        |
+| `jj-view.refreshDebounceMaxMultiplier` | `4`           | Maximum multiplier for the debounce timeout when events continue to occur.                                                                                                                                                                                                                           |
+| `jj-view.fileWatcherMode`              | `"polling"`   | Controls how the extension detects external file changes. `"polling"` uses periodic status checks. `"watch"` uses a native file watcher ([parcel-watcher](https://github.com/parcel-bundler/watcher)) for more efficient, event-driven updates. Falls back to polling if the watcher fails to start. |
+| `jj-view.gerrit.host`                  | `null`        | Gerrit host URL (e.g., https://experiment-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes.                                                                                                                                                      |
+| `jj-view.gerrit.project`               | `null`        | Gerrit project name. If not set, extension attempts to detect it from git remotes.                                                                                                                                                                                                                   |
+| `jj-view.uploadCommand`                | `null`        | Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'.                                                                                                                                                                     |
+| `jj-view.minChangeIdLength`            | `1`           | Minimum number of characters to display for change IDs. This affects the unique prefix calculation and UI truncation.                                                                                                                                                                                |
+| `jj-view.maxMutableAncestors`          | `10`          | Maximum number of mutable ancestors to display in the SCM view.                                                                                                                                                                                                                                      |
+| `jj-view.logTheme`                     | `"default"`   | Color theme for the graph lanes in the JJ Log view. Available options: `default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`.                                                                                                                                                               |
+| `jj-view.graphLabelAlignment`          | `"aligned"`   | Controls the horizontal alignment of commit messages in the log view. Available options: `aligned`, `compact`.                                                                                                                                                                                       |
+| `jj-view.commit.titleWidthRuler`       | `50`          | Width at which to display a ruler in the commit details description editor for the title line.                                                                                                                                                                                                       |
+| `jj-view.commit.bodyWidthRuler`        | `72`          | Width at which to display a ruler in the commit details description editor for the body.                                                                                                                                                                                                             |
+| `jj-view.binaryPath`                   | `""`          | Optional absolute path to the 'jj' binary. If empty, the extension will search for it in your PATH                                                                                                                                                                                                   |
+| `jj-view.suppressGitColocationWarning` | `false`       | Suppress the warning to disable the built-in Git extension in colocated repositories.                                                                                                                                                                                                                |
+| `jj-view.workspacesLocation`           | `.workspaces` | Directory where new workspaces are created. Relative paths are resolved against the main repository root.                                                                                                                                                                                            |
 
 ## Advanced Configuration
 

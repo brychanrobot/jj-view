@@ -39,6 +39,13 @@
                     "fontPath": "./media/custom-icons/jj-view-icons.woff",
                     "fontCharacter": "\\f101"
                 }
+            },
+            "jj-icon-workspace-add": {
+                "description": "Workspace Add icon",
+                "default": {
+                    "fontPath": "./media/codicons/codicon.ttf",
+                    "fontCharacter": "\\ec58"
+                }
             }
         },
         "configuration": {
@@ -137,6 +144,11 @@
                     "type": "string",
                     "default": "",
                     "description": "Optional absolute path to the 'jj' binary. If empty, the extension will search for it in your PATH."
+                },
+                "jj-view.workspacesLocation": {
+                    "type": "string",
+                    "default": ".workspaces",
+                    "description": "Directory where new workspaces are created. Relative paths are resolved against the main repository root."
                 }
             }
         },
@@ -323,6 +335,12 @@
                 "title": "Show Multi-File Diff",
                 "category": "JJ View",
                 "icon": "$(diff-multiple)"
+            },
+            {
+                "command": "jj-view.workspaceAdd",
+                "title": "Add Workspace",
+                "category": "JJ View",
+                "icon": "$(jj-icon-workspace-add)"
             }
         ],
         "keybindings": [
@@ -365,6 +383,11 @@
                     "command": "jj-view.newBefore",
                     "group": "navigation@5",
                     "when": "view == jj-view.logView && jj.selection.allowNewBefore"
+                },
+                {
+                    "command": "jj-view.workspaceAdd",
+                    "group": "navigation@10",
+                    "when": "view == jj-view.logView"
                 }
             ],
             "webview/context": [
@@ -445,6 +468,10 @@
                 {
                     "command": "jj-view.refresh",
                     "group": "navigation@10"
+                },
+                {
+                    "command": "jj-view.workspaceAdd",
+                    "group": "navigation@11"
                 }
             ],
             "scm/resourceGroup/context": [
@@ -616,7 +643,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@parcel/watcher": "^2.5.6",
         "@vscode-elements/elements": "^2.4.0",
-        "@vscode/codicons": "^0.0.44",
+        "@vscode/codicons": "^0.0.45",
         "parse-diff": "^0.11.1",
         "prettier": "^3.8.1",
         "react": "^19.2.3",

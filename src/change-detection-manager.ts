@@ -128,15 +128,14 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        let repoRoot: string;
         try {
-            repoRoot = await this.jj.getRepoRoot();
+            await this.jj.getRepoRoot();
         } catch {
             return;
         }
 
         // Handle non-default workspaces where .jj/repo might be a file containing a path
-        const repoStorePath = await this.resolveRepoStorePath(repoRoot);
+        const repoStorePath = await this.jj.getRepoStorePath();
         if (this._disposed) return;
 
         const opHeadsPath = path.join(repoStorePath, 'op_heads');
@@ -168,20 +167,6 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._opHeadsWatcher.start().catch((err) => {
             this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
         });
-    }
-
-    private async resolveRepoStorePath(workspaceRoot: string): Promise<string> {
-        const repoPath = path.join(workspaceRoot, '.jj', 'repo');
-        try {
-            const stats = await fs.lstat(repoPath);
-            if (stats.isFile()) {
-                const content = await fs.readFile(repoPath, 'utf8');
-                return path.resolve(path.dirname(repoPath), content.trim());
-            }
-            return await fs.realpath(repoPath);
-        } catch {
-            return repoPath;
-        }
     }
 
     private async startWorkingCopyWatching() {

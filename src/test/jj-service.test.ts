@@ -63,6 +63,30 @@ describe('JjService Unit Tests', () => {
         expect(gitRoot).toContain('.git');
     });
 
+    test('getRepoStorePath returns directory for main repo', async () => {
+        const storePath = await jjService.getRepoStorePath();
+        expect(fs.realpathSync.native(storePath)).toBe(fs.realpathSync.native(path.join(repo.path, '.jj', 'repo')));
+        const stats = await fs.promises.lstat(storePath);
+        expect(stats.isDirectory()).toBe(true);
+    });
+
+    test('getMainWorkspaceRoot returns same path for main repo', async () => {
+        const mainRoot = await jjService.getMainWorkspaceRoot();
+        expect(fs.realpathSync.native(mainRoot)).toBe(fs.realpathSync.native(repo.path));
+    });
+
+    test('repository discovery in secondary workspace', async () => {
+        const secondRepo = repo.workspaceAdd('second_ws');
+        const secondJj = new JjService(secondRepo.path);
+
+        const storePath = await secondJj.getRepoStorePath();
+        const mainRoot = await secondJj.getMainWorkspaceRoot();
+
+        // Should point back to the original repo
+        expect(fs.realpathSync.native(storePath)).toBe(fs.realpathSync.native(path.join(repo.path, '.jj', 'repo')));
+        expect(fs.realpathSync.native(mainRoot)).toBe(fs.realpathSync.native(repo.path));
+    });
+
     test('supplies JJ_VIEW_EXTENSION environment variable', async () => {
         // Write a conditional config that changes the default log revset
         // only when JJ_VIEW_EXTENSION=1 is present in the environment.
@@ -107,6 +131,18 @@ log = "none()"
             expect(description).toContain('message');
             // Default `jj new` creates a child of the current working copy
             expect(parents[0]).toBe(oldChangeId);
+        });
+
+        test('workspaceAdd creates a new workspace', async () => {
+            const wsPath = path.join(repo.path, 'new_ws');
+            await jjService.workspaceAdd(wsPath, 'new_ws');
+
+            expect(fs.existsSync(wsPath)).toBe(true);
+            expect(fs.existsSync(path.join(wsPath, '.jj'))).toBe(true);
+
+            // Verify it shows up in workspace list
+            const output = cp.execFileSync('jj', ['workspace', 'list'], { cwd: repo.path, encoding: 'utf-8' });
+            expect(output).toContain('new_ws');
         });
 
         test('creates a new change with parent', async () => {

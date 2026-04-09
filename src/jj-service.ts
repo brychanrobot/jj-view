@@ -46,6 +46,37 @@ export class JjService {
         return this._repoRoot;
     }
 
+    /**
+     * Resolves the path to the repository's store (usually .jj/repo).
+     * Handles both default workspaces (where it's a directory) and secondary
+     * workspaces (where it's a file pointing to the main repo's store).
+     */
+    async getRepoStorePath(): Promise<string> {
+        const workspaceRoot = await this.getRepoRoot();
+        const repoPath = path.join(workspaceRoot, '.jj', 'repo');
+        try {
+            const stats = await fs.lstat(repoPath);
+            if (stats.isFile()) {
+                const content = await fs.readFile(repoPath, 'utf8');
+                return path.resolve(path.dirname(repoPath), content.trim());
+            }
+            return await fs.realpath(repoPath);
+        } catch {
+            return repoPath;
+        }
+    }
+
+    /**
+     * Finds the root directory of the "main" workspace (the one containing the repo store).
+     */
+    async getMainWorkspaceRoot(): Promise<string> {
+        const storePath = await this.getRepoStorePath();
+        // The store is typically <main-root>/.jj/repo.
+        // Parent 1: <main-root>/.jj
+        // Parent 2: <main-root>
+        return path.dirname(path.dirname(storePath));
+    }
+
     async getGitRoot(): Promise<string | null> {
         try {
             return await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
@@ -795,6 +826,14 @@ export class JjService {
             label: 'new:getChangeId',
         });
         return output.trim();
+    }
+
+    async workspaceAdd(destination: string, name?: string): Promise<string> {
+        const args = [destination];
+        if (name) {
+            args.push('--name', name);
+        }
+        return this.run('workspace', ['add', ...args], { isMutation: true, label: 'workspaceAdd' });
     }
 
     async getFileContent(

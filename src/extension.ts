@@ -32,6 +32,7 @@ import { squashChangeCommand } from './commands/squash-change';
 import { squashIntoCommand } from './commands/squash-into';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
+import { workspaceAddCommand } from './commands/workspace-add';
 import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
@@ -373,6 +374,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
             await showMultiFileDiffCommand(jj, outputChannel, ...args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.workspaceAdd', async () => {
+            await workspaceAddCommand(scmProvider, jj);
         }),
     );
 
