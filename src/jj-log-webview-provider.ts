@@ -59,7 +59,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         // Update the HTML when the view becomes hidden so that when it is restored,
         // it uses the latest cached data instead of the initial stale data.
         webviewView.onDidChangeVisibility(() => {
-            if (!webviewView.visible) {
+            if (webviewView.visible) {
+                this.outputChannel?.appendLine('[JjLogWebviewProvider] View became visible, re-rendering');
+                this._renderCommits(this._cachedCommits);
+            } else {
                 const config = vscode.workspace.getConfiguration('jj-view');
                 const currentTheme = config.get<string>('logTheme', 'default');
                 const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
