@@ -468,10 +468,6 @@
                 {
                     "command": "jj-view.refresh",
                     "group": "navigation@10"
-                },
-                {
-                    "command": "jj-view.workspaceAdd",
-                    "group": "navigation@11"
                 }
             ],
             "scm/resourceGroup/context": [
