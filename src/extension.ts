@@ -33,6 +33,8 @@ import { squashIntoCommand } from './commands/squash-into';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
+import { workspaceDeleteCommand } from './commands/workspace-delete';
+import { workspaceForgetCommand } from './commands/workspace-forget';
 import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
@@ -380,6 +382,18 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.workspaceAdd', async () => {
             await workspaceAddCommand(scmProvider, jj);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.workspaceForget', async (...args: unknown[]) => {
+            await workspaceForgetCommand(scmProvider, jj, args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.workspaceDelete', async (...args: unknown[]) => {
+            await workspaceDeleteCommand(scmProvider, jj, args);
         }),
     );
 

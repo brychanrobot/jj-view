@@ -87,16 +87,25 @@ export const WorkspacePill: React.FC<{ workspace: string; style?: React.CSSPrope
     const borderColor = `color-mix(in srgb, ${accentColor}, transparent 50%)`;
 
     return (
-        <BasePill
-            style={{
-                backgroundColor,
-                color: accentColor,
-                border: `1px solid ${borderColor}`,
-                ...style,
-            }}
+        <span
+            data-vscode-context={JSON.stringify({
+                webviewSection: 'workspace',
+                workspaceName: workspace,
+                preventDefaultContextMenuItems: true,
+            })}
+            style={{ display: 'inline-flex', alignItems: 'center' }}
         >
-            {workspace}
-        </BasePill>
+            <BasePill
+                style={{
+                    backgroundColor,
+                    color: accentColor,
+                    border: `1px solid ${borderColor}`,
+                    ...style,
+                }}
+            >
+                {workspace}@
+            </BasePill>
+        </span>
     );
 };
 

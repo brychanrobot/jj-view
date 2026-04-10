@@ -341,6 +341,18 @@
                 "title": "Add Workspace",
                 "category": "JJ View",
                 "icon": "$(jj-icon-workspace-add)"
+            },
+            {
+                "command": "jj-view.workspaceForget",
+                "title": "Forget Workspace",
+                "category": "JJ View",
+                "icon": "$(close)"
+            },
+            {
+                "command": "jj-view.workspaceDelete",
+                "title": "Delete Workspace Directory",
+                "category": "JJ View",
+                "icon": "$(trash)"
             }
         ],
         "keybindings": [
@@ -391,6 +403,16 @@
                 }
             ],
             "webview/context": [
+                {
+                    "command": "jj-view.workspaceForget",
+                    "when": "webviewSection == 'workspace'",
+                    "group": "1_workspace@1"
+                },
+                {
+                    "command": "jj-view.workspaceDelete",
+                    "when": "webviewSection == 'workspace'",
+                    "group": "1_workspace@2"
+                },
                 {
                     "command": "jj-view.showMultiFileDiff",
                     "when": "webviewSection == 'commit'",

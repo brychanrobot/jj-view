@@ -308,6 +308,10 @@ export class TestRepo {
     gitImport() {
         this.exec(['git', 'import']);
     }
+
+    listWorkspaces(): string {
+        return this.exec(['workspace', 'list']);
+    }
 }
 
 export interface CommitDefinition {

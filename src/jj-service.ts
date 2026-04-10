@@ -836,6 +836,33 @@ export class JjService {
         return this.run('workspace', ['add', ...args], { isMutation: true, label: 'workspaceAdd' });
     }
 
+    async workspaceForget(workspaceName: string): Promise<void> {
+        await this.run('workspace', ['forget', workspaceName], { isMutation: true, label: 'workspaceForget' });
+    }
+
+    async getWorkspaces(): Promise<string[]> {
+        const output = await this.run('workspace', ['list', '-T', 'name ++ "\\n"'], {
+            useCachedSnapshot: true,
+            label: 'getWorkspaces',
+        });
+        return output
+            .split('\n')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+    }
+
+    async getWorkspaceRoot(workspaceName?: string): Promise<string> {
+        const args = [];
+        if (workspaceName) {
+            args.push('--name', workspaceName);
+        }
+        const output = await this.run('workspace', ['root', ...args], {
+            useCachedSnapshot: true,
+            label: 'getWorkspaceRoot',
+        });
+        return output.trim();
+    }
+
     async getFileContent(
         filePath: string,
         revision: string = '@',

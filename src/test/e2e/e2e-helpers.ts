@@ -27,6 +27,7 @@ export async function launchVSCode(
     repo: TestRepo,
     extraSettings: Record<string, unknown> = {},
     extraEnv: Record<string, string | undefined> = {},
+    showNotifications = false,
 ): Promise<VSCodeContext> {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-user-data-'));
     const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-extensions-'));
@@ -49,8 +50,8 @@ export async function launchVSCode(
                 'jj-view.fileWatcherMode': 'watch',
                 'jj-view.minChangeIdLength': 3,
                 'telemetry.telemetryLevel': 'off',
-                'workbench.notification.displayMode': 'hidden',
-                'notifications.showDoNotDisturb': true,
+                'workbench.notification.displayMode': showNotifications ? 'default' : 'hidden',
+                'notifications.showDoNotDisturb': !showNotifications,
                 'update.mode': 'none',
                 'extensions.autoCheckUpdates': false,
                 'extensions.autoUpdate': false,
@@ -155,10 +156,12 @@ export async function launchVSCode(
     // Wait for the workbench to be ready
     await expect(page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
 
-    // Hide notification toasts via CSS. Error-level toasts (e.g. "failed to load
+    // Hide notification toasts via CSS unless requested. Error-level toasts (e.g. "failed to load
     // extension") bypass VS Code's Do Not Disturb / displayMode settings and can
     // overlay buttons, causing click interception in tests.
-    await page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
+    if (!showNotifications) {
+        await page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
+    }
 
     return { app, page, userDataDir };
 }
@@ -419,4 +422,36 @@ export async function setScmDescription(page: Page, description: string) {
         // 4. Validate the text EXACTLY matches the requested description.
         await expect(scmInputRow).toHaveText(description, { timeout: 2000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 15000 });
+}
+
+/**
+ * Clicks a button in the JJ Log title bar by its name.
+ */
+export async function clickLogTitleButton(page: Page, name: string) {
+    const header = page.locator('.pane-header', { hasText: 'JJ Log' }).first();
+    const button = header.getByRole('button', { name });
+    await expect(button).toBeVisible({ timeout: 10000 });
+    await button.click();
+}
+
+/**
+ * Clicks a button within a notification toast.
+ */
+export async function clickNotificationButton(page: Page, actionLabel: string) {
+    await expect(async () => {
+        const toast = page.locator('.notifications-toasts .notification-toast');
+        const button = toast.getByRole('button', { name: actionLabel });
+        await expect(button).toBeVisible({ timeout: 2000 });
+        await button.click();
+    }, `Failed to click notification button "${actionLabel}"`).toPass({ timeout: 15000 });
+}
+
+/**
+ * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
+ */
+export async function waitForQuickInput(page: Page): Promise<Locator> {
+    const quickInput = page.locator('.quick-input-widget');
+    const input = quickInput.locator('input.input');
+    await expect(input).toBeVisible({ timeout: 10000 });
+    return input;
 }

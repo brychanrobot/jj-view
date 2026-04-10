@@ -141,8 +141,47 @@ log = "none()"
             expect(fs.existsSync(path.join(wsPath, '.jj'))).toBe(true);
 
             // Verify it shows up in workspace list
-            const output = cp.execFileSync('jj', ['workspace', 'list'], { cwd: repo.path, encoding: 'utf-8' });
+            const output = repo.listWorkspaces();
             expect(output).toContain('new_ws');
+        });
+
+        test('getWorkspaceRoot returns correct paths', async () => {
+            // 1. Current workspace
+            const currentRoot = await jjService.getWorkspaceRoot();
+            expect(fs.realpathSync.native(currentRoot)).toBe(fs.realpathSync.native(repo.path));
+
+            // 2. Secondary workspace
+            const wsPath = path.join(repo.path, 'ws_for_root');
+            await jjService.workspaceAdd(wsPath, 'ws_for_root');
+            const wsRoot = await jjService.getWorkspaceRoot('ws_for_root');
+            expect(fs.realpathSync.native(wsRoot)).toBe(fs.realpathSync.native(wsPath));
+        });
+
+        test('workspaceForget removes workspace from tracking', async () => {
+            const wsPath = path.join(repo.path, 'ws_to_forget');
+            await jjService.workspaceAdd(wsPath, 'ws_to_forget');
+
+            // Verify it exists in list
+            let output = repo.listWorkspaces();
+            expect(output).toContain('ws_to_forget');
+
+            // Forget it
+            await jjService.workspaceForget('ws_to_forget');
+
+            // Verify it's gone from list
+            output = repo.listWorkspaces();
+            expect(output).not.toContain('ws_to_forget');
+
+            // Directory should still exist (jj forget doesnt delete path)
+            expect(fs.existsSync(wsPath)).toBe(true);
+        });
+
+        test('getWorkspaces returns all workspace names', async () => {
+            await jjService.workspaceAdd(path.join(repo.path, 'ws1'), 'ws1');
+            await jjService.workspaceAdd(path.join(repo.path, 'ws2'), 'ws2');
+
+            const workspaces = await jjService.getWorkspaces();
+            expect(workspaces.sort()).toEqual(['default', 'ws1', 'ws2']);
         });
 
         test('creates a new change with parent', async () => {
@@ -1412,7 +1451,7 @@ log = "none()"
         const currentWcEntry = logs.find((l) => l.is_current_working_copy);
         expect(currentWcEntry).toBeDefined();
         expect(currentWcEntry!.change_id).toBe(currentWcId);
-        expect(currentWcEntry!.working_copies).toContain('default@');
+        expect(currentWcEntry!.working_copies).toContain('default');
     });
 
     describe('upload', () => {

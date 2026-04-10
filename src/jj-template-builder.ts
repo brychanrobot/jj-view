@@ -102,7 +102,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     working_copies: {
         type: 'stringArray',
         expr: 'working_copies',
-        itemExpr: 'item',
+        itemExpr: 'item.name()',
     },
     is_empty: { type: 'raw', expr: 'empty' },
     is_divergent: { type: 'raw', expr: 'divergent' },

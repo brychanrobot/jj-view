@@ -60,6 +60,7 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
                 await jj.workspaceAdd(destination, workspaceName);
             },
         );
+        await scmProvider.refresh();
 
         // 5. Success notification with "Open" action
         const OPEN = 'Open Workspace';
@@ -72,8 +73,6 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
             const uri = vscode.Uri.file(destination);
             await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
         }
-
-        await scmProvider.refresh();
     } catch (e) {
         const message = getErrorMessage(e);
         vscode.window.showErrorMessage(`Failed to create workspace: ${message}`);
