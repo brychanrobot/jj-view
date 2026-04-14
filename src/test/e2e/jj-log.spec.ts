@@ -5,7 +5,16 @@
 import { expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import { TestRepo, buildGraph } from '../test-repo';
-import { ROOT_ID, entry, expectTree, focusJJLog, getLogWebview, launchVSCode } from './e2e-helpers';
+import {
+    ROOT_ID,
+    clickLogAction,
+    entry,
+    expectTree,
+    focusJJLog,
+    getLogWebview,
+    launchVSCode,
+    waitForLogCommitRow,
+} from './e2e-helpers';
 
 test.describe('JJ Log Pane E2E', () => {
     test('Webview Initialization & Rendering', async () => {
@@ -36,9 +45,9 @@ test.describe('JJ Log Pane E2E', () => {
             const webview = await getLogWebview(page);
 
             // Assert all commit descriptions are present
-            await expect(webview.locator('.commit-desc', { hasText: 'initial setup' })).toBeVisible();
-            await expect(webview.locator('.commit-desc', { hasText: 'side branch commit' })).toBeVisible();
-            await expect(webview.locator('.commit-desc', { hasText: 'working tree' })).toBeVisible();
+            await expect(await waitForLogCommitRow(page, 'initial setup')).toBeVisible();
+            await expect(await waitForLogCommitRow(page, 'side branch commit')).toBeVisible();
+            await expect(await waitForLogCommitRow(page, 'working tree')).toBeVisible();
 
             // Assert Working Copy row is styled bold
             const wcDesc = webview.locator('.working-copy .commit-desc');
@@ -76,10 +85,9 @@ test.describe('JJ Log Pane E2E', () => {
 
         try {
             await focusJJLog(page);
-            const webview = await getLogWebview(page);
             // 1. New Merge Change (Requires Multi-select)
-            const sideBranchRow = webview.locator(`[data-change-id="${nodes['side_branch'].changeId}"]`);
-            const wcRow = webview.locator(`[data-change-id="${nodes['wc'].changeId}"]`);
+            const sideBranchRow = await waitForLogCommitRow(page, { changeId: nodes['side_branch'].changeId });
+            const wcRow = await waitForLogCommitRow(page, { changeId: nodes['wc'].changeId });
 
             // Click the first one normally, the second with Control
             await sideBranchRow.click();
@@ -153,16 +161,10 @@ test.describe('JJ Log Pane E2E', () => {
 
         try {
             await focusJJLog(page);
-            const webview = await getLogWebview(page);
 
             // 1. New Child
             const branchId = nodes['branch'].changeId;
-            const branchRow = webview.locator(`[data-change-id="${branchId}"]`);
-            await branchRow.hover();
-            await expect(branchRow).toHaveAttribute('data-hovered', 'true');
-
-            const newChildBtn = branchRow.locator('[title="New Child"]');
-            await newChildBtn.click();
+            await clickLogAction(page, { changeId: branchId }, 'New Child');
 
             let childId = '';
             await expect(async () => {
@@ -191,11 +193,7 @@ test.describe('JJ Log Pane E2E', () => {
 
             // 2. Prepare for squash: move working copy away from the new child
             const initialId = nodes['initial'].changeId;
-            const initialRow = webview.locator(`[data-change-id="${initialId}"]`);
-            await initialRow.hover();
-
-            const editBtn = initialRow.locator('[title="Edit Commit"]');
-            await editBtn.click();
+            await clickLogAction(page, { changeId: initialId }, 'Edit Commit');
 
             // Tree is the same commits, just @ moved. Order: [child, wc, branch, initial, dummy]
             await expectTree(repo, [
@@ -207,12 +205,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
 
             // 3. Squash the child into branch
-            const childRow = webview.locator(`[data-change-id="${childId}"]`);
-            await expect(childRow).toBeVisible({ timeout: 10000 });
-            await childRow.hover();
-            await expect(childRow).toHaveAttribute('data-hovered', 'true');
-            const squashBtn = childRow.locator('[title="Squash into Parent"]');
-            await squashBtn.click();
+            await clickLogAction(page, { changeId: childId }, 'Squash into Parent');
 
             // After squash: child is gone. branch has its changes.
             await expectTree(repo, [
@@ -223,10 +216,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
 
             // 4. Abandon the branch commit
-            const branchRowAfter = webview.locator(`[data-change-id="${branchId}"]`);
-            await branchRowAfter.hover();
-            const abandonBtn = branchRowAfter.locator('[title="Abandon Commit"]');
-            await abandonBtn.click();
+            await clickLogAction(page, { changeId: branchId }, 'Abandon Commit');
 
             // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
             // Tree: [wc, initial(@)]

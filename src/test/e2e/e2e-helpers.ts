@@ -196,9 +196,11 @@ export async function focusJJLog(page: Page) {
 /**
  * Finds the webview frame containing the JJ Log commit rows.
  */
-export async function getLogWebview(page: Page): Promise<Frame> {
+export async function getLogWebview(page: Page, timeout: number = 30000): Promise<Frame> {
     // The panel header
-    await expect(page.locator('.pane-header', { hasText: 'JJ Log' })).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('.pane-header', { hasText: 'JJ Log' })).toBeVisible({
+        timeout: Math.min(timeout, 300),
+    });
 
     async function findFrameWithSelector(frames: ReadonlyArray<Frame>, selector: string): Promise<Frame | undefined> {
         for (const f of frames) {
@@ -219,7 +221,7 @@ export async function getLogWebview(page: Page): Promise<Frame> {
                 return guestFrame;
             },
             {
-                timeout: 30000,
+                timeout: timeout,
                 message: 'Could not find JJ Log webview frame',
             },
         )
@@ -454,4 +456,77 @@ export async function waitForQuickInput(page: Page): Promise<Locator> {
     const input = quickInput.locator('input.input');
     await expect(input).toBeVisible({ timeout: 10000 });
     return input;
+}
+
+export type LogRowCriteria = string | RegExp | { changeId?: string; text?: string | RegExp };
+
+/**
+ * Robustly finds a commit row in the JJ Log webview by its text content or changeId attribute.
+ * Handles webview reloads by re-fetching the frame on retry.
+ */
+export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, repo?: TestRepo): Promise<Locator> {
+    let row: Locator;
+    try {
+        await expect(
+            async () => {
+                const webview = await getLogWebview(page, 300);
+                if (typeof criteria === 'object' && !(criteria instanceof RegExp)) {
+                    if (criteria.changeId) {
+                        row = webview.locator(`[data-change-id="${criteria.changeId}"]`);
+                    } else {
+                        row = webview.locator('.commit-row', { hasText: criteria.text });
+                    }
+                } else {
+                    row = webview.locator('.commit-row', { hasText: criteria as string | RegExp });
+                }
+                // Fast check for visibility
+                await expect(row).toBeVisible({ timeout: 200 });
+            },
+            `Failed to find log row matching ${JSON.stringify(criteria)}`,
+        ).toPass({ timeout: 20000 });
+    } catch (e) {
+        if (repo) {
+            const logState = repo.getLog('all()', 'change_id ++ " " ++ description.first_line()');
+            console.log(`[jj-view Test Diagnostic] Current Repo Log:\n`, logState);
+        }
+        try {
+            const webview = await getLogWebview(page, 300);
+            const content = await webview.innerText('body');
+            console.log(
+                '[jj-view Test Diagnostic] Webview body text content (first 500 chars):\n',
+                content.substring(0, 500),
+            );
+        } catch (innerError) {
+            console.log('[jj-view Test Diagnostic] Could not fetch webview content for diagnostics.');
+        }
+        throw e;
+    }
+    return row!;
+}
+
+/**
+ * Robustly clicks an action button (like "Abandon", "Squash", etc.) on a commit row.
+ * Re-fetches the frame and row on each retry to handle webview reloads.
+ */
+export async function clickLogAction(page: Page, rowCriteria: LogRowCriteria, actionTitle: string, repo?: TestRepo) {
+    try {
+        await expect(
+            async () => {
+                const row = await waitForLogCommitRow(page, rowCriteria, repo);
+                await row.hover();
+
+                const button = row.locator(`[title="${actionTitle}"]`);
+                await expect(button).toBeVisible({ timeout: 200 });
+                await button.click({ force: true });
+            },
+            `Failed to click action "${actionTitle}" on row matching ${JSON.stringify(rowCriteria)}`,
+        ).toPass({
+            timeout: 20000,
+        });
+    } catch (e) {
+        // waitForLogCommitRow already logs diagnostics if it fails.
+        // If it succeeded but hover/click failed, we might want extra logs here,
+        // but for now, the row failure is the most common reason for detachment.
+        throw e;
+    }
 }

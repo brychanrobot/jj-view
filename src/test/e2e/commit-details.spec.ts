@@ -6,7 +6,16 @@ import { Page, expect, test } from '@playwright/test';
 import * as fs from 'fs';
 import { ElectronApplication, type Frame } from 'playwright';
 import { type CommitId, TestRepo, buildGraph } from '../test-repo';
-import { expectSettingsOpen, focusJJLog, getLogWebview, launchVSCode, redo, save, undo } from './e2e-helpers';
+import {
+    expectSettingsOpen,
+    focusJJLog,
+    getLogWebview,
+    launchVSCode,
+    redo,
+    save,
+    undo,
+    waitForLogCommitRow,
+} from './e2e-helpers';
 
 /**
  * Finds the webview frame containing the Commit Details panel.
@@ -454,18 +463,14 @@ test.describe('Commit Details E2E', () => {
         // Configure 'initial' to be immutable using its exact commit ID
         repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes['initial'].commitId}")`);
 
-        // Wait for the file watcher to detect the change and refresh the graph.
-        await page.waitForTimeout(1000);
-
         // Refresh the webview by focusing it to pick up graph updates
         await focusJJLog(page);
 
-        const webview = await getLogWebview(page);
-
         // 1. Check Empty and Tag pill, Author, Committer
-        const emptyRow = webview.locator('.commit-row', { hasText: 'empty and tagged' });
-        await expect(emptyRow).toBeVisible({ timeout: 15000 });
+        // Use a robust retry loop to find the row, re-fetching the webview frame if it reloads.
+        const emptyRow = await waitForLogCommitRow(page, 'empty and tagged', repo);
         await emptyRow.click();
+
         const details1 = await getDetailsWebview(page);
 
         await expect(details1.getByText('Empty', { exact: true })).toBeVisible();
@@ -479,13 +484,12 @@ test.describe('Commit Details E2E', () => {
 
         // 3. Check Immutable pill
         // Click another commit then click back to force the panel to fetch the latest state
-        await webview.locator('.commit-row', { hasText: 'add feature' }).click();
-        await page.waitForTimeout(500);
+        const featureRow = await waitForLogCommitRow(page, 'add feature');
+        await featureRow.click();
+
         await focusJJLog(page);
 
-        const currentWebview = await getLogWebview(page);
-        const initialRow = currentWebview.locator('.commit-row', { hasText: 'initial setup' });
-
+        const initialRow = await waitForLogCommitRow(page, 'initial setup');
         // Click once to open the panel
         await initialRow.click();
 
