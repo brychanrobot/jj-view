@@ -29,7 +29,14 @@ export function createDiffUris(
     });
 
     let rightUri: vscode.Uri;
-    if (isCurrentWorkingCopy) {
+    const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
+    if (isDeleted) {
+        rightUri = vscode.Uri.from({
+            scheme: 'jj-view',
+            path: resourceUri.path,
+            query: `base=${revision}&side=right`,
+        });
+    } else if (isCurrentWorkingCopy) {
         rightUri = resourceUri;
     } else if (options.editable) {
         // Editable: use jj-edit scheme backed by FileSystemProvider
