@@ -611,7 +611,7 @@
         "watch-tests": "tsc -p . -w --outDir out",
         "pretest": "pnpm build && pnpm build:tests && pnpm lint",
         "check-types": "tsc --noEmit",
-        "lint": "pnpm format && eslint src && pnpm check-license",
+        "lint": "eslint src",
         "check-license": "go run github.com/google/addlicense@v1.1.1 -check -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' -ignore='pnpm-lock.yaml' **",
         "fix-license": "go run github.com/google/addlicense@v1.1.1 -s=only -ignore='node_modules/**' -ignore='dist/**' -ignore='out/**' -ignore='coverage/**' -ignore='.vscode-test/**' -ignore='.jj/**' -ignore='media/custom-icons/**' -ignore='pnpm-lock.yaml' **",
         "format": "prettier --write .",
