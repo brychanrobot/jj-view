@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.24.0
+
+### Features
+
+- **Workspaces**:
+    - Added **Workspace Management** support, allowing you to forget or delete workspaces directly from a new **context menu on workspace pills** in the Log View.
+    - Introduced the **Add Workspace** command to easily create new Jujutsu workspaces, accessible via the command palette or a new **button in the JJ Log view title**.
+    - New `jj-view.workspacesLocation` setting for customizing where new workspaces are created.
+- **SCM & Commit Details**:
+    - **Deleted Files**: Improved handling of deleted files in the SCM view and Commit Details, ensuring they can be opened for diffing and display the correct red 'diff-removed' icons.
+    - **Copied Files**: Added explicit support for copied files in Commit Details, showing the green 'diff-added' icon.
+
+### Fixes
+
+- **UI**:
+    - Ensured the **Log View** automatically refreshes when returning to focus, keeping Gerrit status and repo changes up-to-date.
+    - Added an automatic SCM refresh after a successful **Upload**.
+
+### Chores & Maintenance
+
+- **Testing**: Significant stabilization of **E2E tests** for Log and Commit Details views, with improved webview frame handling and diagnostic logging.
+- **Repository**: Added periodic stale check configuration to the repository.
+
 ## 1.23.0
 
 ### Features
