@@ -627,8 +627,10 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 function getFileIcon(status: string): string {
     switch (status) {
         case 'added':
+        case 'copied':
             return 'diff-added';
         case 'removed':
+        case 'deleted':
             return 'diff-removed';
         case 'modified':
             return 'diff-modified';
@@ -642,8 +644,10 @@ function getFileIcon(status: string): string {
 function getFileColor(status: string): string {
     switch (status) {
         case 'added':
+        case 'copied':
             return 'var(--vscode-gitDecoration-addedResourceForeground)';
         case 'removed':
+        case 'deleted':
             return 'var(--vscode-gitDecoration-deletedResourceForeground)';
         case 'modified':
             return 'var(--vscode-gitDecoration-modifiedResourceForeground)';
