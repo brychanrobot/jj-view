@@ -32,3 +32,6 @@ paginate = "never"
 
 [snapshot]
 auto-update-stale = true
+
+[templates]
+git_push_bookmark = "'up-' ++ change_id.shortest(3)"
