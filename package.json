@@ -215,7 +215,7 @@
             },
             {
                 "command": "jj-view.squash",
-                "title": "Squash into Parent",
+                "title": "Squash",
                 "category": "JJ View",
                 "icon": "$(arrow-down)"
             },
@@ -353,6 +353,66 @@
                 "title": "Delete Workspace Directory",
                 "category": "JJ View",
                 "icon": "$(trash)"
+            },
+            {
+                "command": "jj-view.hideCommitAction.newChild",
+                "title": "Hide 'New Child'",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.hideCommitAction.edit",
+                "title": "Hide 'Edit'",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.hideCommitAction.squash",
+                "title": "Hide 'Squash'",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.hideCommitAction.abandon",
+                "title": "Hide 'Abandon'",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.newChild.on",
+                "title": "● New Child",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.newChild.off",
+                "title": "○ New Child",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.edit.on",
+                "title": "● Edit",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.edit.off",
+                "title": "○ Edit",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.squash.on",
+                "title": "● Squash",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.squash.off",
+                "title": "○ Squash",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.abandon.on",
+                "title": "● Abandon",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.abandon.off",
+                "title": "○ Abandon",
+                "category": "JJ View"
             }
         ],
         "keybindings": [
@@ -472,6 +532,66 @@
                     "command": "jj-view.setBookmark",
                     "when": "webviewSection == 'commit'",
                     "group": "3_bookmark@1"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.newChild",
+                    "when": "webviewSection == 'commitAction' && actionId == 'newChild' && newChildVisible",
+                    "group": "9_visibility_1_hide"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.edit",
+                    "when": "webviewSection == 'commitAction' && actionId == 'edit' && editVisible",
+                    "group": "9_visibility_1_hide"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.squash",
+                    "when": "webviewSection == 'commitAction' && actionId == 'squash' && squashVisible",
+                    "group": "9_visibility_1_hide"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.abandon",
+                    "when": "webviewSection == 'commitAction' && actionId == 'abandon' && abandonVisible",
+                    "group": "9_visibility_1_hide"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.newChild.on",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && newChildVisible",
+                    "group": "9_visibility_2_toggle@1"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.newChild.off",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !newChildVisible",
+                    "group": "9_visibility_2_toggle@1"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.edit.on",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && editVisible",
+                    "group": "9_visibility_2_toggle@2"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.edit.off",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !editVisible",
+                    "group": "9_visibility_2_toggle@2"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.squash.on",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && squashVisible",
+                    "group": "9_visibility_2_toggle@3"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.squash.off",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !squashVisible",
+                    "group": "9_visibility_2_toggle@3"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.abandon.on",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && abandonVisible",
+                    "group": "9_visibility_2_toggle@4"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.abandon.off",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !abandonVisible",
+                    "group": "9_visibility_2_toggle@4"
                 }
             ],
             "scm/title": [
