@@ -23,28 +23,28 @@ function hasResourceStates(arg: unknown): arg is { resourceStates: unknown[] } {
     return Array.isArray(obj.resourceStates);
 }
 
-function hasRevision(arg: unknown): arg is { revision: string } {
-    if (typeof arg !== 'object' || arg === null || !('revision' in arg)) {
+function hasRevision(arg: unknown): arg is { revision: string } | { 'jj.revision': string } {
+    if (typeof arg !== 'object' || arg === null) {
         return false;
     }
-    const obj = arg as { revision: unknown };
-    return typeof obj.revision === 'string';
+    const obj = arg as Record<string, unknown>;
+    return typeof obj.revision === 'string' || typeof obj['jj.revision'] === 'string';
 }
 
-function hasCommitId(arg: unknown): arg is { commitId: string } {
-    if (typeof arg !== 'object' || arg === null || !('commitId' in arg)) {
+function hasCommitId(arg: unknown): arg is { commitId: string } | { 'jj.commitId': string } {
+    if (typeof arg !== 'object' || arg === null) {
         return false;
     }
-    const obj = arg as { commitId: unknown };
-    return typeof obj.commitId === 'string';
+    const obj = arg as Record<string, unknown>;
+    return typeof obj.commitId === 'string' || typeof obj['jj.commitId'] === 'string';
 }
 
-function hasChangeId(arg: unknown): arg is { changeId: string } {
-    if (typeof arg !== 'object' || arg === null || !('changeId' in arg)) {
+function hasChangeId(arg: unknown): arg is { changeId: string } | { 'jj.changeId': string } {
+    if (typeof arg !== 'object' || arg === null) {
         return false;
     }
-    const obj = arg as { changeId: unknown };
-    return typeof obj.changeId === 'string';
+    const obj = arg as Record<string, unknown>;
+    return typeof obj.changeId === 'string' || typeof obj['jj.changeId'] === 'string';
 }
 
 /**
@@ -112,17 +112,20 @@ export function extractRevisions(args: unknown[]): string[] {
         }
 
         if (hasRevision(arg)) {
-            revisions.push(arg.revision);
+            const val = 'revision' in arg ? arg.revision : arg['jj.revision'];
+            revisions.push(val);
             continue;
         }
 
         if (hasChangeId(arg)) {
-            revisions.push(arg.changeId);
+            const val = 'changeId' in arg ? arg.changeId : arg['jj.changeId'];
+            revisions.push(val);
             continue;
         }
 
         if (hasCommitId(arg)) {
-            revisions.push(arg.commitId);
+            const val = 'commitId' in arg ? arg.commitId : arg['jj.commitId'];
+            revisions.push(val);
             continue;
         }
 

@@ -684,6 +684,13 @@ suite('JJ SCM Provider Integration Test', function () {
                 gerritService,
                 commitDetailsProvider,
                 () => {},
+                createMock<vscode.ExtensionContext>({
+                    globalState: createMock<vscode.ExtensionContext['globalState']>({
+                        get: () => [],
+                        update: () => Promise.resolve(),
+                        setKeysForSync: () => {},
+                    }),
+                }),
                 scmProvider.outputChannel,
             );
 

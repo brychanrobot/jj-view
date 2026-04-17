@@ -248,11 +248,10 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
 
             // File-Level Squash (file.txt)
-            // Hover over file.txt in Working Copy and click Squash into Parent
+            // Hover over file.txt in Working Copy and click Squash
             // file.txt and the group squash action share the same codicon-arrow-down icon
             const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
-            // Use role and more flexible title matching for reliability across VS Code versions
-            const squashFileIcon = wcFileRow.getByRole('button', { name: /Squash into (Parent|Ancestor)/ }).first();
+            const squashFileIcon = wcFileRow.getByRole('button', { name: 'Squash', exact: true }).first();
             await hoverAndClick(wcFileRow, squashFileIcon);
 
             // Assert via repo that file.txt changes were squashed into the parent commit
@@ -324,7 +323,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Hover to reveal inline actions
             await newWcFileRow.hover();
-            const squashIcon = newWcFileRow.getByRole('button', { name: 'Squash into Parent', exact: true }).first();
+            const squashIcon = newWcFileRow.getByRole('button', { name: 'Squash', exact: true }).first();
             await expect(squashIcon).toBeVisible();
 
             // The squashInto action should be visible since there are two mutable ancestors

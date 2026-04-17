@@ -14,17 +14,6 @@ patterns = [
     "glob:'**/*.css'",
 ]
 
-[fix.tools.addlicense]
-command = ["go", "run", "github.com/google/addlicense@v1.1.1", "-s=only", "$path"]
-patterns = [
-    "glob:'**/*.ts'",
-    "glob:'**/*.tsx'",
-    "glob:'**/*.js'",
-    "glob:'**/*.jsx'",
-    "glob:'**/*.css'",
-]
-
-
 [[--scope]]
 --when.environments = ["ANTIGRAVITY_AGENT"]
 [--scope.ui]

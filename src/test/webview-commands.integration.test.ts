@@ -72,7 +72,15 @@ suite('Webview Commands End-to-End Integration Test', function () {
                 getScoped: () => createMock<vscode.EnvironmentVariableCollection>({}),
             }),
             extensionMode: vscode.ExtensionMode.Test,
-            // Add other props if needed by JjScmProvider constructor
+            globalState: createMock<vscode.ExtensionContext['globalState']>({
+                get: () => [],
+                update: () => Promise.resolve(),
+                setKeysForSync: () => {},
+            }),
+            workspaceState: createMock<vscode.ExtensionContext['workspaceState']>({
+                get: () => undefined,
+                update: () => Promise.resolve(),
+            }),
         });
 
         scm = new JjScmProvider(mockContext, jj, repo.path, outputChannel);
@@ -95,6 +103,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
             gerritService,
             commitDetailsProvider,
             () => {},
+            mockContext,
             scm.outputChannel,
         );
 

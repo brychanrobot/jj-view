@@ -7,13 +7,14 @@ import { GerritService } from './gerrit-service';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import { JjService } from './jj-service';
-import { JjLogEntry } from './jj-types';
+import { JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, ToggleableCommitAction } from './jj-types';
 import { formatCommitTitle } from './utils/jj-utils';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
     private _view?: vscode.WebviewView;
     private _cachedCommits: JjLogEntry[] = [];
+    private readonly _hiddenActionsKey = 'jj-view.hiddenCommitActions';
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -21,6 +22,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         private readonly _gerrit: GerritService,
         private readonly _commitDetailsProvider: JjCommitDetailsEditorProvider,
         private readonly _onSelectionChange: (commits: string[]) => void,
+        private readonly _context: vscode.ExtensionContext,
         public readonly outputChannel?: vscode.OutputChannel, // Optional
     ) {
         // Gerrit updates only need to re-render, not re-fetch jj log
@@ -38,6 +40,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 payload: { changeId },
             });
         });
+
+        this._updateContextKeys();
     }
 
     public get jj(): JjService {
@@ -66,12 +70,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 const config = vscode.workspace.getConfiguration('jj-view');
                 const currentTheme = config.get<string>('logTheme', 'default');
                 const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
+                const hiddenActions = this._getHiddenActions();
                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
                     view: 'graph',
                     payload: {
                         commits: this._cachedCommits,
                         theme: currentTheme,
                         graphLabelAlignment,
+                        hiddenActions,
                     },
                 });
             }
@@ -80,12 +86,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const config = vscode.workspace.getConfiguration('jj-view');
         const initialTheme = config.get<string>('logTheme', 'default');
         const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
+        const hiddenActions = this._getHiddenActions();
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
             view: 'graph',
             payload: {
                 commits: this._cachedCommits,
                 theme: initialTheme,
                 graphLabelAlignment,
+                hiddenActions,
             },
         });
 
@@ -301,7 +309,40 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             minChangeIdLength,
             theme: logTheme,
             graphLabelAlignment,
+            hiddenActions: this._getHiddenActions(),
         });
+    }
+
+    private _getHiddenActions(): string[] {
+        return this._context.globalState.get<string[]>(this._hiddenActionsKey, []);
+    }
+
+    public async toggleActionVisibility(actionId: ToggleableCommitAction) {
+        const hidden = new Set(this._getHiddenActions());
+        if (hidden.has(actionId)) {
+            hidden.delete(actionId);
+        } else {
+            hidden.add(actionId);
+        }
+        const newHidden = Array.from(hidden);
+        await this._context.globalState.update(this._hiddenActionsKey, newHidden);
+
+        this._updateContextKeys();
+
+        this._view?.webview.postMessage({
+            type: 'updateHiddenActions',
+            payload: { hiddenActions: newHidden },
+        });
+    }
+
+    private _updateContextKeys() {
+        const hiddenActions = this._getHiddenActions();
+        const hidden = new Set(hiddenActions);
+        for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {
+            const key = `jj.commitActionVisible.${actionId}`;
+            const value = !hidden.has(actionId);
+            vscode.commands.executeCommand('setContext', key, value);
+        }
     }
 
     public async createCommitDetailsPanel(

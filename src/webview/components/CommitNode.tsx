@@ -5,47 +5,48 @@
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import React from 'react';
 // Needs to be available in types or duplicated.
-import { GerritClInfo } from '../../jj-types';
+import { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
+import { computeCommitActions } from '../utils/commit-utils';
 import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
 import { IconButton } from './IconButton';
 
 // Exported for DragOverlay in App.tsx
 export { BookmarkPill } from './Bookmark';
 
-// Shared payload for all actions
-export interface ActionPayload {
-    changeId: string;
-    isImmutable?: boolean;
-    url?: string;
-    multiSelect?: boolean;
-    [key: string]: unknown;
-}
-
 interface CommitNodeProps {
-    commit: any;
+    commit: JjLogEntry;
     onClick: (modifiers: { multiSelect: boolean }) => void;
     onAction: (action: string, payload: ActionPayload) => void;
     isSelected?: boolean;
     selectionCount: number;
     hasImmutableSelection: boolean;
-    idDisplayLength?: number;
+    idDisplayLength: number;
+    hiddenActions?: Set<CommitAction>;
 }
 
 export const CommitNode: React.FC<CommitNodeProps> = ({
     commit,
     onClick,
     onAction,
-    isSelected,
+    isSelected = false,
     selectionCount,
     hasImmutableSelection,
-    idDisplayLength = 8, // Default fallback
+    idDisplayLength,
+    hiddenActions = new Set(),
 }) => {
+    const isImmutable = commit.is_immutable || false;
     const isCurrentWorkingCopy = commit.is_current_working_copy;
-    const isImmutable = commit.is_immutable;
     const isConflict = commit.conflict;
     const isEmpty = commit.is_empty;
-    const gerritCl = commit.gerritCl as GerritClInfo | undefined;
+    const gerritCl = commit.gerritCl;
+
+    // Memoized Visibility and Context Keys
+    const { visibleActions, vscodeContext } = React.useMemo(
+        () =>
+            computeCommitActions(commit, hiddenActions, isImmutable, isSelected, selectionCount, hasImmutableSelection),
+        [commit, hiddenActions, isImmutable, isSelected, selectionCount, hasImmutableSelection],
+    );
 
     const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
         id: `commit-${commit.change_id}`,
@@ -132,36 +133,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
             data-change-id={commit.change_id}
             data-selected={isSelected}
             data-hovered={isHovered}
-            data-vscode-context={JSON.stringify({
-                webviewSection: 'commit',
-                viewItem: isSelected ? 'jj-commit-selected' : 'jj-commit',
-                commitId: commit.commit_id,
-                changeId: commit.change_id,
-
-                // Abandon, New Before, and New After supported on multi-selection, but also on unselected items
-                canAbandon: !isImmutable && (!isSelected || !hasImmutableSelection),
-                canNewBefore: !isImmutable && (!isSelected || !hasImmutableSelection),
-                canNewAfter: !isSelected || !hasImmutableSelection,
-                canUpload: !isImmutable && (!isSelected || !hasImmutableSelection),
-
-                // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
-                canEdit: !isImmutable && (!isSelected || selectionCount <= 1),
-                canDuplicate: !isSelected || selectionCount <= 1,
-                canNewChild: !isSelected || selectionCount <= 1,
-
-                // Rebase source must be mutable, and we rebase ONTO the current selection
-                canRebaseOnto: !isImmutable && !isSelected && selectionCount > 0,
-
-                // Merge requires multiple items selected
-                canMerge: isSelected && selectionCount > 1,
-
-                // Absorb requires at least one mutable parent and single-item context
-                canAbsorb:
-                    commit.parents_immutable?.some((immutable: boolean) => !immutable) &&
-                    (!isSelected || selectionCount <= 1),
-
-                preventDefaultContextMenuItems: true,
-            })}
+            data-vscode-context={JSON.stringify(vscodeContext)}
             onClick={(e) => {
                 const multiSelect = e.ctrlKey || e.metaKey;
                 onClick({ multiSelect });
@@ -216,16 +188,17 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 >
                     {(() => {
                         const [idPart, offsetPart] = commit.change_id.split('/');
-                        const hasShortId = commit.change_id_shortest && idPart.startsWith(commit.change_id_shortest);
+                        const shortId = commit.change_id_shortest;
+                        const hasShortId = shortId && idPart.startsWith(shortId);
 
                         return (
                             <>
                                 {hasShortId ? (
                                     <>
-                                        <span style={{ fontWeight: 'bold' }}>{commit.change_id_shortest}</span>
-                                        {idPart.length > commit.change_id_shortest.length && (
+                                        <span style={{ fontWeight: 'bold' }}>{shortId}</span>
+                                        {idPart.length > shortId.length && (
                                             <span style={{ opacity: 0.6 }}>
-                                                {idPart.substring(commit.change_id_shortest.length, idDisplayLength)}
+                                                {idPart.substring(shortId.length, idDisplayLength)}
                                             </span>
                                         )}
                                     </>
@@ -243,6 +216,14 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 {/* Overlay Actions */}
                 {isHovered && !active && !(selectionCount > 1) && (
                     <div
+                        data-vscode-context={JSON.stringify({
+                            webviewSection: 'commitActions',
+                            'jj.newChildVisible': visibleActions.newChild,
+                            'jj.editVisible': visibleActions.edit,
+                            'jj.squashVisible': visibleActions.squash,
+                            'jj.abandonVisible': visibleActions.abandon,
+                            preventDefaultContextMenuItems: true,
+                        })}
                         style={{
                             position: 'absolute',
                             left: '0',
@@ -263,16 +244,23 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             paddingLeft: '0',
                         }}
                     >
-                        <IconButton
-                            title="New Child"
-                            icon="codicon-plus"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onAction('newChild', { changeId: commit.change_id });
-                            }}
-                        />
+                        {visibleActions.newChild && (
+                            <IconButton
+                                title="New Child"
+                                icon="codicon-plus"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('newChild', { changeId: commit.change_id });
+                                }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'newChild',
+                                    actionTitle: 'New Child',
+                                }}
+                            />
+                        )}
 
-                        {!isImmutable && (
+                        {visibleActions.edit && (
                             <IconButton
                                 title="Edit Commit"
                                 icon="codicon-edit"
@@ -280,30 +268,42 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     e.stopPropagation();
                                     onAction('edit', { changeId: commit.change_id });
                                 }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'edit',
+                                    actionTitle: 'Edit',
+                                }}
                             />
                         )}
 
-                        {commit.parents_immutable &&
-                            commit.parents_immutable.length === 1 &&
-                            !commit.parents_immutable[0] && (
-                                <IconButton
-                                    title="Squash into Parent"
-                                    icon="codicon-arrow-down"
-                                    onClick={(e) => {
-                                        console.log('[Webview] Squash clicked for:', commit.change_id);
-                                        e.stopPropagation();
-                                        onAction('squash', { changeId: commit.change_id });
-                                    }}
-                                />
-                            )}
-
-                        {!isImmutable && (
+                        {visibleActions.squash && (
                             <IconButton
-                                title="Abandon Commit"
+                                title="Squash"
+                                icon="codicon-arrow-down"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('squash', { changeId: commit.change_id });
+                                }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'squash',
+                                    actionTitle: 'Squash',
+                                }}
+                            />
+                        )}
+
+                        {visibleActions.abandon && (
+                            <IconButton
+                                title="Abandon"
                                 icon="codicon-trash"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onAction('abandon', { changeId: commit.change_id });
+                                }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'abandon',
+                                    actionTitle: 'Abandon',
                                 }}
                             />
                         )}

@@ -2,9 +2,20 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core';
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    MouseSensor,
+    TouchSensor,
+    pointerWithin,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core';
 import * as React from 'react';
-import { JjStatusEntry } from '../jj-types';
+import { ActionPayload, JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
+import { CommitAction } from '../jj-types';
 import { BookmarkPill } from './components/Bookmark';
 import { CommitDetails } from './components/CommitDetails';
 import { CommitDragPreview } from './components/CommitDragPreview';
@@ -15,19 +26,23 @@ import { calculateNextSelection, hasImmutableSelection } from './utils/selection
 // Define the vscode API from the global scope (see global.d.ts)
 const vscode = window.acquireVsCodeApi();
 
+type DragItem =
+    | { type: 'bookmark'; name: string; remote?: string }
+    | (JjLogEntry & { type: 'commit'; changeId: string });
+
 const App: React.FC = () => {
     // Initial State from Window (injected by provider)
     const initialData = window.vscodeInitialData;
     const initialView = initialData?.view || 'graph';
 
     const [view] = React.useState<'graph' | 'details'>(initialView);
-    const [commits, setCommits] = React.useState<any[]>((initialData?.payload as any)?.commits || []);
+    const [commits, setCommits] = React.useState<JjLogEntry[]>(initialData?.payload?.commits || []);
     const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>(
-        (initialData?.payload as any)?.minChangeIdLength || 1,
+        initialData?.payload?.minChangeIdLength || 1,
     );
     const [theme, setTheme] = React.useState<string>(initialData?.payload?.theme || 'default');
     const [graphLabelAlignment, setGraphLabelAlignment] = React.useState<string>(
-        (initialData?.payload as any)?.graphLabelAlignment || 'aligned',
+        initialData?.payload?.graphLabelAlignment || 'aligned',
     );
     // Use ref to access latest commits in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
@@ -36,15 +51,18 @@ const App: React.FC = () => {
     }, [commits]);
 
     const [loading, setLoading] = React.useState(
-        initialView === 'graph' && !((initialData?.payload as any)?.commits?.length > 0),
+        initialView === 'graph' && !(initialData?.payload?.commits && initialData.payload.commits.length > 0),
     ); // Only load graph if in graph mode and no initial commits
     const [selectedCommitIds, setSelectedCommitIds] = React.useState<Set<string>>(new Set());
+    const [hiddenActions, setHiddenActions] = React.useState<Set<CommitAction>>(
+        new Set(initialData?.payload?.hiddenActions || []),
+    );
 
     // Details State
-    const [detailsCommit, setDetailsCommit] = React.useState<any>(initialData?.payload || null);
+    const [detailsCommit, setDetailsCommit] = React.useState<WebviewPayload | null>(initialData?.payload || null);
 
     // Drag State
-    const [activeDragItem, setActiveDragItem] = React.useState<any | null>(null);
+    const [activeDragItem, setActiveDragItem] = React.useState<DragItem | null>(null);
     const [isCtrlPressed, setIsCtrlPressed] = React.useState(false);
 
     // Configure sensors with activation constraint to prevent accidental drags on click
@@ -108,6 +126,9 @@ const App: React.FC = () => {
                         if (message.graphLabelAlignment !== undefined) {
                             setGraphLabelAlignment(message.graphLabelAlignment);
                         }
+                        if (message.hiddenActions !== undefined) {
+                            setHiddenActions(new Set(message.hiddenActions));
+                        }
                         setLoading(false);
 
                         // Validate current selection against new commits list
@@ -115,7 +136,7 @@ const App: React.FC = () => {
                             if (prevIds.size === 0) return prevIds;
 
                             const validIds = Array.from(prevIds).filter((id) =>
-                                message.commits.some((c: any) => c.change_id === id),
+                                message.commits.some((c: JjLogEntry) => c.change_id === id),
                             );
 
                             if (validIds.length !== prevIds.size) {
@@ -143,7 +164,7 @@ const App: React.FC = () => {
                     break;
                 case 'saveComplete':
                     if (view === 'details') {
-                        setDetailsCommit((prev: any) =>
+                        setDetailsCommit((prev) =>
                             prev ? { ...prev, description: message.payload.description } : prev,
                         );
                     }
@@ -179,6 +200,9 @@ const App: React.FC = () => {
                         return prevIds;
                     });
                     break;
+                case 'updateHiddenActions':
+                    setHiddenActions(new Set(message.payload.hiddenActions));
+                    break;
             }
         };
 
@@ -192,12 +216,12 @@ const App: React.FC = () => {
         };
     }, [view]);
 
-    const handleGraphAction = (action: string, payload: any) => {
+    const handleGraphAction = (action: string, payload: ActionPayload) => {
         if (action === 'select') {
             const { changeId, multiSelect } = payload;
 
             // 1. Calculate new selection state
-            const nextSelectedIds = calculateNextSelection(selectedCommitIds, changeId, multiSelect);
+            const nextSelectedIds = calculateNextSelection(selectedCommitIds, changeId, !!multiSelect);
 
             // 2. Update visual selection state
             setSelectedCommitIds(nextSelectedIds);
@@ -263,24 +287,24 @@ const App: React.FC = () => {
         }
     };
 
-    const handleDragStart = (event: any) => {
-        setActiveDragItem(event.active.data.current);
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveDragItem(event.active.data.current as DragItem);
     };
 
-    const handleDragEnd = (event: any) => {
+    const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         setActiveDragItem(null);
 
-        if (!over || active.id === over.id) {
+        if (!over || active.id === over.id || !active.data.current || !over.data.current) {
             return;
         }
 
-        const activeType = active.data.current?.type;
+        const activeType = (active.data.current as DragItem).type;
 
         if (activeType === 'bookmark') {
             // bookmark-NAME -> NAME
-            const bookmarkName = active.data.current.name;
-            const bookmarkRemote = active.data.current.remote;
+            const bookmarkName = (active.data.current as DragItem & { type: 'bookmark' }).name;
+            const bookmarkRemote = (active.data.current as DragItem & { type: 'bookmark' }).remote;
             // commit-ID -> ID
             const targetChangeId = over.data.current.changeId;
 
@@ -288,7 +312,7 @@ const App: React.FC = () => {
             setCommits((prevCommits) => {
                 // Check if move is actually needed (and find source)
                 const sourceCommit = prevCommits.find((c) =>
-                    c.bookmarks?.some((b: any) => b.name === bookmarkName && b.remote === bookmarkRemote),
+                    c.bookmarks?.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote),
                 );
 
                 if (!sourceCommit || sourceCommit.change_id === targetChangeId) {
@@ -299,9 +323,9 @@ const App: React.FC = () => {
                     let newBookmarks = commit.bookmarks || [];
 
                     // Remove from source
-                    if (newBookmarks.some((b: any) => b.name === bookmarkName && b.remote === bookmarkRemote)) {
+                    if (newBookmarks.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote)) {
                         newBookmarks = newBookmarks.filter(
-                            (b: any) => !(b.name === bookmarkName && b.remote === bookmarkRemote),
+                            (b) => !(b.name === bookmarkName && b.remote === bookmarkRemote),
                         );
                     }
 
@@ -325,7 +349,7 @@ const App: React.FC = () => {
                 payload: { bookmark: bookmarkName, targetChangeId },
             });
         } else if (activeType === 'commit') {
-            const sourceChangeId = active.data.current.changeId;
+            const sourceChangeId = (active.data.current as DragItem & { type: 'commit' }).changeId;
             const targetChangeId = over.data.current.changeId;
 
             // Detect modifier keys from the activator event or our state
@@ -343,11 +367,11 @@ const App: React.FC = () => {
     if (view === 'details' && detailsCommit) {
         return (
             <CommitDetails
-                changeId={detailsCommit.changeId}
-                commitId={detailsCommit.commitId}
-                description={detailsCommit.description}
-                files={detailsCommit.files}
-                isImmutable={detailsCommit.isImmutable}
+                changeId={detailsCommit.changeId || ''}
+                commitId={detailsCommit.commitId || ''}
+                description={detailsCommit.description || ''}
+                files={detailsCommit.files || []}
+                isImmutable={detailsCommit.isImmutable || false}
                 isEmpty={detailsCommit.isEmpty}
                 isConflict={detailsCommit.isConflict}
                 author={detailsCommit.author}
@@ -408,6 +432,7 @@ const App: React.FC = () => {
                         minChangeIdLength={minChangeIdLength}
                         graphLabelAlignment={graphLabelAlignment}
                         theme={theme}
+                        hiddenActions={hiddenActions}
                     />
                 </div>
                 {/*

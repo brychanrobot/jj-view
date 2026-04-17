@@ -205,7 +205,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
 
             // 3. Squash the child into branch
-            await clickLogAction(page, { changeId: childId }, 'Squash into Parent');
+            await clickLogAction(page, { changeId: childId }, 'Squash');
 
             // After squash: child is gone. branch has its changes.
             await expectTree(repo, [
@@ -216,7 +216,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
 
             // 4. Abandon the branch commit
-            await clickLogAction(page, { changeId: branchId }, 'Abandon Commit');
+            await clickLogAction(page, { changeId: branchId }, 'Abandon');
 
             // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
             // Tree: [wc, initial(@)]

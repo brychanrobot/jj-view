@@ -141,7 +141,7 @@ test.describe('Divergent Commits E2E', () => {
         const rowToAbandon = webview2.locator('.commit-row', { hasText: 'commit A v1' });
 
         await expect(rowToAbandon).toBeVisible();
-        await hoverAndClick(rowToAbandon, webview2.locator('.icon-button[title="Abandon Commit"]'));
+        await hoverAndClick(rowToAbandon, webview2.locator('.icon-button[title="Abandon"]'));
 
         // 5. Verify divergence is resolved
         await expect(async () => {

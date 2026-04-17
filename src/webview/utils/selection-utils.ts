@@ -10,7 +10,7 @@
 // Basic interface for what we need from a commit
 export interface SelectableCommit {
     change_id: string;
-    is_immutable: boolean;
+    is_immutable?: boolean;
 }
 
 /**

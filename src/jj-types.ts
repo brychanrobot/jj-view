@@ -62,3 +62,46 @@ export interface JjStatusEntry {
     deletions?: number;
     conflicted?: boolean;
 }
+
+export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openGerrit' | 'upload';
+
+export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
+export type ToggleableCommitAction = (typeof TOGGLEABLE_COMMIT_ACTIONS)[number];
+
+export interface ActionPayload {
+    changeId: string;
+    isImmutable?: boolean;
+    url?: string;
+    multiSelect?: boolean;
+    changeIdShortest?: string;
+    isDivergent?: boolean;
+    changeIdOffset?: number;
+}
+
+/** Payload for the initial webview load */
+export interface WebviewPayload {
+    commits?: JjLogEntry[];
+    minChangeIdLength?: number;
+    theme?: string;
+    graphLabelAlignment?: string;
+    hiddenActions?: CommitAction[];
+    // Details fields
+    changeId?: string;
+    commitId?: string;
+    description?: string;
+    files?: JjStatusEntry[];
+    isImmutable?: boolean;
+    isEmpty?: boolean;
+    isConflict?: boolean;
+    author?: { name: string; email: string; timestamp: string };
+    committer?: { name: string; email: string; timestamp: string };
+    bookmarks?: JjBookmark[];
+    tags?: string[];
+    titleWidthRuler?: number;
+    bodyWidthRuler?: number;
+}
+
+export interface WebviewInitialData {
+    view: 'graph' | 'details';
+    payload?: WebviewPayload;
+}

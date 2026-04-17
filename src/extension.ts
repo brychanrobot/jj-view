@@ -42,6 +42,7 @@ import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
 import { JjScmProvider } from './jj-scm-provider';
 import { JjService } from './jj-service';
+import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { resolveJjBinary } from './utils/binary-utils';
 
@@ -299,6 +300,7 @@ export function activate(context: vscode.ExtensionContext) {
         (ids) => {
             scmProvider.handleSelectionChange(ids);
         },
+        context,
         outputChannel,
     );
     context.subscriptions.push(
@@ -352,6 +354,20 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(undoCmd);
     context.subscriptions.push(redoCmd);
     context.subscriptions.push(rebaseOntoSelectedCmd);
+
+    for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {
+        context.subscriptions.push(
+            vscode.commands.registerCommand(`jj-view.hideCommitAction.${actionId}`, () =>
+                logWebviewProvider.toggleActionVisibility(actionId),
+            ),
+            vscode.commands.registerCommand(`jj-view.toggleCommitAction.${actionId}.on`, () =>
+                logWebviewProvider.toggleActionVisibility(actionId),
+            ),
+            vscode.commands.registerCommand(`jj-view.toggleCommitAction.${actionId}.off`, () =>
+                logWebviewProvider.toggleActionVisibility(actionId),
+            ),
+        );
+    }
 
     context.subscriptions.push(disposable);
     context.subscriptions.push(newCmd);

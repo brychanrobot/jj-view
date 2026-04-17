@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import { JjLogEntry } from '../../jj-types';
+import { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
 import { computeGraphLayout } from '../graph-compute';
 import {
     LANE_WIDTH,
@@ -14,7 +14,7 @@ import {
     COMMIT_ROW_PADDING_LEFT,
 } from '../layout-constants';
 import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
-import { ActionPayload, CommitNode } from './CommitNode';
+import { CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
 
 interface CommitGraphProps {
@@ -24,6 +24,7 @@ interface CommitGraphProps {
     minChangeIdLength: number;
     graphLabelAlignment?: string;
     theme?: string;
+    hiddenActions?: Set<CommitAction>;
 }
 
 export const CommitGraph: React.FC<CommitGraphProps> = ({
@@ -33,6 +34,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     minChangeIdLength,
     graphLabelAlignment = 'aligned',
     theme = 'default',
+    hiddenActions,
 }) => {
     // Total graph width calculation
     // Dynamic sizing based on font
@@ -183,6 +185,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                                 selectionCount={selectedCommitIds?.size || 0}
                                 hasImmutableSelection={hasImmutableSelection}
                                 idDisplayLength={maxShortestIdLength}
+                                hiddenActions={hiddenActions}
                             />
                         </div>
                     );
