@@ -347,8 +347,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     : 'inherit',
                             fontStyle: fontStyle,
                             marginRight: '8px',
-                            flex: 1,
-                            minWidth: 0, // Critical for text-overflow in flex children
+                            flex: '1 1 40px',
+                            minWidth: 0,
                         }}
                     >
                         {commit.is_divergent && (
@@ -361,7 +361,14 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
                     {/* Right-aligned Bookmarks */}
                     <span
-                        style={{ display: 'flex', marginLeft: 'auto', flexShrink: 0, gap: '4px', alignItems: 'center' }}
+                        style={{
+                            display: 'flex',
+                            marginLeft: 'auto',
+                            flex: '0 100 auto', // High shrink priority: metadata shrinks before description
+                            gap: '4px',
+                            alignItems: 'center',
+                            overflow: 'hidden',
+                        }}
                     >
                         {commit.bookmarks &&
                             commit.bookmarks.map((bookmark: any) => (

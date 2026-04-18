@@ -16,18 +16,20 @@ export const BasePill: React.FC<{
         title={title}
         className={`bookmark-pill ${className || ''}`}
         style={{
-            marginRight: '6px',
-            borderRadius: '10px',
-            padding: '0 8px',
+            borderRadius: '11px',
+            padding: '0 5px',
             fontSize: 'inherit',
             height: '22px',
             display: 'inline-flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
+            justifyContent: 'flex-start',
+            flexShrink: 1,
             verticalAlign: 'middle',
             boxSizing: 'border-box',
             border: '1px solid transparent',
+            minWidth: '22px',
+            overflow: 'hidden',
+            gap: '4px',
             ...style,
         }}
     >
@@ -45,6 +47,7 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
 
     return (
         <BasePill
+            title={displayName}
             style={{
                 backgroundColor,
                 color: accentColor,
@@ -52,11 +55,16 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
                 ...style,
             }}
         >
+            <span className="codicon codicon-bookmark" style={{ fontSize: '11px', flexShrink: 0 }} />
             <span
-                className="codicon codicon-bookmark"
-                style={{ marginRight: '4px', fontSize: '11px', flexShrink: 0 }}
-            />
-            {displayName}
+                style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                }}
+            >
+                {displayName}
+            </span>
         </BasePill>
     );
 };
@@ -68,6 +76,7 @@ export const TagPill: React.FC<{ tag: string; style?: React.CSSProperties }> = (
 
     return (
         <BasePill
+            title={tag}
             style={{
                 backgroundColor,
                 color: accentColor,
@@ -75,8 +84,16 @@ export const TagPill: React.FC<{ tag: string; style?: React.CSSProperties }> = (
                 ...style,
             }}
         >
-            <span className="codicon codicon-tag" style={{ marginRight: '4px', fontSize: '11px', flexShrink: 0 }} />
-            {tag}
+            <span className="codicon codicon-tag" style={{ fontSize: '11px', flexShrink: 0 }} />
+            <span
+                style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                }}
+            >
+                {tag}
+            </span>
         </BasePill>
     );
 };
@@ -93,9 +110,10 @@ export const WorkspacePill: React.FC<{ workspace: string; style?: React.CSSPrope
                 workspaceName: workspace,
                 preventDefaultContextMenuItems: true,
             })}
-            style={{ display: 'inline-flex', alignItems: 'center' }}
+            style={{ display: 'inline-flex', alignItems: 'center', minWidth: '22px', flexShrink: 1 }}
         >
             <BasePill
+                title={`${workspace}@`}
                 style={{
                     backgroundColor,
                     color: accentColor,
@@ -103,7 +121,17 @@ export const WorkspacePill: React.FC<{ workspace: string; style?: React.CSSPrope
                     ...style,
                 }}
             >
-                {workspace}@
+                <span
+                    style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        direction: 'rtl',
+                        textAlign: 'left',
+                    }}
+                >
+                    <span style={{ direction: 'ltr', unicodeBidi: 'isolate' }}>{workspace}@</span>
+                </span>
             </BasePill>
         </span>
     );
@@ -126,6 +154,8 @@ export const DraggableBookmark: React.FC<{ bookmark: JjBookmark }> = ({ bookmark
         filter: isDragging ? 'grayscale(100%)' : 'none',
         display: 'inline-flex',
         alignItems: 'center',
+        minWidth: '22px',
+        flexShrink: 1,
     };
 
     return (
