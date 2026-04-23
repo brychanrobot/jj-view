@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjResourceState } from '../jj-scm-provider';
+import type { JjResourceState } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
@@ -104,7 +104,9 @@ export function extractRevisions(args: unknown[]): string[] {
     const revisions: string[] = [];
 
     for (const arg of args) {
-        if (!arg) continue;
+        if (!arg) {
+            continue;
+        }
 
         if (typeof arg === 'string' && arg.trim().length > 0) {
             revisions.push(arg);
@@ -175,7 +177,7 @@ export function getErrorMessage(error: unknown): string {
 export async function withDelayedProgress<T>(title: string, promise: Promise<T>): Promise<T> {
     const DELAY_MS = 100;
 
-    let notificationResolver: (value?: unknown) => void;
+    let notificationResolver: ((value?: unknown) => void) | undefined;
     // Promise that resolves when the notification is dismissed (by the task finishing)
     const notificationComplete = new Promise((resolve) => {
         notificationResolver = resolve;
@@ -200,7 +202,7 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
     } finally {
         clearTimeout(timer);
         // Signal the progress window to close if it was opened
-        if (notificationResolver!) {
+        if (notificationResolver) {
             notificationResolver();
         }
     }
@@ -235,7 +237,7 @@ export async function showJjError(
             if (!extraActions.includes(DELETE_LOCK)) {
                 extraActions = [DELETE_LOCK, ...extraActions];
             }
-        } catch (e) {
+        } catch (_) {
             // Ignore if we can't figure out the repo root
         }
     }

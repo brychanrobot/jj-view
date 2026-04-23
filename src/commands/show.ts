@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjService } from '../jj-service';
+import type { JjService } from '../jj-service';
 import { showJjError } from './command-utils';
 
 export async function showCurrentChangeCommand(jj: JjService, outputChannel: vscode.OutputChannel) {

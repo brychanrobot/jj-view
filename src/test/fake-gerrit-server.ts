@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { GerritChange } from '../gerrit-service';
+import type { GerritChange } from '../gerrit-service';
 
 export class FakeGerritServer {
     private changes = new Map<string, GerritChange>();

@@ -2,12 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
 import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 
 suite('Absorb Integration Test', function () {
     this.timeout(60000);
@@ -63,9 +63,9 @@ suite('Absorb Integration Test', function () {
             { label: 'C', parents: ['B'], description: 'C', isCurrentWorkingCopy: true },
         ]);
 
-        await absorbCommand(scmProvider, jj, [{ commitId: ids['B'].changeId }]);
+        await absorbCommand(scmProvider, jj, [{ commitId: ids.B.changeId }]);
 
-        const contentA = repo.getFileContent(ids['A'].changeId, 'file.txt');
+        const contentA = repo.getFileContent(ids.A.changeId, 'file.txt');
         assert.equal(contentA, 'base\nlineA modified\n');
     });
 });

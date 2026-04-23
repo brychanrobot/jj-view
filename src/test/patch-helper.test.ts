@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { PatchHelper, SelectionRange } from '../patch-helper';
+import type { SelectionRange } from '../patch-helper';
+import * as PatchHelper from '../patch-helper';
 
 // Helper to create range
 const range = (start: number, end: number): SelectionRange => ({ startLine: start, endLine: end });

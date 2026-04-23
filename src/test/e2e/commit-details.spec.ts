@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Page, expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import { ElectronApplication, type Frame } from 'playwright';
-import { type CommitId, TestRepo, buildGraph } from '../test-repo';
+
+import * as fs from 'node:fs';
+import { expect, type Page, test } from '@playwright/test';
+import type { ElectronApplication, Frame } from 'playwright';
+import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     expectSettingsOpen,
     focusJJLog,
@@ -31,8 +32,10 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
                 }
 
                 const nested = await findFrame(f.childFrames());
-                if (nested) return nested;
-            } catch (e) {}
+                if (nested) {
+                    return nested;
+                }
+            } catch (_e) {}
         }
         return undefined;
     };
@@ -51,9 +54,13 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
         )
         .toBeDefined();
 
+    if (!guestFrame) {
+        throw new Error('Could not find Commit Details webview frame');
+    }
+
     // Ensure the iframe is fully "ready" before returning
-    await expect(guestFrame!.locator('textarea')).toBeVisible({ timeout: 10000 });
-    return guestFrame!;
+    await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
+    return guestFrame;
 }
 
 test.describe('Commit Details E2E', () => {
@@ -111,12 +118,17 @@ test.describe('Commit Details E2E', () => {
     });
 
     test.afterEach(async () => {
-        if (app) await app.close();
-        if (userDataDir)
+        if (app) {
+            await app.close();
+        }
+        if (userDataDir) {
             try {
                 fs.rmSync(userDataDir, { recursive: true, force: true });
             } catch {}
-        if (repo) repo.dispose();
+        }
+        if (repo) {
+            repo.dispose();
+        }
     });
 
     test('Opens with correct ID, description, and file list', async () => {
@@ -127,7 +139,7 @@ test.describe('Commit Details E2E', () => {
         await initialRow.click();
 
         // Wait for the details panel tab to appear
-        const shortId = nodes['initial'].changeId.substring(0, 3);
+        const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -142,8 +154,8 @@ test.describe('Commit Details E2E', () => {
             .last();
         const changeIdSpan = changeIdDiv.locator('span[title]').first();
         const idText = await changeIdSpan.textContent();
-        expect(idText).toContain(nodes['initial'].changeId);
-        expect(nodes['initial'].changeId.length).toBe(32);
+        expect(idText).toContain(nodes.initial.changeId);
+        expect(nodes.initial.changeId.length).toBe(32);
 
         // Verify description is shown in the textarea (ignore trailing newlines)
         const textarea = details.locator('textarea');
@@ -165,7 +177,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -193,7 +205,7 @@ test.describe('Commit Details E2E', () => {
 
         // Verify the description was saved in the repo
         await expect(async () => {
-            const desc = repo.getDescription(nodes['feature'].changeId);
+            const desc = repo.getDescription(nodes.feature.changeId);
             expect(desc).toBe('updated feature description');
         }).toPass({ timeout: 10000 });
     });
@@ -205,7 +217,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -229,14 +241,14 @@ test.describe('Commit Details E2E', () => {
 
         // Verify the description was saved in the repo
         await expect(async () => {
-            const desc = repo.getDescription(nodes['feature'].changeId);
+            const desc = repo.getDescription(nodes.feature.changeId);
             expect(desc).toBe('saved via keyboard');
         }).toPass({ timeout: 10000 });
     });
 
     test('Dirty indicator works when starting from an empty message', async () => {
         // Create a new empty commit using the CLI directly
-        repo.new([nodes['initial'].changeId]);
+        repo.new([nodes.initial.changeId]);
         const newCommitId = repo.getChangeId('@');
 
         // Wait for the file watcher to detect the change and refresh the graph.
@@ -293,7 +305,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await initialRow.click();
 
-        const shortId = nodes['initial'].changeId.substring(0, 3);
+        const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -315,7 +327,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await initialRow.click();
 
-        const shortId = nodes['initial'].changeId.substring(0, 3);
+        const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -336,7 +348,7 @@ test.describe('Commit Details E2E', () => {
         // Open details for 'initial'
         const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
         await initialRow.click();
-        const shortId1 = nodes['initial'].changeId.substring(0, 3);
+        const shortId1 = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -351,7 +363,7 @@ test.describe('Commit Details E2E', () => {
         const webview2 = await getLogWebview(page);
         const featureRow = webview2.locator('.commit-row', { hasText: 'add feature' });
         await featureRow.click();
-        const shortId2 = nodes['feature'].changeId.substring(0, 3);
+        const shortId2 = nodes.feature.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -370,7 +382,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -382,7 +394,7 @@ test.describe('Commit Details E2E', () => {
         await expect(textarea).toHaveValue(/add feature/);
 
         // Change the description externally using jj CLI
-        repo.describe('externally updated description', nodes['feature'].changeId);
+        repo.describe('externally updated description', nodes.feature.changeId);
 
         // Verify the details panel updates automatically (eventually, as file watcher triggers refresh)
         // Wait up to 15s since file-watchers and graph rebuilds can take a moment
@@ -396,7 +408,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
 
         await expect(tabLocator).toBeVisible({
@@ -404,7 +416,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         // Abandon the commit externally
-        repo.abandon(nodes['feature'].changeId);
+        repo.abandon(nodes.feature.changeId);
 
         // Verify the details panel closes automatically
         await expect(tabLocator).toBeHidden({ timeout: 15000 });
@@ -461,7 +473,7 @@ test.describe('Commit Details E2E', () => {
 
     test('Displays pills and person info correctly', async () => {
         // Configure 'initial' to be immutable using its exact commit ID
-        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes['initial'].commitId}")`);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
 
         // Refresh the webview by focusing it to pick up graph updates
         await focusJJLog(page);
@@ -508,7 +520,7 @@ test.describe('Commit Details E2E', () => {
         // Click to open details
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
         await expect(tabLocator).toBeVisible({ timeout: 15000 });
 
@@ -535,7 +547,7 @@ test.describe('Commit Details E2E', () => {
 
         // Verify the description was saved in the repo
         await expect(async () => {
-            const desc = repo.getDescription(nodes['feature'].changeId);
+            const desc = repo.getDescription(nodes.feature.changeId);
             expect(desc).toBe('updated via test before close');
         }).toPass({ timeout: 10000 });
 
@@ -546,7 +558,7 @@ test.describe('Commit Details E2E', () => {
 
     test('Hides buttons and disables editor for immutable commits', async () => {
         // Configure 'initial' to be immutable
-        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes['initial'].commitId}")`);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
         await focusJJLog(page);
 
         const webview = await getLogWebview(page);
@@ -554,7 +566,7 @@ test.describe('Commit Details E2E', () => {
 
         // Click to open details
         await initialRow.click();
-        const shortId = nodes['initial'].changeId.substring(0, 3);
+        const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
             timeout: 15000,
         });
@@ -578,7 +590,7 @@ test.describe('Commit Details E2E', () => {
         const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
         await expect(tabLocator).toBeVisible({ timeout: 15000 });
 
@@ -621,7 +633,7 @@ test.describe('Commit Details E2E', () => {
         const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
         await featureRow.click();
 
-        const shortId = nodes['feature'].changeId.substring(0, 3);
+        const shortId = nodes.feature.changeId.substring(0, 3);
         const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
         await expect(tabLocator).toBeVisible({ timeout: 15000 });
 

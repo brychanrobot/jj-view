@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function undoCommand(scmProvider: JjScmProvider, jj: JjService) {

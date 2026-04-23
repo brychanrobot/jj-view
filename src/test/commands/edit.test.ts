@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { editCommand } from '../../commands/edit';
-import { JjResourceState, JjScmProvider } from '../../jj-scm-provider';
+import type { JjResourceState, JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -40,10 +40,10 @@ describe('editCommand', () => {
         ]);
 
         // Edit parent
-        await editCommand(scmProvider, jj, [ids['parent'].changeId]);
+        await editCommand(scmProvider, jj, [ids.parent.changeId]);
 
         const currentChangeId = repo.getChangeId('@');
-        expect(currentChangeId).toBe(ids['parent'].changeId);
+        expect(currentChangeId).toBe(ids.parent.changeId);
     });
 
     test('edits from parent resource group header', async () => {
@@ -52,7 +52,7 @@ describe('editCommand', () => {
             { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
-        const mockState = createMock<JjResourceState>({ revision: ids['parent'].changeId });
+        const mockState = createMock<JjResourceState>({ revision: ids.parent.changeId });
         const mockParentGroup = createMock<vscode.SourceControlResourceGroup>({
             id: 'ancestor-0',
             label: 'Parent: ...',
@@ -62,6 +62,6 @@ describe('editCommand', () => {
         await editCommand(scmProvider, jj, [mockParentGroup]);
 
         const currentChangeId = repo.getChangeId('@');
-        expect(currentChangeId).toBe(ids['parent'].changeId);
+        expect(currentChangeId).toBe(ids.parent.changeId);
     });
 });

@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as React from 'react';
+import type * as React from 'react';
+import type { JjLogEntry } from '../../jj-types';
 import { getChangeIdDisplayLength, shortenChangeId } from '../../utils/jj-utils';
 
 export const CommitDragPreview: React.FC<{
-    commit: any; // Simplified commit object or drag data
+    commit: JjLogEntry;
     isCtrlPressed: boolean;
     minChangeIdLength: number;
 }> = ({ commit, isCtrlPressed, minChangeIdLength }) => {
@@ -20,7 +21,7 @@ export const CommitDragPreview: React.FC<{
     const activeColor = isRevisionMode ? revisionColor : branchColor;
 
     // ID Formatting
-    const fullId = commit.commitId || '';
+    const fullId = commit.commit_id || '';
     const idDisplayLength = getChangeIdDisplayLength(commit.change_id_shortest, minChangeIdLength);
     const shortId = commit.change_id_shortest || shortenChangeId(fullId, idDisplayLength);
     const remainderId = fullId.substring(shortId.length, idDisplayLength);

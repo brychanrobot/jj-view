@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, test } from 'vitest';
-import { MenuAction, filterMenuActions } from '../../common/menu-filter';
+import { filterMenuActions, type MenuAction } from '../../common/menu-filter';
 
 describe('filterMenuActions', () => {
     const actions: MenuAction[] = [

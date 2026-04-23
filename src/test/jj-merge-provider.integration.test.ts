@@ -2,14 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjMergeContentProvider } from '../jj-merge-provider';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 
-suite('JJ Merge Provider Integration Test', function () {
+suite('JJ Merge Provider Integration Test', () => {
     let jj: JjService;
     let provider: JjMergeContentProvider;
     let registration: vscode.Disposable;

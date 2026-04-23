@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { commitPromptCommand } from '../../commands/commit-prompt';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';

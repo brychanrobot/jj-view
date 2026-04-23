@@ -2,15 +2,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
-suite('JjScmProvider provideOriginalResource Integration Test', function () {
+suite('JjScmProvider provideOriginalResource Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let repo: TestRepo;
@@ -61,7 +61,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', function () {
         repo.writeFile('.jjignore', 'ignored.txt\n');
         // Manually write file without repo.writeFile (which snapshots)
         const ignoredPath = path.join(repo.path, 'ignored.txt');
-        require('fs').writeFileSync(ignoredPath, 'ignored content');
+        require('node:fs').writeFileSync(ignoredPath, 'ignored content');
 
         await scmProvider.refresh({ forceSnapshot: true });
 

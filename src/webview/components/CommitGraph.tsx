@@ -3,22 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
+import type { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
 import { computeGraphLayout } from '../graph-compute';
 import {
-    LANE_WIDTH,
-    ROW_HEIGHT_NORMAL,
-    ROW_HEIGHT_EXPANDED,
-    ROW_HEIGHT_ELISION,
-    LEFT_MARGIN,
     COMMIT_ROW_PADDING_LEFT,
+    LANE_WIDTH,
+    LEFT_MARGIN,
+    ROW_HEIGHT_ELISION,
+    ROW_HEIGHT_EXPANDED,
+    ROW_HEIGHT_NORMAL,
 } from '../layout-constants';
 import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
 import { CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
 
 interface CommitGraphProps {
-    commits: any[];
+    commits: JjLogEntry[];
     onAction: (action: string, payload: ActionPayload) => void;
     selectedCommitIds?: Set<string>;
     minChangeIdLength: number;
@@ -39,7 +39,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     // Total graph width calculation
     // Dynamic sizing based on font
     // Fallback to 13px if not available
-    const fontSize = typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize) || 13 : 13;
+    const fontSize =
+        typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize, 10) || 13 : 13;
     const GAP = computeGap(fontSize);
 
     const layout = React.useMemo(() => computeGraphLayout(commits, theme), [commits, theme]);
@@ -56,7 +57,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             map.set(y, padding);
         });
         return map;
-    }, [layout, graphLabelAlignment, GAP, LANE_WIDTH, LEFT_MARGIN]);
+    }, [layout, graphLabelAlignment, GAP]);
 
     // Calculate Row Offsets
     // This allows us to have variable height rows while keeping the graph aligned.
@@ -108,6 +109,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         return (
             <div
                 key={`elision-${i}`}
+                role="presentation"
                 style={{
                     height: ROW_HEIGHT_ELISION,
                     paddingLeft,
@@ -146,7 +148,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             />
 
             {/* Commit List (Text) */}
-            <div style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ position: 'relative', zIndex: 1 }} role="listbox" aria-label="Commit List">
                 {displayRows.map((row, i) => {
                     const isLastRow = i === displayRows.length - 1;
                     if (row && 'type' in row && row.type === 'elision') {
@@ -160,6 +162,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                     return (
                         <div
                             key={commit.commit_id}
+                            role="presentation"
                             style={{
                                 height: height,
                                 paddingLeft: paddingLeft,

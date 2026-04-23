@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import { JjStatusEntry } from '../../jj-types';
+import type { JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
 import { BasePill, BookmarkPill, TagPill } from './Bookmark';
@@ -87,14 +87,18 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         }
         setIsSaving(false);
         prevDescriptionRef.current = description;
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
     }, [description]);
 
     React.useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             if (event.data.type === 'saveFailed') {
                 setIsSaving(false);
-                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                }
             } else if (event.data.type === 'updateDescription') {
                 const { description: newDesc, selectionStart, selectionEnd } = event.data.payload;
                 isApplyingExtensionEdit.current = true;
@@ -122,7 +126,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         onSave(finalDescription);
 
         // Fallback to clear the saving state after 15s in case of silent failure
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
         saveTimeoutRef.current = setTimeout(() => setIsSaving(false), 15000);
     };
 
@@ -267,6 +273,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             {formatDisplayChangeId(changeId, changeId, minChangeIdLength)}
                         </span>
                         <button
+                            type="button"
                             onClick={() => navigator.clipboard.writeText(changeId)}
                             title="Copy Change ID"
                             style={{
@@ -291,6 +298,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             {commitId.substring(0, 12)}
                         </span>
                         <button
+                            type="button"
                             onClick={() => navigator.clipboard.writeText(commitId)}
                             title="Copy Commit ID"
                             style={{
@@ -316,7 +324,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <label style={{ fontWeight: 'bold' }}>Message</label>
+                        <label htmlFor="commit-message" style={{ fontWeight: 'bold' }}>
+                            Message
+                        </label>
                         <a
                             href="command:workbench.action.openSettings?%5B%22jj-view.commit%22%5D"
                             title="Configure width rulers"
@@ -336,6 +346,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         {!isImmutable && (
                             <>
                                 <button
+                                    type="button"
                                     onClick={handleFormat}
                                     title={`Format body to ${bodyWidthRuler} characters`}
                                     style={{
@@ -354,6 +365,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                     Format Body
                                 </button>
                                 <button
+                                    type="button"
                                     title={`Save Changes (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? '⌘S' : 'Ctrl+S'})`}
                                     onClick={handleSave}
                                     disabled={isSaving || !isDirty}
@@ -434,6 +446,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         </div>
                     </div>
                     <textarea
+                        id="commit-message"
                         className="commit-textarea"
                         ref={textareaRef}
                         defaultValue={draftDescription}
@@ -508,7 +521,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, maxHeight: '40%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ fontWeight: 'bold' }}>Changed Files ({files.length})</label>
+                        <h3 style={{ fontWeight: 'bold', margin: 0, fontSize: 'inherit' }}>
+                            Changed Files ({files.length})
+                        </h3>
                         <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>
                             <span style={{ color: 'var(--vscode-gitDecoration-addedResourceForeground)' }}>
                                 +{files.reduce((acc, f) => acc + (f.additions || 0), 0)}
@@ -520,6 +535,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                         </span>
                     </div>
                     <button
+                        type="button"
                         onClick={onOpenMultiDiff}
                         style={{
                             padding: '2px 8px',
@@ -556,10 +572,17 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             No changed files.
                         </div>
                     ) : (
-                        files.map((file, idx) => (
-                            <div
-                                key={idx}
+                        files.map((file, _idx) => (
+                            <button
+                                key={file.path}
+                                type="button"
                                 onClick={() => onOpenDiff(file as unknown as JjStatusEntry, isImmutable)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        onOpenDiff(file as unknown as JjStatusEntry, isImmutable);
+                                    }
+                                }}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -567,6 +590,11 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                     fontSize: '13px',
                                     cursor: 'pointer',
                                     borderBottom: '1px solid var(--vscode-tree-tableOddRowsBackground)',
+                                    width: '100%',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'inherit',
+                                    textAlign: 'left',
                                 }}
                                 onMouseEnter={(e) =>
                                     (e.currentTarget.style.backgroundColor = 'var(--vscode-list-hoverBackground)')
@@ -614,7 +642,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                     )}
                                     <span style={{ minWidth: '60px', textAlign: 'right' }}>{file.status}</span>
                                 </span>
-                            </div>
+                            </button>
                         ))
                     )}
                 </div>

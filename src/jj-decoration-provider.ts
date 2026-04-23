@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjService } from './jj-service';
-import { JjStatusEntry } from './jj-types';
+import type { JjService } from './jj-service';
+import type { JjStatusEntry } from './jj-types';
 
 export class JjDecorationProvider implements vscode.FileDecorationProvider {
     private readonly _onDidChangeFileDecorations: vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined> =
@@ -189,11 +189,21 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         }
 
         const pathsToCheck = Array.from(this.pendingChecks.keys());
-        const callbacksStr = pathsToCheck.map((p) => ({
-            path: p,
-            uri: this.pendingChecks.get(p)!,
-            resolve: this.resolveCallbacks.get(p),
-        }));
+        const callbacksStr: {
+            path: string;
+            uri: vscode.Uri;
+            resolve?: (decoration: vscode.FileDecoration | undefined) => void;
+        }[] = [];
+        for (const p of pathsToCheck) {
+            const uri = this.pendingChecks.get(p);
+            if (uri) {
+                callbacksStr.push({
+                    path: p,
+                    uri,
+                    resolve: this.resolveCallbacks.get(p),
+                });
+            }
+        }
 
         this.pendingChecks.clear();
         this.resolveCallbacks.clear();
@@ -223,7 +233,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                 // jj file list <dir> outputs the tracked files inside the directory,
                 // e.g., 'dir/file1.txt', 'dir/file2.txt'
                 if (!isTracked) {
-                    const prefix = normalizedItemPath + '/';
+                    const prefix = `${normalizedItemPath}/`;
                     for (const trackedFile of trackedSet) {
                         if (trackedFile.startsWith(prefix)) {
                             isTracked = true;
@@ -289,7 +299,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                 let isTracked = trackedSet.has(normalizedItemPath);
 
                 if (!isTracked) {
-                    const prefix = normalizedItemPath + '/';
+                    const prefix = `${normalizedItemPath}/`;
                     for (const trackedFile of trackedSet) {
                         if (trackedFile.startsWith(prefix)) {
                             isTracked = true;

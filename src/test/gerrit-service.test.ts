@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // Vitest
 import * as vscode from 'vscode';
@@ -24,8 +24,8 @@ vi.mock('vscode', () => ({
     },
     Disposable: { from: vi.fn() },
     EventEmitter: class {
-        private listeners: Function[] = [];
-        event = (listener: Function) => {
+        private listeners: ((data: unknown) => void)[] = [];
+        event = (listener: (data: unknown) => void) => {
             this.listeners.push(listener);
             return {
                 dispose: () => {
@@ -34,7 +34,9 @@ vi.mock('vscode', () => ({
             };
         };
         fire = (data: unknown) => {
-            this.listeners.forEach((l) => l(data));
+            this.listeners.forEach((l) => {
+                l(data);
+            });
         };
         dispose = vi.fn();
     },
@@ -84,7 +86,9 @@ describe('GerritService Detection', () => {
 
     test('Detects from extension setting (highest priority)', async () => {
         mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'gerrit.host') return 'https://setting-host.com';
+            if (key === 'gerrit.host') {
+                return 'https://setting-host.com';
+            }
             return undefined;
         });
 
@@ -500,7 +504,7 @@ describe('GerritService Detection', () => {
 
         // Match files exactly but change description
         repo.writeFile('file1.txt', 'content1');
-        await jjService.describe('Local Description\n\nChange-Id: ' + changeId);
+        await jjService.describe(`Local Description\n\nChange-Id: ${changeId}`);
         const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
 
         fakeGerritServer.addChange({
@@ -510,7 +514,7 @@ describe('GerritService Detection', () => {
             current_revision: currentRev,
             revisions: {
                 [currentRev]: {
-                    commit: { message: 'Remote Description\n\nChange-Id: ' + changeId },
+                    commit: { message: `Remote Description\n\nChange-Id: ${changeId}` },
                     files: {
                         'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
                     },
@@ -550,7 +554,7 @@ describe('GerritService Detection', () => {
             current_revision: currentRev,
             revisions: {
                 [currentRev]: {
-                    commit: { message: baseDescription + '\n\n' }, // Extra newlines remotely
+                    commit: { message: `${baseDescription}\n\n` }, // Extra newlines remotely
                     files: {
                         'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
                     },
@@ -585,7 +589,7 @@ describe('GerritService Detection', () => {
             current_revision: currentRev,
             revisions: {
                 [currentRev]: {
-                    commit: { message: 'Local description has no Change-Id\n\nChange-Id: ' + gerritId }, // Gerrit has it
+                    commit: { message: `Local description has no Change-Id\n\nChange-Id: ${gerritId}` }, // Gerrit has it
                     files: {
                         'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
                     },

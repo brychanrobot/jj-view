@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { execFile } from 'child_process';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 const execFileAsync = promisify(execFile);

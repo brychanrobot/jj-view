@@ -2,12 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../../commands/discard-change';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -32,7 +32,7 @@ vi.mock('vscode', () => {
             return new MockUri(fsPath);
         }
         toString() {
-            return `${this.scheme}://${this.fsPath}${this.query ? '?' + this.query : ''}`;
+            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}`;
         }
         with(params: { scheme?: string; query?: string }) {
             return new MockUri(this.fsPath, params.scheme ?? this.scheme, params.query ?? this.query);
@@ -61,13 +61,17 @@ vi.mock('vscode', () => {
         workspace: {
             openTextDocument: vi.fn().mockImplementation((uri: { fsPath: string; scheme?: string }) => {
                 const doc = mockDocuments.get(uri.toString?.() ?? uri.fsPath);
-                if (doc) return Promise.resolve(doc);
+                if (doc) {
+                    return Promise.resolve(doc);
+                }
                 // Fallback: read from filesystem
                 const content = fs.existsSync(uri.fsPath) ? fs.readFileSync(uri.fsPath, 'utf-8') : '';
                 const lines = content.split('\n');
                 return Promise.resolve({
                     getText: (range?: { startLine: number; startChar: number }) => {
-                        if (!range) return content;
+                        if (!range) {
+                            return content;
+                        }
                         // Simplified range extraction
                         return content;
                     },

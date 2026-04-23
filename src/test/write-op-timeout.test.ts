@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
+import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { JjService } from '../jj-service';
 
@@ -24,7 +24,7 @@ describe('JjService Write Operation Timeout', () => {
     });
 
     test('hasActiveWriteOps reflects pending mutation operations', async () => {
-        let resolveCommand: (value: string) => void;
+        let resolveCommand!: (value: string) => void;
         const hangingPromise = new Promise<string>((r) => {
             resolveCommand = r;
         });
@@ -32,7 +32,7 @@ describe('JjService Write Operation Timeout', () => {
         vi.mocked(cp.execFile).mockImplementation((_cmd, _args, _opts, callback) => {
             // Don't call callback immediately - simulate hanging command
             hangingPromise.then(() => {
-                callback!(null, 'done', '');
+                callback?.(null, 'done', '');
             });
             return {} as cp.ChildProcess;
         });
@@ -47,7 +47,7 @@ describe('JjService Write Operation Timeout', () => {
         expect(jjService.writeOpCount).toBe(1);
 
         // Resolve the command
-        resolveCommand!('done');
+        resolveCommand('done');
         await abandonPromise;
 
         // Should be cleared
@@ -92,13 +92,13 @@ describe('JjService Write Operation Timeout', () => {
     });
 
     test('completed operation clears timeout without double-decrementing', async () => {
-        let resolveCommand: () => void;
+        let resolveCommand!: () => void;
 
         vi.mocked(cp.execFile).mockImplementation((_cmd, _args, _opts, callback) => {
             // Will resolve when we call resolveCommand
             new Promise<void>((r) => {
                 resolveCommand = r;
-            }).then(() => callback!(null, 'done', ''));
+            }).then(() => callback?.(null, 'done', ''));
             return {} as cp.ChildProcess;
         });
 
@@ -109,7 +109,7 @@ describe('JjService Write Operation Timeout', () => {
         await Promise.resolve();
 
         // Complete before timeout
-        resolveCommand!();
+        resolveCommand();
         await abandonPromise;
 
         expect(jjService.writeOpCount).toBe(0);

@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { OutputChannel } from 'vscode';
 import { DirectoryWatcher } from '../directory-watcher';
 import { createMock } from './test-utils';

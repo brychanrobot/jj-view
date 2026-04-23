@@ -2,20 +2,20 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { moveToChildCommand, moveToParentInDiffCommand } from '../commands/move';
 import { completeSquashCommand, squashCommand } from '../commands/squash';
 import { ScmContextValue } from '../jj-context-keys';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
-suite('JJ SCM Provider Integration Test', function () {
+suite('JJ SCM Provider Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
 
@@ -214,12 +214,16 @@ suite('JJ SCM Provider Integration Test', function () {
         const originalGetConfiguration = vscode.workspace.getConfiguration;
         const configStub = {
             get: (key: string, defaultValue: unknown) => {
-                if (key === 'maxMutableAncestors') return 3;
+                if (key === 'maxMutableAncestors') {
+                    return 3;
+                }
                 return defaultValue;
             },
         };
         (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
-            if (section === 'jj-view') return configStub;
+            if (section === 'jj-view') {
+                return configStub;
+            }
             return originalGetConfiguration(section);
         };
 
@@ -413,9 +417,11 @@ suite('JJ SCM Provider Integration Test', function () {
             (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
         );
 
-        assert.ok(resourceState, 'Should find resource state for modified file');
+        if (!resourceState) {
+            throw new Error('Should find resource state for modified file');
+        }
 
-        await squashCommand(scmProvider, jj, [resourceState!]);
+        await squashCommand(scmProvider, jj, [resourceState]);
 
         const parentContent = repo.getFileContent('@-', 'squash-test.txt');
         assert.strictEqual(parentContent, 'child content', 'Parent should have squashed content');
@@ -518,10 +524,10 @@ suite('JJ SCM Provider Integration Test', function () {
         const squashMsgPath = path.join(repo.path, '.jj', 'vscode', 'SQUASH_MSG');
 
         // Verify creation
-        assert.ok(require('fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
+        assert.ok(require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
 
         await completeSquashCommand(scmProvider, jj);
-        assert.ok(!require('fs').existsSync(squashMsgPath), 'Cleanup success');
+        assert.ok(!require('node:fs').existsSync(squashMsgPath), 'Cleanup success');
 
         let parentDesc = repo.getDescription('@-');
         assert.ok(parentDesc.includes('Parent Desc'), 'Parent should have combined desc');
@@ -541,7 +547,7 @@ suite('JJ SCM Provider Integration Test', function () {
         await squashCommand(scmProvider, jj, [resource]);
 
         // Verify NO editor files
-        assert.ok(!require('fs').existsSync(squashMsgPath), 'SQUASH_MSG should NOT be created for partial squash');
+        assert.ok(!require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should NOT be created for partial squash');
 
         // Verify Parent Description Preserved
         // It should match the result from Step 1 ("Parent Desc\n\nChild Desc") and NOT contain "Child 2"
@@ -565,7 +571,10 @@ suite('JJ SCM Provider Integration Test', function () {
         await scmProvider.refresh({ forceSnapshot: true });
 
         await squashCommand(scmProvider, jj, [{ id: 'working-copy' }]); // Full squash
-        assert.ok(!require('fs').existsSync(squashMsgPath), 'SQUASH_MSG should NOT be created if child desc empty');
+        assert.ok(
+            !require('node:fs').existsSync(squashMsgPath),
+            'SQUASH_MSG should NOT be created if child desc empty',
+        );
 
         // --- Scenario 4: Parent description check (Empty vs Non-Empty) ---
         parentDesc = repo.getDescription('@-');
@@ -782,12 +791,16 @@ suite('JJ SCM Provider Integration Test', function () {
         const originalGetConfiguration = vscode.workspace.getConfiguration;
         const configStub = {
             get: (key: string, defaultValue: unknown) => {
-                if (key === 'maxMutableAncestors') return 1;
+                if (key === 'maxMutableAncestors') {
+                    return 1;
+                }
                 return defaultValue;
             },
         };
         (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
-            if (section === 'jj-view') return configStub;
+            if (section === 'jj-view') {
+                return configStub;
+            }
             return originalGetConfiguration(section);
         };
 
@@ -837,7 +850,7 @@ suite('JJ SCM Provider Integration Test', function () {
         ]);
 
         // Ensure parent is mutable so WorkingCopySquashable triggers
-        const baseId = graphIds['base'].changeId;
+        const baseId = graphIds.base.changeId;
 
         // Add left and right branches for a conflict
         repo.new([baseId], 'left commit');

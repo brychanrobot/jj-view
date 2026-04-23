@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { ThemeJsonConfig, generateThemes } from './generate-themes';
+import { generateThemes, type ThemeJsonConfig } from './generate-themes';
 
 describe('generateThemes', () => {
     it('should generate valid TS and CSS output for a cycle theme', () => {

@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import { GraphEdge, GraphNode, GraphRow } from '../graph-model';
-import { LANE_WIDTH, ROW_HEIGHT_ELISION, LEFT_MARGIN, LANE_CENTER_X, ROW_CENTER_Y } from '../layout-constants';
+import type { GraphEdge, GraphNode, GraphRow } from '../graph-model';
+import { LANE_CENTER_X, LANE_WIDTH, LEFT_MARGIN, ROW_CENTER_Y, ROW_HEIGHT_ELISION } from '../layout-constants';
 
 interface GraphRailProps {
     nodes: GraphNode[];
@@ -125,7 +125,9 @@ export const GraphRail: React.FC<GraphRailProps> = ({
         }
 
         const ElisionMarker = () => {
-            if (!edge.isElided) return null;
+            if (!edge.isElided) {
+                return null;
+            }
 
             // Find the elision row for this edge.
             // It should be either y1 + 1 (standard elision after child)
@@ -138,7 +140,9 @@ export const GraphRail: React.FC<GraphRailProps> = ({
                 elisionRowIndex = lastRowIndex;
             }
 
-            if (elisionRowIndex === -1) return null;
+            if (elisionRowIndex === -1) {
+                return null;
+            }
 
             const mx = sx;
             const my = rowOffsets[elisionRowIndex] + ELISION_ROW_HEIGHT / 2;
@@ -187,7 +191,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({
             />
         );
 
-        let content;
+        let content: React.ReactNode = null;
         if (node.isCurrentWorkingCopy) {
             content = (
                 <>
@@ -284,6 +288,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({
         <svg
             width={svgWidth}
             height={svgHeight}
+            aria-label="Commit graph"
             style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 0 }}
         >
             {sortedEdges.map((edge, i) => renderEdge(edge, i))}

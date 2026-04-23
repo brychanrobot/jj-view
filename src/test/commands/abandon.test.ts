@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { abandonCommand } from '../../commands/abandon';
 import { ScmContextValue } from '../../jj-context-keys';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { asMock, createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -91,7 +91,7 @@ describe('abandonCommand', () => {
         const abandonId = graph['Abandon Me'].changeId;
 
         // Select C1 (Keep Me)
-        (scmProvider.getSelectedCommitIds as unknown as { mockReturnValue: Function }).mockReturnValue([keepId]);
+        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([keepId]);
 
         const resourceGroup = { id: ScmContextValue.WorkingCopyGroup, label: 'Working Copy', resourceStates: [] };
         await abandonCommand(scmProvider, jj, [resourceGroup]);
@@ -110,7 +110,7 @@ describe('abandonCommand', () => {
             { label: 'C1' },
             { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
         ]);
-        const c1 = graph['C1'].changeId;
+        const c1 = graph.C1.changeId;
 
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([]);
 
@@ -132,10 +132,10 @@ describe('abandonCommand', () => {
             { label: 'C1' },
             { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
         ]);
-        const c1 = graph['C1'].changeId;
-        const c2 = graph['C2'].changeId;
+        const c1 = graph.C1.changeId;
+        const c2 = graph.C2.changeId;
 
-        (scmProvider.getSelectedCommitIds as unknown as { mockReturnValue: Function }).mockReturnValue([c1, c2]);
+        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1, c2]);
         const arg = { commitId: c1 };
 
         await abandonCommand(scmProvider, jj, [arg]);
@@ -150,10 +150,10 @@ describe('abandonCommand', () => {
             { label: 'C1' },
             { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
         ]);
-        const c1 = graph['C1'].changeId;
-        const c2 = graph['C2'].changeId;
+        const c1 = graph.C1.changeId;
+        const c2 = graph.C2.changeId;
 
-        (scmProvider.getSelectedCommitIds as unknown as { mockReturnValue: Function }).mockReturnValue([c1]);
+        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1]);
         const arg = { commitId: c2 };
 
         await abandonCommand(scmProvider, jj, [arg]);
@@ -173,7 +173,7 @@ describe('abandonCommand', () => {
         // Create child to be @
         repo.new();
 
-        (scmProvider.getSelectedCommitIds as unknown as { mockReturnValue: Function }).mockReturnValue([c1]);
+        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1]);
 
         await abandonCommand(scmProvider, jj, []);
 

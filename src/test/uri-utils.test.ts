@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
-import { JjStatusEntry } from '../jj-types';
+import type { JjStatusEntry } from '../jj-types';
 import { createDiffUris } from '../uri-utils';
 
 // Mock vscode

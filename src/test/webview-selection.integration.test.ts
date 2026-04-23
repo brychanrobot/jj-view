@@ -2,17 +2,17 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { GerritService } from '../gerrit-service';
+import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
-suite('Webview Selection Integration Test', function () {
+suite('Webview Selection Integration Test', () => {
     let jj: JjService;
     let provider: JjLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;

@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Modifier } from '@dnd-kit/core';
+import type { Modifier } from '@dnd-kit/core';
 
 // Custom modifier to snap the left edge of the preview to the cursor
 export const snapToCursorLeft: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {

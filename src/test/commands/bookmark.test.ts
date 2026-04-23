@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { setBookmarkCommand } from '../../commands/bookmark';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';

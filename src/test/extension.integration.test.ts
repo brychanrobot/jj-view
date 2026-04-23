@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { Api } from '../extension';
+import type { Api } from '../extension';
 import { TestRepo } from './test-repo';
 
 suite('Extension Test Suite', () => {
@@ -14,7 +14,7 @@ suite('Extension Test Suite', () => {
 
     suiteSetup(async () => {
         // Assume workspace is open (ensured by .vscode-test.mjs launchArgs)
-        const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
         repo = new TestRepo(workspaceRoot);
         repo.init();
     });

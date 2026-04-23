@@ -2,17 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import {
-    ROOT_ID,
     clickLogAction,
     entry,
     expectTree,
     focusJJLog,
     getLogWebview,
     launchVSCode,
+    ROOT_ID,
     waitForLogCommitRow,
 } from './e2e-helpers';
 
@@ -86,8 +87,8 @@ test.describe('JJ Log Pane E2E', () => {
         try {
             await focusJJLog(page);
             // 1. New Merge Change (Requires Multi-select)
-            const sideBranchRow = await waitForLogCommitRow(page, { changeId: nodes['side_branch'].changeId });
-            const wcRow = await waitForLogCommitRow(page, { changeId: nodes['wc'].changeId });
+            const sideBranchRow = await waitForLogCommitRow(page, { changeId: nodes.side_branch.changeId });
+            const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
 
             // Click the first one normally, the second with Control
             await sideBranchRow.click();
@@ -105,18 +106,18 @@ test.describe('JJ Log Pane E2E', () => {
             // Assert via repo that a new merge commit was created with correct parents
             await expect(async () => {
                 const parents = repo.getParents('@');
-                expect(parents).toContain(nodes['side_branch'].changeId);
-                expect(parents).toContain(nodes['wc'].changeId);
+                expect(parents).toContain(nodes.side_branch.changeId);
+                expect(parents).toContain(nodes.wc.changeId);
             }).toPass({ timeout: 5000 });
 
             // Verify full tree: [merge, wc, side_branch, initial, dummy]
             await expect(async () => {
                 const mergeChangeId = repo.getChangeId('@');
                 await expectTree(repo, [
-                    '@ ' + entry(mergeChangeId, '(empty)', [nodes['side_branch'].changeId, nodes['wc'].changeId]),
-                    entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
-                    entry(nodes['side_branch'].changeId, 'side branch', nodes['initial'].changeId),
-                    entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                    `@ ${entry(mergeChangeId, '(empty)', [nodes.side_branch.changeId, nodes.wc.changeId])}`,
+                    entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
+                    entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
+                    entry(nodes.initial.changeId, 'initial setup', dummyId),
                     entry(dummyId, '(empty)', ROOT_ID),
                 ]);
             }).toPass();
@@ -127,9 +128,9 @@ test.describe('JJ Log Pane E2E', () => {
 
             // Assert the merge change was undone accurately
             await expectTree(repo, [
-                '@ ' + entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
-                entry(nodes['side_branch'].changeId, 'side branch', nodes['initial'].changeId),
-                entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                `@ ${entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId)}`,
+                entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
+                entry(nodes.initial.changeId, 'initial setup', dummyId),
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
         } finally {
@@ -163,14 +164,14 @@ test.describe('JJ Log Pane E2E', () => {
             await focusJJLog(page);
 
             // 1. New Child
-            const branchId = nodes['branch'].changeId;
+            const branchId = nodes.branch.changeId;
             await clickLogAction(page, { changeId: branchId }, 'New Child');
 
             let childId = '';
             await expect(async () => {
                 const currentId = repo.getChangeId('@');
                 // Ensure @ has actually moved away from wc
-                expect(currentId).not.toBe(nodes['wc'].changeId);
+                expect(currentId).not.toBe(nodes.wc.changeId);
                 childId = currentId;
             }).toPass({ timeout: 10000 });
 
@@ -183,24 +184,24 @@ test.describe('JJ Log Pane E2E', () => {
             await expect(async () => {
                 const childId = repo.getChangeId('@');
                 await expectTree(repo, [
-                    '@ ' + entry(childId, '(empty)', nodes['branch'].changeId),
-                    entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
-                    entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
-                    entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                    `@ ${entry(childId, '(empty)', nodes.branch.changeId)}`,
+                    entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
+                    entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
+                    entry(nodes.initial.changeId, 'initial setup', dummyId),
                     entry(dummyId, '(empty)', ROOT_ID),
                 ]);
             }).toPass();
 
             // 2. Prepare for squash: move working copy away from the new child
-            const initialId = nodes['initial'].changeId;
+            const initialId = nodes.initial.changeId;
             await clickLogAction(page, { changeId: initialId }, 'Edit Commit');
 
             // Tree is the same commits, just @ moved. Order: [child, wc, branch, initial, dummy]
             await expectTree(repo, [
-                entry(childId, '(empty)', nodes['branch'].changeId),
-                entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
-                entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
-                '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                entry(childId, '(empty)', nodes.branch.changeId),
+                entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
+                entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
+                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
 
@@ -209,9 +210,9 @@ test.describe('JJ Log Pane E2E', () => {
 
             // After squash: child is gone. branch has its changes.
             await expectTree(repo, [
-                entry(nodes['wc'].changeId, 'working tree', nodes['branch'].changeId),
-                entry(nodes['branch'].changeId, 'branch commit', nodes['initial'].changeId),
-                '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
+                entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
+                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
 
@@ -221,8 +222,8 @@ test.describe('JJ Log Pane E2E', () => {
             // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
             // Tree: [wc, initial(@)]
             await expectTree(repo, [
-                entry(nodes['wc'].changeId, 'working tree', nodes['initial'].changeId),
-                '@ ' + entry(nodes['initial'].changeId, 'initial setup', dummyId),
+                entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
+                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
         } finally {
@@ -259,8 +260,8 @@ test.describe('JJ Log Pane E2E', () => {
             await focusJJLog(page);
             const webview = await getLogWebview(page);
 
-            const sourceRow = webview.locator(`[data-change-id="${nodes['source'].changeId}"]`);
-            const targetRow = webview.locator(`[data-change-id="${nodes['target'].changeId}"]`);
+            const sourceRow = webview.locator(`[data-change-id="${nodes.source.changeId}"]`);
+            const targetRow = webview.locator(`[data-change-id="${nodes.target.changeId}"]`);
 
             const sourceBox = await sourceRow.boundingBox();
             const targetBox = await targetRow.boundingBox();
@@ -280,8 +281,8 @@ test.describe('JJ Log Pane E2E', () => {
             // Verify rebase via repo
             await expect(async () => {
                 // Check 'source' parent is now 'target'
-                const parents = repo.getParents(nodes['source'].changeId);
-                expect(parents).toContain(nodes['target'].changeId);
+                const parents = repo.getParents(nodes.source.changeId);
+                expect(parents).toContain(nodes.target.changeId);
             }).toPass({ timeout: 10000 });
         } finally {
             await app.close();

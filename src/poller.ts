@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 /**
  * Manages a polling loop with a strict gap between executions.
@@ -83,7 +83,7 @@ export class Poller implements vscode.Disposable {
 
         try {
             await this.callback();
-        } catch (err) {
+        } catch (_) {
             // Error handling if needed, or swallow
         }
 

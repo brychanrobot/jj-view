@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { showJjError, withDelayedProgress } from './command-utils';
 
 export async function describePromptCommand(scmProvider: JjScmProvider, jj: JjService) {

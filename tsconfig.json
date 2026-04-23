@@ -3,7 +3,7 @@
         "module": "commonjs",
         "target": "ESNext",
         "lib": ["ESNext", "DOM"],
-        "jsx": "react",
+        "jsx": "react-jsx",
         "sourceMap": true,
         "rootDir": "src",
         "strict": true /* enable all strict type-checking options */,

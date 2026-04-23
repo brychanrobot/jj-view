@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogTitleButton,
     clickNotificationButton,
@@ -27,8 +28,8 @@ test.describe('Workspace Management E2E', () => {
             { label: 'other', description: 'other commit' },
         ]);
 
-        const baseId = nodes['base'].changeId;
-        const otherId = nodes['other'].changeId;
+        const baseId = nodes.base.changeId;
+        const otherId = nodes.other.changeId;
 
         const workspaceName = 'repo2';
         repo.workspaceAdd(workspaceName, baseId);
@@ -74,13 +75,13 @@ test.describe('Workspace Management E2E', () => {
         try {
             await focusJJLog(page);
 
-            // 1. Click Add Workspace in Title Bar
-            await clickLogTitleButton(page, 'Add Workspace');
-
-            // 2. Type name and Enter
-            const input = await waitForQuickInput(page);
-            await input.fill(workspaceName);
-            await page.keyboard.press('Enter');
+            // 1. Click Add Workspace and input name
+            await expect(async () => {
+                await clickLogTitleButton(page, 'Add Workspace');
+                const input = await waitForQuickInput(page, 2000);
+                await input.fill(workspaceName, { timeout: 2000 });
+                await page.keyboard.press('Enter');
+            }, 'Failed to add workspace via title bar').toPass({ timeout: 20000 });
 
             // 3. Verify workspace pill appears in webview
             const webview = await getLogWebview(page);
@@ -100,8 +101,6 @@ test.describe('Workspace Management E2E', () => {
             // 5. Verify in jj
             const workspaces = repo.getLog('all()', 'working_copies.map(|w| w.name()).join("\\n")');
             expect(workspaces).toContain(workspaceName);
-        } catch (e) {
-            throw e;
         } finally {
             await app.close();
             try {
@@ -163,8 +162,6 @@ test.describe('Workspace Management E2E', () => {
 
             const gone = !fs.existsSync(deleteWsPath);
             expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
-        } catch (e) {
-            throw e;
         } finally {
             await app.close();
             try {

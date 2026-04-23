@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { abandonCommand } from '../commands/abandon';
@@ -11,7 +11,7 @@ import { newCommand } from '../commands/new';
 import { redoCommand } from '../commands/redo';
 import { squashCommand } from '../commands/squash';
 import { undoCommand } from '../commands/undo';
-import { GerritService } from '../gerrit-service';
+import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjScmProvider } from '../jj-scm-provider';
@@ -19,7 +19,7 @@ import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
-suite('Webview Commands End-to-End Integration Test', function () {
+suite('Webview Commands End-to-End Integration Test', () => {
     let jj: JjService;
     let scm: JjScmProvider;
     let provider: JjLogWebviewProvider;
@@ -146,7 +146,9 @@ suite('Webview Commands End-to-End Integration Test', function () {
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        disposables.forEach((d) => d.dispose());
+        disposables.forEach((d) => {
+            d.dispose();
+        });
         disposables = [];
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
@@ -172,7 +174,7 @@ suite('Webview Commands End-to-End Integration Test', function () {
         try {
             repo.getChangeId(commitToAbandonId);
             assert.fail('Abandoned commit should not verify');
-        } catch (e) {
+        } catch (_e) {
             // Expected
         }
     });

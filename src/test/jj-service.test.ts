@@ -2,12 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 
 describe('JjService Unit Tests', () => {
     let jjService: JjService;
@@ -228,14 +228,14 @@ log = "none()"
             // Insert 'Middle' before 'Child'
             // Expected DAG: Parent -> Middle -> Child
             // Also, 'jj new --before' should move @ to the new commit.
-            const middleId = await jjService.new({ message: 'Middle', insertBefore: [ids['Child'].changeId] });
+            const middleId = await jjService.new({ message: 'Middle', insertBefore: [ids.Child.changeId] });
 
             // 1. Verify Middle's parent is Parent
             const middleParents = repo.getParents(middleId);
-            expect(middleParents).toContain(ids['Parent'].changeId);
+            expect(middleParents).toContain(ids.Parent.changeId);
 
             // 2. Verify Child's parent is now Middle
-            const childParents = repo.getParents(ids['Child'].changeId);
+            const childParents = repo.getParents(ids.Child.changeId);
             expect(childParents).toContain(middleId);
 
             // 3. Verify @ is at Middle
@@ -252,8 +252,8 @@ log = "none()"
                 { label: 'p2', description: 'parent 2', isCurrentWorkingCopy: true },
             ]);
 
-            const p1Id = ids['p1'].changeId;
-            const p2Id = ids['p2'].changeId;
+            const p1Id = ids.p1.changeId;
+            const p2Id = ids.p2.changeId;
 
             // Create merge commit on top of p1 and p2
             await jjService.new({ message: 'merge commit', parents: [p1Id, p2Id] });
@@ -283,16 +283,16 @@ log = "none()"
             //                            -> Child2
             const middleId = await jjService.new({
                 message: 'Middle',
-                insertBefore: [ids['child1'].changeId, ids['child2'].changeId],
+                insertBefore: [ids.child1.changeId, ids.child2.changeId],
             });
 
             // 1. Verify Middle's parent is Parent
             const middleParents = repo.getParents(middleId);
-            expect(middleParents).toContain(ids['parent'].changeId);
+            expect(middleParents).toContain(ids.parent.changeId);
 
             // 2. Verify Child1 and Child2 both have Middle as parent
-            const c1Parents = repo.getParents(ids['child1'].changeId);
-            const c2Parents = repo.getParents(ids['child2'].changeId);
+            const c1Parents = repo.getParents(ids.child1.changeId);
+            const c2Parents = repo.getParents(ids.child2.changeId);
 
             expect(c1Parents).toContain(middleId);
             expect(c2Parents).toContain(middleId);
@@ -311,17 +311,17 @@ log = "none()"
 
             // Insert 'Middle' after 'Parent'
             // Expected DAG: Parent -> Middle -> Child
-            const middleId = await jjService.new({ message: 'Middle', insertAfter: [ids['Parent'].changeId] });
+            const middleId = await jjService.new({ message: 'Middle', insertAfter: [ids.Parent.changeId] });
 
             // 1. Verify Middle's parent is Parent
             const middleParents = repo.getParents(middleId);
-            expect(middleParents).toContain(ids['Parent'].changeId);
+            expect(middleParents).toContain(ids.Parent.changeId);
 
             // 2. Verify Child's parent is now Middle
-            const childParents = repo.getParents(ids['Child'].changeId);
+            const childParents = repo.getParents(ids.Child.changeId);
             expect(childParents).toContain(middleId);
             // Child no longer has Parent directly
-            expect(childParents).not.toContain(ids['Parent'].changeId);
+            expect(childParents).not.toContain(ids.Parent.changeId);
 
             // 3. Verify @ is at Middle
             const workingCopyId = repo.getWorkingCopyId();
@@ -344,22 +344,22 @@ log = "none()"
             //               P2 -/        \-> Child2
             const middleId = await jjService.new({
                 message: 'Middle',
-                insertAfter: [ids['P1'].changeId, ids['P2'].changeId],
+                insertAfter: [ids.P1.changeId, ids.P2.changeId],
             });
 
             // 1. Verify Middle's parents are P1 and P2
             const middleParents = repo.getParents(middleId);
-            expect(middleParents).toContain(ids['P1'].changeId);
-            expect(middleParents).toContain(ids['P2'].changeId);
+            expect(middleParents).toContain(ids.P1.changeId);
+            expect(middleParents).toContain(ids.P2.changeId);
 
             // 2. Verify Child1 and Child2's parent is now Middle
-            const child1Parents = repo.getParents(ids['Child1'].changeId);
+            const child1Parents = repo.getParents(ids.Child1.changeId);
             expect(child1Parents).toContain(middleId);
-            expect(child1Parents).not.toContain(ids['P1'].changeId);
+            expect(child1Parents).not.toContain(ids.P1.changeId);
 
-            const child2Parents = repo.getParents(ids['Child2'].changeId);
+            const child2Parents = repo.getParents(ids.Child2.changeId);
             expect(child2Parents).toContain(middleId);
-            expect(child2Parents).not.toContain(ids['P2'].changeId);
+            expect(child2Parents).not.toContain(ids.P2.changeId);
         });
     });
 
@@ -462,8 +462,8 @@ log = "none()"
                 isCurrentWorkingCopy: true,
             },
         ]);
-        const parentId = ids['parent'].changeId;
-        const childId = ids['child'].changeId;
+        const parentId = ids.parent.changeId;
+        const childId = ids.child.changeId;
 
         // Squash "child" revision into "parent" explicitly
         await jjService.squash([filePath], childId);
@@ -489,8 +489,8 @@ log = "none()"
                 isCurrentWorkingCopy: true,
             },
         ]);
-        const rootId = ids['root'].changeId;
-        const bId = ids['B'].changeId;
+        const rootId = ids.root.changeId;
+        const bId = ids.B.changeId;
 
         // Squash 'new content' from B into Root directly
         await jjService.squash([newFilePath], bId, rootId);
@@ -575,14 +575,14 @@ log = "none()"
 
         // Absorb changes from B into A
         // B modifies lineA which was introduced in A.
-        await jjService.absorb({ fromRevision: ids['B'].changeId });
+        await jjService.absorb({ fromRevision: ids.B.changeId });
 
         // Verify A has the change
-        const contentA = repo.getFileContent(ids['A'].changeId, fileName);
+        const contentA = repo.getFileContent(ids.A.changeId, fileName);
         expect(contentA).toBe('base\nlineA modified\n');
 
         // B should be empty of changes but still exist as it has a description
-        const contentB = repo.getFileContent(ids['B'].changeId, fileName);
+        const contentB = repo.getFileContent(ids.B.changeId, fileName);
         expect(contentB).toBe('base\nlineA modified\n');
     });
 
@@ -598,7 +598,7 @@ log = "none()"
                 description: 'child2',
             },
         ]);
-        const parentId = ids['parent'].changeId;
+        const parentId = ids.parent.changeId;
 
         const children = await jjService.getChildren(parentId);
         expect(children.length).toBe(2);
@@ -673,9 +673,13 @@ log = "none()"
         expect(log.is_immutable).toBe(false);
         expect(log.is_empty).toBe(true);
 
-        expect(log.change_id.startsWith(log.change_id_shortest!)).toBe(true);
-        expect(log.change_id_shortest!.length).toBeGreaterThan(0);
-        expect(log.change_id_shortest!.length).toBeLessThan(log.change_id.length);
+        const shortestId = log.change_id_shortest;
+        if (!shortestId) {
+            throw new Error('change_id_shortest not found');
+        }
+        expect(log.change_id.startsWith(shortestId)).toBe(true);
+        expect(log.change_id_shortest?.length).toBeGreaterThan(0);
+        expect(log.change_id_shortest?.length).toBeLessThan(log.change_id.length);
     });
 
     test('getLog populates nearest_visible_ancestors with gaps', async () => {
@@ -687,8 +691,8 @@ log = "none()"
             { label: 'D', parents: ['C'], description: 'commit D' },
         ]);
 
-        const idA = ids['A'].changeId;
-        const idD = ids['D'].changeId;
+        const idA = ids.A.changeId;
+        const idD = ids.D.changeId;
 
         // Fetch only A and D. B and C are "missing".
         // Nearest visible ancestor of D in (A|D) should be A.
@@ -704,15 +708,15 @@ log = "none()"
         expect(logA).toBeDefined();
 
         // Immediate parent of D is C
-        expect(logD!.parents).toContain(ids['C'].commitId);
-        expect(logD!.parent_change_ids).toContain(ids['C'].changeId);
+        expect(logD?.parents).toContain(ids.C.commitId);
+        expect(logD?.parent_change_ids).toContain(ids.C.changeId);
 
         // Nearest visible ancestor of D in (A|D) is A
-        expect(logD!.nearest_visible_ancestors).toContain(idA);
-        expect(logD!.nearest_visible_ancestors?.length).toBe(1);
+        expect(logD?.nearest_visible_ancestors).toContain(idA);
+        expect(logD?.nearest_visible_ancestors?.length).toBe(1);
 
         // A's nearest visible ancestors should be empty (no ancestors in (A|D))
-        expect(logA!.nearest_visible_ancestors?.length).toBe(0);
+        expect(logA?.nearest_visible_ancestors?.length).toBe(0);
     });
 
     test('getLog does not populate nearest_visible_ancestors by default', async () => {
@@ -739,14 +743,14 @@ log = "none()"
         const [child] = await jjService.getLog({ revision: '@' });
 
         expect(child.parents_immutable).toBeDefined();
-        expect(child.parents_immutable!.length).toBeGreaterThan(0);
-        expect(child.parents_immutable![0]).toBe(true);
+        expect(child.parents_immutable?.length).toBeGreaterThan(0);
+        expect(child.parents_immutable?.[0]).toBe(true);
 
         repo.new(['@'], 'grandchild');
         const [grandchild] = await jjService.getLog({ revision: '@' });
 
         expect(grandchild.parents_immutable).toBeDefined();
-        expect(grandchild.parents_immutable![0]).toBe(false);
+        expect(grandchild.parents_immutable?.[0]).toBe(false);
     });
 
     test('getLog parses tags correctly', async () => {
@@ -763,7 +767,7 @@ log = "none()"
             },
         ]);
 
-        const changeId = ids['commit'].changeId;
+        const changeId = ids.commit.changeId;
         repo.tag('test-tag-1', changeId);
         repo.tag('test-tag-2', changeId);
 
@@ -887,8 +891,8 @@ log = "none()"
         expect(child2Log).toBeDefined();
         expect(parentLog).toBeDefined();
 
-        expect(child1Log!.parents[0]).toBe(parentLog!.commit_id);
-        expect(child2Log!.parents[0]).toBe(parentLog!.commit_id);
+        expect(child1Log?.parents[0]).toBe(parentLog?.commit_id);
+        expect(child2Log?.parents[0]).toBe(parentLog?.commit_id);
     }, 30000);
 
     test('Complex Replay (Reproduce User Scenario) with return IDs', async () => {
@@ -1159,8 +1163,10 @@ log = "none()"
         repo.deleteFile('deleted.txt'); // Deleted
 
         const [log] = await jjService.getLog({ revision: '@' });
-        expect(log.changes).toBeDefined();
-        const changes = log.changes!;
+        const changes = log.changes;
+        if (!changes) {
+            throw new Error('changes not found');
+        }
 
         const added = changes.find((c) => c.path === 'added.txt');
         const modified = changes.find((c) => c.path === 'modified.txt');
@@ -1204,11 +1210,11 @@ log = "none()"
             { label: 'parent', parents: ['grandparent'], description: 'parent' },
             { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
-        const rootId = ids['root'].changeId;
-        const targetId = ids['target'].changeId;
-        const grantparentId = ids['grandparent'].changeId;
-        const parentId = ids['parent'].changeId;
-        const childId = ids['child'].changeId;
+        const rootId = ids.root.changeId;
+        const targetId = ids.target.changeId;
+        const grantparentId = ids.grandparent.changeId;
+        const parentId = ids.parent.changeId;
+        const childId = ids.child.changeId;
 
         // 1. Rebase -r check (Revision Mode)
         // Scenario: Move "Parent" (-r) to "Target". Child should stay on Grandparent.
@@ -1413,17 +1419,17 @@ log = "none()"
         expect(v1Entry).toBeDefined();
         expect(v2Entry).toBeDefined();
 
-        expect(v1Entry!.is_divergent).toBe(true);
-        expect(v2Entry!.is_divergent).toBe(true);
+        expect(v1Entry?.is_divergent).toBe(true);
+        expect(v2Entry?.is_divergent).toBe(true);
 
         // Verification of combined change_id
-        expect(v1Entry!.change_id).toMatch(/\/\d+$/);
-        expect(v2Entry!.change_id).toMatch(/\/\d+$/);
+        expect(v1Entry?.change_id).toMatch(/\/\d+$/);
+        expect(v2Entry?.change_id).toMatch(/\/\d+$/);
 
         // In this test setup, V1 gets offset 1 and V2 gets offset 0
-        expect(v1Entry!.change_id_offset).toBe(1);
-        expect(v2Entry!.change_id_offset).toBe(0);
-        expect(v1Entry!.change_id_offset).not.toBe(v2Entry!.change_id_offset);
+        expect(v1Entry?.change_id_offset).toBe(1);
+        expect(v2Entry?.change_id_offset).toBe(0);
+        expect(v1Entry?.change_id_offset).not.toBe(v2Entry?.change_id_offset);
     });
 
     test('getLog() includes workspace labels in working_copies field', async () => {
@@ -1431,7 +1437,7 @@ log = "none()"
 
         // Create commits first
         const otherCommit = await buildGraph(repo, [{ label: 'other', description: 'other' }]);
-        const otherCommitId = otherCommit['other'].changeId;
+        const otherCommitId = otherCommit.other.changeId;
 
         // Current workspace 'default' is at 'other'
         const currentWcId = repo.getChangeId('@');
@@ -1445,13 +1451,13 @@ log = "none()"
         const repo2WcEntry = logs.find((l) => l.working_copies?.some((w) => w.startsWith(workspaceName)));
 
         expect(repo2WcEntry).toBeDefined();
-        expect(repo2WcEntry!.is_current_working_copy).toBe(false);
+        expect(repo2WcEntry?.is_current_working_copy).toBe(false);
 
         // Find the commit that is the current working copy
         const currentWcEntry = logs.find((l) => l.is_current_working_copy);
         expect(currentWcEntry).toBeDefined();
-        expect(currentWcEntry!.change_id).toBe(currentWcId);
-        expect(currentWcEntry!.working_copies).toContain('default');
+        expect(currentWcEntry?.change_id).toBe(currentWcId);
+        expect(currentWcEntry?.working_copies).toContain('default');
     });
 
     describe('upload', () => {

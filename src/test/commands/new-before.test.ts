@@ -4,9 +4,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { newBeforeCommand } from '../../commands/new-before';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 
 // Mock vscode
 vi.mock('vscode', async () => {
@@ -46,8 +46,8 @@ describe('newBeforeCommand', () => {
             { label: 'A', description: 'A' },
             { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
         ]);
-        const revA = ids['A'].changeId;
-        const revB = ids['B'].changeId;
+        const revA = ids.A.changeId;
+        const revB = ids.B.changeId;
 
         await newBeforeCommand(scmProvider, jj, [revB]);
 
@@ -71,8 +71,8 @@ describe('newBeforeCommand', () => {
             { label: 'A', description: 'A' },
             { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
         ]);
-        const revA = ids['A'].changeId;
-        const revB = ids['B'].changeId;
+        const revA = ids.A.changeId;
+        const revB = ids.B.changeId;
 
         // Simulate selection of B
         const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
@@ -95,8 +95,8 @@ describe('newBeforeCommand', () => {
             { label: 'Parent', description: 'Parent' },
             { label: 'A', parents: ['Parent'], description: 'A', isCurrentWorkingCopy: true },
         ]);
-        const revParent = ids['Parent'].changeId;
-        const revA = ids['A'].changeId;
+        const revParent = ids.Parent.changeId;
+        const revA = ids.A.changeId;
 
         // Mock no selection
         const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
@@ -120,8 +120,8 @@ describe('newBeforeCommand', () => {
             { label: 'B', parents: ['A'], description: 'B' },
             { label: 'C', parents: ['A'], description: 'C' },
         ]);
-        const revB = ids['B'].changeId;
-        const revC = ids['C'].changeId;
+        const revB = ids.B.changeId;
+        const revC = ids.C.changeId;
 
         // Mock multiple selection
         const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
@@ -144,7 +144,7 @@ describe('newBeforeCommand', () => {
 
         // New commit should have A as parent
         const parentsOfNew = repo.getParents(newCommitId);
-        expect(parentsOfNew[0]).toBe(ids['A'].changeId);
+        expect(parentsOfNew[0]).toBe(ids.A.changeId);
 
         expect(scmProvider.refresh).toHaveBeenCalled();
     });

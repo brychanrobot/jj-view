@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'path';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjService } from './jj-service';
+import type { JjService } from './jj-service';
 import { createDiffUris } from './uri-utils';
 import { shortenChangeId } from './utils/jj-utils';
 
@@ -63,12 +63,16 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
 
         for (const [changeId, panels] of this._panels.entries()) {
-            if (panels.size === 0) continue;
+            if (panels.size === 0) {
+                continue;
+            }
 
             try {
                 const logs = await this._jj.getLog({ revision: changeId });
                 if (logs.length === 0) {
-                    panels.forEach((p) => p.dispose());
+                    panels.forEach((p) => {
+                        p.dispose();
+                    });
                     continue;
                 }
 
@@ -97,7 +101,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         },
                     });
                 }
-            } catch (e) {
+            } catch (_) {
                 // Ignore errors for individual refreshes
             }
         }
@@ -187,7 +191,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         if (!this._panels.has(document.changeId)) {
             this._panels.set(document.changeId, new Set());
         }
-        this._panels.get(document.changeId)!.add(panel);
+        this._panels.get(document.changeId)?.add(panel);
 
         panel.onDidDispose(() => {
             this._panels.get(document.changeId)?.delete(panel);
@@ -320,14 +324,16 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         break;
                 }
             });
-        } catch (e) {
+        } catch (_) {
             panel.dispose();
         }
     }
 
     private _flushDebounce(changeId: string) {
         const state = this._documentStates.get(changeId);
-        if (!state || !state.pendingUpdate) return;
+        if (!state?.pendingUpdate) {
+            return;
+        }
 
         if (state.debounceTimer) {
             clearTimeout(state.debounceTimer);
@@ -337,7 +343,9 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const { newText, newSelection } = state.pendingUpdate;
         state.pendingUpdate = undefined;
 
-        if (newText === state.lastPushedText) return;
+        if (newText === state.lastPushedText) {
+            return;
+        }
 
         const oldText = state.lastPushedText;
         const oldSelection = state.lastPushedSelection;

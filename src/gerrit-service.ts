@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjService } from './jj-service';
-import { GerritClInfo } from './jj-types';
+import type { JjService } from './jj-service';
+import type { GerritClInfo } from './jj-types';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
 
 interface GerritFile {
@@ -91,7 +91,9 @@ export class GerritService implements vscode.Disposable {
     }
 
     public startPolling() {
-        if (this.poller) return;
+        if (this.poller) {
+            return;
+        }
 
         // Invalidate cache and notify listeners every 60 seconds when focused.
         // Listeners will re-fetch Gerrit data for their cached commits.
@@ -158,7 +160,7 @@ export class GerritService implements vscode.Disposable {
             if (fs.existsSync(gitreviewPath)) {
                 const content = await fs.promises.readFile(gitreviewPath, 'utf8');
                 const match = content.match(/host=(.+)/);
-                if (match && match[1]) {
+                if (match?.[1]) {
                     let host = match[1].trim();
                     if (!host.startsWith('http')) {
                         host = `https://${host}`;
@@ -182,11 +184,17 @@ export class GerritService implements vscode.Disposable {
 
             // Create a sorted list based on priority
             const sortedRemotes = [];
-            if (origin) sortedRemotes.push(origin);
-            if (gerrit) sortedRemotes.push(gerrit);
+            if (origin) {
+                sortedRemotes.push(origin);
+            }
+            if (gerrit) {
+                sortedRemotes.push(gerrit);
+            }
             // Add remaining
             remotes.forEach((r) => {
-                if (r.name !== 'origin' && r.name !== 'gerrit') sortedRemotes.push(r);
+                if (r.name !== 'origin' && r.name !== 'gerrit') {
+                    sortedRemotes.push(r);
+                }
             });
 
             for (const { name, url } of sortedRemotes) {
@@ -200,7 +208,7 @@ export class GerritService implements vscode.Disposable {
                     // Handle sso://chromium/chromium/src.git -> https://chromium.googlesource.com/chromium/src.git
                     // Format: sso://<host-part>/<path>
                     // We'll treat the first segment as the subdomain for googlesource.com
-                    const match = url.match(/sso:\/\/([^\/]+)\/(.+)/);
+                    const match = url.match(/sso:\/\/([^/]+)\/(.+)/);
                     if (match) {
                         host = `https://${match[1]}.googlesource.com/${match[2]}`;
                     }
@@ -209,7 +217,7 @@ export class GerritService implements vscode.Disposable {
                 if (host) {
                     // Handle SSH: ssh://user@host:port/path -> https://host
                     if (host.startsWith('ssh://')) {
-                        const match = host.match(/ssh:\/\/([^@]+@)?([^:\/]+)(:\d+)?\/(.+)/);
+                        const match = host.match(/ssh:\/\/([^@]+@)?([^:/]+)(:\d+)?\/(.+)/);
                         if (match) {
                             host = `https://${match[2]}`;
                         }
@@ -355,12 +363,16 @@ export class GerritService implements vscode.Disposable {
     public async ensureFreshStatuses(
         items: { commitId: string; changeId?: string; description?: string }[],
     ): Promise<boolean> {
-        if (!this._gerritHost) return false;
+        if (!this._gerritHost) {
+            return false;
+        }
 
         const results = await Promise.all(
             items.map(async (item) => {
                 const key = this.resolveCacheKey(item.changeId, item.description);
-                if (!key) return false;
+                if (!key) {
+                    return false;
+                }
 
                 const oldStatus = this.cache.get(key);
                 const newStatus = await this.forceFetchAndCacheStatus(item.commitId, item.changeId, item.description);
@@ -401,7 +413,9 @@ export class GerritService implements vscode.Disposable {
     }
 
     private async _fetchFromNetwork(cacheKey: string): Promise<GerritClInfo | undefined> {
-        if (!this._gerritHost) return undefined;
+        if (!this._gerritHost) {
+            return undefined;
+        }
 
         const searchQ = `change:${cacheKey}`;
         try {
@@ -545,8 +559,9 @@ export class GerritService implements vscode.Disposable {
 
         const needsUploadCache = new Map<string, boolean>();
         const computeNeedsUpload = (commitId: string): boolean => {
-            if (needsUploadCache.has(commitId)) {
-                return needsUploadCache.get(commitId)!;
+            const cached = needsUploadCache.get(commitId);
+            if (cached !== undefined) {
+                return cached;
             }
 
             const commit = commitMap.get(commitId);

@@ -4,18 +4,17 @@
  */
 import {
     DndContext,
-    DragEndEvent,
+    type DragEndEvent,
     DragOverlay,
-    DragStartEvent,
+    type DragStartEvent,
     MouseSensor,
-    TouchSensor,
     pointerWithin,
+    TouchSensor,
     useSensor,
     useSensors,
 } from '@dnd-kit/core';
 import * as React from 'react';
-import { ActionPayload, JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
-import { CommitAction } from '../jj-types';
+import type { ActionPayload, CommitAction, JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
 import { BookmarkPill } from './components/Bookmark';
 import { CommitDetails } from './components/CommitDetails';
 import { CommitDragPreview } from './components/CommitDragPreview';
@@ -82,7 +81,9 @@ const App: React.FC = () => {
 
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(true);
+            if (e.key === 'Control' || e.key === 'Meta') {
+                setIsCtrlPressed(true);
+            }
 
             // Escape to deselect
             if (e.key === 'Escape') {
@@ -97,7 +98,9 @@ const App: React.FC = () => {
             }
         };
         const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(false);
+            if (e.key === 'Control' || e.key === 'Meta') {
+                setIsCtrlPressed(false);
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);
@@ -133,7 +136,9 @@ const App: React.FC = () => {
 
                         // Validate current selection against new commits list
                         setSelectedCommitIds((prevIds) => {
-                            if (prevIds.size === 0) return prevIds;
+                            if (prevIds.size === 0) {
+                                return prevIds;
+                            }
 
                             const validIds = Array.from(prevIds).filter((id) =>
                                 message.commits.some((c: JjLogEntry) => c.change_id === id),
@@ -169,7 +174,7 @@ const App: React.FC = () => {
                         );
                     }
                     break;
-                case 'setSelection':
+                case 'setSelection': {
                     // External request to set selection (e.g. from closing details tab)
                     const newIds = new Set<string>(message.ids || []);
                     setSelectedCommitIds(newIds);
@@ -184,6 +189,7 @@ const App: React.FC = () => {
                         },
                     });
                     break;
+                }
                 case 'panelClosed':
                     setSelectedCommitIds((prevIds) => {
                         if (prevIds.has(message.payload.changeId) && prevIds.size === 1) {
@@ -409,6 +415,8 @@ const App: React.FC = () => {
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: Background click to deselect is a common pattern in graph views */}
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: Escape key handles keyboard deselection separately */}
                 <div
                     style={{ flex: 1, overflow: 'auto', minHeight: '100vh' }}
                     onClick={(e) => {

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { GerritService } from '../gerrit-service';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { GerritService } from '../gerrit-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
@@ -22,7 +22,7 @@ export async function uploadCommand(
     try {
         let commandStr = '';
         if (hasCustomCommand) {
-            commandStr = customCommand!.trim();
+            commandStr = customCommand?.trim();
         } else {
             const isGerrit = await gerrit.isGerrit();
             commandStr = isGerrit ? 'gerrit upload' : 'git push';

@@ -22,39 +22,39 @@ export type JjTemplateField =
 function buildTemplateExpr(field: JjTemplateField): string {
     switch (field.type) {
         case 'string':
-            return `"\\\"" ++ ${field.expr} ++ "\\\""`;
+            return `"\\"" ++ ${field.expr} ++ "\\""`;
         case 'json':
-            return field.expr + '.escape_json()';
+            return `${field.expr}.escape_json()`;
         case 'raw':
             return field.expr;
         case 'timestamp':
-            return `"\\\"" ++ ${field.expr}.local().format("%Y-%m-%dT%H:%M:%S%:z") ++ "\\\""`;
+            return `"\\"" ++ ${field.expr}.local().format("%Y-%m-%dT%H:%M:%S%:z") ++ "\\""`;
         case 'array': {
             // Generate item template from itemSchema
             const itemParts = Object.entries(field.itemSchema).map(([key, itemField]) => {
-                return `"\\\"${key}\\\": " ++ ${buildTemplateExpr(itemField)}`;
+                return `"\\"${key}\\": " ++ ${buildTemplateExpr(itemField)}`;
             });
             const itemTemplate = `"{" ++ ${itemParts.join(' ++ ", " ++ ')} ++ "}"`;
             return `"[" ++ ${field.expr}.map(|item| ${itemTemplate}).join(",") ++ "]"`;
         }
         case 'stringArray':
-            return `"[" ++ ${field.expr}.map(|item| "\\\"" ++ ${field.itemExpr} ++ "\\\"").join(",") ++ "]"`;
+            return `"[" ++ ${field.expr}.map(|item| "\\"" ++ ${field.itemExpr} ++ "\\"").join(",") ++ "]"`;
         case 'rawArray':
             return `"[" ++ ${field.expr}.map(|item| ${field.itemExpr}).join(",") ++ "]"`;
         case 'object': {
             const parts = Object.entries(field.fields).map(
-                ([key, value]) => `"\\\"${key}\\\": " ++ ${buildTemplateExpr(value)}`,
+                ([key, value]) => `"\\"${key}\\": " ++ ${buildTemplateExpr(value)}`,
             );
             return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}"`;
         }
         case 'nullable':
-            return `if(${field.expr}, "\\\"" ++ ${field.valueExpr} ++ "\\\"", "null")`;
+            return `if(${field.expr}, "\\"" ++ ${field.valueExpr} ++ "\\"", "null")`;
     }
 }
 
 export function buildLogTemplate(schema: Record<string, JjTemplateField>): string {
     const parts = Object.entries(schema).map(([key, field]) => {
-        return `"\\\"${key}\\\": " ++ ${buildTemplateExpr(field)}`;
+        return `"\\"${key}\\": " ++ ${buildTemplateExpr(field)}`;
     });
     return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}\\n"`;
 }

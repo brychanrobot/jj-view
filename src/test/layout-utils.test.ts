@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { JjLogEntry } from '../jj-types';
-import { GraphLayout } from '../webview/graph-model';
+import type { JjLogEntry } from '../jj-types';
+import type { GraphLayout } from '../webview/graph-model';
 import {
     computeCompactRowMaxX,
     computeGap,

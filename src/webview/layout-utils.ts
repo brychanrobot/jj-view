@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { getChangeIdDisplayLength } from '../utils/jj-utils';
-import { GraphLayout } from './graph-model';
+import type { GraphLayout } from './graph-model';
 
 /**
  * Calculates the maximum lane index occupied by any graph element (node or edge) in each row.
@@ -17,7 +17,9 @@ export function computeCompactRowMaxX(layout: GraphLayout): number[] {
     const rowMaxX = new Array(layout.rows.length).fill(0);
 
     for (const { x, y } of layout.nodes) {
-        if (y >= 0 && y < rowMaxX.length) rowMaxX[y] = Math.max(rowMaxX[y], x);
+        if (y >= 0 && y < rowMaxX.length) {
+            rowMaxX[y] = Math.max(rowMaxX[y], x);
+        }
     }
 
     for (const e of layout.edges) {

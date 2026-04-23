@@ -1,0 +1,12 @@
+node_modules
+out
+dist
+.vscode-test
+*.vsix
+.DS_Store
+playwright-report/
+test-results/
+src/webview/themes.generated.ts
+media/themes.generated.css
+vitest.config.js
+vitest.config.js.map

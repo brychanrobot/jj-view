@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
-import { JjLogWebviewProvider } from '../../jj-log-webview-provider';
-import { JjResourceState } from '../../jj-scm-provider';
+import type { JjLogWebviewProvider } from '../../jj-log-webview-provider';
+import type { JjResourceState } from '../../jj-scm-provider';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {

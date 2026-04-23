@@ -5,9 +5,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -77,13 +77,13 @@ describe('absorbCommand', () => {
             },
         ]);
 
-        const commitBId = ids['B'].commitId;
+        const commitBId = ids.B.commitId;
         const arg = { commitId: commitBId };
 
         await absorbCommand(scmProvider, jj, [arg]);
 
         // Verify A has the change
-        const contentA = repo.getFileContent(ids['A'].changeId, fileName);
+        const contentA = repo.getFileContent(ids.A.changeId, fileName);
         expect(contentA).toBe('base\nlineA modified\n');
 
         expect(scmProvider.refresh).toHaveBeenCalled();

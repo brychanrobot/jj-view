@@ -2,10 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'path';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { showJjError } from './command-utils';
 
 interface LineChange {
@@ -110,8 +110,7 @@ export async function squashChangeCommand(
     // This catches cases where VS Code sees a change (e.g., EOF newline) that JJ doesn't track separately
     const hunkRegex = /@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/g;
     let rangeInHunk = false;
-    let match;
-    while ((match = hunkRegex.exec(diffOutput)) !== null) {
+    for (const match of diffOutput.matchAll(hunkRegex)) {
         const hunkNewStart = parseInt(match[1], 10);
         const hunkNewLen = match[2] ? parseInt(match[2], 10) : 1;
         const hunkNewEnd = hunkNewStart + hunkNewLen - 1;

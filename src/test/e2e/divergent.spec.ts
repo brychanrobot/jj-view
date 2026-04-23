@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Page, expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import { ElectronApplication, type Frame } from 'playwright';
+
+import * as fs from 'node:fs';
+import { expect, type Page, test } from '@playwright/test';
+import type { ElectronApplication, Frame } from 'playwright';
 import { TestRepo } from '../test-repo';
 import { focusJJLog, getLogWebview, hoverAndClick, launchVSCode, triggerRefresh } from './e2e-helpers';
 
@@ -20,8 +21,10 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
                     return f;
                 }
                 const nested = await findFrame(f.childFrames());
-                if (nested) return nested;
-            } catch (e) {}
+                if (nested) {
+                    return nested;
+                }
+            } catch (_e) {}
         }
         return undefined;
     };
@@ -40,8 +43,13 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
         )
         .toBeDefined();
 
-    await expect(guestFrame!.locator('textarea')).toBeVisible({ timeout: 10000 });
-    return guestFrame!;
+    if (!guestFrame) {
+        throw new Error('Could not find Commit Details webview frame');
+    }
+
+    // Ensure the iframe is fully "ready" before returning
+    await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
+    return guestFrame;
 }
 
 test.describe('Divergent Commits E2E', () => {
@@ -74,13 +82,17 @@ test.describe('Divergent Commits E2E', () => {
     });
 
     test.afterEach(async () => {
-        if (app) await app.close();
+        if (app) {
+            await app.close();
+        }
         if (userDataDir) {
             try {
                 fs.rmSync(userDataDir, { recursive: true, force: true });
             } catch {}
         }
-        if (repo) repo.dispose();
+        if (repo) {
+            repo.dispose();
+        }
     });
 
     test('Visualizes divergence and allows resolving it', async () => {
@@ -108,8 +120,17 @@ test.describe('Divergent Commits E2E', () => {
         // 2. Verify Tab Title for A v2
         await rowV2.click();
 
-        const changeIdV2 = await rowV2.getAttribute('data-change-id'); // e.g. "uuid/0" or "uuid/1"
-        const [uuid, offset] = changeIdV2!.split('/');
+        const changeIdV2 = await rowV2.getAttribute('data-change-id');
+        if (!changeIdV2) {
+            throw new Error('Could not find data-change-id on row V2');
+        }
+        const match = changeIdV2.match(/^(?<uuid>[a-z0-9]+)\/(?<offset>\d+)$/);
+        expect(match).toBeTruthy();
+        const groups = match?.groups;
+        if (!groups) {
+            throw new Error('Expected named groups in change ID match');
+        }
+        const { uuid, offset } = groups;
         const shortId = uuid.substring(0, 3);
 
         // Big Solidus is \u29F8
@@ -130,7 +151,7 @@ test.describe('Divergent Commits E2E', () => {
         await expect(details.locator('button', { hasText: 'Saved' })).toBeDisabled({ timeout: 15000 });
 
         // Verify in repo
-        const desc2 = repo.getDescription(changeIdV2!);
+        const desc2 = repo.getDescription(changeIdV2);
         expect(desc2).toBe('updated A v2 message');
 
         // 4. Abandon the "zombie" commit (A v1) to resolve divergence
@@ -141,7 +162,7 @@ test.describe('Divergent Commits E2E', () => {
         const rowToAbandon = webview2.locator('.commit-row', { hasText: 'commit A v1' });
 
         await expect(rowToAbandon).toBeVisible();
-        await hoverAndClick(rowToAbandon, webview2.locator('.icon-button[title="Abandon"]'));
+        await hoverAndClick(rowToAbandon, rowToAbandon.locator('.icon-button[title="Abandon"]'));
 
         // 5. Verify divergence is resolved
         await expect(async () => {

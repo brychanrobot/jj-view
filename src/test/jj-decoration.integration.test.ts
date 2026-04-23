@@ -2,15 +2,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
-suite('JJ Decoration Integration Test', function () {
+suite('JJ Decoration Integration Test', () => {
     let scmProvider: JjScmProvider;
     let jjService: JjService;
     let repo: TestRepo;
@@ -230,7 +230,7 @@ suite('JJ Decoration Integration Test', function () {
         // Here, it would actually be marked as 'A' (Added), but essentially not ignored
 
         // 2. Ignore it first, then untrack it (jj file untrack requires the file to be ignored)
-        repo.writeFile('.gitignore', fileName + '\n');
+        repo.writeFile('.gitignore', `${fileName}\n`);
         repo.untrack(fileName);
         await scmProvider.refresh(); // This clears the decoration cache!
 

@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
+import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { JjService } from '../jj-service';
 

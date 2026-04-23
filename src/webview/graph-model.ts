@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../jj-types';
 
 export interface GraphNode {
     commitId: string;

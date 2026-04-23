@@ -1,7 +1,7 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
-import * as fs from 'fs';
 import * as Handlebars from 'handlebars';
-import * as path from 'path';
 
 export interface ThemeJsonConfig {
     strategy: 'cycle' | 'clamp';

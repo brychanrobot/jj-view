@@ -2,13 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { GerritService } from '../gerrit-service';
+import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjService } from '../jj-service';
-import { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../jj-types';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -18,7 +18,7 @@ interface UpdateMessage {
 }
 
 function createMockWebviewView() {
-    let visibilityListener: (e: void) => void | undefined;
+    let visibilityListener!: (e: undefined) => void;
     const sentMessages: UpdateMessage[] = [];
 
     const mockWebview = createMock<vscode.Webview>({
@@ -36,7 +36,7 @@ function createMockWebviewView() {
     const mockWebviewView = createMock<vscode.WebviewView>({
         webview: mockWebview,
         viewType: 'jj-view.logView',
-        onDidChangeVisibility: (listener: (e: void) => void) => {
+        onDidChangeVisibility: (listener: (e: undefined) => void) => {
             visibilityListener = listener;
             return { dispose: () => {} };
         },
@@ -48,11 +48,11 @@ function createMockWebviewView() {
         view: mockWebviewView,
         webview: mockWebview,
         sentMessages,
-        triggerVisibilityChange: () => visibilityListener?.(),
+        triggerVisibilityChange: () => visibilityListener(undefined),
     };
 }
 
-suite('Webview Visibility Integration Test', function () {
+suite('Webview Visibility Integration Test', () => {
     let jj: JjService;
     let provider: JjLogWebviewProvider;
     let repo: TestRepo;
@@ -94,7 +94,9 @@ suite('Webview Visibility Integration Test', function () {
     });
 
     teardown(async () => {
-        disposables.forEach((d) => d.dispose());
+        disposables.forEach((d) => {
+            d.dispose();
+        });
         disposables = [];
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         repo.dispose();

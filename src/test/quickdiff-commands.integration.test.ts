@@ -2,19 +2,19 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashChangeCommand } from '../commands/squash-change';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
-suite('Quick Diff Commands Integration Test', function () {
+suite('Quick Diff Commands Integration Test', () => {
     let jj: JjService;
     let repo: TestRepo;
     let canonicalPath: string;

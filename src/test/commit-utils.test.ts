@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JjService } from '../jj-service';
-import { CommitAction, JjLogEntry } from '../jj-types';
+import type { CommitAction, JjLogEntry } from '../jj-types';
 import { computeCommitActions } from '../webview/utils/commit-utils';
 import { buildGraph, TestRepo } from './test-repo';
 

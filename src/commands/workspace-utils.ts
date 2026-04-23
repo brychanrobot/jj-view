@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjService } from '../jj-service';
+import type { JjService } from '../jj-service';
 
 /**
  * Resolves a workspace name from command arguments or by prompting the user with a QuickPick.

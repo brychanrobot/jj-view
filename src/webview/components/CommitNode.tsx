@@ -5,7 +5,7 @@
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import React from 'react';
 // Needs to be available in types or duplicated.
-import { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
+import type { ActionPayload, CommitAction, JjBookmark, JjLogEntry } from '../../jj-types';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { computeCommitActions } from '../utils/commit-utils';
 import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
@@ -66,8 +66,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     const [isHovered, setIsHovered] = React.useState(false);
 
     // Row styles
-    let backgroundColor = undefined;
-    let outline = undefined;
+    let backgroundColor: string | undefined;
+    let outline: string | undefined;
 
     // 1. Background Logic
     if (isSelected) {
@@ -129,14 +129,23 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
             {...listeners}
             {...attributes}
             className={`commit-row ${isCurrentWorkingCopy ? 'working-copy' : ''}`}
+            role="option"
             aria-selected={isSelected}
+            tabIndex={0}
             data-change-id={commit.change_id}
             data-selected={isSelected}
             data-hovered={isHovered}
             data-vscode-context={JSON.stringify(vscodeContext)}
             onClick={(e) => {
+                e.stopPropagation();
                 const multiSelect = e.ctrlKey || e.metaKey;
                 onClick({ multiSelect });
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick({ multiSelect: e.ctrlKey || e.metaKey });
+                }
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -216,6 +225,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 {/* Overlay Actions */}
                 {isHovered && !active && !(selectionCount > 1) && (
                     <div
+                        className="hover-actions"
                         data-vscode-context={JSON.stringify({
                             webviewSection: 'commitActions',
                             'jj.newChildVisible': visibleActions.newChild,
@@ -370,24 +380,25 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             overflow: 'hidden',
                         }}
                     >
-                        {commit.bookmarks &&
-                            commit.bookmarks.map((bookmark: any) => (
-                                <DraggableBookmark
-                                    key={`${bookmark.name}-${bookmark.remote || 'local'}`}
-                                    bookmark={bookmark}
-                                />
-                            ))}
+                        {commit.bookmarks?.map((bookmark: JjBookmark) => (
+                            <DraggableBookmark
+                                key={`${bookmark.name}-${bookmark.remote || 'local'}`}
+                                bookmark={bookmark}
+                            />
+                        ))}
                         {commit.working_copies &&
                             commit.working_copies.length > 0 &&
                             commit.working_copies.map((workspace: string) => (
                                 <WorkspacePill key={workspace} workspace={workspace} />
                             ))}
-                        {commit.tags && commit.tags.map((tag: string) => <TagPill key={tag} tag={tag} />)}
+                        {commit.tags?.map((tag: string) => (
+                            <TagPill key={tag} tag={tag} />
+                        ))}
 
                         {isOver &&
                             active?.data?.current?.type === 'bookmark' &&
                             !commit.bookmarks?.some(
-                                (b: any) =>
+                                (b: JjBookmark) =>
                                     b.name === active.data.current?.name && b.remote === active.data.current?.remote,
                             ) && (
                                 <BookmarkPill
@@ -491,23 +502,27 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 </div>
                             ) : (
                                 // Not Synced - Interactive Upload Button
-                                <div
-                                    role="button"
+                                <button
+                                    type="button"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onAction('upload', { changeId: commit.change_id });
                                     }}
                                     title="Local changes need upload (Click to push)"
+                                    aria-label="Upload changes to Gerrit"
                                     style={{
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
                                         marginLeft: '4px',
                                         color: 'var(--vscode-charts-yellow)',
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
                                     }}
                                 >
                                     <span className="codicon codicon-cloud-upload" style={{ fontSize: '14px' }} />
-                                </div>
+                                </button>
                             ))}
 
                         {/* Attributes */}

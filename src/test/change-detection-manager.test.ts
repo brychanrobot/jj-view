@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { Mock, MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { ChangeDetectionManager } from '../change-detection-manager';
 import { DirectoryWatcher } from '../directory-watcher';
@@ -63,7 +63,9 @@ describe('ChangeDetectionManager', () => {
         // Default config: polling
         mockGetConfiguration.mockReturnValue({
             get: (key: string, defaultValue: unknown) => {
-                if (key === 'fileWatcherMode') return 'polling';
+                if (key === 'fileWatcherMode') {
+                    return 'polling';
+                }
                 return defaultValue;
             },
         });
@@ -110,7 +112,7 @@ describe('ChangeDetectionManager', () => {
         });
 
         it('starts in polling mode by default and respects 5s gap after resolution', async () => {
-            let resolveRefresh: (value: void | PromiseLike<void>) => void;
+            let resolveRefresh!: (value: void | PromiseLike<void>) => void;
             const refreshPromise = new Promise<void>((resolve) => {
                 resolveRefresh = resolve;
             });
@@ -131,7 +133,7 @@ describe('ChangeDetectionManager', () => {
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1); // Should NOT have called again
 
             // 3. Resolve the refresh
-            resolveRefresh!();
+            resolveRefresh();
             await vi.runAllTicks(); // Process promise resolution
 
             // Should NOT call immediately upon resolution
@@ -208,7 +210,9 @@ describe('ChangeDetectionManager', () => {
             // Setup config to return 'watch'
             mockGetConfiguration.mockReturnValue({
                 get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') return 'watch';
+                    if (key === 'fileWatcherMode') {
+                        return 'watch';
+                    }
                     return defaultValue;
                 },
             });
@@ -282,7 +286,9 @@ describe('ChangeDetectionManager', () => {
             // Setup config to return 'watch'
             mockGetConfiguration.mockReturnValue({
                 get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') return 'watch';
+                    if (key === 'fileWatcherMode') {
+                        return 'watch';
+                    }
                     return defaultValue;
                 },
             });
@@ -323,7 +329,9 @@ describe('ChangeDetectionManager', () => {
             // Setup config to return 'watch'
             mockGetConfiguration.mockReturnValue({
                 get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') return 'watch';
+                    if (key === 'fileWatcherMode') {
+                        return 'watch';
+                    }
                     return defaultValue;
                 },
             });

@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
@@ -12,7 +12,7 @@ import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
-suite('Quick Diff Integration Test', function () {
+suite('Quick Diff Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let viewFileSystemProvider: JjViewFileSystemProvider;
@@ -108,7 +108,7 @@ suite('Quick Diff Integration Test', function () {
         repo.new(undefined, 'test');
         repo.writeFile(fileName, 'modified\n');
 
-        const fileUri = vscode.Uri.file(canonicalPath + '/' + fileName);
+        const fileUri = vscode.Uri.file(`${canonicalPath}/${fileName}`);
         const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
 
         // Track calls to readFile

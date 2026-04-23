@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { useDraggable } from '@dnd-kit/core';
-import React from 'react';
-import { JjBookmark } from '../../jj-types';
+import type React from 'react';
+import type { JjBookmark } from '../../jj-types';
 
 export const BasePill: React.FC<{
     children: React.ReactNode;

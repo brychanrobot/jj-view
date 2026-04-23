@@ -2,13 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Locator, expect } from '@playwright/test';
-import { SilentReporter, downloadAndUnzipVSCode } from '@vscode/test-electron';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { ElectronApplication, type Frame, Page, _electron as electron } from 'playwright';
-import { TestRepo } from '../test-repo';
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { expect, type Locator } from '@playwright/test';
+import { downloadAndUnzipVSCode, SilentReporter } from '@vscode/test-electron';
+import { type ElectronApplication, _electron as electron, type Frame, type Page } from 'playwright';
+import type { TestRepo } from '../test-repo';
 
 export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
 
@@ -112,7 +113,7 @@ export async function launchVSCode(
         const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodePath);
 
         // Install the extension via CLI
-        const { spawnSync } = await import('child_process');
+        const { spawnSync } = await import('node:child_process');
         console.log(`Installing VSIX from ${vsixPath} using CLI ${cliPath}...`);
         const result = spawnSync(cliPath, ['--install-extension', vsixPath, '--extensions-dir', extensionsDir], {
             encoding: 'utf-8',
@@ -205,10 +206,14 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
     async function findFrameWithSelector(frames: ReadonlyArray<Frame>, selector: string): Promise<Frame | undefined> {
         for (const f of frames) {
             try {
-                if ((await f.locator(selector).count()) > 0) return f;
+                if ((await f.locator(selector).count()) > 0) {
+                    return f;
+                }
                 const nested = await findFrameWithSelector(f.childFrames(), selector);
-                if (nested) return nested;
-            } catch (e) {}
+                if (nested) {
+                    return nested;
+                }
+            } catch (_) {}
         }
         return undefined;
     }
@@ -227,7 +232,10 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
         )
         .toBeDefined();
 
-    return guestFrame!;
+    if (!guestFrame) {
+        throw new Error('Could not find JJ Log webview frame');
+    }
+    return guestFrame;
 }
 
 /**
@@ -397,7 +405,11 @@ export async function expectSettingsOpen(page: Page, settingName: string | RegEx
         await expect(settingItem.first()).toBeVisible({ timeout: 5000 });
     }, `Failed to find Settings editor or specified setting "${settingName}"`).toPass({ timeout: 20000 });
 
-    return settingItem!.first();
+    if (!settingItem) {
+        throw new Error(`Failed to find setting item: ${settingName}`);
+    }
+
+    return settingItem.first();
 }
 
 /**
@@ -451,10 +463,10 @@ export async function clickNotificationButton(page: Page, actionLabel: string) {
 /**
  * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
  */
-export async function waitForQuickInput(page: Page): Promise<Locator> {
+export async function waitForQuickInput(page: Page, timeout: number = 10000): Promise<Locator> {
     const quickInput = page.locator('.quick-input-widget');
     const input = quickInput.locator('input.input');
-    await expect(input).toBeVisible({ timeout: 10000 });
+    await expect(input).toBeVisible({ timeout });
     return input;
 }
 
@@ -465,7 +477,7 @@ export type LogRowCriteria = string | RegExp | { changeId?: string; text?: strin
  * Handles webview reloads by re-fetching the frame on retry.
  */
 export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, repo?: TestRepo): Promise<Locator> {
-    let row: Locator;
+    let row: Locator | undefined;
     try {
         await expect(
             async () => {
@@ -496,12 +508,15 @@ export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, 
                 '[jj-view Test Diagnostic] Webview body text content (first 500 chars):\n',
                 content.substring(0, 500),
             );
-        } catch (innerError) {
+        } catch (_innerError) {
             console.log('[jj-view Test Diagnostic] Could not fetch webview content for diagnostics.');
         }
         throw e;
     }
-    return row!;
+    if (!row) {
+        throw new Error(`Failed to find log row matching ${JSON.stringify(criteria)}`);
+    }
+    return row;
 }
 
 /**
@@ -509,24 +524,17 @@ export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, 
  * Re-fetches the frame and row on each retry to handle webview reloads.
  */
 export async function clickLogAction(page: Page, rowCriteria: LogRowCriteria, actionTitle: string, repo?: TestRepo) {
-    try {
-        await expect(
-            async () => {
-                const row = await waitForLogCommitRow(page, rowCriteria, repo);
-                await row.hover();
+    await expect(
+        async () => {
+            const row = await waitForLogCommitRow(page, rowCriteria, repo);
+            await row.hover();
 
-                const button = row.locator(`[title="${actionTitle}"]`);
-                await expect(button).toBeVisible({ timeout: 200 });
-                await button.click({ force: true });
-            },
-            `Failed to click action "${actionTitle}" on row matching ${JSON.stringify(rowCriteria)}`,
-        ).toPass({
-            timeout: 20000,
-        });
-    } catch (e) {
-        // waitForLogCommitRow already logs diagnostics if it fails.
-        // If it succeeded but hover/click failed, we might want extra logs here,
-        // but for now, the row failure is the most common reason for detachment.
-        throw e;
-    }
+            const button = row.locator(`[title="${actionTitle}"]`);
+            await expect(button).toBeVisible({ timeout: 200 });
+            await button.click({ force: true });
+        },
+        `Failed to click action "${actionTitle}" on row matching ${JSON.stringify(rowCriteria)}`,
+    ).toPass({
+        timeout: 20000,
+    });
 }

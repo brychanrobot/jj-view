@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjStatusEntry } from './jj-types';
+import type { JjStatusEntry } from './jj-types';
 
 export function createDiffUris(
     entry: JjStatusEntry,

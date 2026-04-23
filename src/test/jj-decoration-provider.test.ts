@@ -4,9 +4,9 @@
  */
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
-import { JjService } from '../jj-service';
-import { JjStatusEntry } from '../jj-types';
+import type * as vscode from 'vscode';
+import type { JjService } from '../jj-service';
+import type { JjStatusEntry } from '../jj-types';
 import { accessPrivate, createMock } from './test-utils';
 
 // Mock vscode

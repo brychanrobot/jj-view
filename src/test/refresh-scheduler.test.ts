@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { type Mock, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import { RefreshScheduler } from '../refresh-scheduler';
 
 // Hoisted mock for vscode
@@ -28,8 +28,12 @@ describe('RefreshScheduler', () => {
         // Default config
         getConfigurationMock.mockReturnValue({
             get: (key: string, defaultValue: unknown) => {
-                if (key === 'refreshDebounceMillis') return 100;
-                if (key === 'refreshDebounceMaxMultiplier') return 4;
+                if (key === 'refreshDebounceMillis') {
+                    return 100;
+                }
+                if (key === 'refreshDebounceMaxMultiplier') {
+                    return 4;
+                }
                 return defaultValue;
             },
         });

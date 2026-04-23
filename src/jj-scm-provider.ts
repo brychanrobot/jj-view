@@ -2,19 +2,19 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import { getErrorMessage } from './commands/command-utils';
 import { completeSquashCommand } from './commands/squash';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
-import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
+import type { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
 import { JjService } from './jj-service';
-import { JjLogEntry, JjStatusEntry } from './jj-types';
-import { JjViewFileSystemProvider } from './jj-view-fs-provider';
+import type { JjLogEntry, JjStatusEntry } from './jj-types';
+import type { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { RefreshScheduler } from './refresh-scheduler';
 import { createDiffUris } from './uri-utils';
 import { formatDisplayChangeId } from './utils/jj-utils';
@@ -266,7 +266,9 @@ export class JjScmProvider implements vscode.Disposable {
 
                         for (let i = 0; i < parentEntries.length; i++) {
                             const parentEntry = parentEntries[i];
-                            if (!parentEntry || parentEntry.is_immutable) continue;
+                            if (!parentEntry || parentEntry.is_immutable) {
+                                continue;
+                            }
 
                             const prefix = isMerge ? `@-${ancestorDepth}^${i + 1}` : `@-${ancestorDepth}`;
 
@@ -465,7 +467,9 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     async abandon(revisions: string[]) {
-        if (revisions.length === 0) return;
+        if (revisions.length === 0) {
+            return;
+        }
         await this.jj.abandon(revisions);
         await this.refresh();
     }
@@ -609,6 +613,8 @@ export class JjScmProvider implements vscode.Disposable {
 
     dispose() {
         this._disposed = true;
-        this.disposables.forEach((d) => d.dispose());
+        this.disposables.forEach((d) => {
+            d.dispose();
+        });
     }
 }

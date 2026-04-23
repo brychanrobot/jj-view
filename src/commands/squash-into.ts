@@ -3,15 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function squashIntoCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
     const paths = resourceStates.map((r) => r.resourceUri.fsPath);
 
-    let revision = extractRevision(args) || '@';
+    const revision = extractRevision(args) || '@';
 
     try {
         // Fetch up to 10 mutable ancestors for the given revision
@@ -59,7 +59,10 @@ export async function squashIntoCommand(scmProvider: JjScmProvider, jj: JjServic
             return;
         } // User cancelled
 
-        const selectedAncestorRev = selected.detail!;
+        const selectedAncestorRev = selected.detail;
+        if (!selectedAncestorRev) {
+            return;
+        }
 
         // Perform the squash using --into
         await withDelayedProgress('Squashing...', jj.squash(paths, revision, selectedAncestorRev, undefined, true));

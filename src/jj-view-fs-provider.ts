@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { JjService } from './jj-service';
+import type { JjService } from './jj-service';
 
 /**
  * A FileSystemProvider that provides read-only access to "original" file content

@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
-import { TestRepo, buildGraph } from '../test-repo';
-import { ROOT_ID, entry, expectTree, focusSCM, hoverAndClick, launchVSCode, setScmDescription } from './e2e-helpers';
+import { buildGraph, TestRepo } from '../test-repo';
+import { entry, expectTree, focusSCM, hoverAndClick, launchVSCode, ROOT_ID, setScmDescription } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -65,7 +66,7 @@ test.describe('SCM Pane E2E', () => {
         const commits = await buildGraph(repo, [
             { label: 'initial', description: 'initial', files: { 'file.txt': 'base' }, isCurrentWorkingCopy: true },
         ]);
-        const initialId = commits['initial'].changeId;
+        const initialId = commits.initial.changeId;
         const workspaceRootId = repo.getParents(initialId)[0];
 
         const { app, page, userDataDir } = await launchVSCode(repo);
@@ -187,7 +188,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Assert via repo that wc change is abandoned. Poll until true.
             await expect(async () => {
-                const isWcChangeStillPresent = repo.log().includes(commits['wc'].changeId);
+                const isWcChangeStillPresent = repo.log().includes(commits.wc.changeId);
                 expect(isWcChangeStillPresent).toBe(false);
             }).toPass({ timeout: 5000 });
 
@@ -394,7 +395,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
             await expect(async () => {
-                expect(repo.getFileContent(commits['ancestor'].changeId, 'f1.txt').trim()).toBe('2');
+                expect(repo.getFileContent(commits.ancestor.changeId, 'f1.txt').trim()).toBe('2');
             }).toPass({ timeout: 5000 });
 
             // 2. Show Details
@@ -435,7 +436,7 @@ test.describe('SCM Pane E2E', () => {
             // Assert via repo that the working copy is now the ancestor
             await expect(async () => {
                 const changeId = repo.getWorkingCopyId();
-                expect(changeId).toBe(commits['ancestor'].changeId);
+                expect(changeId).toBe(commits.ancestor.changeId);
             }).toPass({ timeout: 5000 });
         } finally {
             await app.close();
@@ -490,7 +491,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Ensure the ancestor commit was mutated with the diff edits
             await expect(async () => {
-                const f1Content = repo.getFileContent(commits['ancestor'].changeId, 'f1.txt');
+                const f1Content = repo.getFileContent(commits.ancestor.changeId, 'f1.txt');
                 expect(f1Content.trim()).toBe('edited from multi-diff');
             }).toPass({ timeout: 5000 });
         } finally {

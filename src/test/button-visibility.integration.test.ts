@@ -2,15 +2,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
-suite('Button Visibility Integration Test', function () {
+suite('Button Visibility Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let executeCommandStub: sinon.SinonStub;

@@ -5,9 +5,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { newMergeChangeCommand } from '../../commands/merge';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { asMock, createMock } from '../test-utils';
 
 vi.mock('vscode', () => ({
@@ -45,15 +45,15 @@ describe('newMergeChangeCommand', () => {
             { label: 'p2', description: 'p2' },
         ]);
 
-        const args = [{ revision: ids['p1'].changeId }, { revision: ids['p2'].changeId }];
+        const args = [{ revision: ids.p1.changeId }, { revision: ids.p2.changeId }];
         await newMergeChangeCommand(scmProvider, jj, ...args);
 
         // Verify parent change IDs
         const actualParents = repo.getParents('@');
         expect(actualParents.length).toBe(2);
 
-        expect(actualParents).toContain(ids['p1'].changeId);
-        expect(actualParents).toContain(ids['p2'].changeId);
+        expect(actualParents).toContain(ids.p1.changeId);
+        expect(actualParents).toContain(ids.p2.changeId);
     });
 
     test('falls back to selection if no args', async () => {

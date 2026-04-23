@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
-import * as cp from 'child_process';
+import * as assert from 'node:assert';
+import * as cp from 'node:child_process';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { checkGitColocation } from '../git-colocation';

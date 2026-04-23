@@ -2,13 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'path';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashChangeCommand } from '../../commands/squash-change';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
+import type { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 

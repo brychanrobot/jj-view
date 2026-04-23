@@ -8,7 +8,9 @@ import * as prettier from 'prettier/standalone';
 export async function formatCommitDescription(description: string, bodyWidthRuler: number): Promise<string> {
     // Separate the title, any empty lines immediately following it, and the content body.
     const titleMatch = description.match(/^([^\n]*)\n((?:[ \t]*\n)*)([\s\S]*)$/);
-    if (!titleMatch || !titleMatch[3].trim()) return description; // Nothing to format
+    if (!titleMatch?.[3].trim()) {
+        return description; // Nothing to format
+    }
 
     const [, title, emptyPrefix, contentToFormat] = titleMatch;
 

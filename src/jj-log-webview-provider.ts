@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { GerritService } from './gerrit-service';
+import type { GerritService } from './gerrit-service';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
-import { JjService } from './jj-service';
-import { JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, ToggleableCommitAction } from './jj-types';
+import type { JjService } from './jj-service';
+import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
 import { formatCommitTitle } from './utils/jj-utils';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
@@ -120,8 +120,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'edit':
                     await vscode.commands.executeCommand('jj-view.edit', data.payload);
                     break;
-                case 'select':
+                case 'select': {
                     const details = await this._jj.showDetails(data.payload.changeId);
+                    // biome-ignore lint/suspicious/noControlCharactersInRegex: Standard regex for stripping ANSI escape codes
                     const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
                     vscode.workspace.openTextDocument({ content: cleanDetails, language: 'plaintext' }).then((doc) =>
                         vscode.window.showTextDocument(doc, {
@@ -130,6 +131,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         }),
                     );
                     break;
+                }
                 case 'undo':
                     await vscode.commands.executeCommand('jj-view.undo');
                     break;
@@ -204,7 +206,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         const selectedCommit = this._cachedCommits.find(
                             (c) => c.change_id === data.payload.commitIds[0],
                         );
-                        if (selectedCommit && selectedCommit.parents_immutable) {
+                        if (selectedCommit?.parents_immutable) {
                             // If any parent is NOT immutable (i.e. is mutable), then we can absorb
                             parentMutable = selectedCommit.parents_immutable.some((immutable) => !immutable);
                         } else if (selectedCommit) {
@@ -264,8 +266,12 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
     /** Re-fetch Gerrit data for cached commits and re-render. */
     private async refreshGerrit() {
-        if (!this._view || this._cachedCommits.length === 0) return;
-        if (!this._gerrit.isEnabled) return;
+        if (!this._view || this._cachedCommits.length === 0) {
+            return;
+        }
+        if (!this._gerrit.isEnabled) {
+            return;
+        }
 
         try {
             this._gerrit.startPolling();

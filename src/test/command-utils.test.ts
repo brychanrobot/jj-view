@@ -52,7 +52,7 @@ describe('withDelayedProgress', () => {
     });
 
     it('should show progress if task is slow (>100ms)', async () => {
-        let resolveTask: (value: string) => void;
+        let resolveTask!: (value: string) => void;
         const slowTask = new Promise<string>((resolve) => {
             resolveTask = resolve;
         });
@@ -67,7 +67,7 @@ describe('withDelayedProgress', () => {
             expect.any(Function),
         );
 
-        resolveTask!('finally done');
+        resolveTask('finally done');
         await promise;
     });
 });

@@ -43,9 +43,10 @@ describe('showMultiFileDiffCommand', () => {
 
         expect(vscode.commands.executeCommand).toHaveBeenCalled();
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        expect(call).toBeDefined();
-
-        const [, title, resourceTuples] = call!;
+        if (!call) {
+            throw new Error('vscode.changes command was not called');
+        }
+        const [, title, resourceTuples] = call;
 
         // Title should include short change ID and description
         expect(title).toContain(changeId.slice(0, 8));
@@ -80,7 +81,7 @@ describe('showMultiFileDiffCommand', () => {
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
-        const tuples = call![2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const tuples = call?.[2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
         expect(tuples).toHaveLength(1);
 
         // Modified side should use change ID, not '@', with jj-edit scheme
@@ -98,7 +99,7 @@ describe('showMultiFileDiffCommand', () => {
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
-        const tuples = call![2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const tuples = call?.[2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
         expect(tuples).toHaveLength(1);
     });
 

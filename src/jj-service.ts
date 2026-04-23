@@ -2,13 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { LOG_ENTRY_SCHEMA, buildLogTemplate, CHANGE_ID_EXPR } from './jj-template-builder';
-import { JjLogEntry, JjStatusEntry } from './jj-types';
-import { PatchHelper, SelectionRange } from './patch-helper';
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { buildLogTemplate, CHANGE_ID_EXPR, LOG_ENTRY_SCHEMA } from './jj-template-builder';
+import type { JjLogEntry, JjStatusEntry } from './jj-types';
+import type { SelectionRange } from './patch-helper';
+import * as PatchHelper from './patch-helper';
 
 export interface JjLogOptions {
     revision?: string;
@@ -249,9 +250,15 @@ export class JjService {
                         const combined: string[] = [];
                         const outStr = stdout?.toString().trim();
                         const errStr = stderr?.toString().trim();
-                        if (outStr) combined.push(outStr);
-                        if (errStr) combined.push(errStr);
-                        if (combined.length > 0) err.message = combined.join('\n\n');
+                        if (outStr) {
+                            combined.push(outStr);
+                        }
+                        if (errStr) {
+                            combined.push(errStr);
+                        }
+                        if (combined.length > 0) {
+                            err.message = combined.join('\n\n');
+                        }
                         reject(err);
                     } else {
                         resolve({ stdout });
@@ -383,7 +390,7 @@ export class JjService {
                                 `heads(::(${entry.change_id}-) & (${searchSet}))`,
                                 '--no-graph',
                                 '-T',
-                                CHANGE_ID_EXPR + ' ++ "\\n"',
+                                `${CHANGE_ID_EXPR} ++ "\\n"`,
                             ],
                             { useCachedSnapshot: true, label: `nearestAncestors:${entry.change_id}` },
                         );
@@ -707,7 +714,9 @@ export class JjService {
     ): Promise<string> {
         const args: string[] = [];
         const destinations = Array.isArray(destination) ? destination : [destination];
-        destinations.forEach((d) => args.push('-d', d));
+        destinations.forEach((d) => {
+            args.push('-d', d);
+        });
 
         if (mode === 'source') {
             // Rebase set (source and descendants)
@@ -1007,7 +1016,7 @@ export class JjService {
             if (e.path.startsWith('"') && e.path.endsWith('"')) {
                 try {
                     e.path = JSON.parse(e.path);
-                } catch (err) {}
+                } catch (_) {}
             }
         });
 
@@ -1150,7 +1159,9 @@ export class JjService {
 
                     const lines = stdout.toString().trim().split('\n');
                     for (const line of lines) {
-                        if (!line) continue;
+                        if (!line) {
+                            continue;
+                        }
 
                         // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
                         // Git ls-tree output is fairly standard: mode type sha\tpath

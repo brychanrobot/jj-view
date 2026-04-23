@@ -2,8 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs';
 import AdmZip from 'adm-zip';
-import * as fs from 'fs';
 
 const vsixPath = process.argv[2];
 if (!vsixPath) {

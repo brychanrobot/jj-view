@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
 import { JjScmProvider } from '../jj-scm-provider';
@@ -10,7 +10,7 @@ import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
-suite('JJ SCM Visibility Integration Test', function () {
+suite('JJ SCM Visibility Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.OutputChannel;

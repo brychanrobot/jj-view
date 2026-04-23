@@ -2,12 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { BackendType } from '@parcel/watcher';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type { BackendType } from '@parcel/watcher';
 import * as vscode from 'vscode';
 import { DirectoryWatcher } from './directory-watcher';
-import { JjService } from './jj-service';
+import type { JjService } from './jj-service';
 import { Poller } from './poller';
 
 export class ChangeDetectionManager implements vscode.Disposable {
@@ -47,8 +48,12 @@ export class ChangeDetectionManager implements vscode.Disposable {
         // 1. Watch for editor saves (catches user edits in VS Code)
         this.disposables.push(
             vscode.workspace.onDidSaveTextDocument((doc) => {
-                if (doc.uri.scheme !== 'file') return;
-                if (doc.uri.fsPath.includes('/.jj/')) return;
+                if (doc.uri.scheme !== 'file') {
+                    return;
+                }
+                if (doc.uri.fsPath.includes('/.jj/')) {
+                    return;
+                }
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file saved' });
             }),
         );
@@ -136,7 +141,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         // Handle non-default workspaces where .jj/repo might be a file containing a path
         const repoStorePath = await this.jj.getRepoStorePath();
-        if (this._disposed) return;
+        if (this._disposed) {
+            return;
+        }
 
         const opHeadsPath = path.join(repoStorePath, 'op_heads');
 
@@ -148,7 +155,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        if (this._disposed) return;
+        if (this._disposed) {
+            return;
+        }
 
         this._opHeadsWatcher = new DirectoryWatcher(
             realOpHeadsPath,
@@ -198,7 +207,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
 
         const [gitIgnores, gitModules] = await Promise.all([this.getGitIgnorePatterns(), this.getGitModulesPatterns()]);
-        if (this._disposed) return;
+        if (this._disposed) {
+            return;
+        }
 
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules];
 
@@ -239,7 +250,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                     // By stripping wildcards we ensure directory contents are ignored, which is the common case
                     // for gitignore patterns like /out/. The caveat is that we lose true wildcard matching
                     // (e.g. /out*/ will only match a directory named exactly 'out').
-                    return line.replace(/^[\/*?]+|[\/*?]+$/g, '');
+                    return line.replace(/^[/*?]+|[/*?]+$/g, '');
                 })
                 .filter((pattern) => pattern.length > 0);
         } catch {
@@ -280,7 +291,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
             this._opHeadsWatcher = undefined;
         }
 
-        this.disposables.forEach((d) => d.dispose());
+        this.disposables.forEach((d) => {
+            d.dispose();
+        });
         this.disposables = [];
     }
 }

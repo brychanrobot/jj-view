@@ -2,17 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { Page, expect, test } from '@playwright/test';
-import * as fs from 'fs';
-import { ElectronApplication } from 'playwright';
-import { type CommitId, TestRepo, buildGraph } from '../test-repo';
+
+import * as fs from 'node:fs';
+import { expect, type Page, test } from '@playwright/test';
+import type { ElectronApplication } from 'playwright';
+import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
-    ROOT_ID,
     entry,
     expectTree,
     focusJJLog,
     getLogWebview,
     launchVSCode,
+    ROOT_ID,
     rightClickAndSelect,
     selectCommits,
     triggerRefresh,
@@ -49,12 +50,17 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test.afterEach(async () => {
-        if (app) await app.close();
-        if (userDataDir)
+        if (app) {
+            await app.close();
+        }
+        if (userDataDir) {
             try {
                 fs.rmSync(userDataDir, { recursive: true, force: true });
             } catch {}
-        if (repo) repo.dispose();
+        }
+        if (repo) {
+            repo.dispose();
+        }
     });
 
     test('Abandon and Undo', async () => {
@@ -62,16 +68,16 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
 
-        const commit2Id = nodes['commit2'].changeId;
-        const commit1Id = nodes['commit1'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const initialId = nodes.initial.changeId;
 
         // Abandon commit 2
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
         await rightClickAndSelect(page, commit2Row, 'Abandon');
 
         await expectTree(repo, [
-            '@ ' + entry('*', '(empty)', initialId),
+            `@ ${entry('*', '(empty)', initialId)}`,
             entry(commit1Id, 'commit1', initialId),
             entry(initialId, 'initial', dummyId),
             entry(dummyId, 'dummy', ROOT_ID),
@@ -83,7 +89,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         // After undo, commit2 should be restored as the working copy
         await expectTree(repo, [
-            '@ ' + entry(commit2Id, 'commit2', initialId),
+            `@ ${entry(commit2Id, 'commit2', initialId)}`,
             entry(commit1Id, 'commit1', initialId),
             entry(initialId, 'initial', dummyId),
             entry(dummyId, 'dummy', ROOT_ID),
@@ -95,9 +101,9 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         await expect(webview.locator('.commit-row', { hasText: 'commit1' })).toBeVisible();
 
-        const commit2Id = nodes['commit2'].changeId;
-        const commit1Id = nodes['commit1'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const initialId = nodes.initial.changeId;
 
         // New Before initial
         const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
@@ -110,7 +116,7 @@ test.describe('JJ Log Context Menu E2E', () => {
                 entry(commit2Id, 'commit2', initialId),
                 entry(commit1Id, 'commit1', initialId),
                 entry(initialId, 'initial', '*'),
-                '@ ' + entry('*', '(empty)', dummyId),
+                `@ ${entry('*', '(empty)', dummyId)}`,
                 entry(dummyId, 'dummy', ROOT_ID),
             ]);
         }).toPass();
@@ -123,7 +129,7 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
-        const initialId = nodes['initial'].changeId;
+        const initialId = nodes.initial.changeId;
 
         // Select both
         await selectCommits([commit2Row, commit1Row]);
@@ -132,7 +138,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         await rightClickAndSelect(page, commit1Row, 'Abandon');
 
         await expectTree(repo, [
-            '@ ' + entry('*', '(empty)', initialId),
+            `@ ${entry('*', '(empty)', initialId)}`,
             entry(initialId, 'initial', dummyId),
             entry(dummyId, 'dummy', ROOT_ID),
         ]);
@@ -145,9 +151,9 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
-        const commit2Id = nodes['commit2'].changeId;
-        const commit1Id = nodes['commit1'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const initialId = nodes.initial.changeId;
 
         // Select both
         await selectCommits([commit2Row, commit1Row]);
@@ -162,7 +168,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             await expectTree(repo, [
                 entry(commit1Id, 'commit1', '*'),
                 entry(commit2Id, 'commit2', '*'),
-                '@ ' + entry('*', '(empty)', initialId),
+                `@ ${entry('*', '(empty)', initialId)}`,
                 entry(initialId, 'initial', dummyId),
                 entry(dummyId, 'dummy', ROOT_ID),
             ]);
@@ -174,9 +180,9 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         await expect(webview.locator('.commit-row', { hasText: 'initial' })).toBeVisible();
 
-        const commit2Id = nodes['commit2'].changeId;
-        const commit1Id = nodes['commit1'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const initialId = nodes.initial.changeId;
 
         // New After initial
         const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
@@ -188,7 +194,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             await expectTree(repo, [
                 entry(commit1Id, 'commit1', '*'),
                 entry(commit2Id, 'commit2', '*'),
-                '@ ' + entry('*', '(empty)', initialId),
+                `@ ${entry('*', '(empty)', initialId)}`,
                 entry(initialId, 'initial', dummyId),
                 entry(dummyId, 'dummy', ROOT_ID),
             ]);
@@ -196,9 +202,9 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Multi-select New After', async () => {
-        const commit1Id = nodes['commit1'].changeId;
-        const commit2Id = nodes['commit2'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const initialId = nodes.initial.changeId;
 
         // Create children so "insert after" has something to rebase
         repo.new([commit1Id]);
@@ -245,7 +251,7 @@ test.describe('JJ Log Context Menu E2E', () => {
     test('Edit', async () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
-        const commit1Id = nodes['commit1'].changeId;
+        const commit1Id = nodes.commit1.changeId;
 
         // Edit commit 1
         await rightClickAndSelect(page, commit1Row, 'Edit');
@@ -267,13 +273,13 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Verification: a new commit should be created with the same parent
         // Note: jj duplicate does NOT move @.
         // New duplicate (latest) -> commit2 (@) -> commit1 (original)
-        const commit2Id = nodes['commit2'].changeId;
-        const commit1Id = nodes['commit1'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const initialId = nodes.initial.changeId;
 
         await expectTree(repo, [
             expect.stringMatching(new RegExp(`^[a-z0-9]+ \\[${initialId}\\] commit1$`)),
-            '@ ' + entry(commit2Id, 'commit2', initialId),
+            `@ ${entry(commit2Id, 'commit2', initialId)}`,
             entry(commit1Id, 'commit1', initialId),
             entry(initialId, 'initial', dummyId),
             entry(dummyId, 'dummy', ROOT_ID),
@@ -284,9 +290,9 @@ test.describe('JJ Log Context Menu E2E', () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
-        const commit1Id = nodes['commit1'].changeId;
-        const commit2Id = nodes['commit2'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const initialId = nodes.initial.changeId;
 
         // Select both
         await selectCommits([commit1Row, commit2Row]);
@@ -297,7 +303,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Verification: a new merge commit should be created
         await expect(async () => {
             await expectTree(repo, [
-                '@ ' + entry('*', '(empty)', [commit1Id, commit2Id]),
+                `@ ${entry('*', '(empty)', [commit1Id, commit2Id])}`,
                 entry(commit2Id, 'commit2', initialId),
                 entry(commit1Id, 'commit1', initialId),
                 entry(initialId, 'initial', dummyId),
@@ -310,9 +316,9 @@ test.describe('JJ Log Context Menu E2E', () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
         const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
-        const commit1Id = nodes['commit1'].changeId;
-        const commit2Id = nodes['commit2'].changeId;
-        const initialId = nodes['initial'].changeId;
+        const commit1Id = nodes.commit1.changeId;
+        const commit2Id = nodes.commit2.changeId;
+        const initialId = nodes.initial.changeId;
 
         // Select commit2 as the destination, then right-click commit1 to rebase it
         await selectCommits([commit2Row]);
@@ -322,7 +328,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         await expect(async () => {
             await expectTree(repo, [
                 entry(commit1Id, 'commit1', commit2Id),
-                '@ ' + entry(commit2Id, 'commit2', initialId),
+                `@ ${entry(commit2Id, 'commit2', initialId)}`,
                 entry(initialId, 'initial', dummyId),
                 entry(dummyId, 'dummy', ROOT_ID),
             ]);
@@ -355,7 +361,7 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Absorb', async () => {
-        const commit1Id = nodes['commit1'].changeId;
+        const commit1Id = nodes.commit1.changeId;
         const webview = await getLogWebview(page);
         // Move @ to commit1 and modify a file
         repo.edit(commit1Id);
@@ -392,7 +398,7 @@ test.describe('JJ Log Context Menu E2E', () => {
         await rightClickAndSelect(page, initialRow, 'Show Multi-File Diff');
 
         // Verification: A diff editor should open.
-        const shortId = nodes['initial'].changeId.substring(0, 3);
+        const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
     });
 
@@ -404,7 +410,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             // 1. Add an invalid 'origin' remote (non-existent local path) to force immediate failure
             repo.addRemote('origin', '/tmp/non-existent-jj-remote-directory');
             repo.config('remotes.origin.auto-track-bookmarks', '"*"');
-            repo.bookmark('fail-branch', nodes['commit1'].changeId);
+            repo.bookmark('fail-branch', nodes.commit1.changeId);
 
             // 2. Un-hide notifications toast locally
             await page.addStyleTag({
@@ -435,7 +441,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
             // 4. Create a bookmark on commit1
-            const changeId = nodes['commit1'].changeId;
+            const changeId = nodes.commit1.changeId;
             repo.bookmark('test-branch', changeId);
 
             // 5. Trigger "Upload"

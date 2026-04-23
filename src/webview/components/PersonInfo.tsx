@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as React from 'react';
+import type * as React from 'react';
 
 export interface PersonInfoProps {
     person?: { name: string; email: string; timestamp: string };
@@ -11,7 +11,9 @@ export interface PersonInfoProps {
 
 export function getRelativeTimeString(timestamp: string, now: number | null = null): string {
     const time = new Date(timestamp).getTime();
-    if (isNaN(time)) return timestamp;
+    if (Number.isNaN(time)) {
+        return timestamp;
+    }
 
     // If we assume a year is 365.25 days:
     const SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60;
@@ -20,7 +22,9 @@ export function getRelativeTimeString(timestamp: string, now: number | null = nu
     const diffMs = (now ?? Date.now()) - time;
     // This function only works for timestamps in the past.
     // (We could make it work for timestamps in the future, but that isn't a valid input for now.)
-    if (diffMs < 0) return timestamp;
+    if (diffMs < 0) {
+        return timestamp;
+    }
 
     // Display a single unit of time from seconds to years.
     const seconds = Math.floor(diffMs / 1000);
@@ -65,7 +69,9 @@ export function getPersonDisplayStrings(person: { name: string; email: string; t
 }
 
 export const PersonInfo: React.FC<PersonInfoProps> = ({ person, label }) => {
-    if (!person) return null;
+    if (!person) {
+        return null;
+    }
 
     const { nameToDisplay, emailToDisplay, fullTime, relTime, hasEmail } = getPersonDisplayStrings(person);
 

@@ -2,10 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 export class TestRepo {
     public readonly path: string;
@@ -17,7 +17,7 @@ export class TestRepo {
     dispose() {
         try {
             fs.rmSync(this.path, { recursive: true, force: true });
-        } catch (e) {
+        } catch (_e) {
             // Ignore clean up errors
         }
     }
@@ -227,13 +227,17 @@ export class TestRepo {
             "parents.map(|p| p.change_id()).join(' ')",
             '--no-graph',
         ]);
-        if (!output) return [];
+        if (!output) {
+            return [];
+        }
         return output.split(' ');
     }
 
     getChildren(revision: string): string[] {
         const output = this.exec(['log', '-r', `children(${revision})`, '-T', 'change_id ++ "\\n"', '--no-graph']);
-        if (!output) return [];
+        if (!output) {
+            return [];
+        }
         return output.trim().split('\n').filter(Boolean);
     }
 
@@ -247,13 +251,17 @@ export class TestRepo {
 
     getBookmarks(revision: string): string[] {
         const output = this.exec(['log', '-r', revision, '-T', "bookmarks.map(|b| b.name()).join(' ')", '--no-graph']);
-        if (!output) return [];
+        if (!output) {
+            return [];
+        }
         return output.split(' ');
     }
 
     listFiles(revision: string): string[] {
         const output = this.exec(['file', 'list', '-r', revision]);
-        if (!output) return [];
+        if (!output) {
+            return [];
+        }
         return output.split('\n');
     }
 

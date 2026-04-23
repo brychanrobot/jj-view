@@ -2,13 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'path';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashIntoCommand } from '../../commands/squash-into';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 // Mock VS Code
@@ -85,8 +85,8 @@ describe('squashIntoCommand', () => {
             },
         ]);
 
-        const grandparentCommitId = ids['grandparent'].commitId;
-        const grandparentChangeId = ids['grandparent'].changeId;
+        const grandparentCommitId = ids.grandparent.commitId;
+        const grandparentChangeId = ids.grandparent.changeId;
 
         // Mock QuickPick to return grandparent
         vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
@@ -132,8 +132,8 @@ describe('squashIntoCommand', () => {
             },
         ]);
 
-        const grandparentCommitId = ids['grandparent'].commitId;
-        const grandparentChangeId = ids['grandparent'].changeId;
+        const grandparentCommitId = ids.grandparent.commitId;
+        const grandparentChangeId = ids.grandparent.changeId;
 
         vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
             detail: grandparentCommitId,

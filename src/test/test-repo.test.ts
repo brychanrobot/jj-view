@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
+import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TestRepo, buildGraph } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 
 describe('TestRepo', () => {
     let repo: TestRepo;
@@ -100,7 +100,7 @@ describe('TestRepo', () => {
         expect(desc('@')).toContain('Branch C');
 
         // Verify B exists and is child of A
-        const bId = labels['B'].changeId;
+        const bId = labels.B.changeId;
         expect(desc(bId)).toContain('Branch B');
         expect(parentDesc(bId)).toContain('Root');
     });

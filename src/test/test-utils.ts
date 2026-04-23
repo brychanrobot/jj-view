@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { SinonStub } from 'sinon';
-import { Mock } from 'vitest';
+import type { SinonStub } from 'sinon';
+import type { Mock } from 'vitest';
 
 export /**
  * Creates a partial mock of type T.
@@ -21,7 +21,7 @@ export function asSinonStub(fn: unknown): SinonStub {
     return fn as SinonStub;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: accessPrivate is a test utility intended to bypass type safety for testing private members.
 export function accessPrivate(obj: any, key: string): any {
     return obj[key];
 }

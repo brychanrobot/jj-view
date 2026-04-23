@@ -4,10 +4,10 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
-import { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../jj-types';
 import { computeGraphLayout } from '../webview/graph-compute';
-import { GraphLayout, GraphNode } from '../webview/graph-model';
-import { TestRepo, buildGraph } from './test-repo';
+import type { GraphLayout, GraphNode } from '../webview/graph-model';
+import { buildGraph, TestRepo } from './test-repo';
 
 // Helper: ASCII renderer to verify layout against jj log output
 function renderToAscii(layout: GraphLayout, headId: string): string {
@@ -20,7 +20,9 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
     }
 
     const edgeRoutes = layout.edges.map((e) => {
-        if (e.x1 === e.x2) return { ...e, yBend: e.y1 }; // Straight
+        if (e.x1 === e.x2) {
+            return { ...e, yBend: e.y1 }; // Straight
+        }
 
         // jj log curves around row offsets. It typically curves just before the target
         // row `curveY`, so visual yBend is exactly midway above curveY
@@ -44,14 +46,22 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
                     if (e.x1 === e.x2) {
                         return e.x1 === x && e.y1 < i && e.y2 > i;
                     } else {
-                        if (x === e.x1 && i < e.yBend && i > e.y1) return true;
-                        if (x === e.x2 && i > e.yBend && i < e.y2 && !e.isJoining) return true;
+                        if (x === e.x1 && i < e.yBend && i > e.y1) {
+                            return true;
+                        }
+                        if (x === e.x2 && i > e.yBend && i < e.y2 && !e.isJoining) {
+                            return true;
+                        }
                         return false;
                     }
                 });
-                if (hasEdge && symbol === ' ') symbol = '│';
+                if (hasEdge && symbol === ' ') {
+                    symbol = '│';
+                }
                 lineStr += symbol;
-                if (x < width - 1) lineStr += ' ';
+                if (x < width - 1) {
+                    lineStr += ' ';
+                }
             }
             rows.push(lineStr.trimEnd());
             continue;
@@ -78,17 +88,25 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
             } else {
                 const hasEdge = edgeRoutes.some((e) => {
                     // Skip edges that connect to the final root marker (no visible descendants below it in jj log)
-                    if (e.y2 >= layout.rows.length - 1) return false;
+                    if (e.y2 >= layout.rows.length - 1) {
+                        return false;
+                    }
 
                     if (e.x1 === e.x2) {
                         return e.x1 === x && Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y;
                     } else {
-                        if (x === e.x1 && node.y < e.yBend && node.y > e.y1) return true;
-                        if (x === e.x2 && node.y > e.yBend && node.y < e.y2 && !e.isJoining) return true;
+                        if (x === e.x1 && node.y < e.yBend && node.y > e.y1) {
+                            return true;
+                        }
+                        if (x === e.x2 && node.y > e.yBend && node.y < e.y2 && !e.isJoining) {
+                            return true;
+                        }
                         return false;
                     }
                 });
-                if (hasEdge) symbol = '│';
+                if (hasEdge) {
+                    symbol = '│';
+                }
             }
             lineStr += symbol;
             if (x < width - 1) {
@@ -98,17 +116,24 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
         // Find furthest active lane for this row to determine padding width
         let maxActiveLane = node.x;
         edgeRoutes.forEach((e) => {
-            if (e.y2 >= layout.rows.length - 1) return; // Skip edges to root marker
+            if (e.y2 >= layout.rows.length - 1) {
+                return; // Skip edges to root marker
+            }
             if (e.y1 === node.y) {
                 // If an edge originates from this node (a fork), the target lane is active
                 maxActiveLane = Math.max(maxActiveLane, e.x2);
             }
             if (e.x1 === e.x2) {
-                if (Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y)
+                if (Math.min(e.y1, e.y2) < node.y && Math.max(e.y1, e.y2) > node.y) {
                     maxActiveLane = Math.max(maxActiveLane, e.x1);
+                }
             } else {
-                if (node.y < e.yBend && node.y > e.y1) maxActiveLane = Math.max(maxActiveLane, e.x1);
-                if (node.y > e.yBend && node.y < e.y2) maxActiveLane = Math.max(maxActiveLane, e.x2);
+                if (node.y < e.yBend && node.y > e.y1) {
+                    maxActiveLane = Math.max(maxActiveLane, e.x1);
+                }
+                if (node.y > e.yBend && node.y < e.y2) {
+                    maxActiveLane = Math.max(maxActiveLane, e.x2);
+                }
             }
         });
 
@@ -141,7 +166,7 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
             for (let s = 0; s < spacerCount; s++) {
                 let spacerStr = '';
                 const isCurveRow = s === 0;
-                let rowIsMerge = false;
+                const rowIsMerge = false;
                 let rowIsFork = false;
                 if (isCurveRow) {
                     // Check if any edge is curving at this yMid
@@ -179,8 +204,12 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
                                                 e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
                                             );
                                         } else {
-                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
-                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
+                                                return true;
+                                            }
+                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) {
+                                                return true;
+                                            }
                                             return false;
                                         }
                                     });
@@ -220,8 +249,12 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
                                                 e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
                                             );
                                         } else {
-                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
-                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) return true;
+                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
+                                                return true;
+                                            }
+                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) {
+                                                return true;
+                                            }
                                             return false;
                                         }
                                     });
@@ -247,8 +280,12 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
                                 return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
                             } else {
                                 // Diagonal edge: occupies x1 before yBend, and x2 after yBend
-                                if (x === e.x1 && yMid < e.yBend && yMid > e.y1) return true;
-                                if (x === e.x2 && yMid >= e.yBend && yMid < e.y2 && !e.isJoining) return true;
+                                if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
+                                    return true;
+                                }
+                                if (x === e.x2 && yMid >= e.yBend && yMid < e.y2 && !e.isJoining) {
+                                    return true;
+                                }
                                 return false;
                             }
                         });
@@ -310,25 +347,25 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(forC2).toBeDefined();
 
         // Check columns (all 0)
-        expect(root!.x).toBe(0);
-        expect(forC1!.x).toBe(0);
-        expect(forC2!.x).toBe(0);
+        expect(root?.x).toBe(0);
+        expect(forC1?.x).toBe(0);
+        expect(forC2?.x).toBe(0);
 
         // Check order (C2 < C1 < Root) - Y increases downwards or simply distinct
         // computeGraphLayout typically puts HEAD at y=0 or similar
-        expect(forC2!.y).toBeLessThan(forC1!.y);
-        expect(forC1!.y).toBeLessThan(root!.y);
+        expect(forC2?.y).toBeLessThan(forC1?.y as number);
+        expect(forC1?.y).toBeLessThan(root?.y as number);
 
         // Check edges
         const edges = layout.edges;
         // Edge C2->C1
-        const edge21 = edges.find((e) => e.y1 === forC2!.y && e.y2 === forC1!.y);
+        const edge21 = edges.find((e) => e.y1 === forC2?.y && e.y2 === forC1?.y);
         expect(edge21).toBeDefined();
-        expect(edge21!.x1).toBe(0);
-        expect(edge21!.x2).toBe(0);
+        expect(edge21?.x1).toBe(0);
+        expect(edge21?.x2).toBe(0);
 
         // Edge C1->Root
-        const edge10 = edges.find((e) => e.y1 === forC1!.y && e.y2 === root!.y);
+        const edge10 = edges.find((e) => e.y1 === forC1?.y && e.y2 === root?.y);
         expect(edge10).toBeDefined();
     });
 
@@ -366,18 +403,18 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(child2).toBeDefined();
 
         // Children strictly above parent
-        expect(child1!.y).toBeLessThan(parent!.y);
-        expect(child2!.y).toBeLessThan(parent!.y);
+        expect(child1?.y).toBeLessThan(parent?.y as number);
+        expect(child2?.y).toBeLessThan(parent?.y as number);
 
         // Children in different columns
-        expect(child1!.x).not.toBe(child2!.x);
+        expect(child1?.x).not.toBe(child2?.x);
 
         // Edges from children to parent
         const edge1 = layout.edges.find(
-            (e) => (e.y1 === child1!.y && e.y2 === parent!.y) || (e.y2 === child1!.y && e.y1 === parent!.y),
+            (e) => (e.y1 === child1?.y && e.y2 === parent?.y) || (e.y2 === child1?.y && e.y1 === parent?.y),
         );
         const edge2 = layout.edges.find(
-            (e) => (e.y1 === child2!.y && e.y2 === parent!.y) || (e.y2 === child2!.y && e.y1 === parent!.y),
+            (e) => (e.y1 === child2?.y && e.y2 === parent?.y) || (e.y2 === child2?.y && e.y1 === parent?.y),
         );
         expect(edge1).toBeDefined();
         expect(edge2).toBeDefined();
@@ -418,15 +455,15 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(p2Node).toBeDefined();
 
         // Merge should connect to P1 and P2
-        const e1 = layout.edges.find((e) => e.y1 === mergeNode!.y && e.y2 === p1Node!.y);
-        const e2 = layout.edges.find((e) => e.y1 === mergeNode!.y && e.y2 === p2Node!.y);
+        const e1 = layout.edges.find((e) => e.y1 === mergeNode?.y && e.y2 === p1Node?.y);
+        const e2 = layout.edges.find((e) => e.y1 === mergeNode?.y && e.y2 === p2Node?.y);
 
         expect(e1).toBeDefined();
         expect(e2).toBeDefined();
 
         // P1 and P2 should be in different lanes
-        if (p1Node!.y === p2Node!.y) {
-            expect(p1Node!.x).not.toBe(p2Node!.x);
+        if (p1Node?.y === p2Node?.y) {
+            expect(p1Node?.x).not.toBe(p2Node?.x);
         }
     });
 
@@ -492,19 +529,19 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
 
         // Verify Fork at Initial
         // cool.y < initial.y (cool is newer/higher)
-        expect(cool!.y).toBeLessThan(initial!.y);
-        expect(fakeTSNode!.y).toBeLessThan(initial!.y);
+        expect(cool?.y).toBeLessThan(initial?.y as number);
+        expect(fakeTSNode?.y).toBeLessThan(initial?.y as number);
 
         // Ensure different lanes
-        expect(cool!.x).not.toBe(fakeTSNode!.x);
+        expect(cool?.x).not.toBe(fakeTSNode?.x);
 
         // CC (Child of Fake TS)
         const cc = layout.nodes.find((n) => logs[n.y].description.includes('cc file'));
         expect(cc).toBeDefined();
         // CC should be above Fake TS
-        expect(cc!.y).toBeLessThan(fakeTSNode!.y);
+        expect(cc?.y).toBeLessThan(fakeTSNode?.y as number);
         // CC should be in same lane as Fake TS (standard behavior)
-        expect(cc!.x).toBe(fakeTSNode!.x);
+        expect(cc?.x).toBe(fakeTSNode?.x);
 
         // Orcs (Child of Cool)
         const orcs = layout.nodes.find((n) => logs[n.y].description.includes('Orcs'));
@@ -515,9 +552,9 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(vpm).toBeDefined();
 
         // Verify Fork at Cool
-        expect(orcs!.y).toBeLessThan(cool!.y);
-        expect(vpm!.y).toBeLessThan(cool!.y);
-        expect(orcs!.x).not.toBe(vpm!.x);
+        expect(orcs?.y).toBeLessThan(cool?.y as number);
+        expect(vpm?.y).toBeLessThan(cool?.y as number);
+        expect(orcs?.x).not.toBe(vpm?.x);
     });
 
     test('Even More Complex Replay', async () => {
@@ -652,24 +689,25 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         const aLog = allLogs.find((l) => l.description.trim() === 'A');
         const cLog = allLogs.find((l) => l.description.trim() === 'C');
 
-        expect(aLog).toBeDefined();
-        expect(cLog).toBeDefined();
+        if (!aLog || !cLog) {
+            throw new Error('Logs not found');
+        }
 
         // Manually simulate a gap by passing C and A but not B.
         // We need to ensure C's nearest_visible_ancestors correctly points to A.
-        const cEntry = { ...cLog!, nearest_visible_ancestors: [aLog!.change_id] };
-        const logs = [cEntry, aLog!];
+        const cEntry = { ...cLog, nearest_visible_ancestors: [aLog.change_id] };
+        const logs = [cEntry, aLog];
 
         const layout = computeGraphLayout(logs);
 
-        const cNode = layout.nodes.find((n) => n.changeId === cLog!.change_id);
-        const aNode = layout.nodes.find((n) => n.changeId === aLog!.change_id);
+        const cNode = layout.nodes.find((n) => n.changeId === cLog?.change_id);
+        const aNode = layout.nodes.find((n) => n.changeId === aLog?.change_id);
 
         expect(cNode).toBeDefined();
         expect(aNode).toBeDefined();
 
-        const edge = layout.edges.find((e) => e.y1 === cNode!.y && e.y2 === aNode!.y);
+        const edge = layout.edges.find((e) => e.y1 === cNode?.y && e.y2 === aNode?.y);
         expect(edge).toBeDefined();
-        expect(edge!.isElided).toBe(true);
+        expect(edge?.isElided).toBe(true);
     });
 });

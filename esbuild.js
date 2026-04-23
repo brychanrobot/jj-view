@@ -4,10 +4,10 @@
  */
 
 const esbuild = require('esbuild');
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const { execSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -34,7 +34,7 @@ const esbuildProblemMatcherPlugin = {
 
 function formatFile(filePath) {
     try {
-        execSync(`pnpm prettier --write "${filePath}"`, { stdio: 'inherit' });
+        execSync(`pnpm biome format --write "${filePath}"`, { stdio: 'inherit' });
         console.log(`[build] Formatted ${filePath}`);
     } catch (e) {
         console.error(`[build] Failed to format ${filePath}: ${e.message}`);
@@ -71,7 +71,7 @@ async function main() {
         },
         plugins: [esbuildProblemMatcherPlugin],
         banner: {
-            js: 'var process = { env: { NODE_ENV: ' + (production ? '"production"' : '"development"') + ' } };',
+            js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
         },
     });
 
@@ -139,7 +139,7 @@ async function installNativeDeps() {
                     console.log(`[build] Skipping ${name}@${cleanVersion} (already installed)`);
                     continue;
                 }
-            } catch (e) {
+            } catch (_) {
                 console.warn(`[build] Failed to read ${pkgPath}, re-installing...`);
             }
         }

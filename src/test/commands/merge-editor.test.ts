@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { openMergeEditorCommand } from '../../commands/merge-editor';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { asMock, createMock } from '../test-utils';
 
 vi.mock('vscode', () => ({

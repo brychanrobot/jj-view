@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
-import * as fs from 'fs';
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { getErrorMessage } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
@@ -38,7 +38,7 @@ export async function workspaceDeleteCommand(scmProvider: JjScmProvider, jj: JjS
                 let dirPath: string | undefined;
                 try {
                     dirPath = await jj.getWorkspaceRoot(workspaceName);
-                } catch (e) {
+                } catch (_) {
                     throw new Error(`Failed to find directory for workspace "${workspaceName}"`);
                 }
 

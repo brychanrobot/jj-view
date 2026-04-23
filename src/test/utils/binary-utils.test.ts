@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { resolveJjBinary } from '../../utils/binary-utils';
 
 describe('binary-utils real-file tests', () => {
@@ -25,17 +25,29 @@ describe('binary-utils real-file tests', () => {
     });
 
     afterEach(() => {
-        if (oldHome !== undefined) process.env.HOME = oldHome;
-        else delete process.env.HOME;
+        if (oldHome !== undefined) {
+            process.env.HOME = oldHome;
+        } else {
+            delete process.env.HOME;
+        }
 
-        if (oldPath !== undefined) process.env.PATH = oldPath;
-        else delete process.env.PATH;
+        if (oldPath !== undefined) {
+            process.env.PATH = oldPath;
+        } else {
+            delete process.env.PATH;
+        }
 
-        if (oldUserProfile !== undefined) process.env.USERPROFILE = oldUserProfile;
-        else delete process.env.USERPROFILE;
+        if (oldUserProfile !== undefined) {
+            process.env.USERPROFILE = oldUserProfile;
+        } else {
+            delete process.env.USERPROFILE;
+        }
 
-        if (oldProgramFiles !== undefined) process.env.ProgramFiles = oldProgramFiles;
-        else delete process.env.ProgramFiles;
+        if (oldProgramFiles !== undefined) {
+            process.env.ProgramFiles = oldProgramFiles;
+        } else {
+            delete process.env.ProgramFiles;
+        }
 
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
@@ -43,7 +55,7 @@ describe('binary-utils real-file tests', () => {
     const createExecutable = (filePath: string, output: string = 'jj 0.1.0') => {
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
-        const goSourcePath = filePath + '.go';
+        const goSourcePath = `${filePath}.go`;
         const goSource = `
 package main
 import (
@@ -119,7 +131,7 @@ func main() {
         const binPath = path.join(workspaceRoot, 'bin', binName);
         createExecutable(binPath);
 
-        const result = await resolveJjBinary('./bin/' + binName, workspaceRoot);
+        const result = await resolveJjBinary(`./bin/${binName}`, workspaceRoot);
         expect(result).toBe(binPath);
     });
 

@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { GerritService } from '../gerrit-service';
+import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjService } from '../jj-service';
@@ -12,7 +12,7 @@ import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 function createMockWebviewView() {
-    let visibilityListener: (e: void) => void | undefined;
+    let visibilityListener!: (e: undefined) => void;
 
     const mockWebview = createMock<vscode.Webview>({
         options: {},
@@ -26,7 +26,7 @@ function createMockWebviewView() {
     const mockWebviewView = createMock<vscode.WebviewView>({
         webview: mockWebview,
         viewType: 'jj-view.logView',
-        onDidChangeVisibility: (listener: (e: void) => void) => {
+        onDidChangeVisibility: (listener: (e: undefined) => void) => {
             visibilityListener = listener;
             return { dispose: () => {} };
         },
@@ -37,11 +37,11 @@ function createMockWebviewView() {
     return {
         view: mockWebviewView,
         webview: mockWebview,
-        triggerVisibilityChange: () => visibilityListener?.(),
+        triggerVisibilityChange: () => visibilityListener(undefined),
     };
 }
 
-suite('Webview Initialization Integration Test', function () {
+suite('Webview Initialization Integration Test', () => {
     let jj: JjService;
     let provider: JjLogWebviewProvider;
     let repo: TestRepo;
@@ -83,7 +83,9 @@ suite('Webview Initialization Integration Test', function () {
     });
 
     teardown(async () => {
-        disposables.forEach((d) => d.dispose());
+        disposables.forEach((d) => {
+            d.dispose();
+        });
         disposables = [];
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

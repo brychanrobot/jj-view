@@ -2,14 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashCommand } from '../../commands/squash';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 // Mock VS Code
@@ -93,8 +93,8 @@ describe('squashCommand', () => {
             { parents: ['p1', 'p2'], description: '', files: { [fileName]: 'child modified' } },
         ]);
 
-        const p1ChangeId = ids['p1'].changeId;
-        const p1CommitId = ids['p1'].commitId;
+        const p1ChangeId = ids.p1.changeId;
+        const p1CommitId = ids.p1.commitId;
 
         // Verify pre-state calling repo directly
         const parents = repo.getParents('@');

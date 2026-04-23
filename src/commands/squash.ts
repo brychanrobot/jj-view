@@ -2,18 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import type { JjScmProvider } from '../jj-scm-provider';
+import type { JjService } from '../jj-service';
 import { collectResourceStates, extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
     const paths = resourceStates.map((r) => r.resourceUri.fsPath);
 
-    let revision = extractRevision(args) || '@';
+    const revision = extractRevision(args) || '@';
 
     // Check if we have multiple parents
     const [currentEntry] = await jj.getLog({ revision });
@@ -54,25 +54,30 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
                 return;
             } // User cancelled
 
+            const targetParent = selected.detail;
+            if (!targetParent) {
+                return;
+            }
+
             // Squash from working copy into selected parent
             const hasCurrentDesc = currentEntry.description && currentEntry.description.trim().length > 0;
-            const [parentEntry] = await jj.getLog({ revision: selected.detail! });
-            const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
+            const [parentEntry] = await jj.getLog({ revision: targetParent });
+            const hasParentDesc = parentEntry?.description && parentEntry.description.trim().length > 0;
 
             // Only open editor if squashing ALL changes (paths empty) AND both have descriptions.
             if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
-                await openSquashDescriptionEditor(jj, paths, revision, selected.detail!);
+                await openSquashDescriptionEditor(jj, paths, revision, targetParent);
                 return;
             }
 
             // Partial squash or implicit all without conflicting descriptions
             // Always use destination description to avoid launching interactive editor
-            await withDelayedProgress('Squashing...', jj.squash(paths, revision, selected.detail!, undefined, true));
+            await withDelayedProgress('Squashing...', jj.squash(paths, revision, targetParent, undefined, true));
         } else {
             // Single parent
             let parentRev = '@-';
             // Use revision- if we are squashing a specific revision
-            if (currentEntry && currentEntry.parents && currentEntry.parents.length > 0) {
+            if (currentEntry?.parents && currentEntry.parents.length > 0) {
                 const p = currentEntry.parents[0];
                 if (typeof p === 'object' && p !== null && 'commit_id' in p) {
                     parentRev = (p as { commit_id: string }).commit_id;
@@ -81,11 +86,10 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
                 }
             }
 
-            const hasCurrentDesc =
-                currentEntry && currentEntry.description && currentEntry.description.trim().length > 0;
+            const hasCurrentDesc = currentEntry?.description && currentEntry.description.trim().length > 0;
             const [parentEntry] = await jj.getLog({ revision: parentRev });
             // Be safe with parent entry check (could be root)
-            const hasParentDesc = parentEntry && parentEntry.description && parentEntry.description.trim().length > 0;
+            const hasParentDesc = parentEntry?.description && parentEntry.description.trim().length > 0;
 
             if (paths.length === 0 && hasCurrentDesc && hasParentDesc) {
                 await openSquashDescriptionEditor(jj, paths, revision, parentRev);

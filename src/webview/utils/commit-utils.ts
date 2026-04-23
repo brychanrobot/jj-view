@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { CommitAction, JjLogEntry } from '../../jj-types';
+import type { CommitAction, JjLogEntry } from '../../jj-types';
 
 export interface CommitActionStates {
     newChild: boolean;

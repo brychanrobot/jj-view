@@ -5,9 +5,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { rebaseOntoSelectedCommand } from '../../commands/rebase';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { asMock, createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -46,8 +46,8 @@ describe('rebaseOntoSelectedCommand', () => {
     test('rebases successfully onto selected commits', async () => {
         const ids = await buildGraph(repo, [{ label: 'p1' }, { label: 'p2' }, { label: 'c1', parents: ['p1'] }]);
 
-        const sourceId = ids['c1'].changeId;
-        const destId = ids['p2'].changeId;
+        const sourceId = ids.c1.changeId;
+        const destId = ids.p2.changeId;
 
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([destId]);
 

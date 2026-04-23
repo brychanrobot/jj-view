@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
-import { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../jj-types';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -13,7 +13,9 @@ vi.mock('vscode', () => ({
     workspace: {
         getConfiguration: () => ({
             get: (key: string) => {
-                if (key === 'gerrit.host') return 'https://test-gerrit.com';
+                if (key === 'gerrit.host') {
+                    return 'https://test-gerrit.com';
+                }
                 return undefined;
             },
         }),
@@ -79,7 +81,10 @@ describe('Gerrit Sync Verification', () => {
         const commitId = repo.getCommitId('@');
         // Get actual blob hash from git
         const blobHashes = await jjService.getGitBlobHashes(commitId, ['hello.txt']);
-        const realHash = blobHashes.get('hello.txt')!;
+        const realHash = blobHashes.get('hello.txt');
+        if (!realHash) {
+            throw new Error('Failed to get blob hash for hello.txt');
+        }
 
         // Mock Gerrit to return the same hash
         mockGerritResponse('I1111111111111111111111111111111111111111', 'remote-sha', {

@@ -5,9 +5,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { uploadCommand } from '../../commands/upload';
-import { GerritService } from '../../gerrit-service';
-import { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import type { GerritService } from '../../gerrit-service';
+import type { JjScmProvider } from '../../jj-scm-provider';
+import type { JjService } from '../../jj-service';
 import { createMock } from '../test-utils';
 
 // Mock dependencies
@@ -20,7 +20,9 @@ vi.mock('vscode', async () => {
     return createVscodeMock({
         workspace: {
             getConfiguration: vi.fn((section) => {
-                if (section === 'jj-view') return mockConfig;
+                if (section === 'jj-view') {
+                    return mockConfig;
+                }
                 return { get: vi.fn() };
             }),
         },
@@ -50,7 +52,9 @@ describe('uploadCommand', () => {
     test('uses custom upload command when configured (correctly)', async () => {
         // Setup config to return 'git push --force' ONLY when queried for 'uploadCommand'
         mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'uploadCommand') return 'git push --force';
+            if (key === 'uploadCommand') {
+                return 'git push --force';
+            }
             return undefined;
         });
 
@@ -109,7 +113,9 @@ describe('uploadCommand', () => {
 
     test('does not suggest configuration when custom command is already set', async () => {
         mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'uploadCommand') return 'custom-cmd';
+            if (key === 'uploadCommand') {
+                return 'custom-cmd';
+            }
             return undefined;
         });
         const error = new Error('upload failed');

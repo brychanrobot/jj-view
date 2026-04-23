@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { JjLogEntry } from '../jj-types';
-import { GraphEdge, GraphLayout, GraphNode, GraphRow } from './graph-model';
+import type { JjLogEntry } from '../jj-types';
+import type { GraphEdge, GraphLayout, GraphNode, GraphRow } from './graph-model';
 import { getColor } from './themes.generated';
 
 export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'default'): GraphLayout {
@@ -11,7 +11,9 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
     // The input 'commits' array is already sorted by 'jj log' (graph order).
     // We trust this order implicitly.
     const allCommits = new Map<string, JjLogEntry>();
-    commits.forEach((c) => allCommits.set(c.change_id, c));
+    commits.forEach((c) => {
+        allCommits.set(c.change_id, c);
+    });
 
     // Pre-calculate display rows and commit-to-row mapping
     const displayRows: GraphRow[] = [];
@@ -48,6 +50,7 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
 
     commits.forEach((commit) => {
         const changeId = commit.change_id;
+        // biome-ignore lint/style/noNonNullAssertion: changeId is guaranteed to be in the map by previous pass
         const rowIndex = commitToRowIndex.get(changeId)!;
 
         // 1. Determine my lane

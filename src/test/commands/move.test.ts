@@ -2,13 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'path';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { moveToChildCommand } from '../../commands/move';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
-import { TestRepo, buildGraph } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -48,7 +48,7 @@ describe('moveToChildCommand', () => {
 
         await moveToChildCommand(scmProvider, jj, args);
 
-        const childContent = repo.getFileContent(ids['child'].changeId, fileName);
+        const childContent = repo.getFileContent(ids.child.changeId, fileName);
         expect(childContent).toBe('modified');
     }, 30000);
 
@@ -62,11 +62,11 @@ describe('moveToChildCommand', () => {
         ]);
 
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
-        const args = [{ resourceUri: fileUri, revision: ids['ancestor'].changeId }];
+        const args = [{ resourceUri: fileUri, revision: ids.ancestor.changeId }];
 
         await moveToChildCommand(scmProvider, jj, args);
 
-        const childContent = repo.getFileContent(ids['child'].changeId, fileName);
+        const childContent = repo.getFileContent(ids.child.changeId, fileName);
         expect(childContent).toBe('modified');
     }, 30000);
 
@@ -81,14 +81,14 @@ describe('moveToChildCommand', () => {
         ]);
 
         const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
-        const args = [{ resourceUri: fileUri, revision: ids['ancestor'].changeId }];
+        const args = [{ resourceUri: fileUri, revision: ids.ancestor.changeId }];
 
         const mockShowQuickPick = vscode.window.showQuickPick as import('vitest').Mock;
-        mockShowQuickPick.mockResolvedValueOnce(ids['child2'].changeId);
+        mockShowQuickPick.mockResolvedValueOnce(ids.child2.changeId);
 
         await moveToChildCommand(scmProvider, jj, args);
 
-        const child2Content = repo.getFileContent(ids['child2'].changeId, fileName);
+        const child2Content = repo.getFileContent(ids.child2.changeId, fileName);
         expect(child2Content).toBe('modified');
     }, 30000);
 });
