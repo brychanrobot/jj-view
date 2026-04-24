@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.25.0
+
+### Features
+
+- **Log View**:
+    - Added the ability to **hide commit hover actions** via a right-click context menu, matching native VS Code behavior.
+
+### Improvements & Refactors
+
+- **UI**:
+    - Refined **metadata pill responsiveness** (bookmarks, tags, workspaces) to allow graceful shrinking and prevent layout clipping in narrow views.
+
+### Chores & Maintenance
+
+- **Tooling**:
+    - Made **automatic bookmarks** (e.g. `up-123`) shorter for better readability in the log view.
+    - Decoupled format and license checks from the `lint` script to make dev and CI faster.
+
 ## 1.24.0
 
 ### Features
