@@ -1323,6 +1323,17 @@ log = "none()"
         expect(parent.description.trim()).toBe('my commit message');
     });
 
+    test('getLog handles atypical workspace names', async () => {
+        const alphaRepo = repo.workspaceAdd('alpha:1.0', undefined, path.join(repo.path, 'alpha_1.0'));
+        alphaRepo.new();
+
+        const logEntries = await jjService.getLog({ revision: alphaRepo.getWorkingCopyId() });
+
+        expect(logEntries.length).toBeGreaterThan(0);
+        const head = logEntries[0];
+        expect(head.working_copies).toContain('alpha:1.0');
+    });
+
     test('getBookmarks returns bookmark names', async () => {
         repo.bookmark('feature-a', '@');
         repo.bookmark('feature-b', '@');

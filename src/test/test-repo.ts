@@ -294,15 +294,18 @@ export class TestRepo {
         return output.trim() === 'true';
     }
 
-    workspaceAdd(name: string, revision?: string): TestRepo {
-        const workspacePath = path.join(this.path, name);
-        fs.mkdirSync(workspacePath, { recursive: true });
-        const args = ['workspace', 'add', workspacePath];
+    workspaceAdd(name: string, revision?: string, workspacePath?: string): TestRepo {
+        const resolvedPath = workspacePath || path.join(this.path, name);
+        fs.mkdirSync(resolvedPath, { recursive: true });
+        const args = ['workspace', 'add', resolvedPath];
         if (revision) {
             args.push('-r', revision);
         }
+        if (workspacePath) {
+            args.push('--name', name);
+        }
         this.exec(args);
-        return new TestRepo(workspacePath);
+        return new TestRepo(resolvedPath);
     }
 
     gitImport() {
