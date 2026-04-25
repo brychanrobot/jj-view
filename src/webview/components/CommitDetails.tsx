@@ -29,6 +29,7 @@ interface CommitDetailsProps {
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
+    formatDescriptionOnSave?: boolean;
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
@@ -50,6 +51,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
+    formatDescriptionOnSave = false,
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
@@ -118,10 +120,21 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         return () => window.removeEventListener('message', handleMessage);
     }, []);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         setIsSaving(true);
 
-        const finalDescription = textareaRef.current?.value || draftDescription;
+        let finalDescription = textareaRef.current?.value || draftDescription;
+
+        if (formatDescriptionOnSave) {
+            const formatted = await formatCommitDescription(finalDescription, bodyWidthRuler);
+            if (formatted !== finalDescription) {
+                finalDescription = formatted;
+                if (textareaRef.current) {
+                    textareaRef.current.value = finalDescription;
+                }
+                setDraftDescription(finalDescription);
+            }
+        }
 
         onSave(finalDescription);
 

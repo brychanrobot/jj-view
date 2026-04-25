@@ -4,13 +4,15 @@
  */
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { showJjError, withDelayedProgress } from './command-utils';
+import { maybeFormatDescriptionOnSave, showJjError, withDelayedProgress } from './command-utils';
 
 export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
-    const message = scmProvider.sourceControl.inputBox.value.trim();
+    let description = scmProvider.sourceControl.inputBox.value.trim();
+
+    description = await maybeFormatDescriptionOnSave(description, scmProvider);
 
     try {
-        await withDelayedProgress('Committing...', jj.commit(message));
+        await withDelayedProgress('Committing...', jj.commit(description));
         await scmProvider.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
         await showJjError(err, 'Error committing change', jj, scmProvider.outputChannel);

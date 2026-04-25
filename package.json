@@ -135,6 +135,11 @@
                     "default": 72,
                     "description": "Width at which to display a ruler in the commit details description editor for the body."
                 },
+                "jj-view.commit.formatDescriptionOnSave": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically format and wrap the commit description body when saving."
+                },
                 "jj-view.suppressGitColocationWarning": {
                     "type": "boolean",
                     "default": false,

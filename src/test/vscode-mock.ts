@@ -56,6 +56,9 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         },
         workspace: {
             workspaceFolders: [{ uri: { fsPath: '/root' } }],
+            getConfiguration: vi.fn().mockReturnValue({
+                get: vi.fn().mockImplementation((_key: string, defaultValue: unknown) => defaultValue),
+            }),
         },
         commands: {
             executeCommand: vi.fn(),

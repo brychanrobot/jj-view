@@ -4,15 +4,14 @@
  */
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevisions, maybeFormatDescriptionOnSave, showJjError, withDelayedProgress } from './command-utils';
 
 export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[] = []) {
-    const message = typeof args[0] === 'string' ? args[0] : undefined;
-    const revisionArgs = message ? args.slice(1) : args;
+    let description = typeof args[0] === 'string' ? args[0] : undefined;
+    const revisionArgs = description ? args.slice(1) : args;
     const revision =
-        (message && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
+        (description && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
 
-    let description = message;
     if (description === undefined) {
         if (revision === '@') {
             description = scmProvider.sourceControl.inputBox.value;
@@ -21,6 +20,7 @@ export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjSe
         }
     }
     description = description.trim();
+    description = await maybeFormatDescriptionOnSave(description, scmProvider, revision);
 
     try {
         await withDelayedProgress('Setting description...', jj.describe(description, revision));

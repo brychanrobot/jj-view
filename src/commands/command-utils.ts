@@ -6,8 +6,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjResourceState } from '../jj-scm-provider';
+import type { JjResourceState, JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
+import { formatCommitDescription } from '../utils/format-utils';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -262,4 +263,27 @@ export async function showJjError(
         }
     }
     return selection;
+}
+
+/**
+ * Formats a description if the 'jj-view.commit.formatDescriptionOnSave' setting is enabled.
+ */
+export async function maybeFormatDescriptionOnSave(
+    description: string,
+    scmProvider: JjScmProvider,
+    revision: string = '@',
+): Promise<string> {
+    const config = vscode.workspace.getConfiguration('jj-view');
+    const formatOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
+    if (!formatOnSave) {
+        return description;
+    }
+
+    const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler', 72);
+    description = await formatCommitDescription(description, bodyWidthRuler);
+
+    if (revision === '@') {
+        scmProvider.sourceControl.inputBox.value = description;
+    }
+    return description;
 }

@@ -65,10 +65,10 @@ async function getDetailsWebview(page: Page): Promise<Frame> {
 
 test.describe('Commit Details E2E', () => {
     let repo: TestRepo;
+    let nodes: Record<string, CommitId>;
     let app: ElectronApplication;
     let page: Page;
     let userDataDir: string;
-    let nodes: Record<string, CommitId>;
 
     test.beforeEach(async () => {
         repo = new TestRepo();
@@ -108,13 +108,6 @@ test.describe('Commit Details E2E', () => {
                 description: 'conflicted commit',
             },
         ]);
-
-        const setup = await launchVSCode(repo);
-        app = setup.app;
-        page = setup.page;
-        userDataDir = setup.userDataDir;
-
-        await focusJJLog(page);
     });
 
     test.afterEach(async () => {
@@ -131,528 +124,589 @@ test.describe('Commit Details E2E', () => {
         }
     });
 
-    test('Opens with correct ID, description, and file list', async () => {
-        const webview = await getLogWebview(page);
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+    test.describe('Default Settings', () => {
+        test.beforeEach(async () => {
+            const setup = await launchVSCode(repo);
+            app = setup.app;
+            page = setup.page;
+            userDataDir = setup.userDataDir;
 
-        // Click the commit to open details panel
-        await initialRow.click();
-
-        // Wait for the details panel tab to appear
-        const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            await focusJJLog(page);
         });
 
-        // Find the details webview
-        const details = await getDetailsWebview(page);
+        test('Opens with correct ID, description, and file list', async () => {
+            const webview = await getLogWebview(page);
+            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
 
-        // Verify change ID is displayed in full (32 chars)
-        const changeIdDiv = details
-            .locator('div')
-            .filter({ has: details.getByText('Change:', { exact: true }) })
-            .last();
-        const changeIdSpan = changeIdDiv.locator('span[title]').first();
-        const idText = await changeIdSpan.textContent();
-        expect(idText).toContain(nodes.initial.changeId);
-        expect(nodes.initial.changeId.length).toBe(32);
+            // Click the commit to open details panel
+            await initialRow.click();
 
-        // Verify description is shown in the textarea (ignore trailing newlines)
-        const textarea = details.locator('textarea');
-        await expect(textarea).toHaveValue(/initial setup/);
+            // Wait for the details panel tab to appear
+            const shortId = nodes.initial.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-        // Verify file list shows the correct files
-        // 'initial' commit has f.txt (added) and g.txt (added)
-        await expect(details.locator('text=f.txt')).toBeVisible();
-        await expect(details.locator('text=g.txt')).toBeVisible();
+            // Find the details webview
+            const details = await getDetailsWebview(page);
 
-        // Verify the "Changed Files" count label
-        await expect(details.locator('text=Changed Files (2)')).toBeVisible();
-    });
+            // Verify change ID is displayed in full (32 chars)
+            const changeIdDiv = details
+                .locator('div')
+                .filter({ has: details.getByText('Change:', { exact: true }) })
+                .last();
+            const changeIdSpan = changeIdDiv.locator('span[title]').first();
+            const idText = await changeIdSpan.textContent();
+            expect(idText).toContain(nodes.initial.changeId);
+            expect(nodes.initial.changeId.length).toBe(32);
 
-    test('Save description via button', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            // Verify description is shown in the textarea (ignore trailing newlines)
+            const textarea = details.locator('textarea');
+            await expect(textarea).toHaveValue(/initial setup/);
 
-        // Click to open details
-        await featureRow.click();
+            // Verify file list shows the correct files
+            // 'initial' commit has f.txt (added) and g.txt (added)
+            await expect(details.locator('text=f.txt')).toBeVisible();
+            await expect(details.locator('text=g.txt')).toBeVisible();
 
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            // Verify the "Changed Files" count label
+            await expect(details.locator('text=Changed Files (2)')).toBeVisible();
         });
 
-        const details = await getDetailsWebview(page);
+        test('Save description via button', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-        // the button initially says "Saved" and is disabled
-        const saveButton = details.locator('button', { hasText: /^Saved/ });
-        await expect(saveButton).toBeDisabled();
+            // Click to open details
+            await featureRow.click();
 
-        // Edit the description
-        const textarea = details.locator('textarea');
-        await textarea.fill('updated feature description');
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-        // Verify dirty indicator logic
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
-        await expect(saveChangesButton).toBeEnabled();
-        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
+            const details = await getDetailsWebview(page);
 
-        // Click Save
-        await saveChangesButton.click();
+            // the button initially says "Saved" and is disabled
+            const saveButton = details.locator('button', { hasText: /^Saved/ });
+            await expect(saveButton).toBeDisabled();
 
-        // Verify the Save button is disabled (via our Webview state checking it's clean)
-        await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
+            // Edit the description
+            const textarea = details.locator('textarea');
+            await textarea.fill('updated feature description');
 
-        // Verify the description was saved in the repo
-        await expect(async () => {
-            const desc = repo.getDescription(nodes.feature.changeId);
-            expect(desc).toBe('updated feature description');
-        }).toPass({ timeout: 10000 });
-    });
+            // Verify dirty indicator logic
+            const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
+            await expect(saveChangesButton).toBeEnabled();
+            await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
-    test('Save description via Ctrl+S', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            // Click Save
+            await saveChangesButton.click();
 
-        // Click to open details
-        await featureRow.click();
+            // Verify the Save button is disabled (via our Webview state checking it's clean)
+            await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
 
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            // Verify the description was saved in the repo
+            await expect(async () => {
+                const desc = repo.getDescription(nodes.feature.changeId);
+                expect(desc).toBe('updated feature description');
+            }).toPass({ timeout: 10000 });
         });
 
-        const details = await getDetailsWebview(page);
+        test('Save description via Ctrl+S', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-        // Edit the description
-        const textarea = details.locator('textarea');
-        await textarea.fill('saved via keyboard');
+            // Click to open details
+            await featureRow.click();
 
-        // Verify dirty state
-        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-        // Focus the textarea and press Save
-        await textarea.focus();
-        await save(page);
+            const details = await getDetailsWebview(page);
 
-        // Verify the Save button is disabled (via our Webview state checking it's clean)
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
-        await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
+            // Edit the description
+            const textarea = details.locator('textarea');
+            await textarea.fill('saved via keyboard');
 
-        // Verify the description was saved in the repo
-        await expect(async () => {
-            const desc = repo.getDescription(nodes.feature.changeId);
-            expect(desc).toBe('saved via keyboard');
-        }).toPass({ timeout: 10000 });
-    });
+            // Verify dirty state
+            await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
 
-    test('Dirty indicator works when starting from an empty message', async () => {
-        // Create a new empty commit using the CLI directly
-        repo.new([nodes.initial.changeId]);
-        const newCommitId = repo.getChangeId('@');
+            // Focus the textarea and press Save
+            await textarea.focus();
+            await save(page);
 
-        // Wait for the file watcher to detect the change and refresh the graph.
-        await page.waitForTimeout(1000);
+            // Verify the Save button is disabled (via our Webview state checking it's clean)
+            const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
+            await expect(saveChangesButton).toBeDisabled({ timeout: 15000 });
 
-        // Refresh the webview by focusing it to pick up graph updates
-        await focusJJLog(page);
-
-        const webview = await getLogWebview(page);
-
-        // The new commit should be visible and have (no description)
-        const emptyRow = webview.locator('.commit-row', { hasText: '(no description)' }).first();
-
-        // Click to open details
-        await expect(emptyRow).toBeVisible({ timeout: 15000 });
-        await emptyRow.click();
-
-        const shortId = newCommitId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            // Verify the description was saved in the repo
+            await expect(async () => {
+                const desc = repo.getDescription(nodes.feature.changeId);
+                expect(desc).toBe('saved via keyboard');
+            }).toPass({ timeout: 10000 });
         });
 
-        const details = await getDetailsWebview(page);
+        test('Dirty indicator works when starting from an empty message', async () => {
+            // Create a new empty commit using the CLI directly
+            repo.new([nodes.initial.changeId]);
+            const newCommitId = repo.getChangeId('@');
 
-        // Edit the description
-        const textarea = details.locator('textarea');
-        await expect(textarea).toHaveValue('');
+            // Wait for the file watcher to detect the change and refresh the graph.
+            await page.waitForTimeout(1000);
 
-        await textarea.fill('brand new message');
+            // Refresh the webview by focusing it to pick up graph updates
+            await focusJJLog(page);
 
-        // Verify dirty state
-        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes/ });
-        await expect(saveChangesButton).toBeEnabled();
+            const webview = await getLogWebview(page);
 
-        // Click Save
-        await saveChangesButton.click();
+            // The new commit should be visible and have (no description)
+            const emptyRow = webview.locator('.commit-row', { hasText: '(no description)' }).first();
 
-        // Verify the Save button is disabled (via our Webview state checking it's clean)
-        await expect(details.locator('button', { hasText: 'Saved' })).toBeDisabled({ timeout: 15000 });
-        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).not.toHaveClass(/dirty/);
+            // Click to open details
+            await expect(emptyRow).toBeVisible({ timeout: 15000 });
+            await emptyRow.click();
 
-        // Verify the description was saved in the repo
-        await expect(async () => {
-            const desc = repo.getDescription(newCommitId);
-            expect(desc).toBe('brand new message');
-        }).toPass({ timeout: 10000 });
-    });
+            const shortId = newCommitId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-    test('Open file diff from file list', async () => {
-        const webview = await getLogWebview(page);
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const details = await getDetailsWebview(page);
 
-        // Click to open details
-        await initialRow.click();
+            // Edit the description
+            const textarea = details.locator('textarea');
+            await expect(textarea).toHaveValue('');
 
-        const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            await textarea.fill('brand new message');
+
+            // Verify dirty state
+            await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
+            const saveChangesButton = details.locator('button', { hasText: /Save Changes/ });
+            await expect(saveChangesButton).toBeEnabled();
+
+            // Click Save
+            await saveChangesButton.click();
+
+            // Verify the Save button is disabled (via our Webview state checking it's clean)
+            await expect(details.locator('button', { hasText: 'Saved' })).toBeDisabled({ timeout: 15000 });
+            await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).not.toHaveClass(/dirty/);
+
+            // Verify the description was saved in the repo
+            await expect(async () => {
+                const desc = repo.getDescription(newCommitId);
+                expect(desc).toBe('brand new message');
+            }).toPass({ timeout: 10000 });
         });
 
-        const details = await getDetailsWebview(page);
+        test('Open file diff from file list', async () => {
+            const webview = await getLogWebview(page);
+            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
 
-        // Click on a file in the list to open a diff
-        const fileRow = details.locator('text=f.txt').first();
-        await fileRow.click();
+            // Click to open details
+            await initialRow.click();
 
-        // A diff tab should open with the filename
-        await expect(page.getByRole('tab', { name: /f\.txt/ })).toBeVisible({ timeout: 10000 });
-    });
+            const shortId = nodes.initial.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-    test('Open Multi-File Diff from button', async () => {
-        const webview = await getLogWebview(page);
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const details = await getDetailsWebview(page);
 
-        // Click to open details
-        await initialRow.click();
+            // Click on a file in the list to open a diff
+            const fileRow = details.locator('text=f.txt').first();
+            await fileRow.click();
 
-        const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            // A diff tab should open with the filename
+            await expect(page.getByRole('tab', { name: /f\.txt/ })).toBeVisible({ timeout: 10000 });
         });
 
-        const details = await getDetailsWebview(page);
+        test('Open Multi-File Diff from button', async () => {
+            const webview = await getLogWebview(page);
+            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
 
-        // Click the Multi-file Diff button
-        const multiDiffButton = details.locator('button', { hasText: 'Multi-file Diff' });
-        await multiDiffButton.click();
+            // Click to open details
+            await initialRow.click();
 
-        // A multi-file diff tab should open with the change ID prefix
-        await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
-    });
+            const shortId = nodes.initial.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-    test('Panel updates when clicking different commit', async () => {
-        const webview = await getLogWebview(page);
+            const details = await getDetailsWebview(page);
 
-        // Open details for 'initial'
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
-        await initialRow.click();
-        const shortId1 = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({
-            timeout: 15000,
+            // Click the Multi-file Diff button
+            const multiDiffButton = details.locator('button', { hasText: 'Multi-file Diff' });
+            await multiDiffButton.click();
+
+            // A multi-file diff tab should open with the change ID prefix
+            await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
         });
 
-        const details = await getDetailsWebview(page);
-        await expect(details.locator('textarea')).toHaveValue(/initial setup/);
+        test('Panel updates when clicking different commit', async () => {
+            const webview = await getLogWebview(page);
 
-        // Now click 'feature' — panel should update in-place (same webview, new content)
-        // Need to focus the JJ Log webview again first
-        await focusJJLog(page);
-        // Re-get the webview after focus since frames can be invalidated
-        const webview2 = await getLogWebview(page);
-        const featureRow = webview2.locator('.commit-row', { hasText: 'add feature' });
-        await featureRow.click();
-        const shortId2 = nodes.feature.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({
-            timeout: 15000,
+            // Open details for 'initial'
+            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            await initialRow.click();
+            const shortId1 = nodes.initial.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            const details = await getDetailsWebview(page);
+            await expect(details.locator('textarea')).toHaveValue(/initial setup/);
+
+            // Now click 'feature' — panel should update in-place (same webview, new content)
+            // Need to focus the JJ Log webview again first
+            await focusJJLog(page);
+            // Re-get the webview after focus since frames can be invalidated
+            const webview2 = await getLogWebview(page);
+            const featureRow = webview2.locator('.commit-row', { hasText: 'add feature' });
+            await featureRow.click();
+            const shortId2 = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            // The panel is reused — wait for the textarea content to update within the SAME frame
+            await expect(async () => {
+                const detailsFrame = await getDetailsWebview(page);
+                await expect(detailsFrame.locator('textarea')).toHaveValue(/add feature/, { timeout: 2000 });
+            }).toPass({ timeout: 15000 });
         });
 
-        // The panel is reused — wait for the textarea content to update within the SAME frame
-        await expect(async () => {
-            const detailsFrame = await getDetailsWebview(page);
-            await expect(detailsFrame.locator('textarea')).toHaveValue(/add feature/, { timeout: 2000 });
-        }).toPass({ timeout: 15000 });
-    });
+        test('Panel auto-updates when commit description is changed externally', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-    test('Panel auto-updates when commit description is changed externally', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            // Click to open details
+            await featureRow.click();
 
-        // Click to open details
-        await featureRow.click();
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
 
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            const details = await getDetailsWebview(page);
+
+            // Verify description is shown in the textarea
+            const textarea = details.locator('textarea');
+            await expect(textarea).toHaveValue(/add feature/);
+
+            // Change the description externally using jj CLI
+            repo.describe('externally updated description', nodes.feature.changeId);
+
+            // Verify the details panel updates automatically (eventually, as file watcher triggers refresh)
+            // Wait up to 15s since file-watchers and graph rebuilds can take a moment
+            await expect(textarea).toHaveValue(/externally updated description/, { timeout: 15000 });
         });
 
-        const details = await getDetailsWebview(page);
+        test('Panel auto-closes when commit is abandoned', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-        // Verify description is shown in the textarea
-        const textarea = details.locator('textarea');
-        await expect(textarea).toHaveValue(/add feature/);
+            // Click to open details
+            await featureRow.click();
 
-        // Change the description externally using jj CLI
-        repo.describe('externally updated description', nodes.feature.changeId);
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
 
-        // Verify the details panel updates automatically (eventually, as file watcher triggers refresh)
-        // Wait up to 15s since file-watchers and graph rebuilds can take a moment
-        await expect(textarea).toHaveValue(/externally updated description/, { timeout: 15000 });
-    });
+            await expect(tabLocator).toBeVisible({
+                timeout: 15000,
+            });
 
-    test('Panel auto-closes when commit is abandoned', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            // Abandon the commit externally
+            repo.abandon(nodes.feature.changeId);
 
-        // Click to open details
-        await featureRow.click();
-
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
-
-        await expect(tabLocator).toBeVisible({
-            timeout: 15000,
+            // Verify the details panel closes automatically
+            await expect(tabLocator).toBeHidden({ timeout: 15000 });
         });
 
-        // Abandon the commit externally
-        repo.abandon(nodes.feature.changeId);
+        test('Format Body button rewraps text while preserving title separation', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-        // Verify the details panel closes automatically
-        await expect(tabLocator).toBeHidden({ timeout: 15000 });
-    });
+            // Click to open details
+            await featureRow.click();
 
-    test('Format Body button rewraps text while preserving title separation', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const details = await getDetailsWebview(page);
+            const textarea = details.locator('textarea');
 
-        // Click to open details
-        await featureRow.click();
+            // Input a long body line separated by a newline
+            const longText =
+                'This is a very long text that will definitely exceed the standard seventy-two character limit that is expected of most commit bodies.';
+            const originalDesc = `Feature Title\n\n${longText}`;
+            await textarea.fill(originalDesc);
 
-        const details = await getDetailsWebview(page);
-        const textarea = details.locator('textarea');
+            // Click the Format Body button
+            const formatButton = details.locator('button', { hasText: 'Format Body' });
+            await formatButton.click();
 
-        // Input a long body line separated by a newline
-        const longText =
-            'This is a very long text that will definitely exceed the standard seventy-two character limit that is expected of most commit bodies.';
-        const originalDesc = `Feature Title\n\n${longText}`;
-        await textarea.fill(originalDesc);
-
-        // Click the Format Body button
-        const formatButton = details.locator('button', { hasText: 'Format Body' });
-        await formatButton.click();
-
-        // Check if the textarea content got wrapped
-        const newValue = await textarea.inputValue();
-        expect(newValue).not.toBe(originalDesc);
-        expect(newValue).toContain(
-            'Feature Title\n\nThis is a very long text that will definitely exceed the standard',
-        );
-        expect(newValue.split('\n').length).toBeGreaterThan(3); // Should be wrapped onto 3rd and 4th lines
-    });
-
-    test('Settings gear opens VS Code settings for jj-view.commit', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
-
-        // Click to open details
-        await featureRow.click();
-        const details = await getDetailsWebview(page);
-
-        // Click the gear icon link
-        const settingsLink = details.locator('a[title="Configure width rulers"]');
-        await settingsLink.click();
-
-        // The VS Code Settings tab should open
-        const titleItem = await expectSettingsOpen(page, 'Title Width Ruler');
-        await expect(titleItem.locator('input')).toHaveValue('50');
-
-        const bodyItem = await expectSettingsOpen(page, 'Body Width Ruler');
-        await expect(bodyItem.locator('input')).toHaveValue('72');
-    });
-
-    test('Displays pills and person info correctly', async () => {
-        // Configure 'initial' to be immutable using its exact commit ID
-        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
-
-        // Refresh the webview by focusing it to pick up graph updates
-        await focusJJLog(page);
-
-        // 1. Check Empty and Tag pill, Author, Committer
-        // Use a robust retry loop to find the row, re-fetching the webview frame if it reloads.
-        const emptyRow = await waitForLogCommitRow(page, 'empty and tagged', repo);
-        await emptyRow.click();
-
-        const details1 = await getDetailsWebview(page);
-
-        await expect(details1.getByText('Empty', { exact: true })).toBeVisible();
-        await expect(details1.getByText('test-e2e-tag', { exact: true })).toBeVisible();
-
-        // Check Author and Committer info are rendered
-        await expect(details1.getByText('Author:', { exact: true })).toBeVisible();
-        await expect(details1.getByText('Committer:', { exact: true })).toBeVisible();
-        await expect(details1.locator('strong', { hasText: 'Test User' })).toHaveCount(2);
-        await expect(details1.locator('span', { hasText: '<test@example.com>' })).toHaveCount(2);
-
-        // 3. Check Immutable pill
-        // Click another commit then click back to force the panel to fetch the latest state
-        const featureRow = await waitForLogCommitRow(page, 'add feature');
-        await featureRow.click();
-
-        await focusJJLog(page);
-
-        const initialRow = await waitForLogCommitRow(page, 'initial setup');
-        // Click once to open the panel
-        await initialRow.click();
-
-        await expect(async () => {
-            // Fetch the details frame dynamically because it may detach and recreate if the extension
-            // reloads the webview during a background refresh
-            const frame = await getDetailsWebview(page);
-            await expect(frame.getByTitle('This commit cannot be modified')).toBeVisible({ timeout: 1000 });
-        }).toPass({ timeout: 20000 });
-    });
-
-    test('Prompts to save when closing a dirty details panel', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
-
-        // Click to open details
-        await featureRow.click();
-
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
-        await expect(tabLocator).toBeVisible({ timeout: 15000 });
-
-        const details = await getDetailsWebview(page);
-        const textarea = details.locator('textarea');
-        await textarea.fill('updated via test before close');
-
-        // Verify dirty indicator logic to make sure the state is registered
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
-        await expect(saveChangesButton).toBeEnabled();
-        await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
-
-        // Close the tab using the tab close button
-        const tabCloseButton = tabLocator.getByRole('button', { name: 'Close' });
-        await tabCloseButton.click();
-
-        // Wait for the native VS Code dialog (which is now rendered as custom HTML by our settings)
-        const dialog = page.locator('.monaco-dialog-box');
-        await expect(dialog).toBeVisible({ timeout: 5000 });
-
-        // Click "Save"
-        const saveDialogButton = dialog.getByRole('button', { name: 'Save', exact: true });
-        await saveDialogButton.click();
-
-        // Verify the description was saved in the repo
-        await expect(async () => {
-            const desc = repo.getDescription(nodes.feature.changeId);
-            expect(desc).toBe('updated via test before close');
-        }).toPass({ timeout: 10000 });
-
-        // Verify the node is no longer selected in the graph
-        const updatedFeatureRow = webview.locator('.commit-row', { hasText: 'updated via test before close' });
-        await expect(updatedFeatureRow).toHaveAttribute('aria-selected', 'false', { timeout: 10000 });
-    });
-
-    test('Hides buttons and disables editor for immutable commits', async () => {
-        // Configure 'initial' to be immutable
-        repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
-        await focusJJLog(page);
-
-        const webview = await getLogWebview(page);
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
-
-        // Click to open details
-        await initialRow.click();
-        const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
-            timeout: 15000,
+            // Check if the textarea content got wrapped
+            const newValue = await textarea.inputValue();
+            expect(newValue).not.toBe(originalDesc);
+            expect(newValue).toContain(
+                'Feature Title\n\nThis is a very long text that will definitely exceed the standard',
+            );
+            expect(newValue.split('\n').length).toBeGreaterThan(3); // Should be wrapped onto 3rd and 4th lines
         });
 
-        const details = await getDetailsWebview(page);
+        test('Settings gear opens VS Code settings for jj-view.commit', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
 
-        // Verify textarea is disabled
-        const textarea = details.locator('textarea');
-        await expect(textarea).toBeDisabled();
+            // Click to open details
+            await featureRow.click();
+            const details = await getDetailsWebview(page);
 
-        // Verify buttons are hidden
-        const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
-        await expect(saveChangesButton).toBeHidden();
+            // Click the gear icon link
+            const settingsLink = details.locator('a[title="Configure width rulers"]');
+            await settingsLink.click();
 
-        const formatButton = details.locator('button', { hasText: 'Format Body' });
-        await expect(formatButton).toBeHidden();
-    });
+            // The VS Code Settings tab should open
+            const titleItem = await expectSettingsOpen(page, 'Title Width Ruler');
+            await expect(titleItem.locator('input')).toHaveValue('50');
 
-    test('Undo/Redo integration with VS Code', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
-        await featureRow.click();
+            const bodyItem = await expectSettingsOpen(page, 'Body Width Ruler');
+            await expect(bodyItem.locator('input')).toHaveValue('72');
+        });
 
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
-        await expect(tabLocator).toBeVisible({ timeout: 15000 });
+        test('Displays pills and person info correctly', async () => {
+            // Configure 'initial' to be immutable using its exact commit ID
+            repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
 
-        const details = await getDetailsWebview(page);
-        const textarea = details.locator('textarea');
+            // Refresh the webview by focusing it to pick up graph updates
+            await focusJJLog(page);
 
-        // Stage 1: First edit
-        await textarea.focus();
-        await page.keyboard.press('End');
-        await page.keyboard.type(' first');
-        // Wait for debounce (200ms) plus buffer to ensure VS Code registers the edit.
-        await page.waitForTimeout(500);
-        await expect(tabLocator).toHaveClass(/dirty/);
-        await expect(textarea).toHaveValue('add feature first');
+            // 1. Check Empty and Tag pill, Author, Committer
+            // Use a robust retry loop to find the row, re-fetching the webview frame if it reloads.
+            const emptyRow = await waitForLogCommitRow(page, 'empty and tagged', repo);
+            await emptyRow.click();
 
-        // Stage 2: Second edit
-        await page.keyboard.type(' second');
-        await page.waitForTimeout(500);
-        await expect(textarea).toHaveValue('add feature first second');
+            const details1 = await getDetailsWebview(page);
 
-        // Stage 3: Undo once
-        await undo(page);
-        await expect(textarea).toHaveValue('add feature first');
-        await expect(tabLocator).toHaveClass(/dirty/);
+            await expect(details1.getByText('Empty', { exact: true })).toBeVisible();
+            await expect(details1.getByText('test-e2e-tag', { exact: true })).toBeVisible();
 
-        // Stage 4: Undo again
-        await undo(page);
-        await expect(textarea).toHaveValue('add feature');
-        // It should no longer be dirty because we are back to persisted state (and VS Code knows this sequence)
-        await expect(tabLocator).not.toHaveClass(/dirty/);
+            // Check Author and Committer info are rendered
+            await expect(details1.getByText('Author:', { exact: true })).toBeVisible();
+            await expect(details1.getByText('Committer:', { exact: true })).toBeVisible();
+            await expect(details1.locator('strong', { hasText: 'Test User' })).toHaveCount(2);
+            await expect(details1.locator('span', { hasText: '<test@example.com>' })).toHaveCount(2);
 
-        // Stage 5: Redo
-        await redo(page);
-        await expect(textarea).toHaveValue('add feature first');
-        await expect(tabLocator).toHaveClass(/dirty/);
-    });
+            // 3. Check Immutable pill
+            // Click another commit then click back to force the panel to fetch the latest state
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
+            await featureRow.click();
 
-    test('Stealth Save: Dirty state clears when manually returning to original state', async () => {
-        const webview = await getLogWebview(page);
-        const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
-        await featureRow.click();
+            await focusJJLog(page);
 
-        const shortId = nodes.feature.changeId.substring(0, 3);
-        const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
-        await expect(tabLocator).toBeVisible({ timeout: 15000 });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
+            // Click once to open the panel
+            await initialRow.click();
 
-        const details = await getDetailsWebview(page);
-        const textarea = details.locator('textarea');
+            await expect(async () => {
+                // Fetch the details frame dynamically because it may detach and recreate if the extension
+                // reloads the webview during a background refresh
+                const frame = await getDetailsWebview(page);
+                await expect(frame.getByTitle('This commit cannot be modified')).toBeVisible({ timeout: 1000 });
+            }).toPass({ timeout: 20000 });
+        });
 
-        // 1. Make an edit to make it dirty
-        await textarea.fill('add feature (edited)');
-        // Wait for debounce and dirty indicator
-        await expect(async () => {
+        test('Prompts to save when closing a dirty details panel', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+
+            // Click to open details
+            await featureRow.click();
+
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+            await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+            const details = await getDetailsWebview(page);
+            const textarea = details.locator('textarea');
+            await textarea.fill('updated via test before close');
+
+            // Verify dirty indicator logic to make sure the state is registered
+            const saveChangesButton = details.locator('button', { hasText: /Save Changes \((⌘|Ctrl\+)S\)/ });
+            await expect(saveChangesButton).toBeEnabled();
+            await expect(page.locator('.tab', { hasText: new RegExp(`^Commit: ${shortId}`) })).toHaveClass(/dirty/);
+
+            // Close the tab using the tab close button
+            const tabCloseButton = tabLocator.getByRole('button', { name: 'Close' });
+            await tabCloseButton.click();
+
+            // Wait for the native VS Code dialog (which is now rendered as custom HTML by our settings)
+            const dialog = page.locator('.monaco-dialog-box');
+            await expect(dialog).toBeVisible({ timeout: 5000 });
+
+            // Click "Save"
+            const saveDialogButton = dialog.getByRole('button', { name: 'Save', exact: true });
+            await saveDialogButton.click();
+
+            // Verify the description was saved in the repo
+            await expect(async () => {
+                const desc = repo.getDescription(nodes.feature.changeId);
+                expect(desc).toBe('updated via test before close');
+            }).toPass({ timeout: 10000 });
+
+            // Verify the node is no longer selected in the graph
+            const updatedFeatureRow = webview.locator('.commit-row', { hasText: 'updated via test before close' });
+            await expect(updatedFeatureRow).toHaveAttribute('aria-selected', 'false', { timeout: 10000 });
+        });
+
+        test('Hides buttons and disables editor for immutable commits', async () => {
+            // Configure 'initial' to be immutable
+            repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
+            await focusJJLog(page);
+
+            const webview = await getLogWebview(page);
+            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+
+            // Click to open details
+            await initialRow.click();
+            const shortId = nodes.initial.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            const details = await getDetailsWebview(page);
+
+            // Verify textarea is disabled
+            const textarea = details.locator('textarea');
+            await expect(textarea).toBeDisabled();
+
+            // Verify buttons are hidden
+            const saveChangesButton = details.locator('button', { hasText: /Save Changes|Saved/ });
+            await expect(saveChangesButton).toBeHidden();
+
+            const formatButton = details.locator('button', { hasText: 'Format Body' });
+            await expect(formatButton).toBeHidden();
+        });
+
+        test('Undo/Redo integration with VS Code', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            await featureRow.click();
+
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+            await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+            const details = await getDetailsWebview(page);
+            const textarea = details.locator('textarea');
+
+            // Stage 1: First edit
+            await textarea.focus();
+            await page.keyboard.press('End');
+            await page.keyboard.type(' first');
+            // Wait for debounce (200ms) plus buffer to ensure VS Code registers the edit.
+            await page.waitForTimeout(500);
             await expect(tabLocator).toHaveClass(/dirty/);
-        }).toPass({ timeout: 5000 });
+            await expect(textarea).toHaveValue('add feature first');
 
-        // 2. Manually revert the change to the original text
-        await textarea.fill('add feature');
+            // Stage 2: Second edit
+            await page.keyboard.type(' second');
+            await page.waitForTimeout(500);
+            await expect(textarea).toHaveValue('add feature first second');
 
-        // 3. Verify it clears within the debounce window
-        await expect(async () => {
+            // Stage 3: Undo once
+            await undo(page);
+            await expect(textarea).toHaveValue('add feature first');
+            await expect(tabLocator).toHaveClass(/dirty/);
+
+            // Stage 4: Undo again
+            await undo(page);
+            await expect(textarea).toHaveValue('add feature');
+            // It should no longer be dirty because we are back to persisted state (and VS Code knows this sequence)
             await expect(tabLocator).not.toHaveClass(/dirty/);
-        }).toPass({ timeout: 5000 });
+
+            // Stage 5: Redo
+            await redo(page);
+            await expect(textarea).toHaveValue('add feature first');
+            await expect(tabLocator).toHaveClass(/dirty/);
+        });
+
+        test('Stealth Save: Dirty state clears when manually returning to original state', async () => {
+            const webview = await getLogWebview(page);
+            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            await featureRow.click();
+
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            const tabLocator = page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) });
+            await expect(tabLocator).toBeVisible({ timeout: 15000 });
+
+            const details = await getDetailsWebview(page);
+            const textarea = details.locator('textarea');
+
+            // 1. Make an edit to make it dirty
+            await textarea.fill('add feature (edited)');
+            // Wait for debounce and dirty indicator
+            await expect(async () => {
+                await expect(tabLocator).toHaveClass(/dirty/);
+            }).toPass({ timeout: 5000 });
+
+            // 2. Manually revert the change to the original text
+            await textarea.fill('add feature');
+
+            // 3. Verify it clears within the debounce window
+            await expect(async () => {
+                await expect(tabLocator).not.toHaveClass(/dirty/);
+            }).toPass({ timeout: 5000 });
+        });
+    });
+
+    test.describe('Format on Save', () => {
+        test.beforeEach(async () => {
+            const setup = await launchVSCode(repo, {
+                'jj-view.commit.formatDescriptionOnSave': true,
+            });
+            app = setup.app;
+            page = setup.page;
+            userDataDir = setup.userDataDir;
+
+            await focusJJLog(page);
+        });
+
+        test('Format on save works from the commit details page', async () => {
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
+            await featureRow.click();
+
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            // Wait for details webview
+            const detailsFrame = await getDetailsWebview(page);
+            const textarea = detailsFrame.locator('textarea');
+            await expect(textarea).toBeVisible({ timeout: 10000 });
+
+            const longBody =
+                'This is a very long body text that should be wrapped onto multiple lines when saved because it exceeds the limit of seventy-two characters.';
+            const messageToFormat = `Title line\n\n${longBody}`;
+
+            // Type the unformatted text
+            await textarea.fill(messageToFormat);
+
+            // Find the Save Changes button
+            const saveChangesButton = detailsFrame.getByRole('button', { name: /Save Changes/ });
+            await expect(saveChangesButton).toBeEnabled();
+
+            // Click save
+            await saveChangesButton.click();
+
+            // Wait for description to be formatted in the repo
+            await expect(async () => {
+                const desc = repo.getDescription(nodes.feature.changeId);
+                const expectedDesc = `Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.`;
+                expect(desc).toBe(expectedDesc);
+                expect(desc.split('\n').length).toBeGreaterThan(2);
+            }).toPass({ timeout: 15000 });
+        });
     });
 });

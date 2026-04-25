@@ -433,8 +433,10 @@ export async function setScmDescription(page: Page, description: string) {
         // 3. Set the description
         await page.keyboard.insertText(description);
 
-        // 4. Validate the text EXACTLY matches the requested description.
-        await expect(scmInputRow).toHaveText(description, { timeout: 2000 });
+        // 4. Validate that all words appear in order inside the row (ignoring VS Code's weird whitespace concatenation).
+        const words = description.trim().split(/\s+/).filter(Boolean);
+        const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+        await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 2000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 15000 });
 }
 

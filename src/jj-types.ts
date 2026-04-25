@@ -99,6 +99,7 @@ export interface WebviewPayload {
     tags?: string[];
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
+    formatDescriptionOnSave?: boolean;
 }
 
 export interface WebviewInitialData {

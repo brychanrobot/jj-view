@@ -160,6 +160,64 @@ test.describe('SCM Pane E2E', () => {
         }
     });
 
+    test('Format on Save for SCM Set Description and Commit', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        await buildGraph(repo, [
+            { label: 'initial', description: 'initial', files: { 'file.txt': 'base' } },
+            { label: 'wc', parents: ['initial'], description: '', isCurrentWorkingCopy: true },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo, {
+            'jj-view.commit.formatDescriptionOnSave': true,
+        });
+
+        try {
+            await focusSCM(page);
+
+            const longBody =
+                'This is a very long body text that should be wrapped onto multiple lines when saved because it exceeds the limit of seventy-two characters.';
+            const messageToFormat = `Title line\n\n${longBody}`;
+
+            // 1. Test Set Description (Ctrl+S)
+            await setScmDescription(page, messageToFormat);
+            await page.keyboard.press('Control+S');
+
+            // Wait for description to be formatted and saved in repo
+            await expect(async () => {
+                const desc = repo.getDescription('@');
+                const expectedDesc = `Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.`;
+                expect(desc).toBe(expectedDesc);
+                expect(desc.split('\n').length).toBeGreaterThan(2);
+            }).toPass({ timeout: 15000 });
+
+            // 2. Test Commit (Ctrl+Enter)
+            const longBody2 =
+                'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
+            const messageToFormat2 = `Commit Title\n\n${longBody2}`;
+
+            await setScmDescription(page, messageToFormat2);
+            await page.keyboard.press('Control+Enter');
+
+            // Wait for it to be committed, formatted, and appear in log
+            await expect(async () => {
+                const log = repo.log();
+                expect(log).toContain('Commit Title');
+                // Find latest commit description (working copy is parent of the new commit)
+                const desc = repo.getDescription('@-');
+                const expectedDesc = `Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.`;
+                expect(desc).toBe(expectedDesc);
+                expect(desc.split('\n').length).toBeGreaterThan(2);
+            }).toPass({ timeout: 15000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
+
     test('Group-Level Actions: Abandon Working Copy and Squash Ancestor', async () => {
         const repo = new TestRepo();
         repo.init();

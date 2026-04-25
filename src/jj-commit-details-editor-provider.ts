@@ -61,6 +61,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const logTheme = config.get<string>('logTheme', 'default');
         const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
+        const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
 
         for (const [changeId, panels] of this._panels.entries()) {
             if (panels.size === 0) {
@@ -98,6 +99,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                             theme: logTheme,
                             titleWidthRuler,
                             bodyWidthRuler,
+                            formatDescriptionOnSave,
                         },
                     });
                 }
@@ -106,6 +108,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             }
         }
     }
+
     public async saveCustomDocument(
         document: JjCommitDocument,
         _cancellation: vscode.CancellationToken,
@@ -213,6 +216,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const logTheme = config.get<string>('logTheme', 'default');
         const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
+        const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
 
         try {
             const logs = await this._jj.getLog({ revision: document.changeId });
@@ -243,6 +247,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                     theme: logTheme,
                     titleWidthRuler,
                     bodyWidthRuler,
+                    formatDescriptionOnSave,
                 },
             };
 
