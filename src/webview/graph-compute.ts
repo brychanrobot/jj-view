@@ -2,239 +2,277 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { type Ancestor, GraphRowRenderer, NodeLine } from 'renderdag-ts';
+import { match } from 'ts-pattern';
 import type { JjLogEntry } from '../jj-types';
-import type { GraphEdge, GraphLayout, GraphNode, GraphRow } from './graph-model';
+import type { GraphEdge, GraphLayout, GraphNode, GraphPoint, GraphRow } from './graph-model';
+import { isElisionRow } from './graph-model';
 import { getColor } from './themes.generated';
 
+function cleanupPoints(points: GraphPoint[]): GraphPoint[] {
+    if (points.length <= 2) {
+        return points;
+    }
+    const result: GraphPoint[] = [points[0]];
+    for (let i = 1; i < points.length - 1; i++) {
+        const prev = result[result.length - 1];
+        const curr = points[i];
+        const next = points[i + 1];
+
+        const isCollinear = (prev.x === curr.x && curr.x === next.x) || (prev.y === curr.y && curr.y === next.y);
+
+        if (!isCollinear) {
+            result.push(curr);
+        }
+    }
+    result.push(points[points.length - 1]);
+    return result;
+}
+
+interface ActiveEdge {
+    edge: GraphEdge;
+    targetChangeId: string;
+    currentLane: number;
+    maxLane: number;
+}
+
+/**
+ * Computes the graph layout using renderdag-ts.
+ * We use a single coordinate system where each commit i spans one row with fractional links:
+ * - nodeY = i (Node placement row)
+ * - linkY = i + 0.5 (Link/Transition row)
+ */
 export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'default'): GraphLayout {
-    // 1. Build Unique Nodes and Edges
-    // The input 'commits' array is already sorted by 'jj log' (graph order).
-    // We trust this order implicitly.
-    const allCommits = new Map<string, JjLogEntry>();
-    commits.forEach((c) => {
-        allCommits.set(c.change_id, c);
-    });
+    const headLog = commits.find((l) => l.is_current_working_copy);
+    const headId = headLog ? headLog.change_id : '';
 
-    // Pre-calculate display rows and commit-to-row mapping
     const displayRows: GraphRow[] = [];
-    const commitToRowIndex = new Map<string, number>();
 
     commits.forEach((commit) => {
-        const rowIndex = displayRows.length;
         displayRows.push(commit);
-        commitToRowIndex.set(commit.change_id, rowIndex);
 
-        const ancestors = commit.nearest_visible_ancestors || [];
+        const parents = commit.nearest_visible_ancestors || commit.parent_change_ids || [];
         const directParents = new Set(commit.parent_change_ids || []);
-        const hasElision =
-            ancestors.some((p) => !directParents.has(p)) || (ancestors.length === 0 && directParents.size > 0);
-
-        if (hasElision) {
-            displayRows.push({ type: 'elision' });
-        }
-    });
-
-    // Layout Logic
-    const nodes: GraphNode[] = []; // Sparse array indexed by rowIndex
-    const edges: GraphEdge[] = [];
-    const pendingEdges: {
-        x1: number;
-        y1: number;
-        targetChangeId: string;
-        targetLane: number;
-        color: string;
-        isElided?: boolean;
-    }[] = [];
-    const lanes: (string | null)[] = [];
-    const nodeMap = new Map<string, GraphNode>();
-
-    commits.forEach((commit) => {
-        const changeId = commit.change_id;
-        // biome-ignore lint/style/noNonNullAssertion: changeId is guaranteed to be in the map by previous pass
-        const rowIndex = commitToRowIndex.get(changeId)!;
-
-        // 1. Determine my lane
-        let nodeLane = lanes.indexOf(changeId);
-        if (nodeLane === -1) {
-            nodeLane = lanes.indexOf(null);
-            if (nodeLane === -1) {
-                nodeLane = lanes.length;
+        parents.forEach((p) => {
+            if (!directParents.has(p)) {
+                displayRows.push({ type: 'elision', targetId: p });
             }
-        }
-
-        // 2. Create Node
-        const nodeColor = getColor(nodeLane, themeName);
-        const node: GraphNode = {
-            commitId: commit.commit_id,
-            changeId,
-            x: nodeLane,
-            y: rowIndex,
-            color: nodeColor,
-            isCurrentWorkingCopy: !!commit.is_current_working_copy,
-            workingCopies: commit.working_copies,
-            conflict: commit.conflict,
-            isEmpty: commit.is_empty,
-            isImmutable: commit.is_immutable,
-        };
-        nodes[rowIndex] = node;
-        nodeMap.set(changeId, node);
-
-        // 3. Update Lanes (Clear self and overlapping)
-        lanes[nodeLane] = null;
-        for (let i = 0; i < lanes.length; i++) {
-            if (lanes[i] === changeId) {
-                lanes[i] = null;
-            }
-        }
-
-        // 4. Handle Parents (Assign Lanes & Create Edges)
-        // We exclusively use nearest_visible_ancestors (change IDs).
-        const ancestors = commit.nearest_visible_ancestors || [];
-        const directParents = new Set(commit.parent_change_ids || []);
-        const allocated = new Set<number>();
-        allocated.add(nodeLane);
-
-        if (ancestors.length > 0) {
-            const p0 = ancestors[0];
-            let p0Lane = lanes.indexOf(p0);
-            if (p0Lane === -1) {
-                p0Lane = nodeLane;
-                lanes[nodeLane] = p0;
-            } else if (p0Lane > nodeLane) {
-                // Parent was assigned a higher lane by a sibling branch.
-                // Move it to the child's (now-free) lane so converging branches
-                // collapse to the leftmost lane, matching `jj log` behavior.
-                lanes[p0Lane] = null;
-                lanes[nodeLane] = p0;
-                p0Lane = nodeLane;
-            } else {
-                // p0 already occupies a lower lane, so nodeLane is now free.
-                // Allow secondary parents to inherit it.
-                allocated.delete(nodeLane);
-            }
-            pendingEdges.push({
-                x1: nodeLane,
-                y1: rowIndex,
-                targetChangeId: p0,
-                targetLane: p0Lane,
-                color: nodeColor,
-                isElided: !directParents.has(p0),
-            });
-        }
-
-        for (let i = 1; i < ancestors.length; i++) {
-            const p = ancestors[i];
-            let pLane = lanes.indexOf(p);
-
-            if (pLane === -1) {
-                let free = -1;
-                for (let k = 0; k < lanes.length; k++) {
-                    if (lanes[k] === null && !allocated.has(k)) {
-                        free = k;
-                        break;
-                    }
-                }
-                if (free === -1) {
-                    let cand = lanes.length;
-                    while (allocated.has(cand)) {
-                        cand++;
-                    }
-                    free = cand;
-                }
-                pLane = free;
-                lanes[free] = p;
-                allocated.add(free);
-            }
-
-            pendingEdges.push({
-                x1: nodeLane,
-                y1: rowIndex,
-                targetChangeId: p,
-                targetLane: pLane,
-                color: getColor(pLane, themeName),
-                isElided: !directParents.has(p),
-            });
-        }
-
-        // 4b. No visible ancestors for non-root: create trailing elided edge
-        if (ancestors.length === 0 && directParents.size > 0) {
-            pendingEdges.push({
-                x1: nodeLane,
-                y1: rowIndex,
-                targetChangeId: 'unresolved-elision', // Dummy ID for trailing edge
-                targetLane: nodeLane,
-                color: nodeColor,
-                isElided: true,
-            });
-        }
-    });
-
-    // 5. Resolve Edges
-    pendingEdges.forEach((pe) => {
-        const target = nodeMap.get(pe.targetChangeId);
-        let targetX: number;
-        let targetY: number;
-        let isJoining: boolean = false;
-
-        if (target) {
-            targetY = target.y;
-            // Cross-lane edges (pe.x1 !== pe.targetLane) are "joining" an existing
-            // vertical line in pe.targetLane. They should merge into that lane, not
-            // chase the target if it later moved to a different lane.
-            // Same-lane edges (pe.x1 === pe.targetLane) "own" the lane and follow
-            // the target to its final position.
-            targetX = pe.x1 !== pe.targetLane ? pe.targetLane : target.x;
-
-            // For joining edges where the target moved lanes (targetX !== target.x),
-            // cap y2 at the curveY of the "owning" edge.
-            if (targetX !== target.x) {
-                const ownerEdge = edges.find((e) => e.x1 === pe.targetLane && e.x2 === target.x && e.y2 === target.y);
-
-                if (ownerEdge) {
-                    targetY = ownerEdge.curveY ?? ownerEdge.y2;
-                    isJoining = true;
-                }
-            }
-        } else {
-            targetX = pe.targetLane;
-            targetY = displayRows.length;
-        }
-
-        let curveY = targetY;
-        if (pe.x1 !== targetX) {
-            // For joining edges, also check the target lane for blocking nodes.
-            const checkTargetLane = pe.x1 !== pe.targetLane;
-            for (let y = pe.y1 + 1; y < targetY; y++) {
-                if (nodes[y] && (nodes[y].x === pe.x1 || (checkTargetLane && nodes[y].x === targetX))) {
-                    curveY = y;
-                    break;
-                }
-            }
-        }
-
-        edges.push({
-            x1: pe.x1,
-            y1: pe.y1,
-            x2: targetX,
-            y2: targetY,
-            curveY,
-            color: pe.color,
-            type: 'parent',
-            isJoining,
-            isElided: pe.isElided || target === undefined,
         });
     });
 
+    const renderer = new GraphRowRenderer<string>();
+
+    const commitToRowIndex = new Map<string, number>();
+    displayRows.forEach((row, i) => {
+        if (!isElisionRow(row)) {
+            commitToRowIndex.set(row.change_id, i);
+        }
+    });
+
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const terminations: { x: number; y: number }[] = [];
+    let activeEdges: ActiveEdge[] = [];
+    let maxColumns = 0;
+
+    displayRows.forEach((row, rowIndex) => {
+        const nodeY = rowIndex;
+        const linkY = rowIndex + 0.5;
+
+        const { changeId, renderParents, glyph, message, parents, directParents } = match(row)
+            .with({ type: 'elision' }, (elision) => ({
+                changeId: `elided-${elision.targetId}`,
+                renderParents: [{ type: 'Parent', id: elision.targetId }] as Ancestor<string>[],
+                glyph: '',
+                message: '',
+                parents: [elision.targetId],
+                directParents: new Set<string>(),
+            }))
+            .otherwise((commit) => {
+                const parents = commit.nearest_visible_ancestors || commit.parent_change_ids || [];
+                const directParents = new Set(commit.parent_change_ids || []);
+                const renderParents = parents.map((p) => {
+                    if (!directParents.has(p)) {
+                        return { type: 'Parent', id: `elided-${p}` };
+                    }
+                    return { type: 'Parent', id: p };
+                }) as Ancestor<string>[];
+
+                return {
+                    changeId: commit.change_id,
+                    renderParents,
+                    glyph: commit.change_id === headId ? '@' : '○',
+                    message: commit.description || '',
+                    parents,
+                    directParents,
+                };
+            });
+
+        const rowData = renderer.nextRow(changeId, renderParents, glyph, message);
+        maxColumns = Math.max(maxColumns, renderer.activeColumns ? renderer.activeColumns.length : 0);
+
+        // 1. Determine current node position
+        const nodeLane = rowData.nodeLine.indexOf(NodeLine.Node);
+        if (nodeLane === -1) {
+            return;
+        }
+
+        if (isElisionRow(row)) {
+            // It's a synthetic elision row! Record its termination marker
+            terminations.push({ x: nodeLane, y: nodeY });
+        }
+
+        const nodeColor = getColor(nodeLane, themeName);
+        if (!isElisionRow(row)) {
+            const commit = row as JjLogEntry;
+            nodes.push({
+                commitId: commit.commit_id,
+                changeId: commit.change_id,
+                x: nodeLane,
+                y: nodeY,
+                color: nodeColor,
+                isCurrentWorkingCopy: !!commit.is_current_working_copy,
+                workingCopies: commit.working_copies,
+                conflict: commit.conflict,
+                isEmpty: commit.is_empty,
+                isImmutable: commit.is_immutable,
+            });
+        }
+
+        // 2. Process vertical segments through the node row (nodeY)
+        activeEdges.forEach((ae) => {
+            ae.edge.points.push({ type: 'node', x: ae.currentLane, y: nodeY });
+        }); // 3. Terminate edges that reached this node or continue if it's an elision
+        if (isElisionRow(row)) {
+            activeEdges.forEach((ae) => {
+                if (ae.targetChangeId === changeId) {
+                    ae.targetChangeId = row.targetId;
+                    ae.edge.isElided = true;
+                    if (ae.currentLane !== nodeLane) {
+                        ae.edge.points.push({ type: 'node', x: nodeLane, y: nodeY });
+                        ae.currentLane = nodeLane;
+                    }
+                }
+            });
+        } else {
+            activeEdges = activeEdges.filter((ae) => {
+                if (ae.targetChangeId === changeId) {
+                    if (ae.currentLane !== nodeLane) {
+                        ae.edge.points.push({ type: 'node', x: nodeLane, y: nodeY });
+                        ae.maxLane = Math.max(ae.maxLane, nodeLane);
+                        ae.edge.color = getColor(ae.maxLane, themeName);
+                    }
+                    edges.push(ae.edge);
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        // 4. Process horizontal segments and transitions in the link row (linkY)
+        const nextActiveColumns = renderer.activeColumns;
+
+        activeEdges.forEach((ae) => {
+            const nextLane = nextActiveColumns.findIndex(
+                (col) =>
+                    (col.type === 'Parent' || col.type === 'Ancestor' || col.type === 'Reserved') &&
+                    col.id === ae.targetChangeId,
+            );
+
+            if (nextLane !== -1) {
+                if (nextLane !== ae.currentLane) {
+                    ae.edge.points.push({ type: 'link', x: ae.currentLane, y: linkY });
+                    ae.edge.points.push({ type: 'link', x: nextLane, y: linkY });
+                    ae.currentLane = nextLane;
+                    ae.maxLane = Math.max(ae.maxLane, nextLane);
+                    ae.edge.color = getColor(ae.maxLane, themeName);
+                } else {
+                    ae.edge.points.push({ type: 'link', x: ae.currentLane, y: linkY });
+                }
+            }
+        });
+
+        // 5. Spawn new edges for parents (only for real commits!)
+        if (!isElisionRow(row)) {
+            const actualParents = parents.map((p) => {
+                if (!directParents.has(p)) {
+                    return `elided-${p}`;
+                }
+                return p;
+            });
+
+            actualParents.forEach((pId) => {
+                const pLane = nextActiveColumns.findIndex(
+                    (col) =>
+                        (col.type === 'Parent' || col.type === 'Ancestor' || col.type === 'Reserved') && col.id === pId,
+                );
+
+                if (pLane !== -1) {
+                    const maxLane = Math.max(nodeLane, pLane);
+                    const color = getColor(maxLane, themeName);
+
+                    const newEdge: GraphEdge = {
+                        id: `${changeId}->${pId}`,
+                        type: 'parent',
+                        color,
+                        isElided: pId.startsWith('elided-'),
+                        points: [
+                            { type: 'node', x: nodeLane, y: nodeY },
+                            { type: 'link', x: nodeLane, y: linkY },
+                            { type: 'link', x: pLane, y: linkY },
+                        ],
+                    };
+
+                    activeEdges.push({
+                        edge: newEdge,
+                        targetChangeId: pId,
+                        currentLane: pLane,
+                        maxLane,
+                    });
+                }
+            });
+        }
+
+        // 6. Handle elision trailing markers (anonymous roots)
+        if (parents.length === 0 && directParents.size > 0) {
+            edges.push({
+                id: `${changeId}->unresolved-elision`,
+                type: 'parent',
+                color: nodeColor,
+                isElided: true,
+                points: [
+                    { type: 'node', x: nodeLane, y: nodeY },
+                    { type: 'node', x: nodeLane, y: nodeY + 1 },
+                ],
+            });
+            terminations.push({ x: nodeLane, y: nodeY + 1 });
+        }
+    });
+
+    // Terminate remaining active edges (history continues below)
+    activeEdges.forEach((ae) => {
+        ae.edge.points.push({ type: 'node', x: ae.currentLane, y: displayRows.length });
+        ae.maxLane = Math.max(ae.maxLane, ae.currentLane);
+        ae.edge.color = getColor(ae.maxLane, themeName);
+        edges.push(ae.edge);
+    });
+
+    const cleanedEdges = edges.map((e) => ({
+        ...e,
+        points: cleanupPoints(e.points),
+    }));
+
     const width = Math.max(
-        lanes.length,
-        nodes.reduce((max, n) => Math.max(max, n.x + 1), 0),
+        maxColumns,
+        nodes.reduce((max, n) => Math.max(max, n ? n.x + 1 : 0), 0),
     );
 
     return {
-        nodes: nodes.filter((n) => !!n), // Flatten sparse array for layout output
-        edges,
+        nodes,
+        edges: cleanedEdges,
+        terminations,
         width,
-        height: displayRows.length,
+        height: displayRows.length, // Total layout rows
         rows: displayRows,
     };
 }

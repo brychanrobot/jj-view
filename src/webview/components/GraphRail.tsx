@@ -3,12 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import type { GraphEdge, GraphNode, GraphRow } from '../graph-model';
-import { LANE_CENTER_X, LANE_WIDTH, LEFT_MARGIN, ROW_CENTER_Y, ROW_HEIGHT_ELISION } from '../layout-constants';
+import { match } from 'ts-pattern';
+import type { GraphEdge, GraphNode, GraphPoint, GraphRow } from '../graph-model';
+import { isElisionRow } from '../graph-model';
+import {
+    LANE_CENTER_X,
+    LANE_WIDTH,
+    LEFT_MARGIN,
+    ROW_CENTER_Y,
+    ROW_HEIGHT_ELISION,
+    ROW_HEIGHT_NORMAL,
+} from '../layout-constants';
 
 interface GraphRailProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
+    terminations?: { x: number; y: number }[];
     width: number; // in lanes
     height: number; // total height in pixels
     rowOffsets: number[]; // Exact Y position for each row index
@@ -26,6 +36,7 @@ const BOTTOM_PADDING = 20; // Extra room for trailing elision markers at the bot
 export const GraphRail: React.FC<GraphRailProps> = ({
     nodes,
     edges,
+    terminations,
     width,
     height,
     rowOffsets,
@@ -40,142 +51,150 @@ export const GraphRail: React.FC<GraphRailProps> = ({
     //    This ensures lines extending further to the right (higher max) render underneath
     //    lines that stay strictly in the leftmost lane.
     const sortedEdges = React.useMemo(() => {
-        return [...edges].sort((a, b) => {
-            return Math.min(b.x1, b.x2) - Math.min(a.x1, a.x2) || Math.max(b.x1, b.x2) - Math.max(a.x1, a.x2);
+        const edgesWithBounds = edges.map((edge) => {
+            let minX = Number.MAX_SAFE_INTEGER;
+            let maxX = Number.MIN_SAFE_INTEGER;
+            for (let i = 0; i < edge.points.length; i++) {
+                const x = edge.points[i].x;
+                if (x < minX) {
+                    minX = x;
+                }
+                if (x > maxX) {
+                    maxX = x;
+                }
+            }
+            return { edge, minX, maxX };
         });
+        return edgesWithBounds.sort((a, b) => b.minX - a.minX || b.maxX - a.maxX).map((item) => item.edge);
     }, [edges]);
+
+    const getLayoutRowPixelY = React.useCallback(
+        (point: GraphPoint): number => {
+            const commitIndex = Math.floor(point.y);
+            const isLinkRow = match(point)
+                .with({ type: 'link' }, () => true)
+                .with({ type: 'node' }, () => false)
+                .exhaustive();
+
+            const topY = rowOffsets[commitIndex] || 0;
+            const row = rows[commitIndex];
+            const isElision = isElisionRow(row);
+            const thisCYOffset = isElision ? ROW_HEIGHT_ELISION / 2 : ROW_HEIGHT_NORMAL / 2;
+
+            if (isLinkRow) {
+                const nextRow = rows[commitIndex + 1];
+                const nextIsElision = isElisionRow(nextRow);
+                const nextCYOffset = nextIsElision ? ROW_HEIGHT_ELISION / 2 : ROW_HEIGHT_NORMAL / 2;
+
+                const bottomY = rowOffsets[commitIndex + 1] || topY + ROW_HEIGHT_NORMAL;
+                const thisCY = topY + thisCYOffset;
+                const nextCY = bottomY + nextCYOffset;
+                return thisCY + (nextCY - thisCY) / 2;
+            } else {
+                return topY + thisCYOffset;
+            }
+        },
+        [rowOffsets, rows],
+    );
+
+    const getPixelX = (lane: number) => lane * W + CX + LEFT_MARGIN;
 
     // Render Edges
     const renderEdge = (edge: GraphEdge, index: number) => {
-        const { x1, y1, x2, y2, color } = edge;
-        const sx = x1 * W + CX + LEFT_MARGIN;
-        // Start Y is based on row offset + centering in header
-        const sy = (rowOffsets[y1] || 0) + CY_OFFSET;
+        const { points, color } = edge;
+        if (!points || points.length < 2) {
+            return null;
+        }
 
-        const ex = x2 * W + CX + LEFT_MARGIN;
-        // End Y
-        const isTrailing = y2 >= rows.length;
-        // Trailing edges extend past the last row. If the last row is an elision row, they should end there.
-        const lastRowIndex = rows.length - 1;
-        const isLastRowElision =
-            rows[lastRowIndex] && 'type' in rows[lastRowIndex] && rows[lastRowIndex].type === 'elision';
+        // Apply trailing extension logic to the very last point
+        const displayPoints = [...points];
+        const lastP = displayPoints[displayPoints.length - 1];
+        const isTrailing = lastP.y >= rows.length;
 
-        let ey: number;
+        let trailingY = getLayoutRowPixelY(lastP);
         if (isTrailing) {
+            const lastRowIndex = rows.length - 1;
+            const isLastRowElision = isElisionRow(rows[lastRowIndex]);
+
             if (isLastRowElision) {
-                // End in the middle of the elision row
-                ey = (rowOffsets[lastRowIndex] || 0) + ELISION_ROW_HEIGHT / 2;
+                trailingY = (rowOffsets[lastRowIndex] || 0) + ELISION_ROW_HEIGHT / 2;
             } else {
-                ey = (rowOffsets[y2] || rowOffsets[lastRowIndex] || 0) + 12;
-            }
-        } else {
-            ey = (rowOffsets[y2] || 0) + CY_OFFSET;
-        }
-
-        let d = '';
-
-        if (x1 === x2) {
-            // Straight Vertical
-            d = `M ${sx} ${sy} L ${ex} ${ey}`;
-        } else {
-            // Rail Routing
-            const cY = edge.curveY ?? y2;
-            let midY: number;
-
-            if (rowOffsets[cY] !== undefined) {
-                // S-curve crosses boundary right above the curve row
-                midY = rowOffsets[cY];
-            } else {
-                // If it curves offscreen, use ey but subtract the offset to get the row boundary
-                midY = isTrailing ? ey : ey - CY_OFFSET;
-            }
-
-            // Direction for horizontal
-            const dirX = x2 > x1 ? 1 : -1;
-
-            // Start -> Vertical to Turn
-            d += `M ${sx} ${sy}`;
-            d += ` L ${sx} ${midY - R}`;
-
-            // Curve 1 (Vertical to Horizontal)
-
-            // Quadratic Bezier (Q): Q control-point-x control-point-y end-x end-y
-            // Start: (sx, midY - R)
-            // Control: (sx, midY) - Corner
-            // End: (sx + R*dirX, midY)
-            d += ` Q ${sx} ${midY} ${sx + R * dirX} ${midY}`;
-
-            // Horizontal Line
-            // If adjacent lanes (delta=1), len = W = 2*R.
-            // start + 2*R*dirX = start + W*dirX = ex.
-            // So horizontal segment is length 0. Perfect S.
-            // If delta > 1, straight line exists.
-            d += ` L ${ex - R * dirX} ${midY}`;
-
-            // Curve 2 (Horizontal to Vertical)
-            // Start: (ex - R*dirX, midY)
-            // Control: (ex, midY)
-            // End: (ex, midY + R)
-            d += ` Q ${ex} ${midY} ${ex} ${midY + R}`;
-
-            if (!edge.isJoining) {
-                // Vertical to End
-                d += ` L ${ex} ${ey}`;
+                trailingY = (rowOffsets[lastRowIndex] || 0) + CY_OFFSET + (edge.isElided ? 24 : 12);
             }
         }
 
-        const ElisionMarker = () => {
-            if (!edge.isElided) {
-                return null;
+        let d = `M ${getPixelX(displayPoints[0].x)} ${getLayoutRowPixelY(displayPoints[0])} `;
+
+        for (let j = 1; j < displayPoints.length - 1; j++) {
+            const prev = displayPoints[j - 1];
+            const curr = displayPoints[j];
+            const next = displayPoints[j + 1];
+
+            const px = getPixelX(prev.x);
+            const py = getLayoutRowPixelY(prev);
+            const cx = getPixelX(curr.x);
+            const cy = getLayoutRowPixelY(curr);
+
+            const nx = getPixelX(next.x);
+            let ny = getLayoutRowPixelY(next);
+            if (j + 1 === displayPoints.length - 1 && isTrailing) {
+                ny = trailingY;
             }
 
-            // Find the elision row for this edge.
-            // It should be either y1 + 1 (standard elision after child)
-            // or the last row (if it's a trailing edge).
-            let elisionRowIndex = -1;
-            const nextRow = rows[y1 + 1];
-            if (nextRow && 'type' in nextRow && nextRow.type === 'elision') {
-                elisionRowIndex = y1 + 1;
-            } else if (isTrailing && isLastRowElision) {
-                elisionRowIndex = lastRowIndex;
+            // Universal orthogonal rounded corner algorithm
+            const dx1 = cx - px;
+            const dy1 = cy - py;
+            const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+
+            const dx2 = nx - cx;
+            const dy2 = ny - cy;
+            const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+            // Radius cannot be larger than half the shortest segment
+            const r = Math.min(R, len1 / 2, len2 / 2);
+
+            if (r === 0) {
+                d += `L ${cx} ${cy} `;
+                continue;
             }
 
-            if (elisionRowIndex === -1) {
-                return null;
-            }
+            const ux = cx === px ? 0 : px < cx ? -1 : 1;
+            const uy = cy === py ? 0 : py < cy ? -1 : 1;
+            const startX = cx + ux * r;
+            const startY = cy + uy * r;
 
-            const mx = sx;
-            const my = rowOffsets[elisionRowIndex] + ELISION_ROW_HEIGHT / 2;
+            const vx = nx === cx ? 0 : cx < nx ? 1 : -1;
+            const vy = ny === cy ? 0 : cy < ny ? 1 : -1;
+            const endX = cx + vx * r;
+            const endY = cy + vy * r;
 
-            return (
-                <g key={`elision-${index}`} transform={`translate(${mx}, ${my})`}>
-                    {/* Background cutout to create a clean gap in the colored line */}
-                    <rect x="-5" y="-6" width="10" height="12" fill="var(--vscode-sideBar-background)" />
-                    {/* Tilde marker ~ in disabled gray */}
-                    <path
-                        d="M -4,1 C -4,-2 -1,-2 0,0 C 1,2 4,2 4,-1"
-                        stroke="var(--vscode-descriptionForeground)"
-                        strokeWidth="2"
-                        fill="none"
-                        strokeLinecap="round"
-                    />
-                </g>
-            );
-        };
+            d += `L ${startX} ${startY} `;
+            d += `Q ${cx} ${cy} ${endX} ${endY} `;
+        }
+
+        // Final segment
+        const last = displayPoints[displayPoints.length - 1];
+        const finalX = getPixelX(last.x);
+        const finalY = isTrailing ? trailingY : getLayoutRowPixelY(last);
+        d += `L ${finalX} ${finalY} `;
 
         return (
-            <React.Fragment key={`edge-group-${index}`}>
-                <path d={d} stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                <ElisionMarker />
-            </React.Fragment>
+            <path
+                key={`edge-${index}`}
+                d={d}
+                stroke={color}
+                strokeWidth="2"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
         );
     };
 
     // Render Nodes
     const renderNode = (node: GraphNode) => {
-        const cx = node.x * W + CX + LEFT_MARGIN;
-        // Node Y is strictly based on the offset table
-        const cy = (rowOffsets[node.y] || 0) + CY_OFFSET;
+        const cx = getPixelX(node.x);
+        const cy = getLayoutRowPixelY({ type: 'node', x: node.x, y: node.y });
 
         const isSelected = selectedNodes?.has(node.changeId);
 
@@ -292,6 +311,25 @@ export const GraphRail: React.FC<GraphRailProps> = ({
             style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 0 }}
         >
             {sortedEdges.map((edge, i) => renderEdge(edge, i))}
+            {terminations?.map((term) => {
+                const mx = getPixelX(term.x);
+                const my =
+                    term.y >= rows.length
+                        ? (rowOffsets[rows.length - 1] || 0) + CY_OFFSET + 24
+                        : getLayoutRowPixelY({ type: 'node', x: term.x, y: term.y });
+                return (
+                    <g key={`term-${term.x}-${term.y}`} transform={`translate(${mx}, ${my})`}>
+                        <rect x="-5" y="-6" width="10" height="12" fill="var(--vscode-sideBar-background)" />
+                        <path
+                            d="M -4,1 C -4,-2 -1,-2 0,0 C 1,2 4,2 4,-1"
+                            stroke="var(--vscode-descriptionForeground)"
+                            strokeWidth="2"
+                            fill="none"
+                            strokeLinecap="round"
+                        />
+                    </g>
+                );
+            })}
             {nodes.map((node) => renderNode(node))}
         </svg>
     );

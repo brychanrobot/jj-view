@@ -31,13 +31,19 @@ importers:
         version: 0.11.1
       prettier:
         specifier: ^3.8.1
-        version: 3.8.1
+        version: 3.8.3
       react:
         specifier: ^19.2.3
         version: 19.2.3
       react-dom:
         specifier: ^19.2.3
         version: 19.2.3(react@19.2.3)
+      renderdag-ts:
+        specifier: git+https://github.com/brychanrobot/renderdag-ts.git
+        version: https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.12
@@ -2601,8 +2607,8 @@ packages:
     deprecated: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
     hasBin: true
 
-  prettier@3.8.1:
-    resolution: {integrity: sha512-UOnG6LftzbdaHZcKoPFtOcCKztrQ57WkHDeRD9t/PTQtmT0NHSeWWepj6pS0z/N7+08BHFDQVUrfmfMRcZwbMg==}
+  prettier@3.8.3:
+    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -2684,6 +2690,10 @@ packages:
   regexp.prototype.flags@1.5.4:
     resolution: {integrity: sha512-dYqgNSZbDwkaJ2ceRd9ojCGjBq+mOm9LmtXnAnEGyHhN/5R7iDW2TRw3h+o/jCFxus3P2LfWIIiwowAjANm7IA==}
     engines: {node: '>= 0.4'}
+
+  renderdag-ts@https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c:
+    resolution: {tarball: https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c}
+    version: 1.0.0
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -3099,6 +3109,9 @@ packages:
         optional: true
       '@swc/wasm':
         optional: true
+
+  ts-pattern@5.9.0:
+    resolution: {integrity: sha512-6s5V71mX8qBUmlgbrfL33xDUwO0fq48rxAu2LBE11WBeGdpCPOsXksQbZJHvHwhrd3QjUusd3mAOM5Gg0mFBLg==}
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
@@ -6010,7 +6023,7 @@ snapshots:
       tunnel-agent: 0.6.0
     optional: true
 
-  prettier@3.8.1: {}
+  prettier@3.8.3: {}
 
   proc-log@5.0.0: {}
 
@@ -6122,6 +6135,8 @@ snapshots:
       get-proto: 1.0.1
       gopd: 1.2.0
       set-function-name: 2.0.2
+
+  renderdag-ts@https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c: {}
 
   require-directory@2.1.1: {}
 
@@ -6633,6 +6648,8 @@ snapshots:
       typescript: 5.9.3
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
+
+  ts-pattern@5.9.0: {}
 
   tslib@2.8.1: {}
 

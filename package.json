@@ -783,7 +783,9 @@
         "parse-diff": "^0.11.1",
         "prettier": "^3.8.1",
         "react": "^19.2.3",
-        "react-dom": "^19.2.3"
+        "react-dom": "^19.2.3",
+        "renderdag-ts": "git+https://github.com/brychanrobot/renderdag-ts.git",
+        "ts-pattern": "^5.9.0"
     },
     "pnpm": {
         "onlyBuiltDependencies": [

@@ -14,20 +14,40 @@ import type { GraphLayout } from './graph-model';
  * completely at `x1` above its curve row, and completely at `x2` at/below its curve row.
  */
 export function computeCompactRowMaxX(layout: GraphLayout): number[] {
-    const rowMaxX = new Array(layout.rows.length).fill(0);
+    const rowMaxX = new Array(layout.height).fill(0);
 
+    // 1. Account for node positions
     for (const { x, y } of layout.nodes) {
-        if (y >= 0 && y < rowMaxX.length) {
-            rowMaxX[y] = Math.max(rowMaxX[y], x);
+        const rowIndex = Math.floor(y);
+        if (rowIndex >= 0 && rowIndex < rowMaxX.length) {
+            rowMaxX[rowIndex] = Math.max(rowMaxX[rowIndex], x);
         }
     }
 
+    // 2. Account for edges passing through rows.
+    // Instead of iterating over individual points (which might be missing for some rows),
+    // we analyze the continuous segments of each edge to determine which lanes are occupied
+    // at each integer row center.
     for (const e of layout.edges) {
-        const cY = e.curveY ?? e.y2;
-        for (let y = Math.max(0, e.y1); y <= e.y2 && y < rowMaxX.length; y++) {
-            // If the row center is above the curve, it is at x1.
-            // If the row center is at or below the curve, it has already curved to x2.
-            rowMaxX[y] = Math.max(rowMaxX[y], y < cY ? e.x1 : e.x2);
+        if (e.points.length < 2) {
+            continue;
+        }
+
+        const yCoords = e.points.map((p) => p.y);
+        const yMin = Math.floor(Math.min(...yCoords));
+        const yMax = Math.ceil(Math.max(...yCoords));
+
+        for (let y = Math.max(0, yMin); y <= yMax && y < rowMaxX.length; y++) {
+            for (let i = 0; i < e.points.length - 1; i++) {
+                const p1 = e.points[i];
+                const p2 = e.points[i + 1];
+                const segmentYMin = Math.min(p1.y, p2.y);
+                const segmentYMax = Math.max(p1.y, p2.y);
+
+                if (y >= segmentYMin && y <= segmentYMax) {
+                    rowMaxX[y] = Math.max(rowMaxX[y], p1.x, p2.x);
+                }
+            }
         }
     }
 

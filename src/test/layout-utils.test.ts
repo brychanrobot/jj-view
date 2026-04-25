@@ -74,7 +74,18 @@ describe('Layout Utils', () => {
         it('should account for vertical edges passing through rows', () => {
             const layout: GraphLayout = {
                 nodes: [{ commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false }],
-                edges: [{ x1: 2, y1: 0, x2: 2, y2: 2, curveY: 2, type: 'parent', color: 'green' }],
+                edges: [
+                    {
+                        id: 'e1',
+                        points: [
+                            { type: 'node', x: 2, y: 0 },
+                            { type: 'node', x: 2, y: 1 },
+                            { type: 'node', x: 2, y: 2 },
+                        ],
+                        type: 'parent',
+                        color: 'green',
+                    },
+                ],
                 width: 3,
                 height: 3,
                 rows: [createMock<JjLogEntry>({}), createMock<JjLogEntry>({}), createMock<JjLogEntry>({})],
@@ -84,19 +95,55 @@ describe('Layout Utils', () => {
             expect(result).toEqual([2, 2, 2]);
         });
 
-        it('should ignore curved segments when determining max lane', () => {
+        it('should account for curved segments correctly', () => {
             const layout: GraphLayout = {
                 nodes: [{ commitId: 'c1', changeId: 'c1', x: 0, y: 0, color: 'red', isCurrentWorkingCopy: false }],
-                edges: [{ x1: 4, y1: 0, x2: 0, y2: 2, curveY: 2, type: 'parent', color: 'green' }],
+                edges: [
+                    {
+                        id: 'e1',
+                        points: [
+                            { type: 'node', x: 4, y: 0 },
+                            { type: 'node', x: 4, y: 1 },
+                            { type: 'link', x: 4, y: 1.5 },
+                            { type: 'link', x: 0, y: 1.5 },
+                            { type: 'node', x: 0, y: 2 },
+                        ],
+                        type: 'parent',
+                        color: 'green',
+                    },
+                ],
                 width: 6,
                 height: 3,
                 rows: [createMock<JjLogEntry>({}), createMock<JjLogEntry>({}), createMock<JjLogEntry>({})],
             };
             const result = computeCompactRowMaxX(layout);
-            // Node at row 0: x=0. Edge at row 0: y<curveY -> x1=4. max=4.
-            // Edge at row 1: y<curveY -> x1=4. max=4.
-            // Edge at row 2: y>=curveY -> x2=0. max=0.
+            // Node at row 0: x=0. Edge at row 0: x=4. max=4.
+            // Edge at row 1: x=4. max=4.
+            // Edge at row 2: x=0. max=0.
             expect(result).toEqual([4, 4, 0]);
+        });
+
+        it('should account for intermediate rows without explicit points', () => {
+            const layout: GraphLayout = {
+                nodes: [],
+                edges: [
+                    {
+                        id: 'e1',
+                        points: [
+                            { type: 'node', x: 5, y: 5 },
+                            { type: 'link', x: 1, y: 2.5 },
+                            { type: 'node', x: 1, y: 2 },
+                        ],
+                        type: 'parent',
+                        color: 'green',
+                    },
+                ],
+                width: 6,
+                height: 6,
+                rows: Array.from({ length: 6 }, () => createMock<JjLogEntry>({})),
+            };
+            const result = computeCompactRowMaxX(layout);
+            expect(result).toEqual([0, 0, 1, 5, 5, 5]);
         });
     });
 });

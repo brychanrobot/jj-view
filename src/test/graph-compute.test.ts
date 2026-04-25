@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
 import { computeGraphLayout } from '../webview/graph-compute';
-import type { GraphLayout, GraphNode } from '../webview/graph-model';
+import { type GraphLayout, type GraphNode, isElisionRow } from '../webview/graph-model';
 import { buildGraph, TestRepo } from './test-repo';
 
 // Helper: ASCII renderer to verify layout against jj log output
@@ -14,19 +14,50 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
     const rows: string[] = [];
     const nodesById = new Map<string, GraphNode>(layout.nodes.map((n: GraphNode) => [n.changeId, n]));
 
-    let width = Math.max(1, ...layout.nodes.map((n: GraphNode) => n.x + 1));
-    for (const e of layout.edges) {
-        width = Math.max(width, e.x1 + 1, e.x2 + 1);
-    }
+    const width = layout.width;
+
+    const childDegree = new Map<string, number>();
+    const parentDegree = new Map<string, number>();
+
+    layout.rows.forEach((row) => {
+        if (!isElisionRow(row)) {
+            const parents = row.nearest_visible_ancestors || row.parent_change_ids || [];
+            if (parents.length > 1) {
+                childDegree.set(row.change_id, parents.length);
+            }
+            parents.forEach((p) => {
+                parentDegree.set(p, (parentDegree.get(p) || 0) + 1);
+            });
+        }
+    });
 
     const edgeRoutes = layout.edges.map((e) => {
-        if (e.x1 === e.x2) {
-            return { ...e, yBend: e.y1 }; // Straight
+        const p1 = e.points[0];
+        const p2 = e.points[e.points.length - 1];
+        const x1 = p1.x;
+        const x2 = p2.x;
+
+        const parts = e.id.split('->');
+        const childId = parts[0];
+        const parentId = parts[1];
+        const cleanChildId = childId.startsWith('elided-') ? childId.substring(7) : childId;
+        const cleanParentId = parentId.startsWith('elided-') ? parentId.substring(7) : parentId;
+
+        const childNode = nodesById.get(cleanChildId);
+        const parentNode = nodesById.get(cleanParentId);
+
+        const y1 = childNode ? childNode.y : Math.floor(p1.y);
+        const y2 = parentNode ? parentNode.y : Math.floor(p2.y);
+
+        let yBend = y1;
+        for (let j = 1; j < e.points.length; j++) {
+            if (e.points[j].x !== x1) {
+                yBend = e.points[j].y;
+                break;
+            }
         }
 
-        // jj log curves around row offsets. It typically curves just before the target
-        // row `curveY`, so visual yBend is exactly midway above curveY
-        return { ...e, yBend: (e.curveY ?? e.y2) - 0.5 };
+        return { ...e, x1, y1, x2, y2, yBend };
     });
 
     for (let i = 0; i < layout.rows.length; i++) {
@@ -155,7 +186,6 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
             }
 
             const nextLog = nextRow as JjLogEntry;
-            const yMid = node.y + 0.5;
 
             // In jj log, if an empty child is connecting to the root commit, it skips the second spacer row
             // to save vertical space.
@@ -165,134 +195,211 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
 
             for (let s = 0; s < spacerCount; s++) {
                 let spacerStr = '';
-                const isCurveRow = s === 0;
-                const rowIsMerge = false;
-                let rowIsFork = false;
-                if (isCurveRow) {
-                    // Check if any edge is curving at this yMid
-                    const bendingEdge = edgeRoutes.find((e) => e.x1 !== e.x2 && e.yBend === yMid);
+                // Both spacer rows query at the link-row y-coordinate (node.y + 0.5).
+                // Edge points use this exact coordinate for horizontal transitions.
+                const yQ = node.y + 0.5;
 
-                    if (bendingEdge) {
-                        if (bendingEdge.x1 > bendingEdge.x2) {
-                            // Lane N merging to Lane < N
-
-                            // Let's check if there is ALSO a straight connection passing down Lane N at yMid.
-                            const laneContinues = edgeRoutes.some(
-                                (e) =>
-                                    e.x1 === bendingEdge.x1 &&
-                                    e.y1 <= yMid - 0.5 &&
-                                    ((e.x2 === bendingEdge.x1 && e.y2 > yMid) ||
-                                        (e.x2 !== bendingEdge.x1 && e.yBend > yMid)),
-                            );
-
-                            // Build the spacer string column by column
-                            for (let x = 0; x < width; x++) {
-                                if (x === bendingEdge.x2) {
-                                    // Target lane (left side of the fork/merge)
-                                    spacerStr += laneContinues ? '╭' : '├';
-                                } else if (x > bendingEdge.x2 && x < bendingEdge.x1) {
-                                    // Intermediate lanes get crossed over
-                                    spacerStr += '─';
-                                } else if (x === bendingEdge.x1) {
-                                    // Source lane (right side)
-                                    spacerStr += laneContinues ? '┤' : '╯';
-                                } else {
-                                    // Lanes not involved in the bend
-                                    const hasVertical = edgeRoutes.some((e) => {
-                                        if (e.x1 === e.x2) {
-                                            return (
-                                                e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
-                                            );
-                                        } else {
-                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
-                                                return true;
-                                            }
-                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) {
-                                                return true;
-                                            }
-                                            return false;
-                                        }
-                                    });
-                                    spacerStr += hasVertical ? '│' : ' ';
-                                }
-                                if (x < width - 1) {
-                                    if (x >= bendingEdge.x2 && x < bendingEdge.x1) {
-                                        spacerStr += '─';
-                                    } else {
-                                        spacerStr += ' ';
+                for (let x = 0; x < width; x++) {
+                    // For the second spacer row (s=1), only show vertical pass-throughs.
+                    if (s === 1) {
+                        let hasDown = false;
+                        edgeRoutes.forEach((e) => {
+                            if (e.y1 > yQ || e.y2 < yQ) {
+                                return;
+                            }
+                            for (let j = 0; j < e.points.length - 1; j++) {
+                                const pA = e.points[j];
+                                const pB = e.points[j + 1];
+                                if (pA.x === x && pB.x === x) {
+                                    if (Math.min(pA.y, pB.y) <= yQ && Math.max(pA.y, pB.y) > yQ) {
+                                        hasDown = true;
                                     }
                                 }
-                            }
-                            rowIsFork = true; // Handled both fork and merge in the builder above
-                        } else {
-                            // Lane N branching from Lane < N (for completeness, e.g. ╭─┤ on the right)
-                            // jj log usually pulls left, so this is rare natively but good for correctness.
-                            const laneContinues = edgeRoutes.some(
-                                (e) =>
-                                    e.x1 === bendingEdge.x1 &&
-                                    e.y1 <= yMid - 0.5 &&
-                                    ((e.x2 === bendingEdge.x1 && e.y2 > yMid) ||
-                                        (e.x2 !== bendingEdge.x1 && e.yBend > yMid)),
-                            );
-
-                            for (let x = 0; x < width; x++) {
-                                if (x === bendingEdge.x1) {
-                                    spacerStr += laneContinues ? '├' : '╰';
-                                } else if (x > bendingEdge.x1 && x < bendingEdge.x2) {
-                                    spacerStr += '─';
-                                } else if (x === bendingEdge.x2) {
-                                    spacerStr += laneContinues ? '╮' : '┤';
-                                } else {
-                                    const hasVertical = edgeRoutes.some((e) => {
-                                        if (e.x1 === e.x2) {
-                                            return (
-                                                e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid
-                                            );
-                                        } else {
-                                            if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
-                                                return true;
-                                            }
-                                            if (x === e.x2 && yMid > e.yBend && yMid < e.y2) {
-                                                return true;
-                                            }
-                                            return false;
-                                        }
-                                    });
-                                    spacerStr += hasVertical ? '│' : ' ';
-                                }
-                                if (x < width - 1) {
-                                    if (x >= bendingEdge.x1 && x < bendingEdge.x2) {
-                                        spacerStr += '─';
-                                    } else {
-                                        spacerStr += ' ';
-                                    }
-                                }
-                            }
-                            rowIsFork = true;
-                        }
-                    }
-                }
-
-                if (!rowIsMerge && !rowIsFork) {
-                    for (let x = 0; x < width; x++) {
-                        const hasVertical = edgeRoutes.some((e) => {
-                            if (e.x1 === e.x2) {
-                                return e.x1 === x && Math.min(e.y1, e.y2) < yMid && Math.max(e.y1, e.y2) > yMid;
-                            } else {
-                                // Diagonal edge: occupies x1 before yBend, and x2 after yBend
-                                if (x === e.x1 && yMid < e.yBend && yMid > e.y1) {
-                                    return true;
-                                }
-                                if (x === e.x2 && yMid >= e.yBend && yMid < e.y2 && !e.isJoining) {
-                                    return true;
-                                }
-                                return false;
                             }
                         });
-                        spacerStr += hasVertical ? '│' : ' ';
+                        spacerStr += hasDown ? '│' : ' ';
                         if (x < width - 1) {
                             spacerStr += ' ';
                         }
+                        continue;
+                    }
+
+                    // First spacer row (s=0): detect up/down/left/right at each cell.
+                    let up = false;
+                    let down = false;
+                    let left = false;
+                    let right = false;
+
+                    edgeRoutes.forEach((e) => {
+                        if (e.y1 > yQ || e.y2 < yQ) {
+                            return;
+                        }
+
+                        for (let j = 0; j < e.points.length - 1; j++) {
+                            const pA = e.points[j];
+                            const pB = e.points[j + 1];
+
+                            // Vertical segments at this column
+                            if (pA.x === x && pB.x === x) {
+                                if (Math.min(pA.y, pB.y) < yQ && Math.max(pA.y, pB.y) >= yQ) {
+                                    up = true;
+                                }
+                                if (Math.min(pA.y, pB.y) <= yQ && Math.max(pA.y, pB.y) > yQ) {
+                                    down = true;
+                                }
+                            }
+
+                            // Horizontal segments at yQ
+                            if (pA.y === yQ && pB.y === yQ) {
+                                const minX = Math.min(pA.x, pB.x);
+                                const maxX = Math.max(pA.x, pB.x);
+                                if (minX < x && maxX >= x) {
+                                    left = true;
+                                }
+                                if (minX <= x && maxX > x) {
+                                    right = true;
+                                }
+                            }
+                        }
+                    });
+
+                    // Calculate independent vertical based on symmetric geometric rules:
+                    // A curved symbol (╭ or ╮) is used instead of a T-junction (├ or ┤)
+                    // ONLY when it's the target of a curve whose source lane continues.
+                    let hasIndependentVertical = true;
+
+                    if (right && !left) {
+                        // Left Endpoint: check if it's the target of a leftward curve whose source continues.
+                        edgeRoutes.forEach((e) => {
+                            if (e.y1 > yQ || e.y2 < yQ) {
+                                return;
+                            }
+                            const childX = e.points[0].x;
+                            if (childX > x) {
+                                // Must actually have a horizontal segment at yQ touching x
+                                const hasHorizAtX = e.points.some((p) => p.y === yQ && p.x === x);
+                                if (!hasHorizAtX) {
+                                    return;
+                                }
+
+                                // Found a leftward curve from childX to x.
+                                // Now check if the lane at childX continues below yQ.
+                                const sourceContinues = edgeRoutes.some((e_other) => {
+                                    if (e_other.y1 > yQ || e_other.y2 < yQ) {
+                                        return false;
+                                    }
+                                    if (e_other === e) {
+                                        return false;
+                                    }
+                                    for (let j = 0; j < e_other.points.length - 1; j++) {
+                                        const pA = e_other.points[j];
+                                        const pB = e_other.points[j + 1];
+                                        if (
+                                            pA.x === childX &&
+                                            pB.x === childX &&
+                                            Math.min(pA.y, pB.y) <= yQ &&
+                                            Math.max(pA.y, pB.y) > yQ
+                                        ) {
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                });
+                                if (sourceContinues) {
+                                    hasIndependentVertical = false;
+                                }
+                            }
+                        });
+                    } else if (left && !right) {
+                        // Right Endpoint: check if it's the target of a rightward curve whose source continues.
+                        edgeRoutes.forEach((e) => {
+                            if (e.y1 > yQ || e.y2 < yQ) {
+                                return;
+                            }
+                            const childX = e.points[0].x;
+                            if (childX < x) {
+                                // Must actually have a horizontal segment at yQ touching x
+                                const hasHorizAtX = e.points.some((p) => p.y === yQ && p.x === x);
+                                if (!hasHorizAtX) {
+                                    return;
+                                }
+
+                                // Found a rightward curve from childX to x.
+                                // Now check if the lane at childX continues below yQ.
+                                const sourceContinues = edgeRoutes.some((e_other) => {
+                                    if (e_other.y1 > yQ || e_other.y2 < yQ) {
+                                        return false;
+                                    }
+                                    if (e_other === e) {
+                                        return false;
+                                    }
+                                    for (let j = 0; j < e_other.points.length - 1; j++) {
+                                        const pA = e_other.points[j];
+                                        const pB = e_other.points[j + 1];
+                                        if (
+                                            pA.x === childX &&
+                                            pB.x === childX &&
+                                            Math.min(pA.y, pB.y) <= yQ &&
+                                            Math.max(pA.y, pB.y) > yQ
+                                        ) {
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                });
+                                if (sourceContinues) {
+                                    hasIndependentVertical = false;
+                                }
+                            }
+                        });
+                    }
+
+                    let symbol = ' ';
+                    if (up && down && !left && !right) {
+                        symbol = '│';
+                    } else if (left && right) {
+                        symbol = '─';
+                    } else if (up && down && right && !left) {
+                        symbol = hasIndependentVertical ? '├' : '╭';
+                    } else if (up && down && left && !right) {
+                        symbol = hasIndependentVertical ? '┤' : '╮';
+                    } else if (!up && down && !left && right) {
+                        symbol = '╭';
+                    } else if (!up && down && left && !right) {
+                        symbol = '╮';
+                    } else if (up && !down && !left && right) {
+                        symbol = '╰';
+                    } else if (up && !down && left && !right) {
+                        symbol = '╯';
+                    } else if ((up || down) && !left && !right) {
+                        symbol = '│';
+                    } else if (!up && !down && (left || right)) {
+                        symbol = '─';
+                    }
+
+                    spacerStr += symbol;
+
+                    if (x < width - 1) {
+                        let spaceHasHoriz = false;
+                        edgeRoutes.forEach((e) => {
+                            if (e.y1 > yQ || e.y2 < yQ) {
+                                return;
+                            }
+                            for (let j = 0; j < e.points.length - 1; j++) {
+                                const pA = e.points[j];
+                                const pB = e.points[j + 1];
+                                if (
+                                    pA.y === yQ &&
+                                    pB.y === yQ &&
+                                    Math.min(pA.x, pB.x) <= x &&
+                                    Math.max(pA.x, pB.x) >= x + 1
+                                ) {
+                                    spaceHasHoriz = true;
+                                    break;
+                                }
+                            }
+                        });
+                        spacerStr += spaceHasHoriz ? '─' : ' ';
                     }
                 }
                 rows.push(spacerStr.trimEnd());
@@ -359,13 +466,17 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         // Check edges
         const edges = layout.edges;
         // Edge C2->C1
-        const edge21 = edges.find((e) => e.y1 === forC2?.y && e.y2 === forC1?.y);
+        const edge21 = edges.find(
+            (e) => Math.floor(e.points[0].y) === forC2?.y && Math.floor(e.points[e.points.length - 1].y) === forC1?.y,
+        );
         expect(edge21).toBeDefined();
-        expect(edge21?.x1).toBe(0);
-        expect(edge21?.x2).toBe(0);
+        expect(edge21?.points[0].x).toBe(0);
+        expect(edge21?.points[edge21.points.length - 1].x).toBe(0);
 
         // Edge C1->Root
-        const edge10 = edges.find((e) => e.y1 === forC1?.y && e.y2 === root?.y);
+        const edge10 = edges.find(
+            (e) => Math.floor(e.points[0].y) === forC1?.y && Math.floor(e.points[e.points.length - 1].y) === root?.y,
+        );
         expect(edge10).toBeDefined();
     });
 
@@ -411,10 +522,16 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
 
         // Edges from children to parent
         const edge1 = layout.edges.find(
-            (e) => (e.y1 === child1?.y && e.y2 === parent?.y) || (e.y2 === child1?.y && e.y1 === parent?.y),
+            (e) =>
+                (Math.floor(e.points[0].y) === child1?.y &&
+                    Math.floor(e.points[e.points.length - 1].y) === parent?.y) ||
+                (Math.floor(e.points[e.points.length - 1].y) === child1?.y && Math.floor(e.points[0].y) === parent?.y),
         );
         const edge2 = layout.edges.find(
-            (e) => (e.y1 === child2?.y && e.y2 === parent?.y) || (e.y2 === child2?.y && e.y1 === parent?.y),
+            (e) =>
+                (Math.floor(e.points[0].y) === child2?.y &&
+                    Math.floor(e.points[e.points.length - 1].y) === parent?.y) ||
+                (Math.floor(e.points[e.points.length - 1].y) === child2?.y && Math.floor(e.points[0].y) === parent?.y),
         );
         expect(edge1).toBeDefined();
         expect(edge2).toBeDefined();
@@ -455,8 +572,14 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(p2Node).toBeDefined();
 
         // Merge should connect to P1 and P2
-        const e1 = layout.edges.find((e) => e.y1 === mergeNode?.y && e.y2 === p1Node?.y);
-        const e2 = layout.edges.find((e) => e.y1 === mergeNode?.y && e.y2 === p2Node?.y);
+        const e1 = layout.edges.find(
+            (e) =>
+                Math.floor(e.points[0].y) === mergeNode?.y && Math.floor(e.points[e.points.length - 1].y) === p1Node?.y,
+        );
+        const e2 = layout.edges.find(
+            (e) =>
+                Math.floor(e.points[0].y) === mergeNode?.y && Math.floor(e.points[e.points.length - 1].y) === p2Node?.y,
+        );
 
         expect(e1).toBeDefined();
         expect(e2).toBeDefined();
@@ -706,7 +829,9 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         expect(cNode).toBeDefined();
         expect(aNode).toBeDefined();
 
-        const edge = layout.edges.find((e) => e.y1 === cNode?.y && e.y2 === aNode?.y);
+        const edge = layout.edges.find(
+            (e) => Math.floor(e.points[0].y) === cNode?.y && Math.floor(e.points[e.points.length - 1].y) === aNode?.y,
+        );
         expect(edge).toBeDefined();
         expect(edge?.isElided).toBe(true);
     });

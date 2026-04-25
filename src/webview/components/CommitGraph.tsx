@@ -5,6 +5,7 @@
 import * as React from 'react';
 import type { ActionPayload, CommitAction, JjLogEntry } from '../../jj-types';
 import { computeGraphLayout } from '../graph-compute';
+import { isElisionRow } from '../graph-model';
 import {
     COMMIT_ROW_PADDING_LEFT,
     LANE_WIDTH,
@@ -69,7 +70,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             offsets.push(currentOffset);
             // Height logic matching the renderer in CommitNode
             let height: number;
-            if ('type' in row && row.type === 'elision') {
+            if (isElisionRow(row)) {
                 height = ROW_HEIGHT_ELISION;
             } else {
                 const commit = row as JjLogEntry;
@@ -140,6 +141,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <GraphRail
                 nodes={layout.nodes}
                 edges={layout.edges}
+                terminations={layout.terminations}
                 width={layout.width}
                 height={totalHeight}
                 rowOffsets={rowOffsets}
@@ -151,7 +153,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <div style={{ position: 'relative', zIndex: 1 }} role="listbox" aria-label="Commit List">
                 {displayRows.map((row, i) => {
                     const isLastRow = i === displayRows.length - 1;
-                    if (row && 'type' in row && row.type === 'elision') {
+                    if (isElisionRow(row)) {
                         return renderElisionRow(i, isLastRow);
                     }
 
