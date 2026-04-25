@@ -612,4 +612,52 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('File-Level Actions: Discard Changes on Ancestor Commits', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        const commits = await buildGraph(repo, [
+            {
+                label: 'initial',
+                description: 'initial',
+                files: { 'file_ancestor.txt': 'base' },
+            },
+            {
+                label: 'ancestor',
+                parents: ['initial'],
+                description: 'ancestor change',
+                files: { 'file_ancestor.txt': 'mod in ancestor' },
+            },
+            {
+                label: 'wc',
+                parents: ['ancestor'],
+                description: 'wc change',
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusSCM(page);
+
+            const ancestorFileRow = page.getByRole('treeitem', { name: /file_ancestor\.txt.*modified/i });
+            await expect(ancestorFileRow).toBeVisible();
+
+            const discardIcon = ancestorFileRow
+                .locator('.action-item', { has: page.locator('.codicon-discard') })
+                .first();
+            await hoverAndClick(ancestorFileRow, discardIcon);
+
+            await expect(async () => {
+                expect(repo.getFileContent(commits.ancestor.changeId, 'file_ancestor.txt').trim()).toBe('base');
+            }).toPass({ timeout: 5000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

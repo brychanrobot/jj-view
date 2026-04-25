@@ -653,7 +653,7 @@
                 {
                     "command": "jj-view.restore",
                     "group": "inline@2",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/"
+                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/"
                 },
                 {
                     "command": "jj-view.squashInto",

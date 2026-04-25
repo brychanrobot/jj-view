@@ -13,9 +13,22 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
         return;
     }
 
-    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+    const statesByRevision = new Map<string, string[]>();
+    for (const state of resourceStates) {
+        const rev = state.revision || '@';
+        const list = statesByRevision.get(rev) || [];
+        list.push(state.resourceUri.fsPath);
+        statesByRevision.set(rev, list);
+    }
+
     try {
-        await withDelayedProgress('Restoring files...', jj.restore(paths));
+        for (const [rev, paths] of statesByRevision.entries()) {
+            if (rev === '@') {
+                await withDelayedProgress('Restoring files...', jj.restore(paths));
+            } else {
+                await withDelayedProgress(`Restoring files for ${rev}...`, jj.restore(paths, { changesIn: rev }));
+            }
+        }
         await scmProvider.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
         await showJjError(e, 'Error restoring files', jj, scmProvider.outputChannel);

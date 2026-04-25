@@ -427,14 +427,21 @@ export class JjService {
         return output.trim().split('\n').filter(Boolean);
     }
 
-    async restore(paths: string[], from?: string): Promise<void> {
+    async restore(paths: string[], options: { from?: string; into?: string; changesIn?: string } = {}): Promise<void> {
         if (paths.length === 0) {
             return;
         }
         const relativePaths = paths.map((p) => this.toRelative(p));
         const cmdArgs = [...relativePaths];
-        if (from) {
-            cmdArgs.push('--from', from);
+        if (options.changesIn) {
+            cmdArgs.push('--changes-in', options.changesIn);
+        } else {
+            if (options.from) {
+                cmdArgs.push('--from', options.from);
+            }
+            if (options.into) {
+                cmdArgs.push('--into', options.into);
+            }
         }
         await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
     }
