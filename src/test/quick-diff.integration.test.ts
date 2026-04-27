@@ -131,6 +131,7 @@ suite('Quick Diff Integration Test', () => {
         });
 
         // 3. Trigger refresh - this should fire the event
+        await viewFileSystemProvider.readFile(originalUri);
         await scmProvider.refresh();
         await eventPromise;
     });
@@ -155,6 +156,7 @@ suite('Quick Diff Integration Test', () => {
 
         // Perform squash via the service (simulating user action)
         await jj.squash();
+        await viewFileSystemProvider.readFile(originalUri);
         await scmProvider.refresh();
 
         await eventPromise;
@@ -190,6 +192,7 @@ suite('Quick Diff Integration Test', () => {
 
         // Switch back to v2
         await jj.edit(v2Id);
+        await viewFileSystemProvider.readFile(originalUri);
         await scmProvider.refresh();
 
         await eventPromise;

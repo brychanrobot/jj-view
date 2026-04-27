@@ -4,6 +4,7 @@
  */
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
+import { decodeJjViewQuery } from './uri-utils';
 
 /**
  * A FileSystemProvider that provides read-only access to "original" file content
@@ -58,25 +59,32 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
 
-        const query = new URLSearchParams(uri.query);
-        const base = query.get('base');
-        const side = query.get('side');
+        try {
+            const query = decodeJjViewQuery(uri.query);
 
-        if (!base || !side) {
+            if (query.mode === 'revision') {
+                try {
+                    const content = await this.jj.getFileContent(uri.fsPath, query.revision);
+                    return Buffer.from(content, 'utf8');
+                } catch {
+                    return new Uint8Array();
+                }
+            }
+
+            const filePath = uri.fsPath;
+            const cacheKey = `${query.base}|${filePath}`;
+
+            let content = this._cache.get(cacheKey);
+            if (!content) {
+                content = await this.jj.getDiffContent(query.base, filePath);
+                this._cache.set(cacheKey, content);
+            }
+
+            const text = query.side === 'left' ? content.left : content.right;
+            return Buffer.from(text, 'utf8');
+        } catch {
             return new Uint8Array();
         }
-
-        const filePath = uri.fsPath;
-        const cacheKey = `${base}|${filePath}`;
-
-        let content = this._cache.get(cacheKey);
-        if (!content) {
-            content = await this.jj.getDiffContent(base, filePath);
-            this._cache.set(cacheKey, content);
-        }
-
-        const text = side === 'left' ? content.left : content.right;
-        return Buffer.from(text, 'utf8');
     }
 
     writeFile(): void {

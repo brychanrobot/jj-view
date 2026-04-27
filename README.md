@@ -31,6 +31,7 @@ A dedicated view for inspecting and managing commits.
     - **Open Multi-File Diff**: View all changes in the revision in a single scrollable editor.
     - **Single-File Diff**: Click any file to open a side-by-side diff.
     - **Editable Diffs**: For mutable commits, diff editors are fully editable. Save changes (`Ctrl+S`) to apply them back to the commit.
+    - **Compare with Revision**: Compare the working copy or a specific file against any chosen ancestor revision.
 - **Navigation**: Quickly jump between changed files.
 
 ### 🛠️ Source Control Integration
@@ -89,6 +90,8 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Open File`: Open the file associated with a change.
 - `JJ View: Add Workspace`: Create a new `jj` workspace.
 - `JJ View: Show Multi-File Diff`: Open a comprehensive multi-file diff view for the selected revision. These views are editable for mutable commits.
+- `JJ View: Compare All Files with Revision...`: Compare all files between a selected revision and the working copy.
+- `JJ View: Compare File with Revision...`: Compare a specific file against a selected revision.
 
 ### History & Merging
 

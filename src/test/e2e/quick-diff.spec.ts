@@ -7,22 +7,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { TestRepo } from '../test-repo';
-import { focusSCM, launchVSCode } from './e2e-helpers';
+import { focusSCM, launchVSCode, openFileInEditor } from './e2e-helpers';
 
 test.describe('Quick Diff E2E', () => {
-    async function openFileInEditor(page: Page, fileName: string): Promise<Locator> {
-        await page.keyboard.press('Control+Shift+E');
-        const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
-        await expect(fileRowInExplorer).toBeVisible({ timeout: 10000 });
-        await fileRowInExplorer.click();
-
-        await expect(page.getByRole('tab', { name: fileName, selected: true })).toBeVisible({ timeout: 10000 });
-
-        const editor = page.locator('.editor-group-container.active .monaco-editor');
-        await expect(editor).toBeVisible({ timeout: 10000 });
-        return editor;
-    }
-
     async function openGutterPeekView(page: Page, editor: Locator): Promise<{ peekView: Locator; gutter: Locator }> {
         const gutter = editor.locator('[title="Added lines"], [title="Changed lines"], [title="Removed lines"]');
         await expect(gutter.first()).toBeVisible({ timeout: 15000 });

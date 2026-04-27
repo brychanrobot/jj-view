@@ -207,6 +207,16 @@
                 "icon": "$(check)"
             },
             {
+                "command": "jj-view.compareWithWorkingCopy",
+                "title": "Compare All Files with Revision...",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.compareFileWith",
+                "title": "Compare File with Revision...",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.refresh",
                 "title": "Refresh",
                 "category": "JJ View",
@@ -484,6 +494,11 @@
                     "group": "1_diff@1"
                 },
                 {
+                    "command": "jj-view.compareWithWorkingCopy",
+                    "when": "webviewSection == 'commit' && !jj.isCurrentWorkingCopy",
+                    "group": "1_diff@2"
+                },
+                {
                     "command": "jj-view.new",
                     "when": "webviewSection == 'commit' && jj.canNewChild",
                     "group": "2_edit@1"
@@ -702,11 +717,30 @@
                     "when": "resourceFilename == 'SQUASH_MSG'"
                 }
             ],
+            "editor/title/context": [
+                {
+                    "command": "jj-view.compareFileWith",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
+                }
+            ],
             "editor/context": [
                 {
                     "command": "jj-view.moveToParentInDiff",
                     "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
+                },
+                {
+                    "command": "jj-view.compareFileWith",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "command": "jj-view.compareFileWith",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
                 }
             ]
         },

@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
 import { moveToChildCommand, moveToParentInDiffCommand } from '../commands/move';
 import { completeSquashCommand, squashCommand } from '../commands/squash';
 import { ScmContextValue } from '../jj-context-keys';
@@ -911,5 +912,20 @@ suite('JJ SCM Provider Integration Test', () => {
             ),
             `Unexpected parent context value: ${parentGroups[0].contextValue}`,
         );
+    });
+
+    test('compareAllFilesWithRevisionCommand opens vscode.changes without errors', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'v1', files: { 'file1.txt': 'v1\n' } },
+            { label: 'v2', parents: ['v1'], files: { 'file1.txt': 'v2\n' } },
+        ]);
+
+        repo.writeFile('file1.txt', 'wc\n');
+
+        try {
+            await compareAllFilesWithRevisionCommand(jj, scmProvider.outputChannel, ids.v1.changeId);
+        } catch (e: unknown) {
+            assert.fail(`compareAllFilesWithRevisionCommand failed: ${(e as Error).message}`);
+        }
     });
 });

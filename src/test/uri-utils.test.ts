@@ -12,6 +12,8 @@ vi.mock('vscode', async () => {
     return await createVscodeMock({});
 });
 
+const ENCODED_AT = '%40';
+
 describe('createDiffUris', () => {
     const root = '/root';
 
@@ -45,7 +47,7 @@ describe('createDiffUris', () => {
 
         expect(leftUri.scheme).toBe('jj-view');
         expect(leftUri.path).toBe('/root/file.txt');
-        expect(leftUri.query).toContain('base=@');
+        expect(leftUri.query).toContain(`base=${ENCODED_AT}`);
         expect(leftUri.query).toContain('side=left');
 
         // Working copy should use file scheme for right side
@@ -85,14 +87,14 @@ describe('createDiffUris', () => {
 
         expect(leftUri.scheme).toBe('jj-view');
         expect(leftUri.path).toBe('/root/deleted.txt');
-        expect(leftUri.query).toContain('base=@');
+        expect(leftUri.query).toContain(`base=${ENCODED_AT}`);
         expect(leftUri.query).toContain('side=left');
 
         // DESIRED FIX: Removed files in working copy should use jj-view scheme for right side
         // to avoid "File not found" errors in VS Code.
         expect(rightUri.scheme).toBe('jj-view');
         expect(rightUri.path).toBe('/root/deleted.txt');
-        expect(rightUri.query).toContain('base=@');
+        expect(rightUri.query).toContain(`base=${ENCODED_AT}`);
         expect(rightUri.query).toContain('side=right');
     });
 

@@ -32,6 +32,7 @@ export function computeCommitActions(
 
     const vscodeContext = {
         webviewSection: 'commit',
+        'jj.isCurrentWorkingCopy': commit.is_current_working_copy,
         'jj.newChildVisible': visibleActions.newChild,
         'jj.editVisible': visibleActions.edit,
         'jj.squashVisible': visibleActions.squash,

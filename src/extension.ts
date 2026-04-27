@@ -8,6 +8,8 @@ import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
 import { commitCommand } from './commands/commit';
 import { commitPromptCommand } from './commands/commit-prompt';
+import { compareAllFilesWithRevisionCommand } from './commands/compare-all-files-with-revision';
+import { compareFileWithRevisionCommand } from './commands/compare-file-with-revision';
 import { setDescriptionCommand } from './commands/describe';
 import { describePromptCommand } from './commands/describe-prompt';
 import { showDetailsCommand } from './commands/details';
@@ -392,6 +394,18 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
             await showMultiFileDiffCommand(jj, outputChannel, ...args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.compareWithWorkingCopy', async (...args: unknown[]) => {
+            await compareAllFilesWithRevisionCommand(jj, outputChannel, ...args);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.compareFileWith', async (...args: unknown[]) => {
+            await compareFileWithRevisionCommand(jj, outputChannel, ...args);
         }),
     );
 

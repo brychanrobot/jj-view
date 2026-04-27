@@ -171,6 +171,105 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
+ * Prompts the user to select or type a revision.
+ * Populates a QuickPick with the mutable ancestors of the target revision.
+ */
+export async function promptForRevision(
+    jj: JjService,
+    targetRevision: string = '@',
+    placeHolder: string = 'Select a revision',
+    emptyPrompt: string = 'Enter revision',
+): Promise<string | undefined> {
+    const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+    const limit = maxMutableAncestors + 1;
+
+    try {
+        const commitIds = await jj.getLogIds({
+            revision: `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable()))) ~ ${targetRevision}`,
+            limit,
+        });
+
+        const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
+        const ancestors = entries.map((e) => e[0]).filter(Boolean);
+
+        const options: vscode.QuickPickItem[] = ancestors.map((entry) => {
+            const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
+            const desc = entry.description?.trim() || '(no description)';
+            const shortDesc = desc.split('\n')[0].substring(0, 50);
+
+            let bookmarkStr = '';
+            if (entry.bookmarks && entry.bookmarks.length > 0) {
+                bookmarkStr = ` (${entry.bookmarks.map((b) => b.name).join(', ')})`;
+            }
+
+            return {
+                label: `${shortId}${bookmarkStr}`,
+                description: shortDesc,
+                detail: entry.change_id,
+            };
+        });
+
+        if (options.length === 0) {
+            return await vscode.window.showInputBox({
+                prompt: `${emptyPrompt} (no ancestors found)`,
+                placeHolder: 'e.g. main, @-',
+            });
+        }
+
+        const selected = await new Promise<string | undefined>((resolve) => {
+            const quickPick = vscode.window.createQuickPick();
+            quickPick.items = options;
+            quickPick.placeholder = placeHolder;
+
+            // Enforce prefix matching on change_id or label
+            quickPick.onDidChangeValue((value) => {
+                const val = value.trim();
+                if (!val) {
+                    quickPick.items = options;
+                    return;
+                }
+                const filtered = options.filter((item) => {
+                    const detailMatch = item.detail?.startsWith(val);
+                    const labelMatch = item.label.startsWith(val);
+                    return detailMatch || labelMatch;
+                });
+                quickPick.items = filtered;
+            });
+
+            quickPick.onDidAccept(() => {
+                const selectedItem = quickPick.activeItems[0] || quickPick.selectedItems[0];
+                if (selectedItem) {
+                    resolve(selectedItem.detail);
+                } else if (quickPick.value.trim()) {
+                    resolve(quickPick.value.trim());
+                } else {
+                    resolve(undefined);
+                }
+                quickPick.dispose();
+            });
+
+            quickPick.onDidHide(() => {
+                resolve(undefined);
+                quickPick.dispose();
+            });
+
+            quickPick.show();
+        });
+
+        if (!selected) {
+            return undefined;
+        }
+
+        return selected;
+    } catch {
+        return await vscode.window.showInputBox({
+            prompt: emptyPrompt,
+            placeHolder: 'e.g. main, @-',
+        });
+    }
+}
+
+/**
  * Wraps a promise with a delayed progress notification.
  * If the promise resolves within 100ms, no notification is shown.
  * If it takes longer, a progress notification appears until the promise resolves.

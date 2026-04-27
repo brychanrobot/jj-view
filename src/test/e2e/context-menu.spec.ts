@@ -9,6 +9,7 @@ import type { ElectronApplication } from 'playwright';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     entry,
+    expectModifiedFiles,
     expectTree,
     focusJJLog,
     getLogWebview,
@@ -36,9 +37,15 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         // Setup a predictable graph
         nodes = await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'f.txt': 'base' } },
+            { label: 'initial', description: 'initial', files: { 'f.txt': 'base', 'f2.txt': 'base2' } },
             { label: 'commit1', parents: ['initial'], description: 'commit1', files: { 'a.txt': 'a content' } },
-            { label: 'commit2', parents: ['initial'], description: 'commit2', files: { 'b.txt': 'b content' } },
+            {
+                label: 'commit2',
+                parents: ['initial'],
+                description: 'commit2',
+                files: { 'b.txt': 'b content', 'b2.txt': 'b2 content' },
+                isCurrentWorkingCopy: true,
+            },
         ]);
 
         const setup = await launchVSCode(repo);
@@ -392,7 +399,7 @@ test.describe('JJ Log Context Menu E2E', () => {
     test('Show Multi-File Diff', async () => {
         const webview = await getLogWebview(page);
         // Target 'initial' which has actual file changes (f.txt added)
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
+        const initialRow = webview.locator(`.commit-row[data-change-id="${nodes.initial.changeId}"]`);
 
         // Show Multi-File Diff
         await rightClickAndSelect(page, initialRow, 'Show Multi-File Diff');
@@ -400,6 +407,25 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Verification: A diff editor should open.
         const shortId = nodes.initial.changeId.substring(0, 3);
         await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
+
+        await expectModifiedFiles(page, ['f.txt', 'f2.txt']);
+    });
+
+    test('Compare with Working Copy', async () => {
+        const webview = await getLogWebview(page);
+        const initialRow = webview.locator(`.commit-row[data-change-id="${nodes.initial.changeId}"]`);
+        await expect(initialRow).toBeVisible({ timeout: 10000 });
+
+        // Select Compare All Files with Revision...
+        await rightClickAndSelect(page, initialRow, 'Compare All Files with Revision...');
+
+        // Verification: A diff editor tab should open.
+        const shortId = nodes.initial.changeId.substring(0, 3);
+        await expect(page.getByRole('tab', { name: new RegExp(`^Compare ${shortId}`) })).toBeVisible({
+            timeout: 10000,
+        });
+
+        await expectModifiedFiles(page, ['b.txt', 'b2.txt']);
     });
 
     test.describe('Upload Action', () => {

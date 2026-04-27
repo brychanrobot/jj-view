@@ -957,8 +957,14 @@ export class JjService {
         return this.run('status', [], { isMutation: true, useCachedSnapshot: false, label: 'status' });
     }
 
-    async getChanges(revision: string): Promise<JjStatusEntry[]> {
-        const output = await this.run('diff', ['--git', '-r', revision], { useCachedSnapshot: true });
+    async getChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
+        const args = ['--git'];
+        if (toRevision) {
+            args.push('--from', revision, '--to', toRevision);
+        } else {
+            args.push('-r', revision);
+        }
+        const output = await this.run('diff', args, { useCachedSnapshot: true, label: 'getChanges' });
         const entries: JjStatusEntry[] = [];
 
         const lines = output.split('\n');
@@ -987,9 +993,9 @@ export class JjService {
             }
 
             if (isHeader) {
-                if (line.startsWith('new file mode')) {
+                if (line.startsWith('new file mode') || line.startsWith('--- /dev/null')) {
                     currentEntry.status = 'added';
-                } else if (line.startsWith('deleted file mode')) {
+                } else if (line.startsWith('deleted file mode') || line.startsWith('+++ /dev/null')) {
                     currentEntry.status = 'deleted';
                 } else if (line.startsWith('rename from ')) {
                     currentEntry.status = 'renamed';

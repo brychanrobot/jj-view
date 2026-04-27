@@ -80,13 +80,21 @@ export async function launchVSCode(
                     key: 'ctrl+alt+e',
                     command: 'workbench.files.action.refreshFilesExplorer',
                 },
+                {
+                    key: 'ctrl+alt+c',
+                    command: 'jj-view.compareWithWorkingCopy',
+                },
+                {
+                    key: 'ctrl+alt+f',
+                    command: 'jj-view.compareFileWith',
+                },
             ],
             null,
             2,
         ),
     );
 
-    const extensionPath = path.resolve(__dirname, '../../../../');
+    const extensionPath = path.resolve(__dirname, '../../../');
     const vscodePath = await downloadAndUnzipVSCode({ reporter: new SilentReporter() });
 
     const args = [
@@ -539,4 +547,34 @@ export async function clickLogAction(page: Page, rowCriteria: LogRowCriteria, ac
     ).toPass({
         timeout: 20000,
     });
+}
+
+/**
+ * Verifies that the multi-file diff view lists exactly the expected modified files.
+ */
+export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
+    await expect
+        .poll(async () => {
+            return await page.evaluate(() => {
+                const elements = Array.from(document.querySelectorAll('.file-path .title.modified .label-name'));
+                return elements.map((el) => el.textContent?.trim()).filter(Boolean);
+            });
+        }, 'Wait for exactly modified files list in multi-diff')
+        .toEqual(expectedFiles);
+}
+
+/**
+ * Robustly opens a file via the File Explorer tree view.
+ */
+export async function openFileInEditor(page: Page, fileName: string): Promise<Locator> {
+    await page.keyboard.press('Control+Shift+E');
+    const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
+    await expect(fileRowInExplorer).toBeVisible({ timeout: 10000 });
+    await fileRowInExplorer.click();
+
+    await expect(page.getByRole('tab', { name: fileName, selected: true })).toBeVisible({ timeout: 10000 });
+
+    const editor = page.locator('.editor-group-container.active .monaco-editor');
+    await expect(editor).toBeVisible({ timeout: 10000 });
+    return editor;
 }

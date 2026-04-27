@@ -22,6 +22,29 @@ describe('JjService Diff Tests', () => {
         repo.dispose();
     });
 
+    test('getChanges with from/to revisions correctly identifies arbitrary changes', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'v1', files: { 'a.txt': 'v1\n', 'b.txt': 'keep\n' } },
+            { label: 'v2', parents: ['v1'], files: { 'a.txt': 'v2\n', 'c.txt': 'new\n' } },
+            { label: 'v3', parents: ['v2'], files: { 'a.txt': 'v3\n', 'c.txt': 'newer\n', 'd.txt': 'fresh\n' } },
+        ]);
+
+        repo.edit(ids.v2.changeId);
+        repo.deleteFile('b.txt');
+
+        const changes = await jjService.getChanges(ids.v1.changeId, ids.v3.changeId);
+
+        const simplifiedChanges = changes.map((c) => ({ path: c.path, status: c.status }));
+        simplifiedChanges.sort((a, b) => a.path.localeCompare(b.path));
+
+        expect(simplifiedChanges).toEqual([
+            { path: 'a.txt', status: 'modified' },
+            { path: 'b.txt', status: 'deleted' },
+            { path: 'c.txt', status: 'added' },
+            { path: 'd.txt', status: 'added' },
+        ]);
+    });
+
     test('getDiffForRevision handles thundering herd concurrently', async () => {
         const ids = await buildGraph(repo, [{ label: 'base', files: { 'test.txt': 'content' } }]);
         const commitId = ids.base.commitId;
