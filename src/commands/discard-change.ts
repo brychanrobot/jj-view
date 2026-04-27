@@ -81,7 +81,7 @@ export async function discardChangeCommand(
 
             modifiedRange = new vscode.Range(startPos, endPos);
         } else {
-            const insertLine = change.modifiedStartLineNumber - 1;
+            const insertLine = Math.min(change.modifiedStartLineNumber, modifiedDoc.lineCount);
             modifiedRange = new vscode.Range(insertLine, 0, insertLine, 0);
         }
 
