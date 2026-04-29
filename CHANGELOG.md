@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.26.0
+
+### Features
+
+- **File Comparison**: Compare specific files from an arbitrary revision to the working copy.
+- **Multi-File Diff**: View changes across the entire repository from an arbitrary revision to the working copy.
+- **Drag Rebase**: Add progress notification for drag rebase operations.
+- **Commit Description**: Add option to format description body on save.
+- **File Revert**: Support reverting file changes on mutable ancestor commits.
+
+### Fixes
+
+- **Quick Diff**: Fix discarding middle of file deletions in quick diff.
+- **Workspace**: Handle serialization of atypical workspace names in getLog.
+- **Commit Graph**: Refactor commit graph layout to use renderdag.
+
+### Chores & Maintenance
+
+- **Tooling**: Migrate linting and formatting to Biome.
+
+
 ## 1.25.0
 
 ### Features
