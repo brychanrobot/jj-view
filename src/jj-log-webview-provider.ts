@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import { showJjError, withDelayedProgress } from './commands/command-utils';
 import type { GerritService } from './gerrit-service';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
@@ -167,8 +168,19 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand('jj-view.refresh');
                     break;
                 case 'rebaseCommit':
-                    await this._jj.rebase(data.payload.sourceChangeId, data.payload.targetChangeId, data.payload.mode);
-                    await vscode.commands.executeCommand('jj-view.refresh');
+                    try {
+                        await withDelayedProgress(
+                            'Rebasing...',
+                            this._jj.rebase(
+                                data.payload.sourceChangeId,
+                                data.payload.targetChangeId,
+                                data.payload.mode,
+                            ),
+                        );
+                        await vscode.commands.executeCommand('jj-view.refresh');
+                    } catch (err) {
+                        await showJjError(err, 'Failed to rebase', this._jj, this.outputChannel);
+                    }
                     break;
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload);
