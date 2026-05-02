@@ -157,6 +157,11 @@
                 }
             }
         },
+        "configurationDefaults": {
+            "files.exclude": {
+                "**/.jj": true
+            }
+        },
         "commands": [
             {
                 "command": "jj-view.upload",
