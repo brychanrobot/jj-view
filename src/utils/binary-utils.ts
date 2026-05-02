@@ -67,3 +67,32 @@ async function getJjVersion(binaryPath: string): Promise<string | undefined> {
         });
     });
 }
+
+let cachedWatchmanAvailable: Promise<boolean> | null = null;
+
+/**
+ * Checks if the watchman binary can be called.
+ *
+ * Workaround for https://github.com/parcel-bundler/watcher/issues/155
+ * Calling the watchman binary directly is also what the @parcel/watcher library does
+ * https://github.com/parcel-bundler/watcher/blob/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a/src/watchman/WatchmanBackend.cc#L50
+ */
+export async function isWatchmanAvailable(): Promise<boolean> {
+    if (cachedWatchmanAvailable !== null) {
+        return cachedWatchmanAvailable;
+    }
+
+    // Invariant: Only one promise is executing at any given time.
+    cachedWatchmanAvailable = new Promise((resolve) => {
+        cp.execFile('watchman', ['--version'], { timeout: 2000 }, (err) => {
+            setTimeout(() => (cachedWatchmanAvailable = null), 5000);
+            if (err) {
+                resolve(false);
+            } else {
+                resolve(true);
+            }
+        });
+    });
+
+    return cachedWatchmanAvailable;
+}

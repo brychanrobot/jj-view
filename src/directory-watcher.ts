@@ -4,6 +4,7 @@
  */
 import { type AsyncSubscription, type BackendType, type Event, subscribe } from '@parcel/watcher';
 import * as vscode from 'vscode';
+import { isWatchmanAvailable } from './utils/binary-utils';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 
@@ -11,14 +12,31 @@ export class DirectoryWatcher implements vscode.Disposable {
     private _subscription: AsyncSubscription | undefined;
     private _startPromise: Promise<void> | undefined;
     private _disposed = false;
+    private _backend: Promise<BackendType | undefined>;
 
     constructor(
         private readonly path: string,
         private readonly callback: DirectoryWatcherCallback,
         private readonly outputChannel: vscode.OutputChannel,
         private readonly name: string = 'DirectoryWatcher',
-        private readonly backend?: BackendType,
-    ) {}
+        backend?: BackendType,
+    ) {
+        this._backend = (async () => {
+            if (backend) {
+                return backend;
+            } else if (await isWatchmanAvailable()) {
+                return 'watchman';
+            } else if (process.platform === 'win32') {
+                return 'windows';
+            } else if (process.platform === 'linux') {
+                return 'inotify';
+            } else if (process.platform === 'darwin') {
+                return 'fs-events';
+            } else {
+                return undefined;
+            }
+        })();
+    }
 
     async start(ignores: string[] = []) {
         if (this._startPromise) {
@@ -45,7 +63,7 @@ export class DirectoryWatcher implements vscode.Disposable {
                             this.callback(events);
                         }
                     },
-                    { ignore: ignores, backend: this.backend },
+                    { ignore: ignores, backend: await this._backend },
                 );
 
                 if (this._disposed) {
