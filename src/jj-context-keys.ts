@@ -25,6 +25,9 @@ export enum JjContextKey {
 
     /** True when any number of commits are selected (create new commit before them) */
     SelectionAllowNewBefore = 'jj.selection.allowNewBefore',
+
+    /** Mirrors the jj-view.openDiffOnClick setting; controls inline button visibility */
+    OpenDiffOnClick = 'jj.openDiffOnClick',
 }
 
 /**

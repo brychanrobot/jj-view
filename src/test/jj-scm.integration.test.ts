@@ -11,7 +11,7 @@ import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-file
 import { moveToChildCommand, moveToParentInDiffCommand } from '../commands/move';
 import { completeSquashCommand, squashCommand } from '../commands/squash';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjScmProvider } from '../jj-scm-provider';
+import { type JjResourceState, JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
@@ -122,6 +122,96 @@ suite('JJ SCM Provider Integration Test', () => {
             ].includes(wcState.contextValue as ScmContextValue),
         );
     });
+
+    test('When openDiffOnClick is false, opens modified files and diffs removed files', async () => {
+        const filePath = path.join(repo.path, 'test.txt');
+        const deletedFilePath = path.join(repo.path, 'deleted.txt');
+        await buildGraph(repo, [
+            {
+                label: 'initial',
+                description: 'initial',
+                files: { 'test.txt': 'initial', 'deleted.txt': 'will be deleted' },
+            },
+            {
+                parents: ['initial'],
+                files: { 'test.txt': 'modified' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        await fsp.unlink(deletedFilePath);
+
+        const originalGetConfiguration = vscode.workspace.getConfiguration;
+        const configStub = {
+            get: (key: string, defaultValue: unknown) => {
+                if (key === 'openDiffOnClick') {
+                    return false;
+                }
+                return defaultValue;
+            },
+        };
+        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
+            if (section === 'jj-view') {
+                return configStub;
+            }
+            return originalGetConfiguration(section);
+        };
+
+        try {
+            await scmProvider.refresh({ forceSnapshot: true });
+
+            const workingCopyGroup = accessPrivate(
+                scmProvider,
+                '_workingCopyGroup',
+            ) as vscode.SourceControlResourceGroup;
+            const resourceState = workingCopyGroup.resourceStates.find(
+                (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            );
+            assert.ok(resourceState, 'Should find resource state for modified file');
+
+            const command = resourceState.command;
+            assert.ok(command, 'Resource state should have a command');
+            assert.strictEqual(
+                command.command,
+                'vscode.open',
+                'Command should be vscode.open when openDiffOnClick is false',
+            );
+            assert.strictEqual(command.arguments?.length, 1, 'Open command should have 1 argument');
+            const openUri = command.arguments?.[0] as vscode.Uri;
+            assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
+            assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
+
+            const diffCommand = (resourceState as JjResourceState).diffCommand;
+            assert.ok(diffCommand, 'diffCommand should be set when openDiffOnClick is false');
+            assert.strictEqual(diffCommand.command, 'vscode.diff', 'diffCommand should be vscode.diff');
+            assert.strictEqual(diffCommand.arguments?.length, 3, 'diffCommand should have 3 arguments');
+
+            const [leftUri, rightUri] = diffCommand.arguments;
+            assert.strictEqual(
+                (leftUri as vscode.Uri).scheme,
+                'jj-view',
+                'diffCommand left URI scheme should be jj-view',
+            );
+            assert.strictEqual(
+                normalize((rightUri as vscode.Uri).fsPath),
+                normalize(filePath),
+                'diffCommand right URI should be the file path',
+            );
+
+            // Deleted files should still open the diff editor even when openDiffOnClick is false
+            const deletedState = workingCopyGroup.resourceStates.find(
+                (r) => normalize(r.resourceUri.fsPath) === normalize(deletedFilePath),
+            );
+            assert.ok(deletedState, 'Should find resource state for deleted file');
+            assert.strictEqual(
+                deletedState.command?.command,
+                'vscode.diff',
+                'Deleted file should use vscode.diff regardless of openDiffOnClick',
+            );
+        } finally {
+            (vscode.workspace as { getConfiguration: unknown }).getConfiguration = originalGetConfiguration;
+        }
+    });
+
     test('Shows parent commit changes in separate group', async () => {
         const filePath = path.join(repo.path, 'parent-file.txt');
         await buildGraph(repo, [

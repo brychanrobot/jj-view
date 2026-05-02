@@ -21,6 +21,8 @@ import { formatDisplayChangeId } from './utils/jj-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     revision: string;
+    /** The diff command for this resource, used by "Open Changes" when openDiffOnClick is off. */
+    diffCommand?: vscode.Command;
 }
 
 export class JjScmProvider implements vscode.Disposable {
@@ -167,6 +169,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // 1. Fetch data in parallel for performance
                 const config = vscode.workspace.getConfiguration('jj-view');
                 const maxMutableAncestors = config.get<number>('maxMutableAncestors', 10);
+                const openDiffOnClick = config.get<boolean>('openDiffOnClick', true);
                 const limit = maxMutableAncestors + 1;
 
                 // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
@@ -327,6 +330,7 @@ export class JjScmProvider implements vscode.Disposable {
                     const state = this.toResourceState(c, currentEntry?.change_id || '@', {
                         squashable: parentMutable,
                         multipleAncestors: ancestorsToDisplay.length > 1,
+                        openDiffOnClick,
                     });
                     decorationMap.set(state.resourceUri.toString(), c);
                     this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
@@ -336,7 +340,7 @@ export class JjScmProvider implements vscode.Disposable {
                 // 4. Update Conflict Group (conflictedPaths fetched above)
                 this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                     const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
-                    const state = this.toResourceState(entry, currentEntry?.change_id || '@');
+                    const state = this.toResourceState(entry, currentEntry?.change_id || '@', { openDiffOnClick });
                     decorationMap.set(state.resourceUri.toString(), entry);
                     return state;
                 });
@@ -389,6 +393,7 @@ export class JjScmProvider implements vscode.Disposable {
                             editable: isMutable,
                             squashable: canSquash,
                             multipleAncestors: remainingAncestors > 0,
+                            openDiffOnClick,
                         });
                         decorationMap.set(state.resourceUri.toString(), c);
                         return state;
@@ -550,6 +555,7 @@ export class JjScmProvider implements vscode.Disposable {
             workingCopyChangeId?: string;
             squashable?: boolean;
             multipleAncestors?: boolean;
+            openDiffOnClick?: boolean;
         } = {},
     ): JjResourceState {
         const root = this._sourceControl.rootUri?.fsPath || '';
@@ -559,21 +565,33 @@ export class JjScmProvider implements vscode.Disposable {
             workingCopyChangeId: this._currentEntry?.change_id,
         });
 
+        const openDiffOnClick = options.openDiffOnClick ?? true;
+        const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
+
+        const diffCommand: vscode.Command = {
+            command: 'vscode.diff',
+            title: 'Open Changes',
+            arguments: [leftUri, rightUri, `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`],
+        };
+
         const command: vscode.Command = entry.conflicted
             ? {
                   command: 'jj-view.openMergeEditor',
                   title: 'Open 3-Way Merge',
                   arguments: [{ resourceUri }],
               }
-            : {
-                  command: 'vscode.diff',
-                  title: 'Diff',
-                  arguments: [leftUri, rightUri, `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`],
-              };
+            : openDiffOnClick || isDeleted
+              ? diffCommand
+              : {
+                    command: 'vscode.open',
+                    title: 'Open File',
+                    arguments: [resourceUri.with({ query: '' })],
+                };
 
         return {
             resourceUri,
-            command: command,
+            command,
+            diffCommand: entry.conflicted ? undefined : diffCommand,
             decorations: {
                 tooltip: entry.conflicted ? 'Conflicted' : entry.status,
                 faded: false,

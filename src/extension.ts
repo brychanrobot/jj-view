@@ -23,7 +23,7 @@ import { showMultiFileDiffCommand } from './commands/multi-diff';
 import { newCommand } from './commands/new';
 import { newAfterCommand } from './commands/new-after';
 import { newBeforeCommand } from './commands/new-before';
-import { openFileCommand } from './commands/open';
+import { openChangesCommand, openFileCommand } from './commands/open';
 import { type CommitMenuContext, rebaseOntoSelectedCommand } from './commands/rebase';
 import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
@@ -40,9 +40,10 @@ import { workspaceForgetCommand } from './commands/workspace-forget';
 import { GerritService } from './gerrit-service';
 import { checkGitColocation } from './git-colocation';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
+import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
-import { JjScmProvider } from './jj-scm-provider';
+import { type JjResourceState, JjScmProvider } from './jj-scm-provider';
 import { JjService } from './jj-service';
 import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
@@ -100,10 +101,20 @@ export function activate(context: vscode.ExtensionContext) {
 
     updateBinaryPath();
 
+    const setOpenDiffOnClickContext = () => {
+        const value = vscode.workspace.getConfiguration('jj-view').get<boolean>('openDiffOnClick', true);
+        vscode.commands.executeCommand('setContext', JjContextKey.OpenDiffOnClick, value);
+    };
+    setOpenDiffOnClickContext();
+
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('jj-view.binaryPath')) {
                 await updateBinaryPath();
+                scmProvider.refresh();
+            }
+            if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
+                setOpenDiffOnClickContext();
                 scmProvider.refresh();
             }
         }),
@@ -228,6 +239,12 @@ export function activate(context: vscode.ExtensionContext) {
                 await openFileCommand(resourceState);
             },
         ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.openChanges', async (resourceState: JjResourceState) => {
+            await openChangesCommand(resourceState);
+        }),
     );
 
     context.subscriptions.push(

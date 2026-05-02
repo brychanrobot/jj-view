@@ -4,7 +4,8 @@
  */
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { openFileCommand } from '../../commands/open';
+import { openChangesCommand, openFileCommand } from '../../commands/open';
+import type { JjResourceState } from '../../jj-scm-provider';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', () => {
@@ -54,6 +55,50 @@ describe('openFileCommand', () => {
                 path: '/foo',
                 query: '',
             }),
+        );
+    });
+});
+
+describe('openChangesCommand', () => {
+    afterEach(() => {
+        vi.clearAllMocks();
+    });
+
+    test('does nothing if no resource state', async () => {
+        await openChangesCommand(undefined);
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+    });
+
+    test('does nothing if resource state has no diffCommand', async () => {
+        const resourceState = createMock<JjResourceState>({
+            resourceUri: vscode.Uri.file('/foo'),
+            revision: '@',
+        });
+
+        await openChangesCommand(resourceState);
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+    });
+
+    test('executes the diffCommand with its arguments', async () => {
+        const leftUri = vscode.Uri.file('/left');
+        const rightUri = vscode.Uri.file('/right');
+        const resourceState = createMock<JjResourceState>({
+            resourceUri: vscode.Uri.file('/foo'),
+            revision: '@',
+            diffCommand: {
+                command: 'vscode.diff',
+                title: 'Open Changes',
+                arguments: [leftUri, rightUri, 'foo.txt (Working Copy)'],
+            },
+        });
+
+        await openChangesCommand(resourceState);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.diff',
+            leftUri,
+            rightUri,
+            'foo.txt (Working Copy)',
         );
     });
 });

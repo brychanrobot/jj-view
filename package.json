@@ -154,6 +154,11 @@
                     "type": "string",
                     "default": ".workspaces",
                     "description": "Directory where new workspaces are created. Relative paths are resolved against the main repository root."
+                },
+                "jj-view.openDiffOnClick": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Controls whether the diff editor should be opened when clicking a change. Otherwise the regular editor will be opened."
                 }
             }
         },
@@ -251,6 +256,12 @@
                 "title": "Open File",
                 "category": "JJ View",
                 "icon": "$(go-to-file)"
+            },
+            {
+                "command": "jj-view.openChanges",
+                "title": "Open Changes",
+                "category": "JJ View",
+                "icon": "$(diff)"
             },
             {
                 "command": "jj-view.undo",
@@ -668,7 +679,12 @@
                 {
                     "command": "jj-view.openFile",
                     "group": "inline@1",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/ || scmResourceState == 'jj.resource.conflict'"
+                    "when": "(scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/) && jj.openDiffOnClick || scmResourceState == 'jj.resource.conflict'"
+                },
+                {
+                    "command": "jj-view.openChanges",
+                    "group": "inline@1",
+                    "when": "(scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/) && !jj.openDiffOnClick"
                 },
                 {
                     "command": "jj-view.restore",
