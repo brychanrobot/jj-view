@@ -24,5 +24,6 @@
     "[typescriptreact]": {
         "editor.rulers": [120]
     },
-    "jj-view.uploadCommand": "upload"
+    "jj-view.uploadCommand": "upload",
+    "npm.packageManager": "pnpm"
 }

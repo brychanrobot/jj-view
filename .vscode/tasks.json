@@ -5,7 +5,7 @@
     "tasks": [
         {
             "label": "watch",
-            "dependsOn": ["npm: watch:tsc", "npm: watch:esbuild"],
+            "dependsOn": ["npm: watch:tsc", "npm: watch:esbuild", "npm: watch:themes"],
             "presentation": {
                 "reveal": "never"
             },
@@ -56,6 +56,29 @@
             "presentation": {
                 "group": "watch",
                 "reveal": "never"
+            }
+        },
+        {
+            "type": "npm",
+            "script": "watch:themes",
+            "group": "build",
+            "isBackground": true,
+            "label": "npm: watch:themes",
+            "presentation": {
+                "group": "watch",
+                "reveal": "never"
+            },
+            "problemMatcher": {
+                "owner": "themes",
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^(Watching for changes in|Detected change in).*themes\\.json.*$",
+                    "endsPattern": "^Generated .*themes\\.generated\\.(ts|css)$"
+                },
+                "pattern": {
+                    "regexp": "^Error generating themes: (.*)$",
+                    "message": 1
+                }
             }
         },
         {

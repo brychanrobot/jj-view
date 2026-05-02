@@ -755,8 +755,10 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "pnpm build:themes && pnpm check-types && pnpm lint && node esbuild.js --production",
-        "build": "pnpm build:themes && pnpm check-types && pnpm lint && node esbuild.js",
+        "setup-jj": "ts-node tooling/jj/setup.ts",
+        "prepare": "pnpm build:themes && pnpm build:icons",
+        "vscode:prepublish": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js --production",
+        "build": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js",
         "build:icons": "svgtofont -s media/custom-icons-src -o media/custom-icons",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
