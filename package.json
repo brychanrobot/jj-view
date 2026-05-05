@@ -776,7 +776,7 @@
         }
     },
     "scripts": {
-        "setup-jj": "ts-node tooling/jj/setup.ts",
+        "setup-jj": "node tooling/jj/setup.ts",
         "prepare": "pnpm build:themes && pnpm build:icons",
         "vscode:prepublish": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js --production",
         "build": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js",
@@ -784,12 +784,12 @@
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-        "watch:themes": "ts-node tooling/generate-themes.ts --watch",
+        "watch:themes": "node tooling/generate-themes.ts --watch",
         "package": "pnpm vsce package --no-dependencies",
         "release": "pnpm ovsx publish --no-dependencies && pnpm vsce publish --no-dependencies",
         "clean:tests": "rimraf out",
         "build:tests": "tsc -p . --outDir out",
-        "build:themes": "ts-node tooling/generate-themes.ts",
+        "build:themes": "node tooling/generate-themes.ts",
         "watch-tests": "tsc -p . -w --outDir out",
         "pretest": "pnpm build && pnpm build:tests && pnpm lint",
         "check-types": "tsc --noEmit",
@@ -806,7 +806,7 @@
         "test:screenshots": "playwright test",
         "test:e2e": "node esbuild.js && pnpm build:tests && playwright test -c playwright.e2e.config.ts",
         "test:unit": "vitest run",
-        "release:encode": "ts-node .agents/scripts/encode-release-notes.ts"
+        "release:encode": "node .agents/scripts/encode-release-notes.ts"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.4.12",
@@ -831,7 +831,7 @@
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
-        "ts-node": "^10.9.2",
+
         "typescript": "^5.9.3",
         "vitest": "^4.0.16"
     },

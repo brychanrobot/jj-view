@@ -8,7 +8,7 @@ import AdmZip from 'adm-zip';
 
 const vsixPath = process.argv[2];
 if (!vsixPath) {
-    console.error('Usage: ts-node scripts/verify-vsix.ts <vsix-path>');
+    console.error('Usage: node tooling/verify-vsix.ts <vsix-path>');
     process.exit(1);
 }
 

@@ -19,7 +19,7 @@ function question(query: string): Promise<string> {
 async function main() {
     try {
         const repoConfigPath = execFileSync('jj', ['config', 'path', '--repo'], { encoding: 'utf8' }).trim();
-        const sourceConfigPath = path.resolve(__dirname, 'repo-config.toml');
+        const sourceConfigPath = path.resolve(import.meta.dirname, 'repo-config.toml');
 
         console.log(`Target config location: ${repoConfigPath}`);
         console.log(`Source config location: ${sourceConfigPath}`);

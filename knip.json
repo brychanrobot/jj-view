@@ -10,5 +10,5 @@
     ],
     "project": ["src/**/*.{ts,tsx}"],
     "ignore": ["**/*.d.ts"],
-    "ignoreDependencies": ["ts-node", "@vscode/test-electron", "@types/mocha"]
+    "ignoreDependencies": ["@vscode/test-electron", "@types/mocha"]
 }

@@ -68,7 +68,7 @@ jobs:
               run: pnpm package --out jj-view.vsix
 
             - name: Verify VSIX Contents
-              run: pnpm exec ts-node tooling/verify-vsix.ts jj-view.vsix
+              run: node tooling/verify-vsix.ts jj-view.vsix
 
             - name: Upload Build Artifacts
               uses: actions/upload-artifact@v4

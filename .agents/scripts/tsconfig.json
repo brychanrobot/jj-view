@@ -1,11 +1,10 @@
 {
-    "extends": "../tsconfig.json",
+    "extends": "../../tsconfig.json",
     "compilerOptions": {
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
         "rootDir": ".",
-        "outDir": "../out/tooling"
+        "noEmit": true
     },
-    "include": ["**/*.ts"],
-    "exclude": []
+    "include": ["**/*.ts"]
 }

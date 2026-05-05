@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
-import * as Handlebars from 'handlebars';
+import Handlebars from 'handlebars';
 
 export interface ThemeJsonConfig {
     strategy: 'cycle' | 'clamp';
@@ -110,7 +110,7 @@ function writeIfChanged(filePath: string, content: string) {
 
 function runGeneration() {
     try {
-        const themesPath = path.join(__dirname, '../src/webview/themes.json');
+        const themesPath = path.join(import.meta.dirname, '../src/webview/themes.json');
         if (!fs.existsSync(themesPath)) {
             console.error(`Error: themes.json not found at ${themesPath}`);
             return;
@@ -120,8 +120,8 @@ function runGeneration() {
 
         const { ts, css } = generateThemes(themesData);
 
-        const tsOutputPath = path.join(__dirname, '../src/webview/themes.generated.ts');
-        const cssOutputPath = path.join(__dirname, '../media/themes.generated.css');
+        const tsOutputPath = path.join(import.meta.dirname, '../src/webview/themes.generated.ts');
+        const cssOutputPath = path.join(import.meta.dirname, '../media/themes.generated.css');
 
         writeIfChanged(tsOutputPath, ts);
         writeIfChanged(cssOutputPath, css);
@@ -131,7 +131,7 @@ function runGeneration() {
 }
 
 async function watchThemes() {
-    const themesPath = path.join(__dirname, '../src/webview/themes.json');
+    const themesPath = path.join(import.meta.dirname, '../src/webview/themes.json');
     const themesDir = path.dirname(themesPath);
     const themesFile = path.basename(themesPath);
 
@@ -165,6 +165,6 @@ function main() {
     }
 }
 
-if (require.main === module) {
+if (import.meta.main) {
     main();
 }

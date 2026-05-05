@@ -1,6 +1,6 @@
 [aliases]
 sync = ["util", "exec", "--", "sh", "-c", "jj git fetch && jj rebase -s 'roots(mutable())' -d main --skip-emptied && jj log"]
-upload = ["util", "exec", "--", "pnpm", "exec", "ts-node", "tooling/jj/upload.ts"]
+upload = ["util", "exec", "--", "node", "tooling/jj/upload.ts"]
 
 [fix.tools.biome]
 command = ["$root/node_modules/.bin/biome", "format", "--stdin-file-path", "$path"]
