@@ -69,27 +69,26 @@ describe('openChangesCommand', () => {
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });
 
-    test('does nothing if resource state has no diffCommand', async () => {
+    test('does nothing if resource state has no leftUri or rightUri', async () => {
         const resourceState = createMock<JjResourceState>({
             resourceUri: vscode.Uri.file('/foo'),
             revision: '@',
+            // Missing leftUri and rightUri
         });
 
         await openChangesCommand(resourceState);
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });
 
-    test('executes the diffCommand with its arguments', async () => {
+    test('executes the diffCommand with its URIs and title', async () => {
         const leftUri = vscode.Uri.file('/left');
         const rightUri = vscode.Uri.file('/right');
         const resourceState = createMock<JjResourceState>({
             resourceUri: vscode.Uri.file('/foo'),
             revision: '@',
-            diffCommand: {
-                command: 'vscode.diff',
-                title: 'Open Changes',
-                arguments: [leftUri, rightUri, 'foo.txt (Working Copy)'],
-            },
+            leftUri,
+            rightUri,
+            diffTitle: 'foo.txt (Working Copy)',
         });
 
         await openChangesCommand(resourceState);

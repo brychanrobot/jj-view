@@ -718,4 +718,137 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('File Click Behavior: openDiffOnClick = true (Default)', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                files: { 'modified.txt': 'base', 'deleted.txt': 'base', 'conflict.txt': 'base' },
+            },
+            {
+                label: 'side1',
+                parents: ['base'],
+                files: { 'conflict.txt': 'side1' },
+            },
+            {
+                label: 'side2',
+                parents: ['base'],
+                files: { 'conflict.txt': 'side2' },
+            },
+            {
+                label: 'wc',
+                parents: ['side1', 'side2'], // Create conflict
+                description: 'wc change',
+                files: { 'modified.txt': 'mod' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        fs.unlinkSync(path.join(repo.path, 'deleted.txt'));
+
+        const { app, page, userDataDir } = await launchVSCode(repo, {
+            'jj-view.openDiffOnClick': true,
+        });
+
+        try {
+            await focusSCM(page);
+
+            // 1. Click modified.txt -> should open diff editor
+            const modifiedRow = page.getByRole('treeitem', { name: /modified\.txt/i }).first();
+            await modifiedRow.click();
+            await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
+
+            // 2. Click deleted.txt -> should open diff editor
+            const deletedRow = page.getByRole('treeitem', { name: /deleted\.txt/i }).first();
+            await deletedRow.click();
+            await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
+
+            // 3. Click conflict.txt -> should open merge editor
+            const conflictRow = page.getByRole('treeitem', { name: /conflict\.txt/i }).first();
+            await conflictRow.click();
+            // Merge editor has specific class or attributes. Usually 'merge-editor' or similar.
+            // In VS Code, the merge editor has a 'merge-editor-container' or similar.
+            await expect(page.locator('.merge-editor')).toBeVisible({ timeout: 5000 });
+            // 4. Open File via inline button -> should open regular editor
+            await modifiedRow.hover();
+            const openFileIcon = modifiedRow.getByRole('button', { name: 'Open File', exact: true }).first();
+            await expect(openFileIcon).toBeVisible();
+            await openFileIcon.click();
+            await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
+            await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
+
+    test('File Click Behavior: openDiffOnClick = false', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                files: { 'modified.txt': 'base', 'deleted.txt': 'base', 'conflict.txt': 'base' },
+            },
+            {
+                label: 'side1',
+                parents: ['base'],
+                files: { 'conflict.txt': 'side1' },
+            },
+            {
+                label: 'side2',
+                parents: ['base'],
+                files: { 'conflict.txt': 'side2' },
+            },
+            {
+                label: 'wc',
+                parents: ['side1', 'side2'],
+                description: 'wc change',
+                files: { 'modified.txt': 'mod' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        fs.unlinkSync(path.join(repo.path, 'deleted.txt'));
+
+        const { app, page, userDataDir } = await launchVSCode(repo, {
+            'jj-view.openDiffOnClick': false,
+        });
+
+        try {
+            await focusSCM(page);
+
+            // 1. Click modified.txt -> should open regular editor
+            const modifiedRow = page.getByRole('treeitem', { name: /modified\.txt/i }).first();
+            await modifiedRow.click();
+            await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
+            await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
+
+            // 2. Click deleted.txt -> should still open diff editor
+            const deletedRow = page.getByRole('treeitem', { name: /deleted\.txt/i }).first();
+            await deletedRow.click();
+            await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
+
+            // 3. Click conflict.txt -> should open merge editor
+            const conflictRow = page.getByRole('treeitem', { name: /conflict\.txt/i }).first();
+            await conflictRow.click();
+            await expect(page.locator('.merge-editor')).toBeVisible({ timeout: 5000 });
+
+            // 4. Open Changes via inline button (for modified file) -> should open diff editor
+            await modifiedRow.hover();
+            const openChangesIcon = modifiedRow.getByRole('button', { name: 'Open Changes', exact: true }).first();
+            await expect(openChangesIcon).toBeVisible();
+            await openChangesIcon.click();
+            await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

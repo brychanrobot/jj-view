@@ -180,22 +180,15 @@ suite('JJ SCM Provider Integration Test', () => {
             assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
             assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
 
-            const diffCommand = (resourceState as JjResourceState).diffCommand;
-            assert.ok(diffCommand, 'diffCommand should be set when openDiffOnClick is false');
-            assert.strictEqual(diffCommand.command, 'vscode.diff', 'diffCommand should be vscode.diff');
-            assert.strictEqual(diffCommand.arguments?.length, 3, 'diffCommand should have 3 arguments');
+            const diffTitle = (resourceState as JjResourceState).diffTitle;
+            assert.ok(diffTitle, 'diffTitle should be set');
 
-            const [leftUri, rightUri] = diffCommand.arguments;
-            assert.strictEqual(
-                (leftUri as vscode.Uri).scheme,
-                'jj-view',
-                'diffCommand left URI scheme should be jj-view',
-            );
-            assert.strictEqual(
-                normalize((rightUri as vscode.Uri).fsPath),
-                normalize(filePath),
-                'diffCommand right URI should be the file path',
-            );
+            const leftUri = (resourceState as JjResourceState).leftUri;
+            const rightUri = (resourceState as JjResourceState).rightUri;
+            assert.ok(leftUri && rightUri, 'leftUri and rightUri should be set');
+
+            assert.strictEqual(leftUri.scheme, 'jj-view', 'left URI scheme should be jj-view');
+            assert.strictEqual(normalize(rightUri.fsPath), normalize(filePath), 'right URI should be the file path');
 
             // Deleted files should still open the diff editor even when openDiffOnClick is false
             const deletedState = workingCopyGroup.resourceStates.find(

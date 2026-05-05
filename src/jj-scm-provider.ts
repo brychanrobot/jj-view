@@ -21,8 +21,10 @@ import { formatDisplayChangeId } from './utils/jj-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     revision: string;
-    /** The diff command for this resource, used by "Open Changes" when openDiffOnClick is off. */
-    diffCommand?: vscode.Command;
+    /** The URIs used for generating diffs. */
+    leftUri?: vscode.Uri;
+    rightUri?: vscode.Uri;
+    diffTitle?: string;
 }
 
 export class JjScmProvider implements vscode.Disposable {
@@ -568,10 +570,12 @@ export class JjScmProvider implements vscode.Disposable {
         const openDiffOnClick = options.openDiffOnClick ?? true;
         const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
 
+        const diffTitle = `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
+
         const diffCommand: vscode.Command = {
             command: 'vscode.diff',
             title: 'Open Changes',
-            arguments: [leftUri, rightUri, `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`],
+            arguments: [leftUri, rightUri, diffTitle],
         };
 
         const command: vscode.Command = entry.conflicted
@@ -591,7 +595,9 @@ export class JjScmProvider implements vscode.Disposable {
         return {
             resourceUri,
             command,
-            diffCommand: entry.conflicted ? undefined : diffCommand,
+            leftUri,
+            rightUri,
+            diffTitle,
             decorations: {
                 tooltip: entry.conflicted ? 'Conflicted' : entry.status,
                 faded: false,
