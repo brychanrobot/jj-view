@@ -175,6 +175,20 @@ export class TestRepo {
         this.exec(args);
     }
 
+    rebase(options: { revision?: string; destination?: string; source?: string } = {}) {
+        const args = ['rebase'];
+        if (options.revision) {
+            args.push('-r', options.revision);
+        }
+        if (options.source) {
+            args.push('-s', options.source);
+        }
+        if (options.destination) {
+            args.push('-d', options.destination);
+        }
+        this.exec(args);
+    }
+
     writeFile(relativePath: string, content: string) {
         const fullPath = path.join(this.path, relativePath);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });

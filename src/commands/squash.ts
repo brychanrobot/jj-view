@@ -27,12 +27,9 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
             const parentOptions: vscode.QuickPickItem[] = [];
 
             for (let i = 0; i < currentEntry.parents.length; i++) {
-                let parentRef = currentEntry.parents[i];
-                if (typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef) {
-                    parentRef = (parentRef as { commit_id: string }).commit_id;
-                }
+                const parentRef = currentEntry.parents[i].commit_id;
 
-                const [parentEntry] = await jj.getLog({ revision: parentRef as string });
+                const [parentEntry] = await jj.getLog({ revision: parentRef });
                 if (parentEntry) {
                     const shortId = parentEntry.change_id.substring(0, 8);
                     const desc = parentEntry.description?.trim() || '(no description)';
@@ -41,7 +38,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
                     parentOptions.push({
                         label: `Parent ${i + 1}: ${shortId}`,
                         description: shortDesc,
-                        detail: parentRef as string,
+                        detail: parentRef,
                     });
                 }
             }
@@ -78,12 +75,7 @@ export async function squashCommand(scmProvider: JjScmProvider, jj: JjService, a
             let parentRev = '@-';
             // Use revision- if we are squashing a specific revision
             if (currentEntry?.parents && currentEntry.parents.length > 0) {
-                const p = currentEntry.parents[0];
-                if (typeof p === 'object' && p !== null && 'commit_id' in p) {
-                    parentRev = (p as { commit_id: string }).commit_id;
-                } else {
-                    parentRev = p as string;
-                }
+                parentRev = currentEntry.parents[0].commit_id;
             }
 
             const hasCurrentDesc = currentEntry?.description && currentEntry.description.trim().length > 0;

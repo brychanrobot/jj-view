@@ -196,26 +196,11 @@ export class JjScmProvider implements vscode.Disposable {
                 const hasChild = children.length > 0;
 
                 if (currentEntry) {
-                    const parents = currentEntry.parents;
+                    const parentRefs = currentEntry.parents;
 
-                    if (parents && parents.length > 0) {
-                        // Normalize parent to string if needed
-                        let parentRev = parents[0];
-                        if (typeof parentRev === 'object' && parentRev !== null && 'commit_id' in parentRev) {
-                            parentRev = (parentRev as { commit_id: string }).commit_id;
-                        }
-                        // Check parent mutability
-                        // Try to use "parents_immutable" from the current entry if available.
-                        if (currentEntry.parents_immutable && currentEntry.parents_immutable.length > 0) {
-                            parentMutable = !currentEntry.parents_immutable[0];
-                        } else {
-                            // Fallback: Fetch parent log to check mutability
-                            this.outputChannel.appendLine(`Checking parent mutability for: ${parentRev}`);
-                            const [parentLog] = await this.jj.getLog({
-                                revision: parentRev as string,
-                            });
-                            parentMutable = !parentLog.is_immutable;
-                        }
+                    if (parentRefs && parentRefs.length > 0) {
+                        const firstParent = parentRefs[0];
+                        parentMutable = !firstParent.is_immutable;
                     }
                 }
 
@@ -261,12 +246,8 @@ export class JjScmProvider implements vscode.Disposable {
                         const isMerge = currentFocus.parents.length > 1;
 
                         // Get all parent entries from the bulk map
-                        const parentEntries = currentFocus.parents.map((parentRef) => {
-                            const refId =
-                                typeof parentRef === 'object' && parentRef !== null && 'commit_id' in parentRef
-                                    ? (parentRef as { commit_id: string }).commit_id
-                                    : (parentRef as string);
-                            return bulkLogMap.get(refId);
+                        const parentEntries = currentFocus.parents.map((parent) => {
+                            return bulkLogMap.get(parent.commit_id);
                         });
 
                         for (let i = 0; i < parentEntries.length; i++) {
@@ -279,9 +260,9 @@ export class JjScmProvider implements vscode.Disposable {
 
                             const canSquash =
                                 !parentEntry.is_immutable &&
-                                parentEntry.parents_immutable !== undefined &&
-                                parentEntry.parents_immutable.length > 0 &&
-                                !parentEntry.parents_immutable[0];
+                                parentEntry.parents !== undefined &&
+                                parentEntry.parents.length > 0 &&
+                                !parentEntry.parents[0].is_immutable;
 
                             ancestorsToDisplay.push({
                                 entry: parentEntry,

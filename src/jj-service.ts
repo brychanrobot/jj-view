@@ -371,7 +371,7 @@ export class JjService {
 
         const followUps: Promise<void>[] = [];
         for (const entry of entries) {
-            const parentChangeIds = entry.parent_change_ids || [];
+            const parentChangeIds = entry.parents.map((p) => p.change_id);
             const hasMissingParents = parentChangeIds.some((p) => !visibleIds.has(p));
             if (!hasMissingParents) {
                 entry.nearest_visible_ancestors = parentChangeIds;

@@ -21,7 +21,7 @@ function renderToAscii(layout: GraphLayout, headId: string): string {
 
     layout.rows.forEach((row) => {
         if (!isElisionRow(row)) {
-            const parents = row.nearest_visible_ancestors || row.parent_change_ids || [];
+            const parents = row.nearest_visible_ancestors || row.parents.map((p) => p.change_id);
             if (parents.length > 1) {
                 childDegree.set(row.change_id, parents.length);
             }

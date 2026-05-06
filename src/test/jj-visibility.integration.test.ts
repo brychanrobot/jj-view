@@ -51,7 +51,7 @@ suite('JJ SCM Visibility Integration Test', () => {
         repo.writeFile('test.txt', 'content');
         await scmProvider.refresh();
 
-        const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup');
+        const workingCopyGroup = accessPrivate<vscode.SourceControlResourceGroup>(scmProvider, '_workingCopyGroup');
         assert.strictEqual(workingCopyGroup.resourceStates.length, 1);
 
         const resourceState = workingCopyGroup.resourceStates[0];

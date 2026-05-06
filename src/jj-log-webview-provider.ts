@@ -218,9 +218,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         const selectedCommit = this._cachedCommits.find(
                             (c) => c.change_id === data.payload.commitIds[0],
                         );
-                        if (selectedCommit?.parents_immutable) {
+                        if (selectedCommit?.parents) {
                             // If any parent is NOT immutable (i.e. is mutable), then we can absorb
-                            parentMutable = selectedCommit.parents_immutable.some((immutable) => !immutable);
+                            parentMutable = selectedCommit.parents.some((parent) => !parent.is_immutable);
                         } else if (selectedCommit) {
                             parentMutable = false;
                         }
@@ -295,6 +295,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             const hasChanges = await this._gerrit.ensureFreshStatuses(
                 this._cachedCommits.map((c) => ({
                     commitId: c.commit_id ?? '',
+                    parents: c.parents,
                     changeId: c.change_id,
                     description: c.description,
                 })),

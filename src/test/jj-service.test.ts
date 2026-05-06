@@ -614,16 +614,13 @@ log = "none()"
         expect(Array.isArray(logEntry.parents)).toBe(true);
         expect(logEntry.parents.length).toBeGreaterThan(0);
 
-        // Check stricture of parents
+        // Check structure of parents
         const parent = logEntry.parents[0];
 
-        // Update JjLogEntry if needed based on this
-        if (typeof parent === 'object' && parent !== null) {
-            // jj json(self) returns objects for parents: { commit_id: "...", change_id: "..." }
-            expect(parent).toHaveProperty('commit_id');
-        } else {
-            expect(typeof parent).toBe('string');
-        }
+        expect(typeof parent).toBe('object');
+        expect(parent).toHaveProperty('commit_id');
+        expect(parent).toHaveProperty('change_id');
+        expect(parent).toHaveProperty('is_immutable');
     });
 
     test('moveToChild moves changes to child', async () => {
@@ -708,8 +705,8 @@ log = "none()"
         expect(logA).toBeDefined();
 
         // Immediate parent of D is C
-        expect(logD?.parents).toContain(ids.C.commitId);
-        expect(logD?.parent_change_ids).toContain(ids.C.changeId);
+        expect(logD?.parents[0].commit_id).toBe(ids.C.commitId);
+        expect(logD?.parents[0].change_id).toBe(ids.C.changeId);
 
         // Nearest visible ancestor of D in (A|D) is A
         expect(logD?.nearest_visible_ancestors).toContain(idA);
@@ -742,15 +739,15 @@ log = "none()"
         repo.describe('child of root');
         const [child] = await jjService.getLog({ revision: '@' });
 
-        expect(child.parents_immutable).toBeDefined();
-        expect(child.parents_immutable?.length).toBeGreaterThan(0);
-        expect(child.parents_immutable?.[0]).toBe(true);
+        expect(child.parents).toBeDefined();
+        expect(child.parents.length).toBeGreaterThan(0);
+        expect(child.parents[0].is_immutable).toBe(true);
 
         repo.new(['@'], 'grandchild');
         const [grandchild] = await jjService.getLog({ revision: '@' });
 
-        expect(grandchild.parents_immutable).toBeDefined();
-        expect(grandchild.parents_immutable?.[0]).toBe(false);
+        expect(grandchild.parents).toBeDefined();
+        expect(grandchild.parents[0].is_immutable).toBe(false);
     });
 
     test('getLog parses tags correctly', async () => {
@@ -891,8 +888,8 @@ log = "none()"
         expect(child2Log).toBeDefined();
         expect(parentLog).toBeDefined();
 
-        expect(child1Log?.parents[0]).toBe(parentLog?.commit_id);
-        expect(child2Log?.parents[0]).toBe(parentLog?.commit_id);
+        expect(child1Log?.parents[0].commit_id).toBe(parentLog?.commit_id);
+        expect(child2Log?.parents[0].commit_id).toBe(parentLog?.commit_id);
     }, 30000);
 
     test('Complex Replay (Reproduce User Scenario) with return IDs', async () => {
@@ -946,8 +943,8 @@ log = "none()"
                 return [];
             }
             return entry.parents
-                .map((p: string) => {
-                    const parentLog = logs.find((l) => l.commit_id === p);
+                .map((p) => {
+                    const parentLog = logs.find((l) => l.commit_id === p.commit_id);
                     return parentLog ? parentLog.change_id : undefined;
                 })
                 .filter(Boolean);
@@ -1227,10 +1224,10 @@ log = "none()"
         const [grandparentLog] = await jjService.getLog({ revision: grantparentId });
 
         // Parent is child of Target
-        expect(parentLog.parents[0]).toBe(targetLog.commit_id);
+        expect(parentLog.parents[0].commit_id).toBe(targetLog.commit_id);
 
         // Child is NOW child of Grandparent (orphaned from moved Parent)
-        expect(childLog.parents[0]).toBe(grandparentLog.commit_id);
+        expect(childLog.parents[0].commit_id).toBe(grandparentLog.commit_id);
 
         // 2. Rebase -s check (Source Mode)
         // Scenario: Move Grandparent (-s) to Root. Child should follow.
@@ -1242,10 +1239,10 @@ log = "none()"
         const [rootLog] = await jjService.getLog({ revision: rootId });
 
         // Grandparent is child of Root
-        expect(grandparentLogAfter.parents[0]).toBe(rootLog.commit_id);
+        expect(grandparentLogAfter.parents[0].commit_id).toBe(rootLog.commit_id);
 
         // Child is child of Grandparent
-        expect(childLogAfter.parents[0]).toBe(grandparentLogAfter.commit_id);
+        expect(childLogAfter.parents[0].commit_id).toBe(grandparentLogAfter.commit_id);
     });
 
     test('getWorkingCopyChanges detects renamed file', async () => {

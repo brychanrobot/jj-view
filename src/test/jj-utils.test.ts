@@ -20,6 +20,13 @@ describe('JJ Utils', () => {
             expect(convertJjChangeIdToHex('zyxw')).toBe('0123');
         });
 
+        it('should strip change offset suffix', () => {
+            expect(convertJjChangeIdToHex('zzzz/1')).toBe('0000');
+            expect(convertJjChangeIdToHex('zzzz/2')).toBe('0000');
+            expect(convertJjChangeIdToHex('kkkk/1')).toBe('ffff');
+            expect(convertJjChangeIdToHex('zyxw/3')).toBe('0123');
+        });
+
         it('should throw on invalid characters', () => {
             expect(() => convertJjChangeIdToHex('abc')).toThrow();
         });

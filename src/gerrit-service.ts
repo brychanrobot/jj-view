@@ -6,7 +6,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
-import type { GerritClInfo } from './jj-types';
+import type { CommitParent, GerritClInfo } from './jj-types';
+import { chunkArray } from './utils/array-utils';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
 
 interface GerritFile {
@@ -14,10 +15,11 @@ interface GerritFile {
     new_sha?: string;
 }
 
-interface GerritRevision {
+export interface GerritRevision {
     files?: Record<string, GerritFile>;
     commit?: {
         message: string;
+        parents?: { commit: string }[];
     };
 }
 
@@ -38,6 +40,7 @@ export interface GerritChange {
     insertions?: number;
     deletions?: number;
     owner?: { _account_id: number };
+    labels?: Record<string, unknown>;
 }
 
 export class GerritService implements vscode.Disposable {
@@ -317,7 +320,12 @@ export class GerritService implements vscode.Disposable {
     }
 
     private resolveCacheKey(changeId?: string, description?: string): string | undefined {
-        // 1. Check description for trailers
+        // If we already have a Gerrit Change-Id, it's the strongest identifier.
+        if (changeId?.startsWith('I')) {
+            return changeId;
+        }
+
+        // 1. Check description for trailers (Change-Id footer or Link trailer)
         if (description) {
             for (const regex of GerritService.TRAILER_REGEXES) {
                 const match = description.match(regex);
@@ -340,163 +348,202 @@ export class GerritService implements vscode.Disposable {
     }
 
     /**
-     * Fetches status from network (bypass cache read), updates cache, and returns new value.
-     */
-    public async forceFetchAndCacheStatus(
-        commitId: string,
-        changeId?: string,
-        description?: string,
-    ): Promise<GerritClInfo | undefined> {
-        if (!this._gerritHost) {
-            return undefined;
-        }
-
-        const cacheKey = this.resolveCacheKey(changeId, description);
-        if (!cacheKey) {
-            return undefined;
-        }
-
-        const info = await this._fetchFromNetwork(cacheKey);
-        if (info) {
-            await this._verifySyncForCommit(commitId, description, info);
-            this.cache.set(cacheKey, info);
-        }
-        return info;
-    }
-
-    /**
      * Batch ensures fresh statuses for a list of items.
      * Returns true if any status changed from what was in the cache.
      */
     public async ensureFreshStatuses(
-        items: { commitId: string; changeId?: string; description?: string }[],
+        changes: {
+            commitId: string;
+            parents: CommitParent[];
+            changeId?: string;
+            description?: string;
+        }[],
     ): Promise<boolean> {
-        if (!this._gerritHost) {
+        if (!this._gerritHost || changes.length === 0) {
             return false;
         }
 
-        const results = await Promise.all(
-            items.map(async (item) => {
-                const key = this.resolveCacheKey(item.changeId, item.description);
-                if (!key) {
-                    return false;
-                }
+        const cacheKeysToFetch = new Set<string>();
+        const changesByCacheKey = new Map<string, (typeof changes)[0][]>();
 
-                const oldStatus = this.cache.get(key);
-                const newStatus = await this.forceFetchAndCacheStatus(item.commitId, item.changeId, item.description);
+        for (const change of changes) {
+            const cacheKey = this.resolveCacheKey(change.changeId, change.description);
+            if (cacheKey) {
+                cacheKeysToFetch.add(cacheKey);
+                const list = changesByCacheKey.get(cacheKey) || [];
+                list.push(change);
+                changesByCacheKey.set(cacheKey, list);
+            }
+        }
 
-                // Check for change
-                return JSON.stringify(oldStatus) !== JSON.stringify(newStatus);
-            }),
+        if (cacheKeysToFetch.size === 0) {
+            return false;
+        }
+
+        const cacheKeysArray = Array.from(cacheKeysToFetch);
+        const BATCH_SIZE = 10;
+        const cacheKeyBatches = chunkArray(cacheKeysArray, BATCH_SIZE);
+
+        // We process batches in parallel to minimize the total time spent waiting for network responses.
+        // Each batch corresponds to a single Gerrit API request. Since these are network-bound operations
+        // and not CPU-bound, parallelizing them significantly improves the responsiveness of the SCM view
+        // during refresh, especially for large repositories with many changes.
+        const batchPromises = cacheKeyBatches.map((batchCacheKeys, batchIndex) =>
+            this._processBatch(batchCacheKeys, batchIndex, changesByCacheKey),
         );
 
+        const results = await Promise.all(batchPromises);
         return results.some((changed) => changed);
     }
 
-    public async fetchAndCacheStatus(
-        _commitId: string,
-        changeId?: string,
-        description?: string,
-    ): Promise<GerritClInfo | undefined> {
-        if (!this._gerritHost) {
-            return undefined;
-        }
+    private async _processBatch(
+        batchCacheKeys: string[],
+        batchIndex: number,
+        changesByCacheKey: Map<string, { commitId: string; description?: string }[]>,
+    ): Promise<boolean> {
+        let batchChanged = false;
+        this.outputChannel?.appendLine(
+            `[GerritService] Fetching fresh status for batch ${batchIndex + 1} (${batchCacheKeys.length} changes)...`,
+        );
 
-        const cacheKey = this.resolveCacheKey(changeId, description);
-        if (!cacheKey) {
-            return undefined;
-        }
+        const fetchedInfoMap = await this._fetchBatchFromNetwork(batchCacheKeys);
 
-        const existing = this.getCachedClStatus(changeId, description);
-        if (existing) {
-            return existing;
-        }
+        for (const cacheKey of batchCacheKeys) {
+            const info = fetchedInfoMap.get(cacheKey);
+            const oldInfo = this.cache.get(cacheKey);
 
-        // If not pending, fetch
-        const info = await this._fetchFromNetwork(cacheKey);
-        if (info) {
-            this.cache.set(cacheKey, info);
+            if (info) {
+                const changesForCacheKey = changesByCacheKey.get(cacheKey) || [];
+                // Run verifications for this cacheKey in parallel
+                await Promise.all(
+                    changesForCacheKey.map((change) =>
+                        this._verifyContentSync(change.commitId, change.description, info),
+                    ),
+                );
+                this.cache.set(cacheKey, info);
+            } else {
+                // This is expected for commits not yet on Gerrit
+                this.cache.delete(cacheKey);
+            }
+
+            if (JSON.stringify(oldInfo) !== JSON.stringify(info)) {
+                batchChanged = true;
+            }
         }
-        return info;
+        return batchChanged;
     }
 
-    private async _fetchFromNetwork(cacheKey: string): Promise<GerritClInfo | undefined> {
-        if (!this._gerritHost) {
-            return undefined;
+    private async _fetchBatchFromNetwork(cacheKeys: string[]): Promise<Map<string, GerritClInfo>> {
+        const results = new Map<string, GerritClInfo>();
+        if (!this._gerritHost || cacheKeys.length === 0) {
+            return results;
         }
 
-        const searchQ = `change:${cacheKey}`;
         try {
-            const url = `${this._gerritHost}/changes/?q=${searchQ}&o=LABELS&o=SUBMITTABLE&o=CURRENT_REVISION&o=CURRENT_FILES&o=CURRENT_COMMIT`;
+            const baseUrl = `${this._gerritHost}/changes/`;
+            const params = new URLSearchParams();
+            // Use multiple 'q' parameters for batching.
+            // Gerrit returns an array of arrays when multiple 'q' are provided.
+            for (const key of cacheKeys) {
+                params.append('q', `change:${key}`);
+            }
+            params.append('o', 'LABELS');
+            params.append('o', 'SUBMITTABLE');
+            params.append('o', 'CURRENT_REVISION');
+            params.append('o', 'CURRENT_FILES');
+            params.append('o', 'CURRENT_COMMIT');
 
-            const response = await fetch(url);
+            const urlStr = `${baseUrl}?${params.toString()}`;
+            this.outputChannel?.appendLine(`[GerritService] GET ${urlStr}`);
+            const response = await fetch(urlStr);
             if (!response.ok) {
-                this.outputChannel?.appendLine(`[GerritService] Request failed: ${response.status}`);
-                return undefined;
+                this.outputChannel?.appendLine(`[GerritService] Batch request failed: ${response.status}`);
+                return results;
             }
 
             const text = await response.text();
-            // Gerrit API returns ")]}'" prefix
-            const jsonStr = text.replace(/^\)]}'\n/, '');
-            const data = JSON.parse(jsonStr) as GerritChange[];
+            const queryResults = this._parseBatchResponse(text);
 
-            // Search returns an array of changes
-            if (!Array.isArray(data) || data.length === 0) {
-                return undefined;
-            }
-
-            // Use the first match (typically the most relevant or only one)
-            const change = data[0];
-            const currentRev = change.current_revision;
-
-            let files: Record<string, { newSha?: string; status?: string }> | undefined;
-            let remoteDescription: string | undefined;
-
-            const rev = currentRev && change.revisions ? change.revisions[currentRev] : undefined;
-            if (rev) {
-                remoteDescription = rev.commit?.message;
-
-                if (rev.files) {
-                    files = Object.entries(rev.files).reduce(
-                        (acc, [path, fileInfo]) => {
-                            if (!path.startsWith('/')) {
-                                acc[path] = { newSha: fileInfo.new_sha, status: fileInfo.status };
-                            }
-                            return acc;
-                        },
-                        {} as Record<string, { newSha?: string; status?: string }>,
-                    );
+            for (let i = 0; i < queryResults.length; i++) {
+                const matches = queryResults[i];
+                if (Array.isArray(matches) && matches.length > 0) {
+                    // Use the first match for this key
+                    const info = this._parseGerritChange(matches[0]);
+                    if (info) {
+                        results.set(cacheKeys[i], info);
+                    }
                 }
             }
-
-            const info: GerritClInfo = {
-                changeId: change.change_id,
-                changeNumber: change._number,
-                status: change.status,
-                submittable: change.submittable,
-                url: `${this._gerritHost}/c/${change._number}`,
-                unresolvedComments: change.unresolved_comment_count || 0,
-                currentRevision: change.current_revision,
-                files,
-                remoteDescription,
-            };
-            return info;
         } catch (error) {
-            this.outputChannel?.appendLine(`[GerritService] Failed to fetch Gerrit status for ${cacheKey}: ${error}`);
-            return undefined;
+            this.outputChannel?.appendLine(`[GerritService] Failed to fetch batch Gerrit status: ${error}`);
         }
+        return results;
+    }
+
+    private _parseBatchResponse(text: string): GerritChange[][] {
+        // Gerrit prefixes its JSON responses with a magic string to prevent JSON hijacking.
+        // We must strip this prefix before parsing.
+        const jsonStr = text.replace(/^\)]}'\n/, '');
+        const data: GerritChange[] | GerritChange[][] = JSON.parse(jsonStr);
+
+        return this._isBatchResponse(data) ? data : [data];
+    }
+
+    private _isBatchResponse(data: GerritChange[] | GerritChange[][]): data is GerritChange[][] {
+        return data.length > 0 && Array.isArray(data[0]);
+    }
+
+    private _parseGerritChange(change: GerritChange): GerritClInfo | undefined {
+        const currentRev = change.current_revision;
+        let files: Record<string, { newSha?: string; status?: string }> | undefined;
+        let remoteDescription: string | undefined;
+
+        const rev = currentRev && change.revisions ? change.revisions[currentRev] : undefined;
+        if (rev) {
+            remoteDescription = rev.commit?.message;
+
+            if (rev.files) {
+                files = Object.entries(rev.files).reduce(
+                    (acc, [path, fileInfo]) => {
+                        if (!path.startsWith('/')) {
+                            acc[path] = { newSha: fileInfo.new_sha, status: fileInfo.status };
+                        }
+                        return acc;
+                    },
+                    {} as Record<string, { newSha?: string; status?: string }>,
+                );
+            }
+        }
+
+        return {
+            changeId: change.change_id,
+            changeNumber: change._number,
+            status: change.status,
+            submittable: change.submittable,
+            url: `${this._gerritHost}/c/${change._number}`,
+            unresolvedComments: change.unresolved_comment_count || 0,
+            currentRevision: change.current_revision,
+            files,
+            remoteDescription,
+            gerritParents: rev?.commit?.parents?.map((p) => p.commit),
+        };
     }
 
     /**
      * Verify whether a local commit's content matches its Gerrit revision
-     * by comparing per-file blob SHA-1 hashes. Sets `synced = true` if matching.
+     * by comparing per-file blob SHA-1 hashes. Sets `contentSynced = true` if matching.
      */
-    private async _verifySyncForCommit(
+    private async _verifyContentSync(
         commitId: string,
         description: string | undefined,
         info: GerritClInfo,
     ): Promise<void> {
-        if (info.status !== 'NEW' || info.currentRevision === commitId || !info.files) {
+        if (info.status !== 'NEW' || !info.files) {
+            return;
+        }
+
+        if (info.currentRevision === commitId) {
+            info.contentSynced = true;
             return;
         }
 
@@ -526,8 +573,7 @@ export class GerritService implements vscode.Disposable {
             const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
             const gerritPathSet = new Set(gerritPaths);
 
-            // 2. Compare sets using ES2024 Set.difference
-            // Check for strict equality of sets: A.difference(B) must be empty AND B.difference(A) must be empty
+            // 2. Compare sets
             if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
                 return;
             }
@@ -546,10 +592,58 @@ export class GerritService implements vscode.Disposable {
                 }
             }
 
-            info.synced = true;
+            info.contentSynced = true;
         } catch (e) {
-            this.outputChannel?.appendLine(`[GerritService] Sync verification failed for ${commitId}: ${e}`);
+            this.outputChannel?.appendLine(`[GerritService] Content sync verification failed for ${commitId}: ${e}`);
         }
+    }
+
+    /**
+     * Verify whether a commit's Gerrit parent pointers match the latest patchsets
+     * of its parents on the server.
+     *
+     * This ensures that if a parent has been rebased or had its content updated
+     * on the server (creating a new patchset), the child correctly detects it
+     * as "Needs Upload" even if the child's own content matches Gerrit.
+     *
+     * @param parents The local parents of the commit from `jj`.
+     * @param info The Gerrit metadata for the commit to be verified.
+     */
+    private _verifyStructureSync(parents: CommitParent[], info: GerritClInfo): void {
+        if (info.status !== 'NEW') {
+            return;
+        }
+
+        // If there are no parents, it's structurally synced by definition.
+        if (!info.gerritParents || info.gerritParents.length === 0) {
+            info.parentSynced = true;
+            return;
+        }
+
+        if (info.gerritParents.length !== parents.length) {
+            info.parentSynced = false;
+            return;
+        }
+
+        const matches = info.gerritParents.every((gerritParentSha, i) => {
+            const localParent = parents[i];
+            const parentCacheKey = this.resolveCacheKey(localParent.change_id);
+            if (!parentCacheKey) {
+                return false;
+            }
+
+            const parentInfo = this.cache.get(parentCacheKey);
+            if (!parentInfo) {
+                // If the parent is immutable and not in our Gerrit cache (e.g. root or external),
+                // we verify it matches the Gerrit-recorded parent SHA directly.
+                return localParent.is_immutable && localParent.commit_id === gerritParentSha;
+            }
+
+            // Does Gerrit's parent SHA for THIS commit match the currentRevision of the parent's Change in Gerrit?
+            return parentInfo.currentRevision === gerritParentSha;
+        });
+
+        info.parentSynced = matches;
     }
 
     /**
@@ -569,6 +663,16 @@ export class GerritService implements vscode.Disposable {
             }
         }
 
+        // Structural Pass: Verify parent pointers against Gerrit's current revisions.
+        // We do this in a separate pass after the cache is fully populated for the current view.
+        for (const commit of commits) {
+            if (commit.gerritCl && commit.parents) {
+                this._verifyStructureSync(commit.parents, commit.gerritCl);
+                // Final sync status is an aggregate of content and structure.
+                commit.gerritCl.synced = commit.gerritCl.contentSynced && commit.gerritCl.parentSynced;
+            }
+        }
+
         const needsUploadCache = new Map<string, boolean>();
         const computeNeedsUpload = (commitId: string): boolean => {
             const cached = needsUploadCache.get(commitId);
@@ -583,18 +687,28 @@ export class GerritService implements vscode.Disposable {
 
             let needsUpload = false;
             const gerritCl = commit.gerritCl;
-            if (
-                gerritCl &&
-                gerritCl.status === 'NEW' &&
-                !(gerritCl.currentRevision === commit.commit_id || gerritCl.synced)
-            ) {
-                needsUpload = true;
+            if (gerritCl && gerritCl.status === 'NEW') {
+                const idMatches = gerritCl.currentRevision === commit.commit_id;
+                const contentSynced = gerritCl.contentSynced === true;
+                const parentSynced = gerritCl.parentSynced !== false;
+
+                if (!(idMatches || (contentSynced && parentSynced))) {
+                    needsUpload = true;
+                    this.outputChannel?.appendLine(
+                        `[GerritService] Commit ${commit.change_id.substring(0, 8)} needs upload: ` +
+                            `idMatches=${idMatches}, contentSynced=${contentSynced}, parentSynced=${parentSynced} ` +
+                            `(currentRevision=${gerritCl.currentRevision?.substring(0, 8)}, commitId=${commit.commit_id?.substring(0, 8)})`,
+                    );
+                }
             }
 
             if (!needsUpload && commit.parents) {
-                for (const parentId of commit.parents) {
-                    if (computeNeedsUpload(parentId)) {
+                for (const parent of commit.parents) {
+                    if (computeNeedsUpload(parent.commit_id)) {
                         needsUpload = true;
+                        this.outputChannel?.appendLine(
+                            `[GerritService] Commit ${commit.change_id.substring(0, 8)} needs upload: inherited from parent ${parent.commit_id.substring(0, 8)}`,
+                        );
                         break;
                     }
                 }

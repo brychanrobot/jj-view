@@ -496,7 +496,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 // Synced - Non-interactive Icon
                                 <div
                                     title={
-                                        gerritCl.synced ? 'Synced (content matches Gerrit)' : 'Up to date with Gerrit'
+                                        gerritCl.parentSynced === false
+                                            ? 'Parent mismatch (Local parent differs from Gerrit)'
+                                            : gerritCl.synced
+                                              ? 'Synced (content matches Gerrit)'
+                                              : 'Up to date with Gerrit'
                                     }
                                     style={{
                                         display: 'flex',
@@ -516,7 +520,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                         e.stopPropagation();
                                         onAction('upload', { changeId: commit.change_id });
                                     }}
-                                    title="Local changes need upload (Click to push)"
+                                    title={
+                                        gerritCl.parentSynced === false
+                                            ? 'Parent mismatch (Click to push update)'
+                                            : 'Local changes need upload (Click to push)'
+                                    }
                                     aria-label="Upload changes to Gerrit"
                                     style={{
                                         cursor: 'pointer',

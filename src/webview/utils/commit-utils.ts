@@ -26,7 +26,7 @@ export function computeCommitActions(
     const visibleActions: CommitActionStates = {
         newChild: !hiddenActions.has('newChild'),
         edit: !isImmutable && !hiddenActions.has('edit'),
-        squash: !hiddenActions.has('squash') && commit.parents_immutable?.length === 1 && !commit.parents_immutable[0],
+        squash: !hiddenActions.has('squash') && commit.parents?.length === 1 && !commit.parents[0].is_immutable,
         abandon: !isImmutable && !hiddenActions.has('abandon'),
     };
 
@@ -59,8 +59,7 @@ export function computeCommitActions(
         'jj.canMerge': isSelected && selectionCount > 1,
 
         // Absorb requires at least one mutable parent and single-item context
-        'jj.canAbsorb':
-            commit.parents_immutable?.some((immutable: boolean) => !immutable) && (!isSelected || selectionCount <= 1),
+        'jj.canAbsorb': commit.parents?.some((ref) => !ref.is_immutable) && (!isSelected || selectionCount <= 1),
 
         preventDefaultContextMenuItems: true,
     };

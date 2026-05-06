@@ -108,19 +108,13 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     is_divergent: { type: 'raw', expr: 'divergent' },
     change_id_offset: { type: 'raw', expr: 'if(change_offset, change_offset, "null")' },
     parents: {
-        type: 'stringArray',
+        type: 'array',
         expr: 'parents',
-        itemExpr: 'item.commit_id()',
-    },
-    parent_change_ids: {
-        type: 'stringArray',
-        expr: 'parents',
-        itemExpr: CHANGE_ID_ITEM_EXPR,
-    },
-    parents_immutable: {
-        type: 'rawArray',
-        expr: 'parents',
-        itemExpr: 'item.immutable()',
+        itemSchema: {
+            commit_id: { type: 'string', expr: 'item.commit_id()' },
+            change_id: { type: 'string', expr: CHANGE_ID_ITEM_EXPR },
+            is_immutable: { type: 'raw', expr: 'item.immutable()' },
+        },
     },
     conflict: { type: 'raw', expr: 'conflict' },
     is_hidden: { type: 'raw', expr: 'hidden' },

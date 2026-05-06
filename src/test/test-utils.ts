@@ -21,7 +21,10 @@ export function asSinonStub(fn: unknown): SinonStub {
     return fn as SinonStub;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: accessPrivate is a test utility intended to bypass type safety for testing private members.
-export function accessPrivate(obj: any, key: string): any {
-    return obj[key];
+export function accessPrivate<T = unknown>(obj: object, key: string): T {
+    return (obj as Record<string, T>)[key];
+}
+
+export function setPrivate(obj: object, key: string, value: unknown): void {
+    (obj as Record<string, unknown>)[key] = value;
 }

@@ -51,8 +51,9 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
     commits.forEach((commit) => {
         displayRows.push(commit);
 
-        const parents = commit.nearest_visible_ancestors || commit.parent_change_ids || [];
-        const directParents = new Set(commit.parent_change_ids || []);
+        const parentChangeIds = commit.parents.map((p) => p.change_id);
+        const parents = commit.nearest_visible_ancestors || parentChangeIds;
+        const directParents = new Set(parentChangeIds);
         parents.forEach((p) => {
             if (!directParents.has(p)) {
                 displayRows.push({ type: 'elision', targetId: p });
@@ -89,8 +90,9 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
                 directParents: new Set<string>(),
             }))
             .otherwise((commit) => {
-                const parents = commit.nearest_visible_ancestors || commit.parent_change_ids || [];
-                const directParents = new Set(commit.parent_change_ids || []);
+                const parentChangeIds = commit.parents.map((p) => p.change_id);
+                const parents = commit.nearest_visible_ancestors || parentChangeIds;
+                const directParents = new Set(parentChangeIds);
                 const renderParents = parents.map((p) => {
                     if (!directParents.has(p)) {
                         return { type: 'Parent', id: `elided-${p}` };
