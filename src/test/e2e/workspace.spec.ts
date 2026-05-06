@@ -14,6 +14,7 @@ import {
     getLogWebview,
     launchVSCode,
     rightClickAndSelect,
+    waitForLogPill,
     waitForQuickInput,
 } from './e2e-helpers';
 
@@ -41,10 +42,10 @@ test.describe('Workspace Management E2E', () => {
             const webview = await getLogWebview(page);
 
             // The default workspace label is 'default@'
-            await expect(webview.locator('.bookmark-pill', { hasText: 'default@' })).toBeVisible();
+            await waitForLogPill(page, 'default@', 'workspace');
 
             // The secondary workspace label should match our workspace name
-            await expect(webview.locator('.bookmark-pill', { hasText: workspaceName })).toBeVisible();
+            await waitForLogPill(page, workspaceName, 'workspace');
 
             // 'default@' should be on the 'other' commit
             const otherRow = webview.locator(`[data-change-id="${otherId}"]`);
@@ -84,8 +85,7 @@ test.describe('Workspace Management E2E', () => {
             }, 'Failed to add workspace via title bar').toPass({ timeout: 20000 });
 
             // 3. Verify workspace pill appears in webview
-            const webview = await getLogWebview(page);
-            await expect(webview.locator('.bookmark-pill', { hasText: workspaceName })).toBeVisible({ timeout: 20000 });
+            await waitForLogPill(page, workspaceName, 'workspace');
 
             // 4. Click "Open Workspace" in the notification and verify a new window opens
             const nextWindowPromise = app.waitForEvent('window');
@@ -129,11 +129,9 @@ test.describe('Workspace Management E2E', () => {
 
         try {
             await focusJJLog(page);
-            const webview = await getLogWebview(page);
 
             // 1. Forget Workspace
-            const forgetPill = webview.locator('.bookmark-pill', { hasText: forgetWs });
-            await expect(forgetPill).toBeVisible();
+            const forgetPill = await waitForLogPill(page, forgetWs, 'workspace');
 
             await rightClickAndSelect(page, forgetPill, 'Forget Workspace');
 
@@ -142,14 +140,18 @@ test.describe('Workspace Management E2E', () => {
             await expect(forgetBtn, 'Forget confirmation button should be visible').toBeVisible({ timeout: 5000 });
             await forgetBtn.click();
 
-            await expect(forgetPill).not.toBeVisible({ timeout: 15000 });
+            await expect(async () => {
+                const webview = await getLogWebview(page, 300);
+                await expect(webview.locator('.bookmark-pill', { hasText: forgetWs })).not.toBeVisible({
+                    timeout: 500,
+                });
+            }).toPass({ timeout: 15000 });
 
             const stillExists = fs.existsSync(forgetWsPath);
             expect(stillExists, `Directory ${forgetWsPath} should still exist after forget`).toBe(true);
 
             // 2. Delete Workspace
-            const deletePill = webview.locator('.bookmark-pill', { hasText: deleteWs });
-            await expect(deletePill).toBeVisible();
+            const deletePill = await waitForLogPill(page, deleteWs, 'workspace');
 
             await rightClickAndSelect(page, deletePill, 'Delete Workspace Directory');
 
@@ -158,7 +160,12 @@ test.describe('Workspace Management E2E', () => {
             await expect(deleteBtn, 'Delete confirmation button should be visible').toBeVisible({ timeout: 5000 });
             await deleteBtn.click();
 
-            await expect(deletePill).not.toBeVisible({ timeout: 15000 });
+            await expect(async () => {
+                const webview = await getLogWebview(page, 300);
+                await expect(webview.locator('.bookmark-pill', { hasText: deleteWs })).not.toBeVisible({
+                    timeout: 500,
+                });
+            }).toPass({ timeout: 15000 });
 
             const gone = !fs.existsSync(deleteWsPath);
             expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);

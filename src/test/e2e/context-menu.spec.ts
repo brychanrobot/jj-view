@@ -18,6 +18,9 @@ import {
     rightClickAndSelect,
     selectCommits,
     triggerRefresh,
+    waitForLogCommitRow,
+    waitForLogPill,
+    waitForTab,
 } from './e2e-helpers';
 
 test.describe('JJ Log Context Menu E2E', () => {
@@ -71,16 +74,14 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Abandon and Undo', async () => {
-        const webview = await getLogWebview(page);
-
-        await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
+        await waitForLogCommitRow(page, 'commit2');
 
         const commit2Id = nodes.commit2.changeId;
         const commit1Id = nodes.commit1.changeId;
         const initialId = nodes.initial.changeId;
 
         // Abandon commit 2
-        const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
+        const commit2Row = await waitForLogCommitRow(page, 'commit2');
         await rightClickAndSelect(page, commit2Row, 'Abandon');
 
         await expectTree(repo, [
@@ -104,16 +105,14 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('New Before (Single)', async () => {
-        const webview = await getLogWebview(page);
-
-        await expect(webview.locator('.commit-row', { hasText: 'commit1' })).toBeVisible();
+        await waitForLogCommitRow(page, 'commit1');
 
         const commit2Id = nodes.commit2.changeId;
         const commit1Id = nodes.commit1.changeId;
         const initialId = nodes.initial.changeId;
 
         // New Before initial
-        const initialRow = webview.locator('.commit-row', { hasText: 'initial' });
+        const initialRow = await waitForLogCommitRow(page, 'initial');
         await rightClickAndSelect(page, initialRow, 'New Before');
 
         // After "New Before" initial:
@@ -130,12 +129,10 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Multi-select Abandon', async () => {
-        const webview = await getLogWebview(page);
+        await waitForLogCommitRow(page, 'commit2');
 
-        await expect(webview.locator('.commit-row', { hasText: 'commit2' })).toBeVisible();
-
-        const commit2Row = webview.locator('.commit-row', { hasText: 'commit2' });
-        const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+        const commit2Row = await waitForLogCommitRow(page, 'commit2');
+        const commit1Row = await waitForLogCommitRow(page, 'commit1');
         const initialId = nodes.initial.changeId;
 
         // Select both
@@ -361,9 +358,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             await page.keyboard.press('Enter');
 
             // Verification: bookmark pill should appear in the webview
-            await expect(commit1Row.locator('.bookmark-pill', { hasText: 'my-bookmark' })).toBeVisible({
-                timeout: 10000,
-            });
+            await waitForLogPill(page, 'my-bookmark', 'bookmark');
         }).toPass({ timeout: 30000 });
     });
 
@@ -397,33 +392,28 @@ test.describe('JJ Log Context Menu E2E', () => {
     });
 
     test('Show Multi-File Diff', async () => {
-        const webview = await getLogWebview(page);
         // Target 'initial' which has actual file changes (f.txt added)
-        const initialRow = webview.locator(`.commit-row[data-change-id="${nodes.initial.changeId}"]`);
+        const initialRow = await waitForLogCommitRow(page, { changeId: nodes.initial.changeId });
 
         // Show Multi-File Diff
         await rightClickAndSelect(page, initialRow, 'Show Multi-File Diff');
 
         // Verification: A diff editor should open.
         const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
+        await waitForTab(page, new RegExp(`^${shortId}`));
 
         await expectModifiedFiles(page, ['f.txt', 'f2.txt']);
     });
 
     test('Compare with Working Copy', async () => {
-        const webview = await getLogWebview(page);
-        const initialRow = webview.locator(`.commit-row[data-change-id="${nodes.initial.changeId}"]`);
-        await expect(initialRow).toBeVisible({ timeout: 10000 });
+        const initialRow = await waitForLogCommitRow(page, { changeId: nodes.initial.changeId });
 
         // Select Compare All Files with Revision...
         await rightClickAndSelect(page, initialRow, 'Compare All Files with Revision...');
 
         // Verification: A diff editor tab should open.
         const shortId = nodes.initial.changeId.substring(0, 3);
-        await expect(page.getByRole('tab', { name: new RegExp(`^Compare ${shortId}`) })).toBeVisible({
-            timeout: 10000,
-        });
+        await waitForTab(page, new RegExp(`^Compare ${shortId}`));
 
         await expectModifiedFiles(page, ['b.txt', 'b2.txt']);
     });

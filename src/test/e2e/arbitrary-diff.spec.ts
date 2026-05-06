@@ -4,10 +4,17 @@
  */
 
 import * as fs from 'node:fs';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
-import { expectModifiedFiles, focusJJLog, launchVSCode, openFileInEditor, waitForQuickInput } from './e2e-helpers';
+import {
+    expectModifiedFiles,
+    focusJJLog,
+    launchVSCode,
+    openFileInEditor,
+    waitForQuickInput,
+    waitForTab,
+} from './e2e-helpers';
 
 test.describe('Arbitrary Diff E2E', () => {
     let repo: TestRepo;
@@ -15,6 +22,27 @@ test.describe('Arbitrary Diff E2E', () => {
     let page: Page;
     let userDataDir: string;
     let nodes: Record<string, CommitId>;
+
+    async function compareWithRevision(
+        page: Page,
+        shortcut: string,
+        revision: string,
+        tabNamePattern: RegExp,
+    ): Promise<void> {
+        await expect(async () => {
+            await page.keyboard.press(shortcut);
+            const input = await waitForQuickInput(page, 2000);
+            await input.fill(revision);
+            await page.waitForTimeout(200); // Wait for VS Code to register the fill
+            await page.keyboard.press('Enter');
+
+            // 1. Ensure quick input is dismissed
+            await expect(page.locator('.quick-input-widget')).not.toBeVisible({ timeout: 3000 });
+
+            // 2. Ensure the tab appears
+            await waitForTab(page, tabNamePattern);
+        }, `Failed to compare with revision "${revision}" via shortcut "${shortcut}"`).toPass({ timeout: 20000 });
+    }
 
     test.beforeEach(async () => {
         repo = new TestRepo();
@@ -67,94 +95,46 @@ test.describe('Arbitrary Diff E2E', () => {
     });
 
     test('Compare All Files with Revision... (Ancestor)', async () => {
-        // Launch using keyboard shortcut with retry
-        let input!: Locator;
-        await expect(async () => {
-            await page.keyboard.press('Control+Alt+c');
-            input = await waitForQuickInput(page, 2000);
-        }).toPass({ timeout: 15000 });
-        await input.focus();
-
-        // Type prefix of commit1
         const commit1Id = nodes.commit1.changeId;
-        const prefix = commit1Id.substring(0, 4);
-        await input.fill(prefix);
-        await page.keyboard.press('Enter');
-
-        // Verification: A diff editor tab should open.
-        await expect(page.getByRole('tab', { name: new RegExp(`^Compare ${prefix}`) })).toBeVisible({
-            timeout: 10000,
-        });
-
+        await compareWithRevision(
+            page,
+            'Control+Alt+c',
+            commit1Id,
+            new RegExp(`^Compare ${commit1Id.substring(0, 4)}`),
+        );
         await expectModifiedFiles(page, ['f.txt']);
     });
 
     test('Compare All Files with Revision... (Arbitrary)', async () => {
-        // Launch using keyboard shortcut with retry
-        let input!: Locator;
-        await expect(async () => {
-            await page.keyboard.press('Control+Alt+c');
-            input = await waitForQuickInput(page, 2000);
-        }).toPass({ timeout: 15000 });
-        await input.focus();
-
-        // Type prefix of branchC1 (which is NOT an ancestor)
         const branchC1Id = nodes.branchC1.changeId;
-        const prefix = branchC1Id.substring(0, 4);
-        await input.fill(prefix);
-        await page.keyboard.press('Enter');
-
-        // Verification: A diff editor tab should open.
-        await expect(page.getByRole('tab', { name: new RegExp(`^Compare ${prefix}`) })).toBeVisible({
-            timeout: 10000,
-        });
-
+        await compareWithRevision(
+            page,
+            'Control+Alt+c',
+            branchC1Id,
+            new RegExp(`^Compare ${branchC1Id.substring(0, 4)}`),
+        );
         await expectModifiedFiles(page, ['f.txt', 'g.txt']);
     });
 
     test('Compare File with Revision... (Ancestor)', async () => {
         await openFileInEditor(page, 'f.txt');
-
-        // Launch using keyboard shortcut with retry
-        let input!: Locator;
-        await expect(async () => {
-            await page.keyboard.press('Control+Alt+f');
-            input = await waitForQuickInput(page, 2000);
-        }).toPass({ timeout: 15000 });
-        await input.focus();
-
-        // Type prefix of commit1
         const commit1Id = nodes.commit1.changeId;
-        const prefix = commit1Id.substring(0, 4);
-        await input.fill(prefix);
-        await page.keyboard.press('Enter');
-
-        // Verification: A diff editor tab should open.
-        await expect(page.getByRole('tab', { name: new RegExp(`f\\.txt \\(${prefix}`) })).toBeVisible({
-            timeout: 10000,
-        });
+        await compareWithRevision(
+            page,
+            'Control+Alt+f',
+            commit1Id,
+            new RegExp(`f\\.txt \\(${commit1Id.substring(0, 4)}`),
+        );
     });
 
     test('Compare File with Revision... (Arbitrary)', async () => {
         await openFileInEditor(page, 'f.txt');
-
-        // Launch using keyboard shortcut with retry
-        let input!: Locator;
-        await expect(async () => {
-            await page.keyboard.press('Control+Alt+f');
-            input = await waitForQuickInput(page, 2000);
-        }).toPass({ timeout: 15000 });
-        await input.focus();
-
-        // Type prefix of branchC1
         const branchC1Id = nodes.branchC1.changeId;
-        const prefix = branchC1Id.substring(0, 4);
-        await input.fill(prefix);
-        await page.keyboard.press('Enter');
-
-        // Verification: A diff editor tab should open.
-        await expect(page.getByRole('tab', { name: new RegExp(`f\\.txt \\(${prefix}`) })).toBeVisible({
-            timeout: 10000,
-        });
+        await compareWithRevision(
+            page,
+            'Control+Alt+f',
+            branchC1Id,
+            new RegExp(`f\\.txt \\(${branchC1Id.substring(0, 4)}`),
+        );
     });
 });

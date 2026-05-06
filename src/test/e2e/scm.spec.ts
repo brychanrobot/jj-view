@@ -7,7 +7,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
-import { entry, expectTree, focusSCM, hoverAndClick, launchVSCode, ROOT_ID, setScmDescription } from './e2e-helpers';
+import {
+    entry,
+    expectTree,
+    focusSCM,
+    hoverAndClick,
+    launchVSCode,
+    ROOT_ID,
+    setScmDescription,
+    waitForTab,
+} from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
     test('Displays correct groups and populates SCM input', async () => {
@@ -180,16 +189,18 @@ test.describe('SCM Pane E2E', () => {
             const messageToFormat = `Title line\n\n${longBody}`;
 
             // 1. Test Set Description (Ctrl+S)
-            await setScmDescription(page, messageToFormat);
-            await page.keyboard.press('Control+S');
-
-            // Wait for description to be formatted and saved in repo
+            // Use a toPass block for the entire operation to handle synchronization delays
+            // between the renderer and extension host.
             await expect(async () => {
+                await setScmDescription(page, messageToFormat);
+                await page.keyboard.press('Control+S');
+
                 const desc = repo.getDescription('@');
-                const expectedDesc = `Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.`;
+                const expectedDesc =
+                    'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
                 expect(desc).toBe(expectedDesc);
                 expect(desc.split('\n').length).toBeGreaterThan(2);
-            }).toPass({ timeout: 15000 });
+            }).toPass({ timeout: 20000 });
 
             // 2. Test Commit (Ctrl+Enter)
             const longBody2 =
@@ -467,7 +478,7 @@ test.describe('SCM Pane E2E', () => {
             // Use toPass to retry the entire Open Details sequence in case the icon/click was missed during SCM refresh.
             await expect(async () => {
                 await hoverAndClick(ancestorRow, detailsIcon);
-                await expect(page.getByRole('tab', { name: /^Commit: / })).toBeVisible({ timeout: 5000 });
+                await waitForTab(page, /^Commit: /);
             }).toPass({ timeout: 20000 });
 
             // Return focus to SCM View
@@ -532,8 +543,7 @@ test.describe('SCM Pane E2E', () => {
             await hoverAndClick(ancestorRowGroup, multiDiffIcon);
 
             // Wait for Multi-File Diff View to appear
-            const tabList = page.locator('.tabs-and-actions-container');
-            await expect(tabList).toContainText('ancestor change');
+            await waitForTab(page, /ancestor change/);
 
             // Wait for the diff editor inside the view
             await page.waitForSelector('.monaco-diff-editor');

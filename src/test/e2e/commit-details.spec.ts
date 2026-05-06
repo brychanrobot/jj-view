@@ -5,63 +5,20 @@
 
 import * as fs from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
-import type { ElectronApplication, Frame } from 'playwright';
+import type { ElectronApplication } from 'playwright';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     expectSettingsOpen,
     focusJJLog,
+    getDetailsWebview,
     getLogWebview,
     launchVSCode,
     redo,
     save,
     undo,
     waitForLogCommitRow,
+    waitForTab,
 } from './e2e-helpers';
-
-/**
- * Finds the webview frame containing the Commit Details panel.
- */
-async function getDetailsWebview(page: Page): Promise<Frame> {
-    const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
-        for (const f of frames) {
-            try {
-                // Return the first iframe that is actually visible (not hidden by VS Code's tab switching)
-                // We consider it the active webview if its textarea is visible, meaning it's the actively displayed tab
-                if (await f.locator('textarea').isVisible({ timeout: 50 })) {
-                    return f;
-                }
-
-                const nested = await findFrame(f.childFrames());
-                if (nested) {
-                    return nested;
-                }
-            } catch (_e) {}
-        }
-        return undefined;
-    };
-
-    let guestFrame: Frame | undefined;
-    await expect
-        .poll(
-            async () => {
-                guestFrame = await findFrame(page.frames());
-                return guestFrame;
-            },
-            {
-                timeout: 30000,
-                message: 'Could not find Commit Details webview frame',
-            },
-        )
-        .toBeDefined();
-
-    if (!guestFrame) {
-        throw new Error('Could not find Commit Details webview frame');
-    }
-
-    // Ensure the iframe is fully "ready" before returning
-    await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
-    return guestFrame;
-}
 
 test.describe('Commit Details E2E', () => {
     let repo: TestRepo;
@@ -135,8 +92,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Opens with correct ID, description, and file list', async () => {
-            const webview = await getLogWebview(page);
-            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
 
             // Click the commit to open details panel
             await initialRow.click();
@@ -174,8 +130,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Save description via button', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -214,8 +169,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Save description via Ctrl+S', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -260,10 +214,9 @@ test.describe('Commit Details E2E', () => {
             // Refresh the webview by focusing it to pick up graph updates
             await focusJJLog(page);
 
-            const webview = await getLogWebview(page);
-
             // The new commit should be visible and have (no description)
-            const emptyRow = webview.locator('.commit-row', { hasText: '(no description)' }).first();
+            const emptyRow = await waitForLogCommitRow(page, { changeId: newCommitId });
+            await expect(emptyRow).toContainText('(no description)');
 
             // Click to open details
             await expect(emptyRow).toBeVisible({ timeout: 15000 });
@@ -302,8 +255,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Open file diff from file list', async () => {
-            const webview = await getLogWebview(page);
-            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
 
             // Click to open details
             await initialRow.click();
@@ -320,12 +272,11 @@ test.describe('Commit Details E2E', () => {
             await fileRow.click();
 
             // A diff tab should open with the filename
-            await expect(page.getByRole('tab', { name: /f\.txt/ })).toBeVisible({ timeout: 10000 });
+            await waitForTab(page, /f\.txt/);
         });
 
         test('Open Multi-File Diff from button', async () => {
-            const webview = await getLogWebview(page);
-            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
 
             // Click to open details
             await initialRow.click();
@@ -342,19 +293,15 @@ test.describe('Commit Details E2E', () => {
             await multiDiffButton.click();
 
             // A multi-file diff tab should open with the change ID prefix
-            await expect(page.getByRole('tab', { name: new RegExp(`^${shortId}`) })).toBeVisible({ timeout: 10000 });
+            await waitForTab(page, new RegExp(`^${shortId}`));
         });
 
         test('Panel updates when clicking different commit', async () => {
-            const webview = await getLogWebview(page);
-
             // Open details for 'initial'
-            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
             await initialRow.click();
             const shortId1 = nodes.initial.changeId.substring(0, 3);
-            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId1}`) })).toBeVisible({
-                timeout: 15000,
-            });
+            await waitForTab(page, new RegExp(`^Commit: ${shortId1}`));
 
             const details = await getDetailsWebview(page);
             await expect(details.locator('textarea')).toHaveValue(/initial setup/);
@@ -367,9 +314,7 @@ test.describe('Commit Details E2E', () => {
             const featureRow = webview2.locator('.commit-row', { hasText: 'add feature' });
             await featureRow.click();
             const shortId2 = nodes.feature.changeId.substring(0, 3);
-            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId2}`) })).toBeVisible({
-                timeout: 15000,
-            });
+            await waitForTab(page, new RegExp(`^Commit: ${shortId2}`));
 
             // The panel is reused — wait for the textarea content to update within the SAME frame
             await expect(async () => {
@@ -379,8 +324,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Panel auto-updates when commit description is changed externally', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -405,8 +349,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Panel auto-closes when commit is abandoned', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -426,8 +369,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Format Body button rewraps text while preserving title separation', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -455,8 +397,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Settings gear opens VS Code settings for jj-view.commit', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -517,8 +458,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Prompts to save when closing a dirty details panel', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
 
             // Click to open details
             await featureRow.click();
@@ -555,7 +495,7 @@ test.describe('Commit Details E2E', () => {
             }).toPass({ timeout: 10000 });
 
             // Verify the node is no longer selected in the graph
-            const updatedFeatureRow = webview.locator('.commit-row', { hasText: 'updated via test before close' });
+            const updatedFeatureRow = await waitForLogCommitRow(page, 'updated via test before close');
             await expect(updatedFeatureRow).toHaveAttribute('aria-selected', 'false', { timeout: 10000 });
         });
 
@@ -564,8 +504,7 @@ test.describe('Commit Details E2E', () => {
             repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
             await focusJJLog(page);
 
-            const webview = await getLogWebview(page);
-            const initialRow = webview.locator('.commit-row', { hasText: 'initial setup' });
+            const initialRow = await waitForLogCommitRow(page, 'initial setup');
 
             // Click to open details
             await initialRow.click();
@@ -589,8 +528,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Undo/Redo integration with VS Code', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
             await featureRow.click();
 
             const shortId = nodes.feature.changeId.substring(0, 3);
@@ -632,8 +570,7 @@ test.describe('Commit Details E2E', () => {
         });
 
         test('Stealth Save: Dirty state clears when manually returning to original state', async () => {
-            const webview = await getLogWebview(page);
-            const featureRow = webview.locator('.commit-row', { hasText: 'add feature' });
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
             await featureRow.click();
 
             const shortId = nodes.feature.changeId.substring(0, 3);

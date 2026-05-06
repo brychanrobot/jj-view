@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { TestRepo } from '../test-repo';
-import { focusSCM, launchVSCode, openFileInEditor } from './e2e-helpers';
+import { focusSCM, hoverAndClick, launchVSCode, openFileInEditor } from './e2e-helpers';
 
 test.describe('Quick Diff E2E', () => {
     async function openGutterPeekView(page: Page, editor: Locator): Promise<{ peekView: Locator; gutter: Locator }> {
@@ -102,16 +102,24 @@ test.describe('Quick Diff E2E', () => {
             const { peekView } = await openGutterPeekView(page, editor);
 
             // 4. Click Revert Change Button
-            const revertButton = peekView.locator('[aria-label="Discard Change"]');
-            await expect(revertButton).toBeVisible({ timeout: 5000 });
-            await revertButton.click();
-
-            // 5. Verify file content on disk
-            const filePath = path.join(repo.path, fileName);
             await expect(async () => {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                expect(content).toBe(fileContentOriginal);
-            }).toPass({ timeout: 10000 });
+                // Ensure editor has focus as the peek view actions can be focus-dependent
+                await editor.focus();
+
+                // Peek view might have multiple action items; be specific.
+                const discardIcon = peekView.locator('.codicon-discard');
+                await expect(discardIcon).toBeVisible({ timeout: 5000 });
+                await hoverAndClick(peekView, discardIcon);
+
+                // 5. Verify file content on disk
+                const filePath = path.join(repo.path, fileName);
+                await expect(async () => {
+                    const content = fs.readFileSync(filePath, 'utf-8');
+                    if (content !== fileContentOriginal) {
+                        throw new Error(`File content mismatch. Expected original content but got: ${content}`);
+                    }
+                }).toPass({ timeout: 20000 });
+            }).toPass({ timeout: 30000 });
 
             // Peek view should close
             await expect(peekView).not.toBeVisible({ timeout: 5000 });

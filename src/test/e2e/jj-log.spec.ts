@@ -15,6 +15,7 @@ import {
     launchVSCode,
     ROOT_ID,
     waitForLogCommitRow,
+    waitForLogPill,
 } from './e2e-helpers';
 
 test.describe('JJ Log Pane E2E', () => {
@@ -55,8 +56,7 @@ test.describe('JJ Log Pane E2E', () => {
             await expect(wcDesc).toHaveCSS('font-weight', '700' /* bold */);
 
             // Assert Bookmark pill is present inside the working copy row
-            const bookmarkPill = webview.locator('.working-copy .bookmark-pill', { hasText: 'main' });
-            await expect(bookmarkPill).toBeVisible();
+            await waitForLogPill(page, 'main', 'bookmark');
         } finally {
             await app.close();
             try {

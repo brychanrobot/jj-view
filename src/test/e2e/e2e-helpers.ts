@@ -203,6 +203,15 @@ export async function focusJJLog(page: Page) {
 }
 
 /**
+ * Waits for a specific tab to become visible and selected.
+ */
+export async function waitForTab(page: Page, namePattern: RegExp | string): Promise<Locator> {
+    const tab = page.getByRole('tab', { name: namePattern });
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    return tab;
+}
+
+/**
  * Finds the webview frame containing the JJ Log commit rows.
  */
 export async function getLogWebview(page: Page, timeout: number = 30000): Promise<Frame> {
@@ -431,21 +440,34 @@ export async function setScmDescription(page: Page, description: string) {
     await expect(async () => {
         // 1. Ensure the SCM input is visible and focused
         await scmInputRow.click();
-        const textbox = scmInputRow.getByRole('textbox');
-        await expect(textbox).toBeVisible({ timeout: 2000 });
+
+        // Wait for the native edit context or a textarea to be active
+        await page
+            .waitForFunction(
+                () => {
+                    const el = document.activeElement;
+                    return el?.getAttribute('role') === 'textbox' || el?.tagName === 'TEXTAREA';
+                },
+                { timeout: 2000 },
+            )
+            .catch((err) => {
+                console.error('Failed to wait for input to be active:', err);
+                throw err;
+            });
 
         // 2. Clear the input
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Backspace');
 
         // 3. Set the description
+        // Use insertText for speed, but follow up with a validation
         await page.keyboard.insertText(description);
 
         // 4. Validate that all words appear in order inside the row (ignoring VS Code's weird whitespace concatenation).
         const words = description.trim().split(/\s+/).filter(Boolean);
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
-        await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 2000 });
-    }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 15000 });
+        await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 3000 });
+    }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
 }
 
 /**
@@ -478,6 +500,35 @@ export async function waitForQuickInput(page: Page, timeout: number = 10000): Pr
     const input = quickInput.locator('input.input');
     await expect(input).toBeVisible({ timeout });
     return input;
+}
+
+export type LogPillKind = 'bookmark' | 'workspace' | 'tag' | 'remote-bookmark';
+
+/**
+ * Robustly waits for a bookmark or workspace pill to be visible in the JJ Log webview.
+ * Handles webview reloads by re-fetching the frame on each retry.
+ */
+export async function waitForLogPill(page: Page, label: string, kind?: LogPillKind): Promise<Locator> {
+    let pill: Locator | undefined;
+    await expect(
+        async () => {
+            const webview = await getLogWebview(page, 300);
+            let selector = '.bookmark-pill';
+            if (kind === 'bookmark') {
+                selector += ':has(.codicon-bookmark)';
+            } else if (kind === 'tag') {
+                selector += ':has(.codicon-tag)';
+            }
+            pill = webview.locator(selector, { hasText: label });
+            await expect(pill).toBeVisible({ timeout: 200 });
+        },
+        `Failed to find log ${kind || 'pill'} with text "${label}"`,
+    ).toPass({ timeout: 20000 });
+
+    if (!pill) {
+        throw new Error(`Failed to find log ${kind || 'pill'} with text "${label}"`);
+    }
+    return pill;
 }
 
 export type LogRowCriteria = string | RegExp | { changeId?: string; text?: string | RegExp };
@@ -567,14 +618,63 @@ export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
  * Robustly opens a file via the File Explorer tree view.
  */
 export async function openFileInEditor(page: Page, fileName: string): Promise<Locator> {
-    await page.keyboard.press('Control+Shift+E');
-    const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
-    await expect(fileRowInExplorer).toBeVisible({ timeout: 10000 });
-    await fileRowInExplorer.click();
+    await expect(async () => {
+        await page.keyboard.press('Control+Shift+E');
+        const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
+        await expect(fileRowInExplorer).toBeVisible({ timeout: 5000 });
+        await fileRowInExplorer.click();
 
-    await expect(page.getByRole('tab', { name: fileName, selected: true })).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('tab', { name: fileName, selected: true })).toBeVisible({ timeout: 5000 });
 
-    const editor = page.locator('.editor-group-container.active .monaco-editor');
-    await expect(editor).toBeVisible({ timeout: 10000 });
-    return editor;
+        const editor = page.locator('.editor-group-container.active .monaco-editor').first();
+        await expect(editor).toBeVisible({ timeout: 5000 });
+    }, `Failed to open file "${fileName}" in editor`).toPass({ timeout: 20000 });
+
+    return page.locator('.editor-group-container.active .monaco-editor').first();
+}
+
+/**
+ * Finds the webview frame containing the Commit Details panel.
+ * Re-fetches frames on poll to handle detached frames.
+ */
+export async function getDetailsWebview(page: Page): Promise<Frame> {
+    const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
+        for (const f of frames) {
+            try {
+                // Return the first iframe that is actually visible (not hidden by VS Code's tab switching)
+                // We consider it the active webview if its textarea is visible, meaning it's the actively displayed tab
+                if (await f.locator('textarea').isVisible({ timeout: 50 })) {
+                    return f;
+                }
+
+                const nested = await findFrame(f.childFrames());
+                if (nested) {
+                    return nested;
+                }
+            } catch (_e) {}
+        }
+        return undefined;
+    };
+
+    let guestFrame: Frame | undefined;
+    await expect
+        .poll(
+            async () => {
+                guestFrame = await findFrame(page.frames());
+                return guestFrame;
+            },
+            {
+                timeout: 30000,
+                message: 'Could not find Commit Details webview frame',
+            },
+        )
+        .toBeDefined();
+
+    if (!guestFrame) {
+        throw new Error('Could not find Commit Details webview frame');
+    }
+
+    // Ensure the iframe is fully "ready" before returning
+    await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
+    return guestFrame;
 }
