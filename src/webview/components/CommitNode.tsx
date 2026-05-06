@@ -215,7 +215,15 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     idPart.substring(0, idDisplayLength)
                                 )}
                                 {offsetPart && (
-                                    <span style={{ color: 'var(--vscode-charts-purple)' }}>/{offsetPart}</span>
+                                    <span
+                                        style={{
+                                            color: commit.is_hidden
+                                                ? 'var(--vscode-descriptionForeground)'
+                                                : 'var(--vscode-charts-purple)',
+                                        }}
+                                    >
+                                        /{offsetPart}
+                                    </span>
                                 )}
                             </>
                         );

@@ -49,6 +49,7 @@ export interface JjLogEntry {
     change_id_offset?: number;
     parents_immutable?: boolean[];
     conflict?: boolean;
+    is_hidden?: boolean;
     changes?: JjStatusEntry[];
     gerritCl?: GerritClInfo;
     gerritNeedsUpload?: boolean;

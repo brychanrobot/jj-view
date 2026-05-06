@@ -233,6 +233,25 @@ export const GraphRail: React.FC<GraphRailProps> = ({
                     </text>
                 </>
             );
+        } else if (node.isHidden) {
+            content = (
+                <g transform={`translate(${cx}, ${cy})`}>
+                    {/* Background to hide edges - circle provides better coverage for curving edges */}
+                    <circle cx="0" cy="0" r="8" fill="var(--vscode-sideBar-background)" />
+                    <path
+                        data-ghost="true"
+                        d="M -6,7 C -6,-2 -6,-6 0,-6 C 6,-6 6,-2 6,7 L 4,4 L 2,7 L 0,4 L -2,7 L -4,4 Z"
+                        fill="var(--vscode-descriptionForeground)"
+                        fillOpacity="0.4"
+                        stroke="var(--vscode-descriptionForeground)"
+                        strokeWidth="1.5"
+                        strokeOpacity="1"
+                        strokeLinejoin="round"
+                    />
+                    <circle cx="-2" cy="-1.5" r="1.5" fill="var(--vscode-sideBar-background)" />
+                    <circle cx="2" cy="-1.5" r="1.5" fill="var(--vscode-sideBar-background)" />
+                </g>
+            );
         } else if (node.conflict) {
             content = (
                 <>
@@ -291,7 +310,7 @@ export const GraphRail: React.FC<GraphRailProps> = ({
         }
 
         return (
-            <g key={node.commitId}>
+            <g key={node.commitId} data-commit-id={node.commitId}>
                 {isSelected && <Halo />}
                 {content}
             </g>

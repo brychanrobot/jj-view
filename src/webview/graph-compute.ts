@@ -136,6 +136,7 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
                 conflict: commit.conflict,
                 isEmpty: commit.is_empty,
                 isImmutable: commit.is_immutable,
+                isHidden: commit.is_hidden,
             });
         }
 

@@ -39,6 +39,7 @@ export async function launchVSCode(
         path.join(userSettingsDir, 'settings.json'),
         JSON.stringify(
             {
+                'workbench.colorTheme': 'Default Dark Modern',
                 'git.enabled': false,
                 'workbench.startupEditor': 'none',
                 'workbench.sideBar.location': 'left',

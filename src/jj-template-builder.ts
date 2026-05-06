@@ -58,9 +58,9 @@ export function buildLogTemplate(schema: Record<string, JjTemplateField>): strin
     });
     return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}\\n"`;
 }
-export const CHANGE_ID_EXPR = 'if(divergent, change_id ++ "/" ++ change_offset, change_id)';
+export const CHANGE_ID_EXPR = 'if(divergent || hidden, change_id ++ "/" ++ change_offset, change_id)';
 export const CHANGE_ID_ITEM_EXPR =
-    'if(item.divergent(), item.change_id() ++ "/" ++ item.change_offset(), item.change_id())';
+    'if(item.divergent() || item.hidden(), item.change_id() ++ "/" ++ item.change_offset(), item.change_id())';
 
 // Schema for JjLogEntry - defines how to serialize each field
 export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
@@ -123,6 +123,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
         itemExpr: 'item.immutable()',
     },
     conflict: { type: 'raw', expr: 'conflict' },
+    is_hidden: { type: 'raw', expr: 'hidden' },
     changes: {
         type: 'array',
         expr: 'self.diff().files()',

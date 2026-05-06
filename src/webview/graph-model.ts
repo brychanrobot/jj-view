@@ -16,6 +16,7 @@ export interface GraphNode {
     conflict?: boolean;
     isEmpty?: boolean;
     isImmutable?: boolean;
+    isHidden?: boolean;
 }
 
 export interface NodePoint {
