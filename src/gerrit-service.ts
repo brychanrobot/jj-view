@@ -41,6 +41,12 @@ export interface GerritChange {
 }
 
 export class GerritService implements vscode.Disposable {
+    private static readonly TRAILER_REGEXES = [
+        /^Change-Id: (I[0-9a-fA-F]{40})\s*$/m,
+        /^Link: .*\/\+\/(\d+)(?:\/\d+)?\/?\s*$/m,
+        /^Link: .*\/(\d+)\/?\s*$/m,
+    ];
+
     private poller: NodeJS.Timeout | undefined;
     private cache: Map<string, GerritClInfo> = new Map();
     private _gerritHost: string | undefined;
@@ -311,15 +317,17 @@ export class GerritService implements vscode.Disposable {
     }
 
     private resolveCacheKey(changeId?: string, description?: string): string | undefined {
-        // 1. Check description for Change-Id
+        // 1. Check description for trailers
         if (description) {
-            const match = description.match(/^Change-Id: (I[0-9a-fA-F]{40})/m);
-            if (match) {
-                return match[1];
+            for (const regex of GerritService.TRAILER_REGEXES) {
+                const match = description.match(regex);
+                if (match) {
+                    return match[1];
+                }
             }
         }
 
-        // 2. Use computed JJ Change-Id if no description ID found
+        // 2. Use computed JJ Change-Id if no description trailer found
         if (changeId) {
             try {
                 const hexId = convertJjChangeIdToHex(changeId);
@@ -495,10 +503,14 @@ export class GerritService implements vscode.Disposable {
         // Verify description matches
         if (info.remoteDescription && description) {
             const normalize = (desc: string) => {
-                // Gerrit appends the Change-Id footer to the description.
-                // Since our local description might not have this, we strip it out before comparing
+                // Gerrit appends trailers (Change-Id or Link) to the description.
+                // Since our local description might not have these, we strip them out before comparing
                 // to avoid false positive sync failures.
-                return desc.replace(/^Change-Id: I[0-9a-fA-F]{40}\s*$/gm, '').trim();
+                let normalized = desc;
+                for (const regex of GerritService.TRAILER_REGEXES) {
+                    normalized = normalized.replace(new RegExp(regex.source, 'gm'), '');
+                }
+                return normalized.trim();
             };
             if (normalize(description) !== normalize(info.remoteDescription)) {
                 return;

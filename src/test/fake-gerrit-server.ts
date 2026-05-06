@@ -44,8 +44,15 @@ export class FakeGerritServer {
             // Check for specific change query by change_id
             const match = urlStr.match(/q=change:([^&]+)/);
             if (match) {
-                const changeId = match[1];
-                const change = this.changes.get(changeId);
+                const searchKey = match[1];
+                let change = this.changes.get(searchKey);
+                if (!change) {
+                    // Try searching by change number (_number)
+                    const num = Number.parseInt(searchKey, 10);
+                    if (!Number.isNaN(num)) {
+                        change = Array.from(this.changes.values()).find((c) => c._number === num);
+                    }
+                }
                 const changes = change ? [change] : [];
                 return Promise.resolve(new Response(`)]}'\n${JSON.stringify(changes)}`, { status: 200 }));
             }

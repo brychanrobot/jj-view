@@ -179,6 +179,77 @@ describe('GerritService Detection', () => {
         expect(result?.changeId).toBe('I1234567890abcdef1234567890abcdef12345678');
     });
 
+    test('fetchAndCacheStatus prioritizes Link trailer when Change-Id is missing', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        fakeGerritServer.addChange({
+            change_id: 'Iabcd',
+            _number: 7812281,
+            status: 'NEW',
+        });
+
+        const result = await service.fetchAndCacheStatus(
+            'commit-sha',
+            undefined,
+            'Description\n\nLink: https://chromium-review.googlesource.com/c/chromium/src/+/7812281\n',
+        );
+
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('change:7812281'));
+        expect(result?.changeNumber).toBe(7812281);
+    });
+
+    test('fetchAndCacheStatus extracts change number from different Link formats', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        fakeGerritServer.addChange({ _number: 111, status: 'NEW', change_id: 'I111' });
+        fakeGerritServer.addChange({ _number: 222, status: 'NEW', change_id: 'I222' });
+        fakeGerritServer.addChange({ _number: 333, status: 'NEW', change_id: 'I333' });
+        fakeGerritServer.addChange({ _number: 444, status: 'NEW', change_id: 'I444' });
+
+        // Format 1: /+/123
+        await service.fetchAndCacheStatus('c1', undefined, 'Desc\n\nLink: https://host.com/c/proj/+/111');
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('change:111'));
+
+        // Format 2: /123
+        await service.fetchAndCacheStatus('c2', undefined, 'Desc\n\nLink: https://host.com/222');
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('change:222'));
+
+        // Format 3: /123/ (trailing slash)
+        await service.fetchAndCacheStatus('c3', undefined, 'Desc\n\nLink: https://host.com/333/');
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('change:333'));
+
+        // Format 4: /+/123/4 (with patchset number — should extract 444, not 7)
+        await service.fetchAndCacheStatus('c4', undefined, 'Desc\n\nLink: https://host.com/c/proj/+/444/7');
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('change:444'));
+    });
+
+    test('fetchAndCacheStatus prioritizes Change-Id over Link trailer', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const changeId = 'I1234567890abcdef1234567890abcdef12345678';
+        fakeGerritServer.addChange({
+            change_id: changeId,
+            _number: 123,
+            status: 'NEW',
+        });
+
+        await service.fetchAndCacheStatus(
+            'commit-sha',
+            undefined,
+            `Description\n\nChange-Id: ${changeId}\nLink: https://host.com/456\n`,
+        );
+
+        // Should use Change-Id, not Link
+        expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`change:${changeId}`));
+        expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('change:456'));
+    });
+
     test('fetchAndCacheStatus falls back to Computed Change-Id', async () => {
         mockConfig.get.mockReturnValue('https://host.com');
         service = new GerritService(repo.path, jjService);
@@ -603,6 +674,45 @@ describe('GerritService Detection', () => {
             commitId,
             jjId,
             'Local description has no Change-Id',
+        );
+        expect(resultSynced?.synced).toBeTruthy();
+    });
+
+    test('forceFetchAndCacheStatus ignores Link trailer footer differences during sync', async () => {
+        mockConfig.get.mockReturnValue('https://host.com');
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+
+        const changeNumber = 7812281;
+        const currentRev = 'commit-sha-on-gerrit';
+
+        repo.writeFile('file1.txt', 'content1');
+        await jjService.describe('Local description has no Link trailer');
+        const localHashes = await jjService.getGitBlobHashes(repo.getCommitId('@'), ['file1.txt']);
+
+        fakeGerritServer.addChange({
+            change_id: 'I000000000000ffffffffffffffffffffffffffff',
+            _number: changeNumber,
+            status: 'NEW',
+            current_revision: currentRev,
+            revisions: {
+                [currentRev]: {
+                    commit: {
+                        message: `Local description has no Link trailer\n\nLink: https://host.com/${changeNumber}`,
+                    },
+                    files: {
+                        'file1.txt': { status: 'A', new_sha: localHashes.get('file1.txt') },
+                    },
+                },
+            },
+        });
+
+        const commitId = repo.getCommitId('@').trim();
+
+        const resultSynced = await service.forceFetchAndCacheStatus(
+            commitId,
+            'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk', // Provide JJ Change-Id so it can find the Gerrit CL
+            'Local description has no Link trailer',
         );
         expect(resultSynced?.synced).toBeTruthy();
     });
