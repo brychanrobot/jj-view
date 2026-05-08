@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.27.0
+
+### Features
+
+- **Ghost Nodes**: Implement ghost node visualization for hidden commits in the graph.
+- **Diff**: Add `jj-view.openDiffOnClick` configuration option. When enabled (default), clicking a file in the SCM view opens the diff editor; when disabled, the regular file editor is opened instead.
+- **Gerrit**: Support `Link:` trailers for more robust Gerrit CL identification and sync status.
+- **Workspace**: Automatically hide the `.jj` directory from the VS Code explorer.
+
+### Chores & Maintenance
+
+- **Testing**: Significant stability improvements and expanded coverage for E2E tests.
+- **Tooling**: Migrate tooling scripts to native Node.js TypeScript support and automate asset generation.
+
+
 ## 1.26.0
 
 ### Features
