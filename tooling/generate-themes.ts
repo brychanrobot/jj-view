@@ -125,6 +125,7 @@ function runGeneration() {
 
         writeIfChanged(tsOutputPath, ts);
         writeIfChanged(cssOutputPath, css);
+        console.log('Theme generation complete.');
     } catch (e) {
         console.error(`Error generating themes: ${e instanceof Error ? e.message : e}`);
     }

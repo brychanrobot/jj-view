@@ -73,7 +73,7 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": "^(Watching for changes in|Detected change in).*themes\\.json.*$",
-                    "endsPattern": "^Generated .*themes\\.generated\\.(ts|css)$"
+                    "endsPattern": "^Theme generation complete\\.$"
                 },
                 "pattern": {
                     "regexp": "^Error generating themes: (.*)$",
