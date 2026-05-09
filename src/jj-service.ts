@@ -807,10 +807,13 @@ export class JjService {
         }
     }
 
-    async moveChanges(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
+    /**
+     * Squash all changes in the specified files from one revision into another.
+     */
+    async squashFiles(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
         const relativePaths = paths.map((p) => this.toRelative(p));
         await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], {
-            label: 'moveChanges',
+            label: 'squashFiles',
         });
     }
 
@@ -1064,33 +1067,35 @@ export class JjService {
         });
     }
 
-    public async movePartialToParent(
-        fileRelPath: string,
-        ranges: SelectionRange[],
-        revision: string = '@',
-    ): Promise<void> {
+    /**
+     * Squash partial changes from a file to its parent revision.
+     *
+     * @param fileRelPath Path relative to the workspace root.
+     * @param ranges 0-indexed line ranges in the 'from' revision to move.
+     * @param revision The revision to move changes from (default: @).
+     */
+    async squashPartialToParent(fileRelPath: string, ranges: SelectionRange[], revision: string = '@'): Promise<void> {
         const parentRev = `${revision}-`;
-        const baseContent = await this.getFileContent(fileRelPath, parentRev).catch(() => '');
+        const { left: baseContent } = await this.getDiffContent(revision, fileRelPath);
         const diffOutput = await this.getDiff(revision, fileRelPath);
 
         const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges);
 
-        // Squash changes from Child (revision) into Parent (parentRev), effectively moving them up.
-        await this.runPartialMove(revision, parentRev, fileRelPath, wantedContent);
+        await this.runPartialSquash(revision, parentRev, fileRelPath, wantedContent);
     }
 
-    private async runPartialMove(
+    private async runPartialSquash(
         fromRev: string,
         intoRev: string,
         fileRelPath: string,
         wantedContent: string,
     ): Promise<void> {
-        const tmpDir = await fs.mkdtemp(path.join(this.workspaceRoot, 'jj-partial-'));
+        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-partial-squash-'));
         const tmpFile = path.join(tmpDir, 'wanted_content');
         await fs.writeFile(tmpFile, wantedContent, 'utf8');
 
         try {
-            const toolName = 'partial-move';
+            const toolName = 'partial-squash';
             const isWindows = process.platform === 'win32';
             const program = isWindows ? 'cmd' : 'cp';
 
@@ -1119,11 +1124,12 @@ export class JjService {
                 fileRelPath,
             ];
 
-            await this.run('squash', args.slice(1), { isMutation: true });
+            await this.run('squash', args, { isMutation: true });
         } finally {
             await fs.rm(tmpDir, { recursive: true, force: true });
         }
     }
+
     async absorb(options: { paths?: string[]; fromRevision?: string } = {}): Promise<string> {
         const { paths, fromRevision } = options;
         const args: string[] = ['--no-pager'];

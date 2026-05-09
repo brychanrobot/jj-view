@@ -70,7 +70,7 @@ suite('JJ SCM Visibility Integration Test', () => {
         const isImmutable = repo.isImmutable(newParent);
         assert.strictEqual(isImmutable, false, 'Parent change should be mutable');
 
-        // 3. Verify Move to Child condition
+        // 3. Verify Squash File to Child condition
         // Create a child commit, then return to parent to verify "hasChild" context
         repo.new([], 'child one');
         repo.edit('@-'); // Go back to "working on this"

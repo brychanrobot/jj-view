@@ -18,7 +18,6 @@ import { duplicateCommand } from './commands/duplicate';
 import { editCommand } from './commands/edit';
 import { type MergeCommandArg, newMergeChangeCommand } from './commands/merge';
 import { openMergeEditorCommand } from './commands/merge-editor';
-import { moveToChildCommand, moveToParentInDiffCommand } from './commands/move';
 import { showMultiFileDiffCommand } from './commands/multi-diff';
 import { newCommand } from './commands/new';
 import { newAfterCommand } from './commands/new-after';
@@ -30,8 +29,9 @@ import { refreshCommand } from './commands/refresh';
 import { restoreCommand } from './commands/restore';
 import { showCurrentChangeCommand } from './commands/show';
 import { completeSquashCommand, squashCommand } from './commands/squash';
-import { squashChangeCommand } from './commands/squash-change';
+import { squashFileToChildCommand } from './commands/squash-file-to-child';
 import { squashIntoCommand } from './commands/squash-into';
+import { squashPartialCommand, squashToParentInDiffCommand } from './commands/squash-partial';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
@@ -208,21 +208,12 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand(
-            'jj-view.moveToChild',
-            async (...resourceStates: vscode.SourceControlResourceState[]) => {
-                await moveToChildCommand(scmProvider, jj, resourceStates);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.moveToParentInDiff', async () => {
+        vscode.commands.registerCommand('jj-view.squashToParentInDiff', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 return;
             }
-            await moveToParentInDiffCommand(scmProvider, jj, editor);
+            await squashToParentInDiffCommand(scmProvider, jj, editor);
         }),
     );
 
@@ -244,6 +235,21 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.openChanges', async (resourceState: JjResourceState) => {
             await openChangesCommand(resourceState);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'jj-view.squashPartial',
+            async (uri: vscode.Uri, changes: unknown, index: number) => {
+                await squashPartialCommand(scmProvider, jj, uri, changes, index);
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.squashFileToChild', async (...args: unknown[]) => {
+            await squashFileToChildCommand(scmProvider, jj, args);
         }),
     );
 
@@ -282,15 +288,6 @@ export function activate(context: vscode.ExtensionContext) {
             'jj-view.discardChange',
             async (uri: vscode.Uri, changes: unknown, index: number) => {
                 await discardChangeCommand(scmProvider, uri, changes, index);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            'jj-view.squashChange',
-            async (uri: vscode.Uri, changes: unknown, index: number) => {
-                await squashChangeCommand(scmProvider, jj, uri, changes, index);
             },
         ),
     );

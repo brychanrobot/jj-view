@@ -38,8 +38,8 @@ A dedicated view for inspecting and managing commits.
 
 Full integration with VS Code's Source Control view (SCM).
 
-- **Working Copy**: View modified files, stage changes (via `jj` commit/squash workflows), and restore files.
-- **Commit Management**: Create new changes, set descriptions, and squash changes directly from the SCM panel.
+- **Working Copy**: View modified files, stage modifications (via `jj` commit/squash workflows), and restore files.
+- **Commit Management**: Create new changes (revisions), set descriptions, and squash modifications directly from the SCM panel.
 - **Merge Conflicts**: Identify and resolve conflicts using VS Code's merge editor.
 - **File Decorations**: Automatically highlights modified, added, conflicted, and ignored files in the Explorer with color-coded badges.
 
@@ -50,9 +50,9 @@ _Source Control view managing `jj` changes._
 
 Support for common and advanced `jj` operations:
 
-- **Navigation**: Move to parent or child revisions easily.
+- **Navigation**: Quickly switch focus between parent and child revisions.
 - **Undo/Redo**: Quickly undo or redo `jj` operations.
-- **Squashing**: Squash changes into the parent revision.
+- **Squashing**: Squash whole revisions or individual files into parent or child revisions.
 - **Absorbing**: Automatically move changes into the mutable ancestor where they were introduced.
 - **Rebasing**: Rebase changes onto other revisions.
 - **Workspace Management**: Create new `jj` workspaces directly from the UI, with configurable default locations.
@@ -79,7 +79,6 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Duplicate`: Duplicate a change.
 - `JJ View: Abandon`: Abandon (delete) a change.
 - `JJ View: Discard Change`: Discard all files within a change in the SCM view.
-- `JJ View: Squash Change to Parent`: Squash a change into its parent directly from the SCM view.
 - `JJ View: Restore`: Restore files in the working copy.
 - `JJ View: Set Description`: Edit the description of the current change.
 - `JJ View: Set Description (Prompt)`: Edit the description of the current change using an interactive prompt.
@@ -102,12 +101,6 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: New Merge Change`: Create a merge commit.
 - `JJ View: Open Merge Editor`: Open the merge editor for conflicted files.
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.
-
-### Navigation
-
-- `JJ View: Move to Child`: Move the working copy to a child revision.
-- `JJ View: Move to Parent (Diff)`: Navigate to the parent revision while viewing a diff.
-- `JJ View: Move to Child (Diff)`: Navigate to the child revision while viewing a diff.
 
 ## Features & Integration
 

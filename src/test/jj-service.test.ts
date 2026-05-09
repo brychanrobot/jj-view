@@ -623,15 +623,22 @@ log = "none()"
         expect(parent).toHaveProperty('is_immutable');
     });
 
-    test('moveToChild moves changes to child', async () => {
-        const filePath = path.join(repo.path, 'file.txt');
+    test('squashFiles moves changes to child', async () => {
+        const file1 = 'file1.txt';
+        const file2 = 'file2.txt';
+        const filePath1 = path.join(repo.path, file1);
+
         await buildGraph(repo, [
-            { label: 'grandparent', description: 'grandparent', files: { 'file.txt': 'base\n' } },
+            {
+                label: 'grandparent',
+                description: 'grandparent',
+                files: { [file1]: 'base1\n', [file2]: 'base2\n' },
+            },
             {
                 label: 'parent',
                 parents: ['grandparent'],
                 description: 'parent',
-                files: { 'file.txt': 'modified in parent' },
+                files: { [file1]: 'modified1 in parent', [file2]: 'modified2 in parent' },
             },
             {
                 label: 'child',
@@ -641,13 +648,17 @@ log = "none()"
             },
         ]);
 
-        await jjService.moveChanges([filePath], '@-', '@');
+        // Squash ONLY file1 to child
+        await jjService.squashFiles([filePath1], '@-', '@');
 
-        const parentContent = repo.getFileContent('@-', 'file.txt');
-        expect(parentContent.trim()).toBe('base');
+        // File 1 should be squashed (back to base in parent, modified in child)
+        expect(repo.getFileContent('@-', file1).trim()).toBe('base1');
+        expect(repo.getFileContent('@', file1)).toBe('modified1 in parent');
 
-        const childContent = repo.getFileContent('@', 'file.txt');
-        expect(childContent).toBe('modified in parent');
+        // File 2 should NOT be squashed (still modified in parent)
+        expect(repo.getFileContent('@-', file2)).toBe('modified2 in parent');
+        // Child inherits File 2 from parent
+        expect(repo.getFileContent('@', file2)).toBe('modified2 in parent');
     }, 30000);
 
     test('getLog without revisions returns multiple entries', async () => {
@@ -1043,7 +1054,7 @@ log = "none()"
         expect(repo.getFileContent(parentId, 'file2.txt')).toBe('new2');
     });
 
-    test('movePartialToParent handles new files (not in parent)', async () => {
+    test('squashPartialToParent handles new files (not in parent)', async () => {
         const fileName = 'new-file.txt';
         const filePath = path.join(repo.path, fileName);
 
@@ -1054,7 +1065,7 @@ log = "none()"
 
         const ranges = [{ startLine: 0, endLine: 1 }];
 
-        await jjService.movePartialToParent(fileName, ranges);
+        await jjService.squashPartialToParent(fileName, ranges);
 
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe(content);
@@ -1066,7 +1077,7 @@ log = "none()"
         expect(diff).toBe('');
     });
 
-    test('movePartialToParent moves subset of changes', async () => {
+    test('squashPartialToParent moves subset of changes', async () => {
         const fileName = 'partial.txt';
 
         repo.writeFile(fileName, 'line1\nline2\nline3\n');
@@ -1083,7 +1094,7 @@ log = "none()"
         // Select 'mod1' (line 1, index 0)
         const ranges = [{ startLine: 0, endLine: 0 }];
 
-        await jjService.movePartialToParent(fileName, ranges);
+        await jjService.squashPartialToParent(fileName, ranges);
 
         // Verify Parent Content
         const parentContent = await jjService.getFileContent(fileName, '@-');
@@ -1094,7 +1105,7 @@ log = "none()"
         expect(childContent).toBe('mod1\nline2\nmod3\n');
     });
 
-    test('movePartialToParent moves deletion', async () => {
+    test('squashPartialToParent moves deletion', async () => {
         const fileName = 'deletion.txt';
 
         // Parent
@@ -1108,11 +1119,61 @@ log = "none()"
         // Select the deletion (approximate range covering the area)
         const ranges = [{ startLine: 1, endLine: 2 }];
 
-        await jjService.movePartialToParent(fileName, ranges);
+        await jjService.squashPartialToParent(fileName, ranges);
 
         // Parent should now have deleted the line
         const parentContent = await jjService.getFileContent(fileName, '@-');
         expect(parentContent).toBe('keep\n');
+    });
+
+    test('squashPartialToParent moves selected lines and PRESERVES others in a stack', async () => {
+        // Setup: Grandparent -> Parent -> Child
+        const ids = await buildGraph(repo, [
+            { label: 'grandparent', description: 'grandparent', files: { 'file.txt': 'line 0\n' } },
+            {
+                label: 'parent',
+                parents: ['grandparent'],
+                description: 'parent',
+                files: { 'file.txt': 'line 0\nline 1\n' },
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                files: { 'file.txt': 'line 0\nline 1\nline 2\nline 3\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const grandparentId = ids.grandparent.changeId;
+        const parentId = ids.parent.changeId;
+        const childId = ids.child.changeId;
+
+        // Verify initial state
+        const initialChildDiff = await jjService.getDiff(childId, 'file.txt');
+        expect(initialChildDiff).toContain('+line 2');
+        expect(initialChildDiff).toContain('+line 3');
+
+        // Target: We want to move 'line 2' from Child to Parent, but keep 'line 3' in child.
+        await jjService.squashPartialToParent('file.txt', [{ startLine: 2, endLine: 2 }], childId);
+
+        // After move:
+        // Parent should have 'line 0\nline 1\nline 2\n'
+        const parentContent = await jjService.getFileContent('file.txt', parentId);
+        expect(parentContent).toBe('line 0\nline 1\nline 2\n');
+
+        // Child should have 'line 0\nline 1\nline 2\nline 3\n'
+        const childContent = await jjService.getFileContent('file.txt', childId);
+        expect(childContent).toBe('line 0\nline 1\nline 2\nline 3\n');
+
+        // Child's DIFF should only show '+line 3' (relative to new parent)
+        const newChildDiff = await jjService.getDiff(childId, 'file.txt');
+        expect(newChildDiff).not.toContain('+line 2');
+        expect(newChildDiff).toContain('+line 3');
+
+        // Grandparent should remain UNCHANGED
+        const grandparentContent = await jjService.getFileContent('file.txt', grandparentId);
+        expect(grandparentContent).toBe('line 0\n');
     });
 
     test('getConflictedFiles returns conflicted paths', async () => {

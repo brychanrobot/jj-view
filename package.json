@@ -251,12 +251,6 @@
                 "icon": "$(jj-icon-squash-into)"
             },
             {
-                "command": "jj-view.moveToChild",
-                "title": "Move to Child",
-                "category": "JJ View",
-                "icon": "$(arrow-up)"
-            },
-            {
                 "command": "jj-view.openFile",
                 "title": "Open File",
                 "category": "JJ View",
@@ -310,8 +304,8 @@
                 "icon": "$(source-control)"
             },
             {
-                "command": "jj-view.moveToParentInDiff",
-                "title": "Move to Parent",
+                "command": "jj-view.squashToParentInDiff",
+                "title": "Squash to Parent",
                 "category": "JJ View"
             },
             {
@@ -344,10 +338,16 @@
                 "icon": "$(discard)"
             },
             {
-                "command": "jj-view.squashChange",
-                "title": "Squash Change to Parent",
+                "command": "jj-view.squashPartial",
+                "title": "Squash Partial",
                 "category": "JJ View",
                 "icon": "$(repo-pull)"
+            },
+            {
+                "command": "jj-view.squashFileToChild",
+                "title": "Squash File to Child",
+                "category": "JJ View",
+                "icon": "$(arrow-up)"
             },
             {
                 "command": "jj-view.setBookmark",
@@ -461,6 +461,68 @@
             }
         ],
         "menus": {
+            "commandPalette": [
+                {
+                    "command": "jj-view.squashPartial",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.squashToParentInDiff",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.squashFileToChild",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.newChild",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.edit",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.squash",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.abandon",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.newChild.on",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.newChild.off",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.edit.on",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.edit.off",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.squash.on",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.squash.off",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.abandon.on",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.abandon.off",
+                    "when": "false"
+                }
+            ],
             "view/title": [
                 {
                     "command": "jj-view.undo",
@@ -707,14 +769,12 @@
                     "when": "scmResourceState =~ /jj\\.resource.*:squashable/"
                 },
                 {
-                    "command": "jj-view.moveToChild",
-                    "icon": "$(git-merge)",
+                    "command": "jj-view.squashFileToChild",
                     "group": "inline@5",
                     "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
                 },
                 {
-                    "command": "jj-view.moveToChild",
-                    "icon": "$(git-merge)",
+                    "command": "jj-view.squashFileToChild",
                     "group": "inline@6",
                     "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ && jj.hasChild"
                 }
@@ -726,7 +786,7 @@
                     "when": "originalResourceScheme == 'jj-view'"
                 },
                 {
-                    "command": "jj-view.squashChange",
+                    "command": "jj-view.squashPartial",
                     "group": "navigation",
                     "when": "originalResourceScheme == 'jj-view' && jj.parentMutable"
                 }
@@ -747,7 +807,7 @@
             ],
             "editor/context": [
                 {
-                    "command": "jj-view.moveToParentInDiff",
+                    "command": "jj-view.squashToParentInDiff",
                     "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
                 },

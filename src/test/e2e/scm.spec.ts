@@ -431,7 +431,7 @@ test.describe('SCM Pane E2E', () => {
         }
     });
 
-    test('Additional Actions: Absorb, Edit, Show Details, Move to Child', async () => {
+    test('Additional Actions: Absorb, Edit, Show Details, Squash File to Child', async () => {
         const repo = new TestRepo();
         repo.init();
         const commits = await buildGraph(repo, [
@@ -484,13 +484,13 @@ test.describe('SCM Pane E2E', () => {
             // Return focus to SCM View
             await focusSCM(page);
 
-            // 3. Move to Child (Pull from Ancestor)
+            // 3. Squash File to Child (Pull from Ancestor)
             // Groups are expanded by default, so f2.txt is already visible.
             const ancestorFile = page.getByRole('treeitem', { name: /f2\.txt/ });
-            const moveToChildIcon = ancestorFile
+            const squashToChildIcon = ancestorFile
                 .locator('.action-item', { has: page.locator('.codicon-arrow-up') })
                 .first();
-            await hoverAndClick(ancestorFile, moveToChildIcon);
+            await hoverAndClick(ancestorFile, squashToChildIcon);
 
             // Assert via repo that f2.txt from ancestor was moved to working copy
             await expect(async () => {
@@ -624,7 +624,7 @@ test.describe('SCM Pane E2E', () => {
         }
     });
 
-    test('Move to Child on Grandparent Commits', async () => {
+    test('Squash File to Child on Grandparent Commits', async () => {
         const repo = new TestRepo();
         repo.init();
         await buildGraph(repo, [
@@ -658,9 +658,11 @@ test.describe('SCM Pane E2E', () => {
             // Groups are expanded by default, find the gp.txt file under the grandparent change
             const gpFile = page.getByRole('treeitem', { name: /gp\.txt/ });
 
-            // Hover over gp.txt and click Move to Child (codicon-arrow-up)
-            const moveToChildIcon = gpFile.locator('.action-item', { has: page.locator('.codicon-arrow-up') }).first();
-            await hoverAndClick(gpFile, moveToChildIcon);
+            // Hover over gp.txt and click Squash File to Child (codicon-arrow-up)
+            const squashToChildIcon = gpFile
+                .locator('.action-item', { has: page.locator('.codicon-arrow-up') })
+                .first();
+            await hoverAndClick(gpFile, squashToChildIcon);
 
             // Assert via repo that gp.txt from grandparent was moved to parent, NOT the working copy
             await expect(async () => {

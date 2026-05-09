@@ -13,8 +13,52 @@ import { vi } from 'vitest';
  *   vi.mock('vscode', () => createVscodeMock({ window: { showQuickPick: vi.fn() } }));
  */
 export function createVscodeMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    class Position {
+        constructor(
+            public line: number,
+            public character: number,
+        ) {}
+    }
+
+    class Range {
+        public start: Position;
+        public end: Position;
+        constructor(startLine: number, startColumn: number, endLine: number, endColumn: number);
+        constructor(start: Position, end: Position);
+        constructor(arg1: number | Position, arg2: number | Position, arg3?: number, arg4?: number) {
+            if (typeof arg1 === 'number') {
+                this.start = new Position(arg1, arg2 as number);
+                this.end = new Position(arg3 as number, arg4 as number);
+            } else {
+                this.start = arg1;
+                this.end = arg2 as Position;
+            }
+        }
+    }
+
+    class Selection extends Range {
+        public anchor: Position;
+        public active: Position;
+        constructor(anchorLine: number, anchorColumn: number, activeLine: number, activeColumn: number);
+        constructor(anchor: Position, active: Position);
+        constructor(arg1: number | Position, arg2: number | Position, arg3?: number, arg4?: number) {
+            if (typeof arg1 === 'number') {
+                super(arg1, arg2 as number, arg3 as number, arg4 as number);
+                this.anchor = this.start;
+                this.active = this.end;
+            } else {
+                super(arg1, arg2 as Position);
+                this.anchor = this.start;
+                this.active = this.end;
+            }
+        }
+    }
+
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
+        Position,
+        Range,
+        Selection,
         Uri: class MockUri {
             constructor(
                 public fsPath: string,

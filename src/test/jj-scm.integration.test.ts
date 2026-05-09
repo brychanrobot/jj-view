@@ -8,8 +8,8 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
-import { moveToChildCommand, moveToParentInDiffCommand } from '../commands/move';
 import { completeSquashCommand, squashCommand } from '../commands/squash';
+import { squashToParentInDiffCommand } from '../commands/squash-partial';
 import { ScmContextValue } from '../jj-context-keys';
 import { type JjResourceState, JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
@@ -362,7 +362,7 @@ suite('JJ SCM Provider Integration Test', () => {
         const range = new vscode.Range(1, 0, 1, 5);
         editor.selection = new vscode.Selection(range.start, range.end);
 
-        await moveToParentInDiffCommand(scmProvider, jj, editor);
+        await squashToParentInDiffCommand(scmProvider, jj, editor);
 
         // Parent should be: A\nB_mod\nC (B_mod moved, C_mod stays in WC so Parent has original C)
         const parentContent = repo.getFileContent('@-', 'partial-move.txt');
@@ -684,73 +684,12 @@ suite('JJ SCM Provider Integration Test', () => {
         // It should proceed without error for single parent case
     });
 
-    test('Move to Child handles nested arguments from VS Code context menu', async () => {
-        // Setup: Parent (@-) -> Child (@)
-        // Parent has file.txt
-        // Child modifies file.txt
-        // Parent has file.txt
-        // Child modifies file.txt
-        const filePath = path.join(repo.path, 'move-to-child.txt');
-        await buildGraph(repo, [
-            {
-                label: 'parent',
-                description: 'parent',
-                files: { 'move-to-child.txt': 'parent content' },
-            },
-            {
-                parents: ['parent'],
-                files: { 'move-to-child.txt': 'child content' },
-                isCurrentWorkingCopy: true,
-            },
-        ]);
-
-        await scmProvider.refresh({ forceSnapshot: true });
-
-        const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
-        const resourceState = workingCopyGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
-        );
-        assert.ok(resourceState, 'Should find resource state');
-
-        // 1. Setup so we are viewing Parent changes.
-        // We need 3 commits: Grandparent -> Parent -> Child(@)
-        // Parent = @-. Child = @.
-        // We need changes in Parent (relative to GP).
-        // move-to-child.txt has "parent content" in Parent, "child content" in Child.
-
-        // "Move to Child" on a Parent Item means "Move this change from Parent to Working Copy/Child".
-        // i.e. Remove from Parent, Apply to Child.
-
-        await scmProvider.refresh({ forceSnapshot: true });
-
-        // Get parent group
-        const parentGroup = (accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[])[0];
-        const parentResource = parentGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
-        );
-        assert.ok(parentResource, 'Should find parent resource');
-        assert.ok((parentResource as unknown as { revision: string }).revision, 'Parent resource should have revision');
-
-        // Simulate VS Code Argument: [ResourceState, [ResourceState]]
-        // This fails if code expects flat array or specific structure
-        const args = [parentResource, [parentResource]];
-
-        try {
-            // args structure matches what VS Code passes (nested arrays for multi-select)
-            await moveToChildCommand(scmProvider, jj, args as unknown[]);
-        } catch (e: unknown) {
-            const err = e as Error;
-            // If it fails with "r.resourceUri is undefined" or similar, we reproduced it.
-            // If the code iterates over args and sees array as second element, it might crash or treat array as ResourceState.
-            assert.fail(`moveToChild failed with arguments format: ${err.message}`);
-        }
-    });
     test('Webview moveBookmark message updates bookmark', async () => {
         // Register mock command
         const refreshDisposable = vscode.commands.registerCommand('jj-view.refresh', async () => {});
 
         try {
-            // Setup: Bookmark on Parent, Move to Child
+            // Setup: Bookmark on Parent, Squash File to Child
             repo.describe('parent');
             repo.bookmark('integrated-bookmark', '@');
 

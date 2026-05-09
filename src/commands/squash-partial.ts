@@ -30,7 +30,10 @@ function isLineChangeArray(changes: unknown): changes is LineChange[] {
     });
 }
 
-export async function squashChangeCommand(
+/**
+ * Command to squash a specific change (hunk) from the editor gutter.
+ */
+export async function squashPartialCommand(
     scmProvider: JjScmProvider,
     jj: JjService,
     uri: vscode.Uri,
@@ -80,7 +83,6 @@ export async function squashChangeCommand(
     }
 
     const ranges = [{ startLine, endLine }];
-
     const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
 
     const originalUri = scmProvider.provideOriginalResource(uri);
@@ -131,7 +133,7 @@ export async function squashChangeCommand(
     }
 
     try {
-        await jj.movePartialToParent(relPath, ranges, revision);
+        await jj.squashPartialToParent(relPath, ranges, revision);
         vscode.window.showInformationMessage('Squashed change to parent.');
 
         // Only refresh on success
@@ -146,5 +148,38 @@ export async function squashChangeCommand(
         }
     } catch (e: unknown) {
         await showJjError(e, 'Failed to squash change', jj, scmProvider.outputChannel);
+    }
+}
+
+/**
+ * Command to squash selected lines from a diff editor.
+ */
+export async function squashToParentInDiffCommand(
+    scmProvider: JjScmProvider,
+    jj: JjService,
+    editor: vscode.TextEditor,
+) {
+    if (!editor) {
+        return;
+    }
+
+    const docUri = editor.document.uri;
+    const fsPath = docUri.fsPath;
+    const relPath = path.relative(jj.workspaceRoot, fsPath);
+
+    // Extract revision from the URI (set by JjViewFileSystemProvider)
+    const query = new URLSearchParams(docUri.query);
+    const revision = query.get('jj-revision') || '@';
+
+    // Convert editor selections (0-indexed) to ranges for the JJ service
+    const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
+
+    try {
+        await jj.squashPartialToParent(relPath, ranges, revision);
+        vscode.window.showInformationMessage(`Squashed changes from ${revision} to parent.`);
+    } catch (e: unknown) {
+        await showJjError(e, 'Failed to squash changes', jj, scmProvider.outputChannel);
+    } finally {
+        await scmProvider.refresh();
     }
 }
