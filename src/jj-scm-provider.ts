@@ -609,7 +609,13 @@ export class JjScmProvider implements vscode.Disposable {
 
         const query = new URLSearchParams(uri.query);
         const revision = query.get('jj-revision') || '@';
-        return uri.with({ scheme: 'jj-view', query: `base=${revision}&side=left` });
+
+        let originalUri = uri;
+        if (statusEntry.oldPath) {
+            originalUri = vscode.Uri.file(path.join(this.jj.workspaceRoot, statusEntry.oldPath));
+        }
+
+        return originalUri.with({ scheme: 'jj-view', query: `base=${revision}&side=left` });
     }
 
     get sourceControl(): vscode.SourceControl {

@@ -5,11 +5,32 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { type ElectronApplication, expect, type Locator, type Page, test } from '@playwright/test';
 import { TestRepo } from '../test-repo';
 import { focusSCM, hoverAndClick, launchVSCode, openFileInEditor } from './e2e-helpers';
 
 test.describe('Quick Diff E2E', () => {
+    let repo: TestRepo | undefined;
+    let app: ElectronApplication | undefined;
+    let userDataDir: string | undefined;
+
+    test.afterEach(async () => {
+        if (app) {
+            await app.close();
+        }
+        if (userDataDir) {
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+        }
+        if (repo) {
+            repo.dispose();
+        }
+        repo = undefined;
+        app = undefined;
+        userDataDir = undefined;
+    });
+
     async function openGutterPeekView(page: Page, editor: Locator): Promise<{ peekView: Locator; gutter: Locator }> {
         const gutter = editor.locator('[title="Added lines"], [title="Changed lines"], [title="Removed lines"]');
         await expect(gutter.first()).toBeVisible({ timeout: 15000 });
@@ -28,8 +49,15 @@ test.describe('Quick Diff E2E', () => {
         return { peekView, gutter };
     }
 
+    async function setupVSCode(testRepo: TestRepo): Promise<Page> {
+        const launch = await launchVSCode(testRepo);
+        app = launch.app;
+        userDataDir = launch.userDataDir;
+        return launch.page;
+    }
+
     test('Gutter decorations and Diff Editor refresh after squash', async () => {
-        const repo = new TestRepo();
+        repo = new TestRepo();
         repo.init();
 
         // Initial state: one commit with a file
@@ -41,46 +69,38 @@ test.describe('Quick Diff E2E', () => {
         repo.new();
         repo.writeFile(fileName, 'line 1\nline 2\nline 2.5\nline 3\n');
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const page = await setupVSCode(repo);
 
-        try {
-            // 1. Open the file via the Explorer
-            const editor = await openFileInEditor(page, fileName);
+        // 1. Open the file via the Explorer
+        const editor = await openFileInEditor(page, fileName);
 
-            // 2 & 3. Open Gutter Peek View
-            const { peekView, gutter } = await openGutterPeekView(page, editor);
+        // 2 & 3. Open Gutter Peek View
+        const { peekView, gutter } = await openGutterPeekView(page, editor);
 
-            // The peek view contains a diff editor
-            await expect(peekView.locator('.editor.original')).toContainText('line 2', { timeout: 5000 });
+        // The peek view contains a diff editor
+        await expect(peekView.locator('.editor.original')).toContainText('line 2', { timeout: 5000 });
 
-            // 4. Perform Squash (Mutation)
-            // We use the CLI via TestRepo to simulate an external change that triggers a refresh
-            repo.squash();
+        // 4. Perform Squash (Mutation)
+        // We use the CLI via TestRepo to simulate an external change that triggers a refresh
+        repo.squash();
 
-            // 5. Verify Refresh in UI
-            // The Peek View should ideally close or update.
-            // And the gutter indicator must disappear.
-            await expect(gutter.first()).not.toBeVisible({ timeout: 15000 });
-            await expect(peekView).not.toBeVisible({ timeout: 5000 });
+        // 5. Verify Refresh in UI
+        // The Peek View should ideally close or update.
+        // And the gutter indicator must disappear.
+        await expect(gutter.first()).not.toBeVisible({ timeout: 15000 });
+        await expect(peekView).not.toBeVisible({ timeout: 5000 });
 
-            // 6. Verify Diff Editor refresh (from SCM pane)
-            await focusSCM(page);
-            // Use a specific name that includes the status to disambiguate from Explorer
-            const scmFileRow = page.getByRole('treeitem', { name: new RegExp(`${fileName}.*modified`, 'i') });
-            // Since it's squashed, it might still show up briefly or disappear.
-            // Actually, after squash, the file matches the parent, so it should disappear from SCM.
-            await expect(scmFileRow).not.toBeVisible({ timeout: 10000 });
-        } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-            repo.dispose();
-        }
+        // 6. Verify Diff Editor refresh (from SCM pane)
+        await focusSCM(page);
+        // Use a specific name that includes the status to disambiguate from Explorer
+        const scmFileRow = page.getByRole('treeitem', { name: new RegExp(`${fileName}.*modified`, 'i') });
+        // Since it's squashed, it might still show up briefly or disappear.
+        // Actually, after squash, the file matches the parent, so it should disappear from SCM.
+        await expect(scmFileRow).not.toBeVisible({ timeout: 10000 });
     });
 
     test('Discard middle-of-file deletion via gutter peek view', async () => {
-        const repo = new TestRepo();
+        repo = new TestRepo();
         repo.init();
 
         const fileName = 'middle-deletion-e2e.txt';
@@ -92,43 +112,72 @@ test.describe('Quick Diff E2E', () => {
         repo.new();
         repo.writeFile(fileName, fileContentModified);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const page = await setupVSCode(repo);
 
-        try {
-            // 1. Open the file via the Explorer
-            const editor = await openFileInEditor(page, fileName);
+        // 1. Open the file via the Explorer
+        const editor = await openFileInEditor(page, fileName);
 
-            // 2 & 3. Open Gutter Peek View
-            const { peekView } = await openGutterPeekView(page, editor);
+        // 2 & 3. Open Gutter Peek View
+        const { peekView } = await openGutterPeekView(page, editor);
 
-            // 4. Click Revert Change Button
+        // 4. Click Revert Change Button
+        await expect(async () => {
+            // Ensure editor has focus as the peek view actions can be focus-dependent
+            await editor.focus();
+
+            // Peek view might have multiple action items; be specific.
+            const discardIcon = peekView.locator('.codicon-discard');
+            await expect(discardIcon).toBeVisible({ timeout: 5000 });
+            await hoverAndClick(peekView, discardIcon);
+
+            // 5. Verify file content on disk
+            if (!repo) {
+                throw new Error('Repo not initialized');
+            }
+            const filePath = path.join(repo.path, fileName);
             await expect(async () => {
-                // Ensure editor has focus as the peek view actions can be focus-dependent
-                await editor.focus();
+                const content = fs.readFileSync(filePath, 'utf-8');
+                if (content !== fileContentOriginal) {
+                    throw new Error(`File content mismatch. Expected original content but got: ${content}`);
+                }
+            }).toPass({ timeout: 20000 });
+        }).toPass({ timeout: 30000 });
 
-                // Peek view might have multiple action items; be specific.
-                const discardIcon = peekView.locator('.codicon-discard');
-                await expect(discardIcon).toBeVisible({ timeout: 5000 });
-                await hoverAndClick(peekView, discardIcon);
+        // Peek view should close
+        await expect(peekView).not.toBeVisible({ timeout: 5000 });
+    });
 
-                // 5. Verify file content on disk
-                const filePath = path.join(repo.path, fileName);
-                await expect(async () => {
-                    const content = fs.readFileSync(filePath, 'utf-8');
-                    if (content !== fileContentOriginal) {
-                        throw new Error(`File content mismatch. Expected original content but got: ${content}`);
-                    }
-                }).toPass({ timeout: 20000 });
-            }).toPass({ timeout: 30000 });
+    test('Gutter decorations for a moved file with edits', async () => {
+        repo = new TestRepo();
+        repo.init();
+        repo.config('ui.diff.renames', 'true');
 
-            // Peek view should close
-            await expect(peekView).not.toBeVisible({ timeout: 5000 });
-        } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-            repo.dispose();
-        }
+        const oldFileName = 'original.txt';
+        const newFileName = 'renamed.txt';
+        const originalContent = 'line 1\nline 2\nline 3\nline 4\nline 5\n';
+
+        // 1. Create file in parent
+        repo.writeFile(oldFileName, originalContent);
+        repo.describe('base');
+
+        // 2. Rename and edit in working copy
+        repo.new();
+        repo.moveFile(oldFileName, newFileName);
+        // Add a line and modify a line
+        const modifiedContent = 'line 1\nline 1.5\nline 2 MODIFIED\nline 3\nline 4\nline 5\n';
+        repo.writeFile(newFileName, modifiedContent);
+
+        const page = await setupVSCode(repo);
+
+        // 3. Open the renamed file
+        const editor = await openFileInEditor(page, newFileName);
+
+        // 4. Open Gutter Peek View
+        const { peekView } = await openGutterPeekView(page, editor);
+
+        // 5. Verify diff content in the peek view
+        // The original side should show the content from original.txt
+        await expect(peekView.locator('.editor.original')).toContainText('line 2', { timeout: 5000 });
+        await expect(peekView.locator('.editor.modified')).toContainText('line 2 MODIFIED', { timeout: 5000 });
     });
 });
