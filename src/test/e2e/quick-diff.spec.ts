@@ -6,8 +6,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type ElectronApplication, expect, type Locator, type Page, test } from '@playwright/test';
-import { TestRepo } from '../test-repo';
-import { focusSCM, hoverAndClick, launchVSCode, openFileInEditor } from './e2e-helpers';
+import { buildGraph, TestRepo } from '../test-repo';
+import { hoverAndClick, launchVSCode, openFileInEditor } from './e2e-helpers';
 
 test.describe('Quick Diff E2E', () => {
     let repo: TestRepo | undefined;
@@ -60,43 +60,53 @@ test.describe('Quick Diff E2E', () => {
         repo = new TestRepo();
         repo.init();
 
-        // Initial state: one commit with a file
-        const fileName = 'quick-diff-test.txt';
-        repo.writeFile(fileName, 'line 1\nline 2\nline 3\n');
-        repo.describe('base');
+        const fileName = 'squash-hunk-e2e.txt';
+        const fileContentOriginal = 'line 1\nline 2\nline 3\n';
+        const fileContentModified = 'line 1\nline 2 modified\nline 3\n';
 
-        // Working copy modification: add a line
-        repo.new();
-        repo.writeFile(fileName, 'line 1\nline 2\nline 2.5\nline 3\n');
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base',
+                files: { [fileName]: fileContentOriginal },
+            },
+            {
+                label: 'wc',
+                parents: ['base'],
+                files: { [fileName]: fileContentModified },
+            },
+        ]);
 
         const page = await setupVSCode(repo);
 
-        // 1. Open the file via the Explorer
+        // 1. Open the file
         const editor = await openFileInEditor(page, fileName);
 
-        // 2 & 3. Open Gutter Peek View
-        const { peekView, gutter } = await openGutterPeekView(page, editor);
+        // 2. Open Gutter Peek View
+        const { peekView } = await openGutterPeekView(page, editor);
 
-        // The peek view contains a diff editor
-        await expect(peekView.locator('.editor.original')).toContainText('line 2', { timeout: 5000 });
+        // 3. Click Squash Hunk into Parent Button (codicon-repo-pull)
+        const squashIcon = peekView.locator('.codicon-repo-pull');
+        await expect(squashIcon).toBeVisible({ timeout: 5000 });
+        await hoverAndClick(peekView, squashIcon);
 
-        // 4. Perform Squash (Mutation)
-        // We use the CLI via TestRepo to simulate an external change that triggers a refresh
-        repo.squash();
+        // 4. Verify the change is moved to the parent in JJ
+        await expect(async () => {
+            if (!repo) {
+                throw new Error('Repo not initialized');
+            }
+            const parentContent = repo.getFileContent('@-', fileName);
+            expect(parentContent).toBe(fileContentModified);
 
-        // 5. Verify Refresh in UI
-        // The Peek View should ideally close or update.
-        // And the gutter indicator must disappear.
-        await expect(gutter.first()).not.toBeVisible({ timeout: 15000 });
+            const wcContent = repo.getFileContent('@', fileName);
+            expect(wcContent).toBe(fileContentModified); // Both same after squash
+
+            const wcDiff = repo.getDiffSummary('@');
+            expect(wcDiff).not.toContain(fileName);
+        }).toPass({ timeout: 15000 });
+
+        // Peek view should close
         await expect(peekView).not.toBeVisible({ timeout: 5000 });
-
-        // 6. Verify Diff Editor refresh (from SCM pane)
-        await focusSCM(page);
-        // Use a specific name that includes the status to disambiguate from Explorer
-        const scmFileRow = page.getByRole('treeitem', { name: new RegExp(`${fileName}.*modified`, 'i') });
-        // Since it's squashed, it might still show up briefly or disappear.
-        // Actually, after squash, the file matches the parent, so it should disappear from SCM.
-        await expect(scmFileRow).not.toBeVisible({ timeout: 10000 });
     });
 
     test('Discard middle-of-file deletion via gutter peek view', async () => {
@@ -107,10 +117,18 @@ test.describe('Quick Diff E2E', () => {
         const fileContentOriginal = 'a\nb\nc\nd\ne\n';
         const fileContentModified = 'a\nb\nd\ne\n';
 
-        repo.writeFile(fileName, fileContentOriginal);
-        repo.describe('base');
-        repo.new();
-        repo.writeFile(fileName, fileContentModified);
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base',
+                files: { [fileName]: fileContentOriginal },
+            },
+            {
+                label: 'wc',
+                parents: ['base'],
+                files: { [fileName]: fileContentModified },
+            },
+        ]);
 
         const page = await setupVSCode(repo);
 
@@ -157,8 +175,13 @@ test.describe('Quick Diff E2E', () => {
         const originalContent = 'line 1\nline 2\nline 3\nline 4\nline 5\n';
 
         // 1. Create file in parent
-        repo.writeFile(oldFileName, originalContent);
-        repo.describe('base');
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base',
+                files: { [oldFileName]: originalContent },
+            },
+        ]);
 
         // 2. Rename and edit in working copy
         repo.new();
@@ -179,5 +202,64 @@ test.describe('Quick Diff E2E', () => {
         // The original side should show the content from original.txt
         await expect(peekView.locator('.editor.original')).toContainText('line 2', { timeout: 5000 });
         await expect(peekView.locator('.editor.modified')).toContainText('line 2 MODIFIED', { timeout: 5000 });
+    });
+
+    test('Squash hunk into parent via gutter peek view', async () => {
+        repo = new TestRepo();
+        repo.init();
+
+        const fileName = 'squash-hunk-e2e-partial.txt';
+        const fileContentOriginal = 'line 1\nline 2\nline 3\nline 4\nline 5\n';
+        // Two separate modifications
+        const fileContentPartiallyModified = 'line 1\nline 2 modified\nline 3\nline 4\nline 5\n';
+        const fileContentFullyModified = 'line 1\nline 2 modified\nline 3\nline 4 modified\nline 5\n';
+
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base',
+                files: { [fileName]: fileContentOriginal },
+            },
+            {
+                label: 'wc',
+                parents: ['base'],
+                files: { [fileName]: fileContentFullyModified },
+            },
+        ]);
+
+        const page = await setupVSCode(repo);
+
+        // 1. Open the file
+        const editor = await openFileInEditor(page, fileName);
+
+        // 2. Open Gutter Peek View for the FIRST hunk
+        const { peekView } = await openGutterPeekView(page, editor);
+
+        // 3. Click Squash Hunk into Parent Button (codicon-repo-pull)
+        const squashIcon = peekView.locator('.codicon-repo-pull');
+        await expect(squashIcon).toBeVisible({ timeout: 5000 });
+        await hoverAndClick(peekView, squashIcon);
+
+        // 4. Verify the change is moved to the parent in JJ
+        await expect(async () => {
+            if (!repo) {
+                throw new Error('Repo not initialized');
+            }
+            // Parent should have the first modification but NOT the second
+            const parentContent = repo.getFileContent('@-', fileName);
+            expect(parentContent).toBe(fileContentPartiallyModified);
+
+            // Working copy should still have both modifications
+            const wcContent = repo.getFileContent('@', fileName);
+            expect(wcContent).toBe(fileContentFullyModified);
+
+            // Working copy diff should still contain the second modification
+            const wcDiff = repo.getDiff('@', { git: true });
+            expect(wcDiff).toContain('+line 4 modified');
+            expect(wcDiff).not.toContain('+line 2 modified');
+        }).toPass({ timeout: 15000 });
+
+        // Peek view should close
+        await expect(peekView).not.toBeVisible({ timeout: 5000 });
     });
 });

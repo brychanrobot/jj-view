@@ -680,19 +680,26 @@ export class JjService {
     }
 
     /**
-     * Squash changes into parent.
-     * @param paths - specific files to squash (empty = all)
-     * @param revision - if provided, squash this revision into its parent (-r flag)
-     * @param intoRevision - if provided with revision, squash FROM revision INTO this (--from/--into)
-     * @param message - optional message to use for the squashed commit
+     * Squash changes from one revision to its parent or another revision.
+     * If no revision is specified, it defaults to the working copy (@).
+     * If no intoRevision is specified, it defaults to the parent (@-).
+     *
+     * @param options.paths Files to squash. If empty, squashes all changes in the revision.
+     * @param options.revision The revision to squash from.
+     * @param options.intoRevision The revision to squash into.
+     * @param options.message New description for the destination revision.
+     * @param options.useDestinationMessage If true, keeps the destination revision's description.
      */
-    async squash(
-        paths: string[] = [],
-        revision?: string,
-        intoRevision?: string,
-        message?: string,
-        useDestinationMessage?: boolean,
+    async squashRevision(
+        options: {
+            paths?: string[];
+            revision?: string;
+            intoRevision?: string;
+            message?: string;
+            useDestinationMessage?: boolean;
+        } = {},
     ): Promise<void> {
+        const { paths = [], revision, intoRevision, message, useDestinationMessage } = options;
         const args: string[] = [];
         const relativePaths = paths.map((p) => this.toRelative(p));
 
@@ -712,7 +719,7 @@ export class JjService {
         if (relativePaths.length > 0) {
             args.push(...relativePaths);
         }
-        await this.run('squash', args, { isMutation: true, label: 'squash' });
+        await this.run('squash', args, { isMutation: true, label: 'squashRevision' });
     }
 
     async rebase(
@@ -806,16 +813,6 @@ export class JjService {
         } catch {
             return paths;
         }
-    }
-
-    /**
-     * Squash all changes in the specified files from one revision into another.
-     */
-    async squashFiles(paths: string[], fromRevision: string, toRevision: string): Promise<void> {
-        const relativePaths = paths.map((p) => this.toRelative(p));
-        await this.run('squash', ['--from', fromRevision, '--into', toRevision, ...relativePaths], {
-            label: 'squashFiles',
-        });
     }
 
     async new(
@@ -1064,18 +1061,23 @@ export class JjService {
         }
         return this.run(command, finalArgs, {
             isMutation: true,
+            label: 'upload',
             timeout: UPLOAD_TIMEOUT_MS,
         });
     }
 
     /**
-     * Squash partial changes from a file to its parent revision.
+     * Squash specific line ranges (selection) from a file to its parent revision.
      *
      * @param fileRelPath Path relative to the workspace root.
-     * @param ranges 0-indexed line ranges in the 'from' revision to move.
+     * @param ranges 0-indexed line ranges in the 'revision' to move.
      * @param revision The revision to move changes from (default: @).
      */
-    async squashPartialToParent(fileRelPath: string, ranges: SelectionRange[], revision: string = '@'): Promise<void> {
+    async squashSelectionIntoParent(
+        fileRelPath: string,
+        ranges: SelectionRange[],
+        revision: string = '@',
+    ): Promise<void> {
         const parentRev = `${revision}-`;
         const { left: baseContent } = await this.getDiffContent(revision, fileRelPath);
         const diffOutput = await this.getDiff(revision, fileRelPath);

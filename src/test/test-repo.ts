@@ -147,9 +147,25 @@ export class TestRepo {
         return this.exec(['diff', '-r', revision, '--summary']);
     }
 
+    getDiff(revision: string = '@', options: { git?: boolean } = {}): string {
+        const args = ['diff', '-r', revision];
+        if (options.git) {
+            args.push('--git');
+        }
+        return this.exec(args);
+    }
+
     untrack(path: string | string[]): void {
         const paths = Array.isArray(path) ? path : [path];
         this.exec(['file', 'untrack', ...paths]);
+    }
+
+    getFiles(revision: string = '@'): string[] {
+        const output = this.exec(['file', 'list', '-r', revision]);
+        return output
+            .split('\n')
+            .map((f) => f.trim())
+            .filter((f) => f.length > 0);
     }
 
     bookmark(name: string, revision: string) {
@@ -368,7 +384,7 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
 
     for (const commit of commits) {
         const parents = resolveParents(commit.parents);
-        const description = commit.description || commit.label;
+        const description = commit.description !== undefined ? commit.description : commit.label;
 
         repo.new(parents, description);
 

@@ -155,13 +155,13 @@ export async function launchVSCode(
 
     const page = await app.firstWindow();
 
-    // Capture page console logs for debugging
-    page.on('console', (msg) => {
-        if (process.env.DEBUG_E2E) {
+    // Capture page console logs for debugging if verbose mode is enabled
+    if (process.env.VERBOSE) {
+        page.on('console', (msg) => {
             console.log(`PAGE LOG: ${msg.text()}`);
-        }
-    });
-    page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
+        });
+        page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
+    }
 
     // Wait for the workbench to be ready
     await expect(page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
@@ -318,13 +318,18 @@ export async function selectCommits(rows: Locator[]) {
             const isSelected = (await row.getAttribute('aria-selected')) === 'true';
             if (!isSelected) {
                 await row.click({
-                    modifiers: i > 0 ? ['Meta'] : undefined,
+                    modifiers: i > 0 ? ['ControlOrMeta'] : undefined,
                     force: true, // Bypasses potential hover overlay issues
                 });
             }
-            await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 1000 });
+            await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 2000 });
         }
-    }, 'Failed to select commits reliably').toPass({ timeout: 15000 });
+
+        // Final verification that ALL rows are selected
+        for (const row of rows) {
+            await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 500 });
+        }
+    }, 'Failed to select commits reliably').toPass({ timeout: 20000 });
 }
 
 /**
@@ -386,6 +391,63 @@ export async function hoverAndClick(row: Locator, button: Locator) {
         await expect(button).toBeVisible({ timeout: 1000 });
         await button.click({ force: true });
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
+}
+
+export const SCM_ACTIONS = {
+    Abandon: 'Abandon',
+    SquashRevisionIntoParent: 'Squash Revision into Parent',
+    SquashRevisionIntoAncestor: 'Squash Revision into Ancestor...',
+    SquashFilesIntoParent: 'Squash File(s) into Parent',
+    SquashFilesIntoAncestor: 'Squash File(s) into Ancestor...',
+    SquashFilesIntoChild: 'Squash File(s) into Child',
+    Absorb: 'Absorb',
+    DiscardChanges: 'Discard Changes',
+    ShowDetails: 'Show Details',
+    Edit: 'Edit',
+    MultiFileDiff: 'Multi-File Diff',
+} as const;
+
+/**
+ * Robustly clicks an inline action button on an SCM tree item (row or group) by its title.
+ */
+export async function clickScmAction(page: Page, rowName: string | RegExp, actionTitle: string) {
+    await expect(async () => {
+        const row = page.getByRole('treeitem', { name: rowName }).first();
+        await expect(row).toBeVisible({ timeout: 5000 });
+        await row.hover();
+        await page.waitForTimeout(500); // Give it more time to settle
+
+        // Debug: Log all buttons found in this row
+        // Try finding by name (contains matching)
+        let button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
+
+        // Fallback: If not found by name, try some common icon classes if we know them
+        if (!(await button.isVisible())) {
+            const iconMap: Record<string, string> = {
+                [SCM_ACTIONS.Abandon]: '.codicon-trash',
+                [SCM_ACTIONS.SquashRevisionIntoParent]: '.codicon-arrow-down',
+                [SCM_ACTIONS.SquashRevisionIntoAncestor]: '.codicon-jj-icon-squash-into',
+                [SCM_ACTIONS.SquashFilesIntoParent]: '.codicon-arrow-down',
+                [SCM_ACTIONS.SquashFilesIntoAncestor]: '.codicon-jj-icon-squash-into',
+                [SCM_ACTIONS.SquashFilesIntoChild]: '.codicon-arrow-up',
+                [SCM_ACTIONS.Absorb]: '.codicon-magnet',
+                [SCM_ACTIONS.DiscardChanges]: '.codicon-discard',
+                [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
+                [SCM_ACTIONS.Edit]: '.codicon-edit',
+                [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
+            };
+            const cls = iconMap[actionTitle];
+            if (cls) {
+                process.stdout.write(
+                    `[clickScmAction] Button "${actionTitle}" not found by name, trying fallback class "${cls}"\n`,
+                );
+                button = row.locator('.action-item', { has: page.locator(cls) }).first();
+            }
+        }
+
+        await expect(button).toBeVisible({ timeout: 1000 });
+        await button.click({ force: true });
+    }, `Failed to click SCM action "${actionTitle}" on row "${rowName}"`).toPass({ timeout: 10000 });
 }
 
 export const isMac = process.platform === 'darwin';
@@ -511,8 +573,10 @@ export type LogPillKind = 'bookmark' | 'workspace' | 'tag' | 'remote-bookmark';
  */
 export async function waitForLogPill(page: Page, label: string, kind?: LogPillKind): Promise<Locator> {
     let pill: Locator | undefined;
+    let attempts = 0;
     await expect(
         async () => {
+            attempts++;
             const webview = await getLogWebview(page, 300);
             let selector = '.bookmark-pill';
             if (kind === 'bookmark') {
@@ -520,8 +584,16 @@ export async function waitForLogPill(page: Page, label: string, kind?: LogPillKi
             } else if (kind === 'tag') {
                 selector += ':has(.codicon-tag)';
             }
+
             pill = webview.locator(selector, { hasText: label });
-            await expect(pill).toBeVisible({ timeout: 200 });
+
+            const isVisible = await pill.isVisible();
+            if (!isVisible && attempts > 1 && attempts % 5 === 0) {
+                // Try a manual refresh if we've been waiting and it's not showing up
+                await triggerRefresh(page);
+            }
+
+            await expect(pill).toBeVisible({ timeout: 500 });
         },
         `Failed to find log ${kind || 'pill'} with text "${label}"`,
     ).toPass({ timeout: 20000 });
@@ -635,6 +707,114 @@ export async function openFileInEditor(page: Page, fileName: string): Promise<Lo
 }
 
 /**
+ * Robustly opens a file diff from the SCM pane by clicking its tree item.
+ */
+export async function openScmDiff(
+    page: Page,
+    fileName: string | RegExp,
+    groupName?: string | RegExp,
+): Promise<Locator> {
+    return await openScmItem(page, fileName, '.monaco-diff-editor', groupName);
+}
+
+/**
+ * Robustly opens a conflict merge editor from the SCM pane.
+ */
+export async function openScmMerge(
+    page: Page,
+    fileName: string | RegExp,
+    groupName?: string | RegExp,
+): Promise<Locator> {
+    return await openScmItem(page, fileName, '.merge-editor', groupName);
+}
+
+/**
+ * Robustly opens a file (regular editor) from the SCM pane by clicking its tree item.
+ */
+export async function openScmFile(
+    page: Page,
+    fileName: string | RegExp,
+    groupName?: string | RegExp,
+): Promise<Locator> {
+    return await openScmItem(page, fileName, '.editor-instance .monaco-editor', groupName);
+}
+
+/**
+ * Internal helper for opening files from the SCM pane.
+ */
+async function openScmItem(
+    page: Page,
+    fileName: string | RegExp,
+    editorSelector: string,
+    groupName?: string | RegExp,
+): Promise<Locator> {
+    let row: Locator | undefined;
+    await expect(
+        async () => {
+            await focusSCM(page);
+
+            if (groupName) {
+                // Find all tree items to locate the group and the file relatively
+                const allItems = await page.getByRole('treeitem').all();
+                let groupIdx = -1;
+                const groupNamePattern = groupName instanceof RegExp ? groupName : new RegExp(groupName, 'i');
+                const fileNamePattern = fileName instanceof RegExp ? fileName : new RegExp(fileName, 'i');
+
+                for (let i = 0; i < allItems.length; i++) {
+                    const label = (await allItems[i].getAttribute('aria-label')) || '';
+                    if (groupNamePattern.test(label)) {
+                        groupIdx = i;
+                        break;
+                    }
+                }
+
+                if (groupIdx === -1) {
+                    throw new Error(`Group "${groupName}" not found`);
+                }
+
+                // Search for the file after the group header
+                for (let i = groupIdx + 1; i < allItems.length; i++) {
+                    const label = (await allItems[i].getAttribute('aria-label')) || '';
+                    const level = await allItems[i].getAttribute('aria-level');
+
+                    if (fileNamePattern.test(label)) {
+                        row = allItems[i];
+                        break;
+                    }
+
+                    // If we hit another Level 1 item, we've moved out of the target group
+                    if (level === '1') {
+                        throw new Error(`File "${fileName}" not found in group "${groupName}"`);
+                    }
+                }
+            } else {
+                row = page.getByRole('treeitem', { name: fileName }).first();
+            }
+
+            if (!row) {
+                throw new Error(`File "${fileName}" not found`);
+            }
+
+            await expect(row).toBeVisible({ timeout: 5000 });
+            await row.click();
+
+            // Wait for the specific editor to appear. Use .first() to avoid strict mode violations
+            // if multiple editors (like SCM input) are present.
+            await expect(page.locator(editorSelector).first()).toBeVisible({ timeout: 10000 });
+
+            // Wait for the tab to be active
+            await waitForTab(page, fileName);
+        },
+        `Failed to open SCM item "${fileName}" in editor "${editorSelector}"${groupName ? ` in group "${groupName}"` : ''}`,
+    ).toPass({ timeout: 20000 });
+
+    if (!row) {
+        throw new Error('Row not found after toPass completion');
+    }
+    return row;
+}
+
+/**
  * Finds the webview frame containing the Commit Details panel.
  * Re-fetches frames on poll to handle detached frames.
  */
@@ -678,4 +858,52 @@ export async function getDetailsWebview(page: Page): Promise<Frame> {
     // Ensure the iframe is fully "ready" before returning
     await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
     return guestFrame;
+}
+
+export async function pickQuickPickItem(page: Page, label: string | RegExp) {
+    await expect(async () => {
+        await waitForQuickInput(page);
+        const quickPick = page.locator('.quick-input-widget');
+
+        // Find the item by text within the quickpick list
+        const item = quickPick.locator('.monaco-list-row').filter({ hasText: label }).first();
+        await expect(item).toBeVisible({ timeout: 2000 });
+        await item.click();
+        await expect(quickPick).not.toBeVisible({ timeout: 5000 });
+    }, `Failed to pick QuickPick item "${label}"`).toPass({ timeout: 15000 });
+}
+
+/**
+ * Selects an entire line of text in an editor by its content.
+ */
+export async function selectLine(page: Page, editor: Locator, text: string | RegExp): Promise<Locator> {
+    const line = editor.getByText(text).first();
+    await line.click();
+
+    const cmdKey = isMac ? 'Meta' : 'Control';
+    await page.keyboard.down(cmdKey);
+    await page.keyboard.press('l');
+    await page.keyboard.up(cmdKey);
+
+    return line;
+}
+
+/**
+ * Clicks an item in an open context menu.
+ */
+export async function clickContextMenuItem(page: Page, label: string | RegExp) {
+    await expect(async () => {
+        const menu = page.locator('.monaco-menu-container');
+        await expect(menu).toBeVisible({ timeout: 2000 });
+
+        const item = menu.locator('.action-item').filter({ hasText: label }).first();
+        await expect(item).toBeVisible({ timeout: 1000 });
+
+        // Settle, then click
+        await page.waitForTimeout(200);
+        await item.click();
+
+        // Wait for menu to disappear
+        await expect(menu).not.toBeVisible({ timeout: 2000 });
+    }, `Failed to click context menu item "${label}"`).toPass({ timeout: 5000 });
 }

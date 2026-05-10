@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
-import { squashPartialCommand } from '../commands/squash-partial';
+import { squashHunkIntoParentCommand } from '../commands/squash-selection';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
@@ -196,7 +196,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Squash Command
-        await squashPartialCommand(scmProvider, jj, fileUri, changes, 0);
+        await squashHunkIntoParentCommand(scmProvider, jj, fileUri, changes, 0);
 
         // Verify Parent has modified content
         const parentContent = repo.getFileContent('@-', fileName);

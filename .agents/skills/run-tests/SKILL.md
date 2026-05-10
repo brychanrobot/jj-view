@@ -90,6 +90,11 @@ You MUST run individual test cases when writing a new test or debugging a broken
     # Example: pnpm test:e2e scm.spec.ts
     ```
 
+- **Verbose Logging (Opt-in):** If you need to see `console.log` output from the extension's webview or any page errors in your terminal, prefix the command with `VERBOSE=1`.
+    ```bash
+    VERBOSE=1 pnpm test:e2e context-menu.spec.ts -g "New Merge Change"
+    ```
+
 ### 4. Debugging E2E Tests (DOM Dumping)
 
 **Purpose:** When locators fail in E2E tests, it's often due to the complex, nested structure of VS Code (including shadow roots and iframes). Simply dumping the page content can help identify the correct selectors.

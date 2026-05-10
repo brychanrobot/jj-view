@@ -437,7 +437,7 @@ log = "none()"
         ]);
 
         // Squash changes back to parent
-        await jjService.squash([filePath]);
+        await jjService.squashRevision({ paths: [filePath] });
 
         // Parent should now have "child content"
         const parentContent = repo.getFileContent('@-', 'file.txt');
@@ -466,7 +466,7 @@ log = "none()"
         const childId = ids.child.changeId;
 
         // Squash "child" revision into "parent" explicitly
-        await jjService.squash([filePath], childId);
+        await jjService.squashRevision({ paths: [filePath], revision: childId });
 
         // Verify parent now has child content
         const parentContent = repo.getFileContent(parentId, 'squash-rev.txt');
@@ -493,7 +493,7 @@ log = "none()"
         const bId = ids.B.changeId;
 
         // Squash 'new content' from B into Root directly
-        await jjService.squash([newFilePath], bId, rootId);
+        await jjService.squashRevision({ paths: [newFilePath], revision: bId, intoRevision: rootId });
 
         // Root should now have the new file
         const rootContent = repo.getFileContent(rootId, newFileName);
@@ -514,7 +514,7 @@ log = "none()"
         ]);
 
         // Squash everything into parent
-        await jjService.squash([]);
+        await jjService.squashRevision();
 
         const content1 = repo.getFileContent('@-', 'f1.txt');
         const content2 = repo.getFileContent('@-', 'f2.txt');
@@ -623,7 +623,7 @@ log = "none()"
         expect(parent).toHaveProperty('is_immutable');
     });
 
-    test('squashFiles moves changes to child', async () => {
+    test('squashRevision with paths moves changes to child', async () => {
         const file1 = 'file1.txt';
         const file2 = 'file2.txt';
         const filePath1 = path.join(repo.path, file1);
@@ -649,7 +649,7 @@ log = "none()"
         ]);
 
         // Squash ONLY file1 to child
-        await jjService.squashFiles([filePath1], '@-', '@');
+        await jjService.squashRevision({ paths: [filePath1], revision: '@-', intoRevision: '@' });
 
         // File 1 should be squashed (back to base in parent, modified in child)
         expect(repo.getFileContent('@-', file1).trim()).toBe('base1');
@@ -857,7 +857,7 @@ log = "none()"
         repo.writeFile('file.txt', 'grandchild content');
 
         const grandchildChangeId = repo.getChangeId(grandchildId);
-        await jjService.squash([], grandchildChangeId);
+        await jjService.squashRevision({ revision: grandchildChangeId });
 
         const content = repo.getFileContent('@', 'file.txt');
         expect(content).toBe('grandchild content');
@@ -1065,7 +1065,7 @@ log = "none()"
 
         const ranges = [{ startLine: 0, endLine: 1 }];
 
-        await jjService.squashPartialToParent(fileName, ranges);
+        await jjService.squashSelectionIntoParent(fileName, ranges);
 
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe(content);
@@ -1077,7 +1077,7 @@ log = "none()"
         expect(diff).toBe('');
     });
 
-    test('squashPartialToParent moves subset of changes', async () => {
+    test('squashSelectionIntoParent moves subset of changes', async () => {
         const fileName = 'partial.txt';
 
         repo.writeFile(fileName, 'line1\nline2\nline3\n');
@@ -1094,7 +1094,7 @@ log = "none()"
         // Select 'mod1' (line 1, index 0)
         const ranges = [{ startLine: 0, endLine: 0 }];
 
-        await jjService.squashPartialToParent(fileName, ranges);
+        await jjService.squashSelectionIntoParent(fileName, ranges);
 
         // Verify Parent Content
         const parentContent = await jjService.getFileContent(fileName, '@-');
@@ -1105,7 +1105,7 @@ log = "none()"
         expect(childContent).toBe('mod1\nline2\nmod3\n');
     });
 
-    test('squashPartialToParent moves deletion', async () => {
+    test('squashSelectionIntoParent moves deletion', async () => {
         const fileName = 'deletion.txt';
 
         // Parent
@@ -1119,14 +1119,14 @@ log = "none()"
         // Select the deletion (approximate range covering the area)
         const ranges = [{ startLine: 1, endLine: 2 }];
 
-        await jjService.squashPartialToParent(fileName, ranges);
+        await jjService.squashSelectionIntoParent(fileName, ranges);
 
         // Parent should now have deleted the line
         const parentContent = await jjService.getFileContent(fileName, '@-');
         expect(parentContent).toBe('keep\n');
     });
 
-    test('squashPartialToParent moves selected lines and PRESERVES others in a stack', async () => {
+    test('squashSelectionIntoParent moves selected lines and PRESERVES others in a stack', async () => {
         // Setup: Grandparent -> Parent -> Child
         const ids = await buildGraph(repo, [
             { label: 'grandparent', description: 'grandparent', files: { 'file.txt': 'line 0\n' } },
@@ -1155,7 +1155,7 @@ log = "none()"
         expect(initialChildDiff).toContain('+line 3');
 
         // Target: We want to move 'line 2' from Child to Parent, but keep 'line 3' in child.
-        await jjService.squashPartialToParent('file.txt', [{ startLine: 2, endLine: 2 }], childId);
+        await jjService.squashSelectionIntoParent('file.txt', [{ startLine: 2, endLine: 2 }], childId);
 
         // After move:
         // Parent should have 'line 0\nline 1\nline 2\n'

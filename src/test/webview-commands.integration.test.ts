@@ -9,7 +9,7 @@ import { abandonCommand } from '../commands/abandon';
 import { editCommand } from '../commands/edit';
 import { newCommand } from '../commands/new';
 import { redoCommand } from '../commands/redo';
-import { squashCommand } from '../commands/squash';
+import { squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { undoCommand } from '../commands/undo';
 import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
@@ -113,8 +113,8 @@ suite('Webview Commands End-to-End Integration Test', () => {
             if (command === 'jj-view.abandon') {
                 return abandonCommand(scm, jj, args);
             }
-            if (command === 'jj-view.squash') {
-                return squashCommand(scm, jj, args);
+            if (command === 'jj-view.squashRevisionIntoParent') {
+                return squashRevisionIntoParentCommand(scm, jj, args);
             }
             if (command === 'jj-view.new') {
                 return newCommand(scm, jj, args);

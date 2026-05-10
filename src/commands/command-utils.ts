@@ -82,7 +82,8 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
         unique.set(state.resourceUri.fsPath, state);
     }
 
-    return Array.from(unique.values());
+    const result = Array.from(unique.values());
+    return result;
 }
 
 function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
@@ -95,6 +96,10 @@ export function isCurrentWorkingCopyResourceGroup(arg: unknown): arg is vscode.S
 
 export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
     return isSourceControlResourceGroup(arg) && arg.id.startsWith('ancestor-');
+}
+
+function isJjResourceState(arg: unknown): arg is JjResourceState {
+    return typeof arg === 'object' && arg !== null && 'resourceUri' in arg && 'revision' in arg;
 }
 
 /**
@@ -136,6 +141,10 @@ export function extractRevisions(args: unknown[]): string[] {
             revisions.push('@');
             continue;
         }
+        if (isJjResourceState(arg)) {
+            revisions.push(arg.revision);
+            continue;
+        }
 
         if (isParentResourceGroup(arg) && arg.resourceStates.length > 0) {
             // Revisions for all files in this group (they should all be the same commit)
@@ -151,7 +160,8 @@ export function extractRevisions(args: unknown[]): string[] {
         }
     }
 
-    return Array.from(new Set(revisions));
+    const uniqueRevisions = Array.from(new Set(revisions));
+    return uniqueRevisions;
 }
 
 /**
@@ -229,9 +239,10 @@ export async function promptForRevision(
                     return;
                 }
                 const filtered = options.filter((item) => {
-                    const detailMatch = item.detail?.startsWith(val);
-                    const labelMatch = item.label.startsWith(val);
-                    return detailMatch || labelMatch;
+                    const detailMatch = item.detail?.toLowerCase().includes(val.toLowerCase());
+                    const labelMatch = item.label.toLowerCase().includes(val.toLowerCase());
+                    const descMatch = item.description?.toLowerCase().includes(val.toLowerCase());
+                    return detailMatch || labelMatch || descMatch;
                 });
                 quickPick.items = filtered;
             });
@@ -385,4 +396,49 @@ export async function maybeFormatDescriptionOnSave(
         scmProvider.sourceControl.inputBox.value = description;
     }
     return description;
+}
+
+/**
+ * Helper to pick a mutable ancestor for a given revision.
+ */
+export async function pickAncestor(jj: JjService, revision: string): Promise<string | undefined> {
+    const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+    const limit = maxMutableAncestors + 1;
+
+    const commitIds = await jj.getLogIds({ revision: `(::${revision} & mutable())`, limit });
+
+    if (commitIds.length <= 1) {
+        vscode.window.showInformationMessage('No mutable ancestors available to squash into.');
+        return undefined;
+    }
+
+    const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
+    const linearAncestors = entries.map((e) => e[0]).filter(Boolean);
+
+    const ancestorsToChoose = linearAncestors.slice(1);
+
+    if (ancestorsToChoose.length === 0) {
+        vscode.window.showInformationMessage('No mutable ancestors available to squash into.');
+        return undefined;
+    }
+
+    const options: vscode.QuickPickItem[] = ancestorsToChoose.map((entry) => {
+        const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
+        const desc = entry.description?.trim() || '(no description)';
+        const shortDesc = desc.split('\n')[0].substring(0, 50);
+
+        return {
+            label: shortId,
+            description: shortDesc,
+            detail: entry.commit_id,
+        };
+    });
+
+    const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Select which ancestor to squash into',
+        matchOnDescription: true,
+        matchOnDetail: true,
+    });
+
+    return selected?.detail;
 }

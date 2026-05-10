@@ -239,14 +239,14 @@
                 "icon": "$(discard)"
             },
             {
-                "command": "jj-view.squash",
-                "title": "Squash",
+                "command": "jj-view.squashRevisionIntoParent",
+                "title": "Squash Revision into Parent",
                 "category": "JJ View",
                 "icon": "$(arrow-down)"
             },
             {
-                "command": "jj-view.squashInto",
-                "title": "Squash into Ancestor",
+                "command": "jj-view.squashRevisionIntoAncestor",
+                "title": "Squash Revision into Ancestor...",
                 "category": "JJ View",
                 "icon": "$(jj-icon-squash-into)"
             },
@@ -304,8 +304,8 @@
                 "icon": "$(source-control)"
             },
             {
-                "command": "jj-view.squashToParentInDiff",
-                "title": "Squash to Parent",
+                "command": "jj-view.squashSelectionIntoParent",
+                "title": "Squash Selection into Parent",
                 "category": "JJ View"
             },
             {
@@ -314,8 +314,8 @@
                 "category": "JJ View"
             },
             {
-                "command": "jj-view.completeSquash",
-                "title": "Complete Squash",
+                "command": "jj-view.completeSquashRevision",
+                "title": "Complete Squash Revision",
                 "category": "JJ View",
                 "icon": "$(check)"
             },
@@ -338,16 +338,28 @@
                 "icon": "$(discard)"
             },
             {
-                "command": "jj-view.squashPartial",
-                "title": "Squash Partial",
+                "command": "jj-view.squashHunkIntoParent",
+                "title": "Squash Hunk into Parent",
                 "category": "JJ View",
                 "icon": "$(repo-pull)"
             },
             {
-                "command": "jj-view.squashFileToChild",
-                "title": "Squash File to Child",
+                "command": "jj-view.squashFilesIntoChild",
+                "title": "Squash File(s) into Child",
                 "category": "JJ View",
                 "icon": "$(arrow-up)"
+            },
+            {
+                "command": "jj-view.squashFilesIntoParent",
+                "title": "Squash File(s) into Parent",
+                "category": "JJ View",
+                "icon": "$(arrow-down)"
+            },
+            {
+                "command": "jj-view.squashFilesIntoAncestor",
+                "title": "Squash File(s) into Ancestor...",
+                "category": "JJ View",
+                "icon": "$(jj-icon-squash-into)"
             },
             {
                 "command": "jj-view.setBookmark",
@@ -463,15 +475,27 @@
         "menus": {
             "commandPalette": [
                 {
-                    "command": "jj-view.squashPartial",
+                    "command": "jj-view.squashHunkIntoParent",
                     "when": "false"
                 },
                 {
-                    "command": "jj-view.squashToParentInDiff",
+                    "command": "jj-view.squashSelectionIntoParent",
                     "when": "false"
                 },
                 {
-                    "command": "jj-view.squashFileToChild",
+                    "command": "jj-view.squashFilesIntoParent",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.squashFilesIntoAncestor",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.squashFilesIntoChild",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.completeSquashRevision",
                     "when": "false"
                 },
                 {
@@ -727,18 +751,23 @@
                     "when": "scmResourceGroup == 'jj.group.workingCopy'"
                 },
                 {
-                    "command": "jj-view.squash",
+                    "command": "jj-view.squashRevisionIntoParent",
                     "group": "inline@3",
                     "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable || scmResourceGroupState == 'jj.group.ancestor:squashable'"
                 },
                 {
-                    "command": "jj-view.showDetails",
+                    "command": "jj-view.squashRevisionIntoAncestor",
                     "group": "inline@4",
+                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable || scmResourceGroupState == 'jj.group.ancestor:squashable'"
+                },
+                {
+                    "command": "jj-view.showDetails",
+                    "group": "inline@5",
                     "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor/"
                 },
                 {
                     "command": "jj-view.edit",
-                    "group": "inline@5",
+                    "group": "inline@6",
                     "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor:(mutable|squashable)/"
                 }
             ],
@@ -759,22 +788,22 @@
                     "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/"
                 },
                 {
-                    "command": "jj-view.squashInto",
+                    "command": "jj-view.squashFilesIntoAncestor",
                     "group": "inline@3",
                     "when": "scmResourceState =~ /jj\\.resource.*:squashable:multi/"
                 },
                 {
-                    "command": "jj-view.squash",
+                    "command": "jj-view.squashFilesIntoParent",
                     "group": "inline@4",
                     "when": "scmResourceState =~ /jj\\.resource.*:squashable/"
                 },
                 {
-                    "command": "jj-view.squashFileToChild",
+                    "command": "jj-view.squashFilesIntoChild",
                     "group": "inline@5",
                     "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
                 },
                 {
-                    "command": "jj-view.squashFileToChild",
+                    "command": "jj-view.squashFilesIntoChild",
                     "group": "inline@6",
                     "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ && jj.hasChild"
                 }
@@ -786,14 +815,14 @@
                     "when": "originalResourceScheme == 'jj-view'"
                 },
                 {
-                    "command": "jj-view.squashPartial",
+                    "command": "jj-view.squashHunkIntoParent",
                     "group": "navigation",
                     "when": "originalResourceScheme == 'jj-view' && jj.parentMutable"
                 }
             ],
             "editor/title": [
                 {
-                    "command": "jj-view.completeSquash",
+                    "command": "jj-view.completeSquashRevision",
                     "group": "navigation",
                     "when": "resourceFilename == 'SQUASH_MSG'"
                 }
@@ -807,7 +836,7 @@
             ],
             "editor/context": [
                 {
-                    "command": "jj-view.squashToParentInDiff",
+                    "command": "jj-view.squashSelectionIntoParent",
                     "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
                 },

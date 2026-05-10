@@ -115,7 +115,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'squash':
                     // Route through extension command to reuse safe squash logic (editor, etc.)
                     // Pass the whole payload
-                    await vscode.commands.executeCommand('jj-view.squash', data.payload);
+                    await vscode.commands.executeCommand('jj-view.squashRevisionIntoParent', data.payload);
                     // Refresh is handled by the command event listener
                     break;
                 case 'edit':

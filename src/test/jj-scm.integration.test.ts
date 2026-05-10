@@ -8,8 +8,9 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
-import { completeSquashCommand, squashCommand } from '../commands/squash';
-import { squashToParentInDiffCommand } from '../commands/squash-partial';
+import { squashFilesIntoParentCommand } from '../commands/squash-files';
+import { completeSquashRevisionCommand, squashRevisionIntoParentCommand } from '../commands/squash-revision';
+import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import { ScmContextValue } from '../jj-context-keys';
 import { type JjResourceState, JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
@@ -36,6 +37,7 @@ suite('JJ SCM Provider Integration Test', () => {
         // Mock context
         const context = createMock<vscode.ExtensionContext>({
             subscriptions: [],
+            storageUri: vscode.Uri.file(path.join(repo.path, '.vscode-storage')),
         });
 
         jj = new JjService(repo.path);
@@ -362,7 +364,7 @@ suite('JJ SCM Provider Integration Test', () => {
         const range = new vscode.Range(1, 0, 1, 5);
         editor.selection = new vscode.Selection(range.start, range.end);
 
-        await squashToParentInDiffCommand(scmProvider, jj, editor);
+        await squashSelectionIntoParentCommand(scmProvider, jj, editor);
 
         // Parent should be: A\nB_mod\nC (B_mod moved, C_mod stays in WC so Parent has original C)
         const parentContent = repo.getFileContent('@-', 'partial-move.txt');
@@ -505,7 +507,7 @@ suite('JJ SCM Provider Integration Test', () => {
             throw new Error('Should find resource state for modified file');
         }
 
-        await squashCommand(scmProvider, jj, [resourceState]);
+        await squashRevisionIntoParentCommand(scmProvider, jj, [resourceState]);
 
         const parentContent = repo.getFileContent('@-', 'squash-test.txt');
         assert.strictEqual(parentContent, 'child content', 'Parent should have squashed content');
@@ -534,7 +536,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.strictEqual(group.resourceStates.length, 2);
 
         // Call command directly
-        await squashCommand(scmProvider, jj, [group]);
+        await squashRevisionIntoParentCommand(scmProvider, jj, [group]);
 
         await scmProvider.refresh({ forceSnapshot: true });
         assert.strictEqual(group.resourceStates.length, 0);
@@ -603,14 +605,14 @@ suite('JJ SCM Provider Integration Test', () => {
         ]);
         await scmProvider.refresh({ forceSnapshot: true });
 
-        await squashCommand(scmProvider, jj, [{ id: 'working-copy' }]);
+        await squashRevisionIntoParentCommand(scmProvider, jj, [{ id: 'working-copy' }]);
 
-        const squashMsgPath = path.join(repo.path, '.jj', 'vscode', 'SQUASH_MSG');
+        const squashMsgPath = path.join(scmProvider.getSquashStorageDir(), 'SQUASH_MSG');
 
         // Verify creation
         assert.ok(require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
 
-        await completeSquashCommand(scmProvider, jj);
+        await completeSquashRevisionCommand(scmProvider, jj);
         assert.ok(!require('node:fs').existsSync(squashMsgPath), 'Cleanup success');
 
         let parentDesc = repo.getDescription('@-');
@@ -628,7 +630,7 @@ suite('JJ SCM Provider Integration Test', () => {
             ._workingCopyGroup;
         const resource = group.resourceStates[0];
 
-        await squashCommand(scmProvider, jj, [resource]);
+        await squashFilesIntoParentCommand(scmProvider, jj, [resource]);
 
         // Verify NO editor files
         assert.ok(!require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should NOT be created for partial squash');
@@ -654,7 +656,7 @@ suite('JJ SCM Provider Integration Test', () => {
         repo.writeFile('f3.txt', 'f3');
         await scmProvider.refresh({ forceSnapshot: true });
 
-        await squashCommand(scmProvider, jj, [{ id: 'working-copy' }]); // Full squash
+        await squashRevisionIntoParentCommand(scmProvider, jj, [{ id: 'working-copy' }]); // Full squash
         assert.ok(
             !require('node:fs').existsSync(squashMsgPath),
             'SQUASH_MSG should NOT be created if child desc empty',
@@ -676,7 +678,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         // Call squash with just the revision string
         try {
-            await squashCommand(scmProvider, jj, [revision]);
+            await squashRevisionIntoParentCommand(scmProvider, jj, [revision]);
         } catch (e) {
             assert.fail(`Squash should not throw when passed a string revision. Error: ${e}`);
         }

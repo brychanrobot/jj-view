@@ -155,7 +155,7 @@ suite('Quick Diff Integration Test', () => {
         });
 
         // Perform squash via the service (simulating user action)
-        await jj.squash();
+        await jj.squashRevision();
         await viewFileSystemProvider.readFile(originalUri);
         await scmProvider.refresh();
 

@@ -28,10 +28,17 @@ import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
 import { restoreCommand } from './commands/restore';
 import { showCurrentChangeCommand } from './commands/show';
-import { completeSquashCommand, squashCommand } from './commands/squash';
-import { squashFileToChildCommand } from './commands/squash-file-to-child';
-import { squashIntoCommand } from './commands/squash-into';
-import { squashPartialCommand, squashToParentInDiffCommand } from './commands/squash-partial';
+import {
+    squashFilesIntoAncestorCommand,
+    squashFilesIntoChildCommand,
+    squashFilesIntoParentCommand,
+} from './commands/squash-files';
+import {
+    completeSquashRevisionCommand,
+    squashRevisionIntoAncestorCommand,
+    squashRevisionIntoParentCommand,
+} from './commands/squash-revision';
+import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from './commands/squash-selection';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
@@ -187,17 +194,17 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squash', async (...args: unknown[]) => {
-            await squashCommand(scmProvider, jj, args);
+        vscode.commands.registerCommand('jj-view.squashRevisionIntoParent', async (...args: unknown[]) => {
+            await squashRevisionIntoParentCommand(scmProvider, jj, args);
         }),
-        vscode.commands.registerCommand('jj-view.squashInto', async (...args: unknown[]) => {
-            await squashIntoCommand(scmProvider, jj, args);
+        vscode.commands.registerCommand('jj-view.squashRevisionIntoAncestor', async (...args: unknown[]) => {
+            await squashRevisionIntoAncestorCommand(scmProvider, jj, args);
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.completeSquash', async () => {
-            await completeSquashCommand(scmProvider, jj);
+        vscode.commands.registerCommand('jj-view.completeSquashRevision', async () => {
+            await completeSquashRevisionCommand(scmProvider, jj);
         }),
     );
 
@@ -208,12 +215,12 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squashToParentInDiff', async () => {
+        vscode.commands.registerCommand('jj-view.squashSelectionIntoParent', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 return;
             }
-            await squashToParentInDiffCommand(scmProvider, jj, editor);
+            await squashSelectionIntoParentCommand(scmProvider, jj, editor);
         }),
     );
 
@@ -240,16 +247,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            'jj-view.squashPartial',
+            'jj-view.squashHunkIntoParent',
             async (uri: vscode.Uri, changes: unknown, index: number) => {
-                await squashPartialCommand(scmProvider, jj, uri, changes, index);
+                await squashHunkIntoParentCommand(scmProvider, jj, uri, changes, index);
             },
         ),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squashFileToChild', async (...args: unknown[]) => {
-            await squashFileToChildCommand(scmProvider, jj, args);
+        vscode.commands.registerCommand('jj-view.squashFilesIntoParent', async (...args: unknown[]) => {
+            await squashFilesIntoParentCommand(scmProvider, jj, args);
+        }),
+        vscode.commands.registerCommand('jj-view.squashFilesIntoChild', async (...args: unknown[]) => {
+            await squashFilesIntoChildCommand(scmProvider, jj, args);
+        }),
+        vscode.commands.registerCommand('jj-view.squashFilesIntoAncestor', async (...args: unknown[]) => {
+            await squashFilesIntoAncestorCommand(scmProvider, jj, args);
         }),
     );
 

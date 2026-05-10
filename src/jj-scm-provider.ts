@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import { getErrorMessage } from './commands/command-utils';
-import { completeSquashCommand } from './commands/squash';
+import { completeSquashRevisionCommand } from './commands/squash-revision';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import type { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -51,7 +53,7 @@ export class JjScmProvider implements vscode.Disposable {
     public decorationProvider: JjDecorationProvider;
 
     constructor(
-        _context: vscode.ExtensionContext,
+        public readonly context: vscode.ExtensionContext,
         public readonly jj: JjService,
         workspaceRoot: string,
         public readonly outputChannel: vscode.OutputChannel,
@@ -105,8 +107,9 @@ export class JjScmProvider implements vscode.Disposable {
             vscode.workspace.onDidCloseTextDocument(async (doc) => {
                 const basename = path.basename(doc.uri.fsPath);
                 if (basename === 'SQUASH_MSG') {
-                    const metaPath = path.join(this.jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_META.json');
-                    const msgPath = path.join(this.jj.workspaceRoot, '.jj', 'vscode', 'SQUASH_MSG');
+                    const storageDir = this.getSquashStorageDir();
+                    const metaPath = path.join(storageDir, 'SQUASH_META.json');
+                    const msgPath = path.join(storageDir, 'SQUASH_MSG');
 
                     // Check if pending squash exists
                     try {
@@ -120,7 +123,7 @@ export class JjScmProvider implements vscode.Disposable {
                         );
 
                         if (choice === 'Complete Squash') {
-                            await completeSquashCommand(this, this.jj);
+                            await completeSquashRevisionCommand(this, this.jj);
                         } else if (choice === 'Abort') {
                             // Cleanup
                             await fs.unlink(metaPath).catch(() => {});
@@ -140,7 +143,20 @@ export class JjScmProvider implements vscode.Disposable {
         this.disposables.push(this._fileWatcher);
 
         // Initial refresh
-        this.refresh({ forceSnapshot: true });
+        this.refresh({ forceSnapshot: true, reason: 'initialization' });
+    }
+
+    /**
+     * Returns the directory used to store temporary state for deferred squash operations.
+     * Uses VS Code's storageUri if available, otherwise falls back to a temporary directory.
+     */
+    public getSquashStorageDir(): string {
+        if (this.context.storageUri) {
+            return this.context.storageUri.fsPath;
+        }
+        // Fallback to OS temp dir if no workspace storage is available
+        const hash = crypto.createHash('md5').update(this.jj.workspaceRoot).digest('hex');
+        return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
     }
 
     private _refreshMutex: Promise<void> = Promise.resolve();
