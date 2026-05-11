@@ -23,6 +23,9 @@ const ONE_MINUTE = 60_000;
 const MUTATION_TIMEOUT_MS = ONE_MINUTE;
 const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
+const IS_WINDOWS = process.platform === 'win32';
+const NO_OP_EDITOR = IS_WINDOWS ? 'cmd.exe /c exit 0' : 'true';
+
 export class JjService {
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
@@ -231,10 +234,8 @@ export class JjService {
                     cwd: this.workspaceRoot,
                     env: {
                         ...process.env,
-                        PAGER: 'cat',
-                        JJ_NO_PAGER: '1',
-                        JJ_EDITOR: 'cat',
-                        EDITOR: 'cat',
+                        JJ_EDITOR: NO_OP_EDITOR,
+                        EDITOR: NO_OP_EDITOR,
                         JJ_VIEW_EXTENSION: '1',
                     },
                     maxBuffer: 100 * 1024 * 1024,
@@ -284,7 +285,7 @@ export class JjService {
     }
 
     async getBookmarks(): Promise<string[]> {
-        const output = await this.run('bookmark', ['list', '--no-pager', '-T', 'name ++ "\n"', '--all-remotes'], {
+        const output = await this.run('bookmark', ['list', '-T', 'name ++ "\n"', '--all-remotes'], {
             useCachedSnapshot: true,
             label: 'getBookmarks',
         });
@@ -1118,9 +1119,6 @@ export class JjService {
                 `merge-tools.${toolName}.program="${program}"`,
                 '--config',
                 `merge-tools.${toolName}.edit-args=${editArgs}`,
-                '--config',
-                'ui.editor="true"',
-                '--no-pager',
                 fileRelPath,
             ];
 
@@ -1132,7 +1130,7 @@ export class JjService {
 
     async absorb(options: { paths?: string[]; fromRevision?: string } = {}): Promise<string> {
         const { paths, fromRevision } = options;
-        const args: string[] = ['--no-pager'];
+        const args: string[] = [];
 
         if (fromRevision) {
             args.push('--from', fromRevision);
@@ -1156,12 +1154,14 @@ export class JjService {
             const timeout = 10000; // 10s safety timeout
             cp.execFile(
                 'git',
-                ['--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths],
+                ['--no-pager', '--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths],
                 {
                     cwd: this.workspaceRoot,
                     maxBuffer: 10 * 1024 * 1024,
                     timeout,
-                    env: { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat' },
+                    env: {
+                        ...process.env,
+                    },
                 },
                 (err, stdout) => {
                     if (err) {
