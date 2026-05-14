@@ -25,7 +25,7 @@ export function computeCommitActions(
 ): { visibleActions: CommitActionStates; vscodeContext: Record<string, unknown> } {
     const visibleActions: CommitActionStates = {
         newChild: !hiddenActions.has('newChild'),
-        edit: !isImmutable && !hiddenActions.has('edit'),
+        edit: !isImmutable && !commit.is_current_working_copy && !hiddenActions.has('edit'),
         squash: !hiddenActions.has('squash') && commit.parents?.length === 1 && !commit.parents[0].is_immutable,
         abandon: !isImmutable && !hiddenActions.has('abandon'),
     };
@@ -48,7 +48,7 @@ export function computeCommitActions(
         'jj.canUpload': !isImmutable && (!isSelected || !hasImmutableSelection),
 
         // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
-        'jj.canEdit': !isImmutable && (!isSelected || selectionCount <= 1),
+        'jj.canEdit': !isImmutable && !commit.is_current_working_copy && (!isSelected || selectionCount <= 1),
         'jj.canDuplicate': !isSelected || selectionCount <= 1,
         'jj.canNewChild': !isSelected || selectionCount <= 1,
 

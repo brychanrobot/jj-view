@@ -33,6 +33,7 @@ describe('computeCommitActions', () => {
             { label: 'B', parents: ['A'] },
         ]);
         const commit = await getCommit(ids.B.changeId);
+        commit.is_current_working_copy = false;
 
         const hiddenActions = new Set<CommitAction>();
         const result = computeCommitActions(commit, hiddenActions, false, false, 0, false);
@@ -65,6 +66,7 @@ describe('computeCommitActions', () => {
             { label: 'B', parents: ['A'] },
         ]);
         const commit = await getCommit(ids.B.changeId);
+        commit.is_current_working_copy = false;
 
         const hiddenActions = new Set<CommitAction>(['newChild', 'squash']);
         const result = computeCommitActions(commit, hiddenActions, false, false, 0, false);
@@ -102,6 +104,7 @@ describe('computeCommitActions', () => {
     it('should handle selection states correctly', async () => {
         const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
         const commit = await getCommit(ids.A.changeId);
+        commit.is_current_working_copy = false;
 
         // Single selection
         const result1 = computeCommitActions(commit, new Set(), false, true, 1, false);
@@ -153,6 +156,7 @@ describe('computeCommitActions', () => {
             { label: 'B', parents: ['A'] },
         ]);
         const commit = await getCommit(ids.B.changeId);
+        commit.is_current_working_copy = false;
 
         // Selected in multi-selection
         const result1 = computeCommitActions(commit, new Set(), false, true, 2, false);
@@ -190,5 +194,17 @@ describe('computeCommitActions', () => {
         const result2 = computeCommitActions(commit, new Set(), false, true, 2, false);
         expect(result2.vscodeContext['jj.canNewChild']).toBe(false);
         expect(result2.vscodeContext['jj.canDuplicate']).toBe(false);
+    });
+
+    it('should hide Edit for current working copy', async () => {
+        const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
+        const commit = await getCommit(ids.A.changeId);
+        // Simulate working copy
+        commit.is_current_working_copy = true;
+
+        const result = computeCommitActions(commit, new Set(), false, false, 0, false);
+
+        expect(result.visibleActions.edit).toBe(false);
+        expect(result.vscodeContext['jj.canEdit']).toBe(false);
     });
 });
