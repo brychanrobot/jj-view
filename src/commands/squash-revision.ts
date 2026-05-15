@@ -107,6 +107,15 @@ export async function squashRevisionIntoAncestorCommand(scmProvider: JjScmProvid
     }
 }
 
+const inProgressCompletions = new Set<string>();
+
+/**
+ * Checks if a squash operation is currently being completed for the given provider.
+ */
+export function isSquashInProgress(scmProvider: JjScmProvider): boolean {
+    return inProgressCompletions.has(scmProvider.getSquashStorageDir());
+}
+
 /**
  * Performs the squash operation, handling descriptions and potentially opening an editor.
  */
@@ -149,14 +158,14 @@ async function openSquashDescriptionEditor(
     parentDesc: string,
 ) {
     // 1. Combine descriptions
-    const combined = `${parentDesc}\n\n${sourceDesc}`.trim();
+    const combined = `${parentDesc.trim()}\n\n${sourceDesc.trim()}`;
 
     // 3. Write to temporary file
     const storageDir = scmProvider.getSquashStorageDir();
     const squashMsgPath = path.join(storageDir, 'SQUASH_MSG');
     await fs.mkdir(storageDir, { recursive: true });
 
-    const content = `${combined}\n\n# Please enter the commit message for your changes.\n# Lines starting with '#' will be ignored.\n# When finished, run the "Complete Squash" command or click the checkmark button in the editor title.`;
+    const content = `${combined}\n\nJJ: Please enter the commit message for your changes.\nJJ: Lines starting with "JJ:" will be ignored.\nJJ: When finished, save this file to complete the squash, or click the checkmark button in the editor title.`;
 
     await fs.writeFile(squashMsgPath, content);
 
@@ -172,10 +181,16 @@ async function openSquashDescriptionEditor(
     await fs.writeFile(path.join(storageDir, 'SQUASH_META.json'), JSON.stringify(meta));
 }
 
-export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, jj: JjService) {
+export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, jj: JjService, message: string) {
     const storageDir = scmProvider.getSquashStorageDir();
     const metaPath = path.join(storageDir, 'SQUASH_META.json');
     const msgPath = path.join(storageDir, 'SQUASH_MSG');
+
+    if (inProgressCompletions.has(storageDir)) {
+        return;
+    }
+
+    inProgressCompletions.add(storageDir);
 
     try {
         const metaContent = await fs.readFile(metaPath, 'utf-8');
@@ -185,37 +200,22 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
         }
         const { revision, parentRev } = metaRaw;
 
-        // Read message from editor (or file on disk)
-        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
-        let message = '';
-        if (doc) {
-            if (doc.isDirty) {
-                await doc.save();
-            }
-            message = doc.getText();
-        } else {
-            message = await fs.readFile(msgPath, 'utf-8');
-        }
-
         // Strip comments
-        message = message
+        const finalMessage = message
             .split('\n')
-            .filter((line) => !line.startsWith('#'))
+            .filter((line) => !line.startsWith('JJ:'))
             .join('\n')
             .trim();
 
-        if (message.length === 0) {
+        if (finalMessage.length === 0) {
             vscode.window.showWarningMessage('Squash message is empty. Aborting.');
             return;
         }
 
         await withDelayedProgress(
             'Squashing revision...',
-            jj.squashRevision({ revision, intoRevision: parentRev, message }),
+            jj.squashRevision({ revision, intoRevision: parentRev, message: finalMessage }),
         );
-
-        await fs.unlink(metaPath).catch(() => {});
-        await fs.unlink(msgPath).catch(() => {});
 
         await scmProvider.refresh({ reason: 'after complete squash revision' });
         vscode.window.showInformationMessage('Squash completed.');
@@ -225,5 +225,16 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
         } else {
             await showJjError(e, 'Failed to complete squash revision', jj, scmProvider.outputChannel);
         }
+    } finally {
+        await fs.unlink(metaPath).catch(() => {});
+        await fs.unlink(msgPath).catch(() => {});
+
+        // Close the editor if it's still open
+        const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+        const tab = tabs.find((t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath === msgPath);
+        if (tab) {
+            await vscode.window.tabGroups.close(tab);
+        }
+        inProgressCompletions.delete(storageDir);
     }
 }

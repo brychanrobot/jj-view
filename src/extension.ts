@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { abandonCommand } from './commands/abandon';
 import { absorbCommand } from './commands/absorb';
@@ -204,7 +205,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.completeSquashRevision', async () => {
-            await completeSquashRevisionCommand(scmProvider, jj);
+            const storageDir = scmProvider.getSquashStorageDir();
+            const msgPath = path.join(storageDir, 'SQUASH_MSG');
+            const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
+            if (doc) {
+                if (doc.isDirty) {
+                    await doc.save();
+                }
+                await completeSquashRevisionCommand(scmProvider, jj, doc.getText());
+            }
         }),
     );
 

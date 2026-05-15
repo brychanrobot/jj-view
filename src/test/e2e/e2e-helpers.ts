@@ -405,6 +405,7 @@ export const SCM_ACTIONS = {
     ShowDetails: 'Show Details',
     Edit: 'Edit',
     MultiFileDiff: 'Multi-File Diff',
+    CompleteSquashRevision: 'Complete Squash Revision',
 } as const;
 
 /**
@@ -435,6 +436,7 @@ export async function clickScmAction(page: Page, rowName: string | RegExp, actio
                 [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
                 [SCM_ACTIONS.Edit]: '.codicon-edit',
                 [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
+                [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
             };
             const cls = iconMap[actionTitle];
             if (cls) {
@@ -906,4 +908,25 @@ export async function clickContextMenuItem(page: Page, label: string | RegExp) {
         // Wait for menu to disappear
         await expect(menu).not.toBeVisible({ timeout: 2000 });
     }, `Failed to click context menu item "${label}"`).toPass({ timeout: 5000 });
+}
+/**
+ * Saves the active editor using the platform-specific shortcut.
+ */
+export async function saveActiveEditor(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+}
+
+/**
+ * Clears all text in the active editor.
+ */
+export async function clearActiveEditor(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+a' : 'Control+a');
+    await page.keyboard.press('Backspace');
+}
+
+/**
+ * Closes the active editor using the platform-specific shortcut.
+ */
+export async function closeActiveEditor(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+w' : 'Control+w');
 }

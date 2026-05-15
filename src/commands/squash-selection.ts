@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getRevisionFromUri } from '../uri-utils';
 import { showJjError } from './command-utils';
 
 interface LineChange {
@@ -67,13 +68,7 @@ export async function squashHunkIntoParentCommand(
 
     const ranges = [{ startLine, endLine }];
     const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
-
-    const originalUri = scmProvider.provideOriginalResource(uri);
-    let revision = '@';
-    if (originalUri && originalUri instanceof vscode.Uri && originalUri.query) {
-        const queryParams = new URLSearchParams(originalUri.query);
-        revision = queryParams.get('base') || '@';
-    }
+    const revision = getRevisionFromUri(uri) || '@';
 
     try {
         await jj.squashSelectionIntoParent(relPath, ranges, revision);
@@ -108,8 +103,8 @@ export async function squashSelectionIntoParentCommand(
     const fsPath = docUri.fsPath;
     const relPath = path.relative(jj.workspaceRoot, fsPath);
 
-    const query = new URLSearchParams(docUri.query);
-    const revision = query.get('jj-revision') || '@';
+    const revision = getRevisionFromUri(docUri) || '@';
+    scmProvider.outputChannel.appendLine(`Squashing selection from ${revision} into parent.`);
 
     const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
 

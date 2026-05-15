@@ -977,4 +977,79 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('Squash selection into parent via non-working copy diff editor context menu', async () => {
+        const repo = new TestRepo();
+        repo.init();
+
+        const fileName = 'squash-selection-non-wc-e2e.txt';
+        const fileContentOriginal = 'line 1\nline 2\nline 3\nline 4\nline 5\n';
+        const fileContentPartiallyModified = 'line 1\nline 2 modified\nline 3\nline 4\nline 5\n';
+        const fileContentFullyModified = 'line 1\nline 2 modified\nline 3\nline 4 modified\nline 5\n';
+
+        const ids = await buildGraph(repo, [
+            {
+                label: 'root',
+                files: { [fileName]: fileContentOriginal },
+            },
+            {
+                label: 'parent',
+                parents: ['root'],
+                description: 'parent commit',
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child commit',
+                files: { [fileName]: fileContentFullyModified },
+            },
+            {
+                label: 'wc',
+                parents: ['child'],
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusSCM(page);
+
+            // 1. Open Diff Editor for the 'child' commit
+            // The group name in SCM for 'child' will be its description 'child commit'
+            await openScmDiff(page, fileName, /child commit/);
+
+            // 2. Select the FIRST modified line in the right side (line 2)
+            // In a non-WC diff, the right side is the 'child' commit
+            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+            const line2 = await selectLine(page, rightEditor, 'line 2 modified');
+
+            // 3. Open Context Menu on the selected line and click "Squash Selection into Parent"
+            await line2.click({ button: 'right' });
+            await clickContextMenuItem(page, /Squash Selection into Parent/i);
+
+            // 4. Verify the change is moved to the parent in JJ
+            await expect(async () => {
+                const parentContent = repo.getFileContent(ids.parent.changeId, fileName);
+                const childContent = repo.getFileContent(ids.child.changeId, fileName);
+
+                // Parent should now have the squashed modification
+                expect(parentContent).toBe(fileContentPartiallyModified);
+
+                // Child should still have its original content (but only line 4 is now "new" relative to parent)
+                expect(childContent).toBe(fileContentFullyModified);
+
+                // Check diff of child to be sure
+                const childDiff = repo.getDiff(ids.child.changeId, { git: true });
+                expect(childDiff).toContain('+line 4 modified');
+                expect(childDiff).not.toContain('+line 2 modified');
+            }).toPass({ timeout: 15000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

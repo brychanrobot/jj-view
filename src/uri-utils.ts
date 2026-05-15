@@ -93,3 +93,12 @@ export function createDiffUris(
 
     return { leftUri, rightUri, resourceUri };
 }
+
+/**
+ * Extract a revision ID from a URI query.
+ * Handles jj-revision (SCM resource), revision (jj-edit), and base (jj-view diff).
+ */
+export function getRevisionFromUri(uri: vscode.Uri): string | undefined {
+    const query = new URLSearchParams(uri.query);
+    return query.get('jj-revision') || query.get('revision') || query.get('base') || undefined;
+}

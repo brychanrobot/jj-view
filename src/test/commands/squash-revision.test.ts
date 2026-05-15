@@ -7,7 +7,11 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { pickAncestor } from '../../commands/command-utils';
-import { squashRevisionIntoAncestorCommand, squashRevisionIntoParentCommand } from '../../commands/squash-revision';
+import {
+    completeSquashRevisionCommand,
+    squashRevisionIntoAncestorCommand,
+    squashRevisionIntoParentCommand,
+} from '../../commands/squash-revision';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
@@ -20,10 +24,17 @@ vi.mock('vscode', async () => {
         window: {
             showQuickPick: vi.fn(),
             showTextDocument: vi.fn(),
+            tabGroups: {
+                all: [],
+                close: vi.fn(),
+            },
         },
         workspace: {
             openTextDocument: vi.fn(),
             textDocuments: [],
+        },
+        TabInputText: class MockTabInputText {
+            constructor(public uri: vscode.Uri) {}
         },
     });
 });
@@ -324,5 +335,142 @@ describe('squashRevisionIntoParentCommand', () => {
         await squashRevisionIntoParentCommand(scmProvider, jj, ['root()']);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Cannot squash a root revision.');
+    });
+
+    test('completeSquashRevisionCommand completes squash and closes editor', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'parent', description: 'Parent' },
+            { label: 'child', parents: ['parent'], description: 'Child', isCurrentWorkingCopy: true },
+        ]);
+
+        const storageDir = scmProvider.getSquashStorageDir();
+        fs.mkdirSync(storageDir, { recursive: true });
+        const metaPath = path.join(storageDir, 'SQUASH_META.json');
+        const msgPath = path.join(storageDir, 'SQUASH_MSG');
+
+        fs.writeFileSync(metaPath, JSON.stringify({ revision: '@', parentRev: ids.parent.commitId }));
+        fs.writeFileSync(msgPath, 'New combined description\n\n# Comment');
+
+        // Mock open editor
+        const msgUri = vscode.Uri.file(msgPath);
+        const mockDoc = createMock<vscode.TextDocument>({
+            uri: msgUri,
+            isDirty: false,
+            getText: vi.fn().mockReturnValue('New combined description\n\n# Comment'),
+        });
+        Object.defineProperty(vscode.workspace, 'textDocuments', {
+            value: [mockDoc],
+            configurable: true,
+        });
+
+        // Mock tab for closing
+        const mockTab = createMock<vscode.Tab>({
+            input: new vscode.TabInputText(msgUri),
+        });
+        Object.defineProperty(vscode.window.tabGroups, 'all', {
+            value: [
+                createMock<vscode.TabGroup>({
+                    tabs: [mockTab],
+                }),
+            ],
+            configurable: true,
+        });
+
+        await completeSquashRevisionCommand(scmProvider, jj, 'New combined description');
+
+        // Verify squash happened
+        expect(repo.getDescription('@-')).toBe('New combined description');
+
+        // Verify files cleaned up
+        expect(fs.existsSync(metaPath)).toBe(false);
+        expect(fs.existsSync(msgPath)).toBe(false);
+
+        // Verify editor closed
+        expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(mockTab);
+    });
+
+    test('completeSquashRevisionCommand prevents concurrent execution', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'parent', description: 'Parent' },
+            { label: 'child', parents: ['parent'], description: 'Child', isCurrentWorkingCopy: true },
+        ]);
+
+        const storageDir = scmProvider.getSquashStorageDir();
+        fs.mkdirSync(storageDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(storageDir, 'SQUASH_META.json'),
+            JSON.stringify({ revision: '@', parentRev: ids.parent.commitId }),
+        );
+        fs.writeFileSync(path.join(storageDir, 'SQUASH_MSG'), 'Desc');
+
+        // Slow down squash
+        const originalSquash = jj.squashRevision.bind(jj);
+        vi.spyOn(jj, 'squashRevision').mockImplementation(async (opts) => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            return originalSquash(opts);
+        });
+
+        // Trigger twice
+        const p1 = completeSquashRevisionCommand(scmProvider, jj, 'm1');
+        const p2 = completeSquashRevisionCommand(scmProvider, jj, 'm2');
+
+        await Promise.all([p1, p2]);
+
+        // Should only have called squashRevision once
+        expect(jj.squashRevision).toHaveBeenCalledTimes(1);
+    });
+
+    test('completeSquashRevisionCommand unlinks files and closes editor when message is empty', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'parent', description: 'Parent' },
+            { label: 'child', parents: ['parent'], description: 'Child', isCurrentWorkingCopy: true },
+        ]);
+
+        const storageDir = scmProvider.getSquashStorageDir();
+        fs.mkdirSync(storageDir, { recursive: true });
+        const metaPath = path.join(storageDir, 'SQUASH_META.json');
+        const msgPath = path.join(storageDir, 'SQUASH_MSG');
+
+        fs.writeFileSync(metaPath, JSON.stringify({ revision: '@', parentRev: ids.parent.commitId }));
+        fs.writeFileSync(msgPath, 'JJ: comment only');
+
+        // Mock open editor
+        const msgUri = vscode.Uri.file(msgPath);
+        const mockDoc = createMock<vscode.TextDocument>({
+            uri: msgUri,
+            isDirty: false,
+            getText: vi.fn().mockReturnValue('JJ: comment only'),
+        });
+        Object.defineProperty(vscode.workspace, 'textDocuments', {
+            value: [mockDoc],
+            configurable: true,
+        });
+
+        // Mock tab for closing
+        const mockTab = createMock<vscode.Tab>({
+            input: new vscode.TabInputText(msgUri),
+        });
+        Object.defineProperty(vscode.window.tabGroups, 'all', {
+            value: [
+                createMock<vscode.TabGroup>({
+                    tabs: [mockTab],
+                }),
+            ],
+            configurable: true,
+        });
+
+        // Call completeSquashRevisionCommand with empty message or comments only
+        await completeSquashRevisionCommand(scmProvider, jj, 'JJ: comment only');
+
+        // Verify squash did NOT happen (parent description remains unchanged)
+        expect(repo.getDescription('@-')).toBe('Parent');
+
+        // Verify files cleaned up
+        expect(fs.existsSync(metaPath)).toBe(false);
+        expect(fs.existsSync(msgPath)).toBe(false);
+
+        // Verify editor closed
+        expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(mockTab);
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Squash message is empty. Aborting.');
     });
 });

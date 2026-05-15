@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
+import * as vscode from 'vscode';
 import type { JjStatusEntry } from '../jj-types';
-import { createDiffUris } from '../uri-utils';
+import { createDiffUris, getRevisionFromUri } from '../uri-utils';
 
 // Mock vscode
 vi.mock('vscode', async () => {
@@ -165,5 +166,54 @@ describe('createDiffUris', () => {
         });
 
         expect(rightUri.scheme).toBe('file');
+    });
+});
+
+describe('getRevisionFromUri', () => {
+    it('returns undefined for URIs without revision parameters', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt');
+        expect(getRevisionFromUri(uri)).toBeUndefined();
+    });
+
+    it('extracts revision from jj-revision parameter', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: 'jj-revision=rev123',
+        });
+        expect(getRevisionFromUri(uri)).toBe('rev123');
+    });
+
+    it('extracts revision from revision parameter (jj-edit style)', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: 'revision=edit-rev',
+        });
+        expect(getRevisionFromUri(uri)).toBe('edit-rev');
+    });
+
+    it('extracts revision from base parameter (jj-view style)', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: 'base=view-rev&side=right',
+        });
+        expect(getRevisionFromUri(uri)).toBe('view-rev');
+    });
+
+    it('prioritizes jj-revision over others', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: 'jj-revision=primary&revision=secondary&base=tertiary',
+        });
+        expect(getRevisionFromUri(uri)).toBe('primary');
+    });
+
+    it('prioritizes revision over base', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: 'revision=secondary&base=tertiary',
+        });
+        expect(getRevisionFromUri(uri)).toBe('secondary');
+    });
+
+    it('returns undefined for empty query', () => {
+        const uri = vscode.Uri.file('/path/to/file.txt').with({
+            query: '',
+        });
+        expect(getRevisionFromUri(uri)).toBeUndefined();
     });
 });

@@ -177,6 +177,80 @@ describe('squash-selection commands', () => {
 
             expect(scmProvider.refresh).toHaveBeenCalled();
         });
+
+        test('squashes selection from jj-edit editor', async () => {
+            const fileName = 'file.txt';
+            const ids = await buildGraph(repo, [
+                {
+                    label: 'root',
+                    files: { [fileName]: 'line1\nline2\nline3\n' },
+                },
+                {
+                    label: 'modified',
+                    parents: ['root'],
+                    files: {
+                        [fileName]: 'line1\nmodified2\nline3\n',
+                    },
+                },
+            ]);
+
+            // URI using 'revision' parameter (jj-edit style)
+            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+                scheme: 'jj-edit',
+                query: `revision=${ids.modified.changeId}`,
+            });
+
+            // Select the modification (line 2)
+            const mockEditor = createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({
+                    uri,
+                }),
+                selections: [new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 10))],
+            });
+
+            await squashSelectionIntoParentCommand(scmProvider, jj, mockEditor);
+
+            // Parent (root) should have the modification
+            const parentContent = repo.getFileContent(ids.root.changeId, fileName);
+            expect(parentContent).toBe('line1\nmodified2\nline3\n');
+        });
+
+        test('squashes selection from jj-view diff editor', async () => {
+            const fileName = 'file.txt';
+            const ids = await buildGraph(repo, [
+                {
+                    label: 'root',
+                    files: { [fileName]: 'line1\nline2\nline3\n' },
+                },
+                {
+                    label: 'modified',
+                    parents: ['root'],
+                    files: {
+                        [fileName]: 'line1\nmodified2\nline3\n',
+                    },
+                },
+            ]);
+
+            // URI using 'base' parameter (jj-view style)
+            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+                scheme: 'jj-view',
+                query: `base=${ids.modified.changeId}&side=right`,
+            });
+
+            // Select the modification (line 2)
+            const mockEditor = createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({
+                    uri,
+                }),
+                selections: [new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 10))],
+            });
+
+            await squashSelectionIntoParentCommand(scmProvider, jj, mockEditor);
+
+            // Parent (root) should have the modification
+            const parentContent = repo.getFileContent(ids.root.changeId, fileName);
+            expect(parentContent).toBe('line1\nmodified2\nline3\n');
+        });
     });
 });
 

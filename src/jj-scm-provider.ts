@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import { getErrorMessage } from './commands/command-utils';
-import { completeSquashRevisionCommand } from './commands/squash-revision';
+import { completeSquashRevisionCommand, isSquashInProgress } from './commands/squash-revision';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import type { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -89,7 +89,6 @@ export class JjScmProvider implements vscode.Disposable {
         this.disposables.push(
             vscode.workspace.onDidSaveTextDocument(async (doc) => {
                 if (doc.uri.scheme === 'jj-merge-output') {
-                    // ... (existing merge logic)
                     const query = new URLSearchParams(doc.uri.query);
                     const fsPath = query.get('path');
                     if (fsPath) {
@@ -103,34 +102,45 @@ export class JjScmProvider implements vscode.Disposable {
             }),
         );
 
+        // Finalize squash when the SQUASH_MSG tab is closed.
+        //
+        // RATIONALE: We use onDidChangeTabs rather than onDidCloseTextDocument because:
+        // 1. TextDocument disposal is often delayed by VS Code's internal cache, whereas
+        //    tab closure is an immediate UI signal that matches terminal "editor exit".
+        // 2. By accessing doc.getText() at the moment of closure, we avoid a race condition
+        //    where jj might read the file from disk before VS Code has finished an async save.
+        // 3. We check doc.isDirty to respect the user's "Don't Save" choice. If it's still
+        //    dirty on close, we revert to the original disk content.
         this.disposables.push(
-            vscode.workspace.onDidCloseTextDocument(async (doc) => {
-                const basename = path.basename(doc.uri.fsPath);
-                if (basename === 'SQUASH_MSG') {
-                    const storageDir = this.getSquashStorageDir();
-                    const metaPath = path.join(storageDir, 'SQUASH_META.json');
-                    const msgPath = path.join(storageDir, 'SQUASH_MSG');
+            vscode.window.tabGroups.onDidChangeTabs(async (e) => {
+                for (const tab of e.closed) {
+                    if (
+                        tab.input instanceof vscode.TabInputText &&
+                        path.basename(tab.input.uri.fsPath) === 'SQUASH_MSG'
+                    ) {
+                        const msgUri = tab.input.uri;
 
-                    // Check if pending squash exists
-                    try {
-                        await fs.access(metaPath);
-                        // Prompt user
-                        const choice = await vscode.window.showInformationMessage(
-                            'Pending squash description detected. Do you want to complete the squash?',
-                            { modal: true },
-                            'Complete Squash',
-                            'Abort',
-                        );
+                        const storageDir = this.getSquashStorageDir();
+                        const metaPath = path.join(storageDir, 'SQUASH_META.json');
 
-                        if (choice === 'Complete Squash') {
-                            await completeSquashRevisionCommand(this, this.jj);
-                        } else if (choice === 'Abort') {
-                            // Cleanup
-                            await fs.unlink(metaPath).catch(() => {});
-                            await fs.unlink(msgPath).catch(() => {});
+                        try {
+                            await fs.access(metaPath);
+                            if (isSquashInProgress(this)) {
+                                return;
+                            }
+
+                            // If the document is not dirty, it was either saved or never changed.
+                            // If it IS dirty, the user chose "Don't Save", so we read the original from disk.
+                            const doc = vscode.workspace.textDocuments.find(
+                                (d) => d.uri.toString() === msgUri.toString(),
+                            );
+                            const message =
+                                doc && !doc.isDirty ? doc.getText() : await fs.readFile(msgUri.fsPath, 'utf-8');
+
+                            await completeSquashRevisionCommand(this, this.jj, message);
+                        } catch {
+                            // No pending squash, ignore
                         }
-                    } catch {
-                        // No pending squash, ignore
                     }
                 }
             }),

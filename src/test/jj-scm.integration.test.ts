@@ -612,7 +612,7 @@ suite('JJ SCM Provider Integration Test', () => {
         // Verify creation
         assert.ok(require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
 
-        await completeSquashRevisionCommand(scmProvider, jj);
+        await completeSquashRevisionCommand(scmProvider, jj, 'Parent Desc\n\nChild Desc');
         assert.ok(!require('node:fs').existsSync(squashMsgPath), 'Cleanup success');
 
         let parentDesc = repo.getDescription('@-');
