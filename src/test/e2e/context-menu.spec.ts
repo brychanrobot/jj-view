@@ -348,7 +348,7 @@ test.describe('JJ Log Context Menu E2E', () => {
             await rightClickAndSelect(page, commit1Row, 'Set Bookmark');
 
             // Wait for QuickPick/InputBox to appear. The InputBox has an input.input element.
-            const quickInput = page.locator('.quick-input-widget');
+            const quickInput = page.locator('.quick-input-widget').filter({ visible: true });
             const input = quickInput.locator('input.input');
             await expect(input).toBeVisible({ timeout: 5000 });
 

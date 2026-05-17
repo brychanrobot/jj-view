@@ -77,10 +77,26 @@ You MUST run individual test cases when writing a new test or debugging a broken
 
 - **Run a single test case (Required):** Use the `-g` flag for grep.
   You can also provide the filename to narrow it down further, but just using `-g` with a unique pattern is often more convenient.
+  
+  > [!IMPORTANT]
+  > **Playwright's `-g` / `--grep` uses Regular Expressions, not literal strings!**
+  > If a test name contains special regex characters like parentheses `()`, brackets `[]`, dots `.`, or asterisks `*`, a raw literal match will fail or behave unexpectedly (e.g. `(foo)` is interpreted as a regex capture group, not literal parentheses).
+  >
+  > To match these correctly:
+  > 1. Use the `.*` wildcard to bypass the special characters entirely.
+  > 2. Or, escape the special characters with backslashes (e.g. `\(` and `\)`).
+
   When debugging a flaky test, append `--repeat-each 5 --max-failures 1` to run it multiple times and fail fast.
     ```bash
-    pnpm test:e2e [-g "<test-name>"] [<filename>] [--repeat-each 5 --max-failures 1]
-    # Examples:
+    pnpm test:e2e [-g "<test-name-regex>"] [<filename>] [--repeat-each 5 --max-failures 1]
+    # Examples using wildcards (Recommended):
+    # pnpm test:e2e -g "Compare All Files with Revision.*Arbitrary"
+    # pnpm test:e2e -g "Compare File with Revision.*Ancestor"
+    #
+    # Examples with literal escaping:
+    # pnpm test:e2e -g "Compare File with Revision\.\.\. \(Arbitrary\)"
+    #
+    # Basic examples:
     # pnpm test:e2e -g "Additional Actions"
     # pnpm test:e2e scm.spec.ts -g "squash"
     ```

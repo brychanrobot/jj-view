@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'node:fs';
-import { expect, type Page, test } from '@playwright/test';
+import { type Page, test } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
@@ -12,7 +12,8 @@ import {
     focusJJLog,
     launchVSCode,
     openFileInEditor,
-    waitForQuickInput,
+    openQuickInputWithShortcut,
+    pickQuickPickItem,
     waitForTab,
 } from './e2e-helpers';
 
@@ -26,22 +27,13 @@ test.describe('Arbitrary Diff E2E', () => {
     async function compareWithRevision(
         page: Page,
         shortcut: string,
-        revision: string,
+        searchQuery: string,
         tabNamePattern: RegExp,
+        submitAsArbitraryText: boolean = false,
     ): Promise<void> {
-        await expect(async () => {
-            await page.keyboard.press(shortcut);
-            const input = await waitForQuickInput(page, 2000);
-            await input.fill(revision);
-            await page.waitForTimeout(200); // Wait for VS Code to register the fill
-            await page.keyboard.press('Enter');
-
-            // 1. Ensure quick input is dismissed
-            await expect(page.locator('.quick-input-widget')).not.toBeVisible({ timeout: 3000 });
-
-            // 2. Ensure the tab appears
-            await waitForTab(page, tabNamePattern);
-        }, `Failed to compare with revision "${revision}" via shortcut "${shortcut}"`).toPass({ timeout: 20000 });
+        await openQuickInputWithShortcut(page, shortcut);
+        await pickQuickPickItem(page, searchQuery, { submitAsArbitraryText });
+        await waitForTab(page, tabNamePattern);
     }
 
     test.beforeEach(async () => {
@@ -99,8 +91,8 @@ test.describe('Arbitrary Diff E2E', () => {
         await compareWithRevision(
             page,
             'Control+Alt+c',
-            commit1Id,
-            new RegExp(`^Compare ${commit1Id.substring(0, 4)}`),
+            'commit1',
+            new RegExp(`^Compare ${commit1Id.substring(0, 3)}`),
         );
         await expectModifiedFiles(page, ['f.txt']);
     });
@@ -111,7 +103,8 @@ test.describe('Arbitrary Diff E2E', () => {
             page,
             'Control+Alt+c',
             branchC1Id,
-            new RegExp(`^Compare ${branchC1Id.substring(0, 4)}`),
+            new RegExp(`^Compare ${branchC1Id.substring(0, 3)}`),
+            true,
         );
         await expectModifiedFiles(page, ['f.txt', 'g.txt']);
     });
@@ -122,8 +115,8 @@ test.describe('Arbitrary Diff E2E', () => {
         await compareWithRevision(
             page,
             'Control+Alt+f',
-            commit1Id,
-            new RegExp(`f\\.txt \\(${commit1Id.substring(0, 4)}`),
+            'commit1',
+            new RegExp(`f\\.txt \\(${commit1Id.substring(0, 3)}`),
         );
     });
 
@@ -134,7 +127,8 @@ test.describe('Arbitrary Diff E2E', () => {
             page,
             'Control+Alt+f',
             branchC1Id,
-            new RegExp(`f\\.txt \\(${branchC1Id.substring(0, 4)}`),
+            new RegExp(`f\\.txt \\(${branchC1Id.substring(0, 3)}`),
+            true,
         );
     });
 });

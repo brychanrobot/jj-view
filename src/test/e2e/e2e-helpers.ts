@@ -561,9 +561,28 @@ export async function clickNotificationButton(page: Page, actionLabel: string) {
  * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
  */
 export async function waitForQuickInput(page: Page, timeout: number = 10000): Promise<Locator> {
-    const quickInput = page.locator('.quick-input-widget');
+    const quickInput = page.locator('.quick-input-widget').filter({ visible: true });
     const input = quickInput.locator('input.input');
     await expect(input).toBeVisible({ timeout });
+    return input;
+}
+
+/**
+ * Robustly presses a shortcut key to open the QuickInput widget, retrying if VS Code ignores the keypress.
+ */
+export async function openQuickInputWithShortcut(page: Page, shortcut: string): Promise<Locator> {
+    const quickInput = page.locator('.quick-input-widget');
+    const input = quickInput.locator('input.input');
+
+    // Ensure any leftover quick input is closed first
+    await expect(quickInput).not.toBeVisible({ timeout: 5000 });
+
+    await expect(async () => {
+        if (!(await input.isVisible())) {
+            await page.keyboard.press(shortcut);
+        }
+        await waitForQuickInput(page, 200);
+    }, `Failed to open quick input via shortcut "${shortcut}"`).toPass({ timeout: 20000 });
     return input;
 }
 
@@ -693,17 +712,32 @@ export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
  * Robustly opens a file via the File Explorer tree view.
  */
 export async function openFileInEditor(page: Page, fileName: string): Promise<Locator> {
-    await expect(async () => {
-        await page.keyboard.press('Control+Shift+E');
-        const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
-        await expect(fileRowInExplorer).toBeVisible({ timeout: 5000 });
-        await fileRowInExplorer.click();
+    const explorerPane = page.locator('#workbench\\.view\\.explorer');
+    const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
+    const tab = page.getByRole('tab', { name: fileName, selected: true });
 
-        await expect(page.getByRole('tab', { name: fileName, selected: true })).toBeVisible({ timeout: 5000 });
+    await expect(async () => {
+        // Ensure Explorer sidebar is open
+        if (!(await explorerPane.isVisible())) {
+            await page.keyboard.press('Control+Shift+E');
+            await expect(explorerPane).toBeVisible({ timeout: 200 });
+        }
+
+        // If the file tab is already open and selected, we don't need to click anything
+        if (await tab.isVisible()) {
+            const editor = page.locator('.editor-group-container.active .monaco-editor').first();
+            if (await editor.isVisible()) {
+                return;
+            }
+        }
+
+        await expect(fileRowInExplorer).toBeVisible({ timeout: 200 });
+        await fileRowInExplorer.click();
+        await expect(tab).toBeVisible({ timeout: 200 });
 
         const editor = page.locator('.editor-group-container.active .monaco-editor').first();
-        await expect(editor).toBeVisible({ timeout: 5000 });
-    }, `Failed to open file "${fileName}" in editor`).toPass({ timeout: 20000 });
+        await expect(editor).toBeVisible({ timeout: 200 });
+    }, `Failed to open file "${fileName}" in editor`).toPass({ timeout: 7000 });
 
     return page.locator('.editor-group-container.active .monaco-editor').first();
 }
@@ -862,15 +896,34 @@ export async function getDetailsWebview(page: Page): Promise<Frame> {
     return guestFrame;
 }
 
-export async function pickQuickPickItem(page: Page, label: string | RegExp) {
+export async function pickQuickPickItem(
+    page: Page,
+    label: string | RegExp,
+    options?: { submitAsArbitraryText?: boolean },
+) {
     await expect(async () => {
-        await waitForQuickInput(page);
-        const quickPick = page.locator('.quick-input-widget');
+        const input = await waitForQuickInput(page);
 
-        // Find the item by text within the quickpick list
-        const item = quickPick.locator('.monaco-list-row').filter({ hasText: label }).first();
-        await expect(item).toBeVisible({ timeout: 2000 });
-        await item.click();
+        // If it's a string, type/fill it to filter the quick pick list
+        if (typeof label === 'string') {
+            await input.focus();
+            await input.fill(label);
+            await expect(input).toHaveValue(label);
+        }
+
+        const quickPick = page.locator('.quick-input-widget').filter({ visible: true });
+
+        if (options?.submitAsArbitraryText) {
+            // Give VS Code a moment to register the input value change in the extension host
+            await page.waitForTimeout(200);
+            await input.press('Enter');
+        } else {
+            // Find the item by text within the quickpick list
+            const item = quickPick.locator('.monaco-list-row').filter({ hasText: label }).first();
+            await expect(item).toBeVisible({ timeout: 2000 });
+            await item.click();
+        }
+
         await expect(quickPick).not.toBeVisible({ timeout: 5000 });
     }, `Failed to pick QuickPick item "${label}"`).toPass({ timeout: 15000 });
 }

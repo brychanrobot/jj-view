@@ -170,4 +170,40 @@ describe('promptForRevision', () => {
         expect(result).toBe('fallback-rev');
         expect(vscode.window.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Enter revision' }));
     });
+
+    it('configures quick pick to match on description and detail', async () => {
+        await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
+
+        const state = {
+            createdQuickPick: null as vscode.QuickPick<vscode.QuickPickItem> | null,
+        };
+        let acceptCallback: () => void = () => {};
+        const mockQuickPick = {
+            items: [],
+            selectedItems: [],
+            activeItems: [],
+            onDidChangeValue: vi.fn(),
+            value: 'custom-revision',
+            onDidAccept: vi.fn().mockImplementation((cb) => {
+                acceptCallback = cb;
+            }),
+            onDidHide: vi.fn(),
+            show: vi.fn().mockImplementation(() => {
+                acceptCallback();
+            }),
+            dispose: vi.fn(),
+            matchOnDescription: false,
+            matchOnDetail: false,
+        };
+        vi.mocked(vscode.window.createQuickPick).mockImplementation(() => {
+            state.createdQuickPick = createMock<vscode.QuickPick<vscode.QuickPickItem>>(mockQuickPick);
+            return state.createdQuickPick;
+        });
+
+        await promptForRevision(jj, '@');
+
+        expect(state.createdQuickPick).not.toBeNull();
+        expect(state.createdQuickPick?.matchOnDescription).toBe(true);
+        expect(state.createdQuickPick?.matchOnDetail).toBe(true);
+    });
 });

@@ -230,22 +230,8 @@ export async function promptForRevision(
             const quickPick = vscode.window.createQuickPick();
             quickPick.items = options;
             quickPick.placeholder = placeHolder;
-
-            // Enforce prefix matching on change_id or label
-            quickPick.onDidChangeValue((value) => {
-                const val = value.trim();
-                if (!val) {
-                    quickPick.items = options;
-                    return;
-                }
-                const filtered = options.filter((item) => {
-                    const detailMatch = item.detail?.toLowerCase().includes(val.toLowerCase());
-                    const labelMatch = item.label.toLowerCase().includes(val.toLowerCase());
-                    const descMatch = item.description?.toLowerCase().includes(val.toLowerCase());
-                    return detailMatch || labelMatch || descMatch;
-                });
-                quickPick.items = filtered;
-            });
+            quickPick.matchOnDescription = true;
+            quickPick.matchOnDetail = true;
 
             quickPick.onDidAccept(() => {
                 const selectedItem = quickPick.activeItems[0] || quickPick.selectedItems[0];
