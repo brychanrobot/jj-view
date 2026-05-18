@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.28.0
+
+### Features
+
+- **QuickPick**: Support searching revision QuickPick by description and detail to allow native VS Code filtering to match against descriptions and long change IDs.
+- **Squash**: Simplify squash completion workflow by removing the custom confirmation dialog and relying entirely on VS Code's native file save and tab closure behavior.
+- **Diff**: Fix diff gutter for renamed files by correctly mapping the original resource to the file's previous path.
+- **Gerrit**: Detect outdated Gerrit parent pointers after rebases to identify commits as "Needs Upload" when their local parent pointers no longer match the latest patchsets on the server.
+
+### Fixes
+
+- **Squash**:
+    - Standardize squash operations and terminology to unify internal service methods, command logic, and user-facing command names for "Revision", "File", and "Hunk" operations.
+    - Refactor partial move to "Squash Partial" with performance gains by consolidating commands and utilizing cached diffs to eliminate redundant CLI calls.
+- **Log View**: Hide Edit action for current working copy to remove redundant UI actions when the selected commit is already the working copy.
+- **CLI**: Improve cross-platform non-interactive command execution to ensure commands never hang or prompt for interactive input, particularly on Windows.
+
+### Chores & Maintenance
+
+- **Tooling**: Ensure `watch:themes` task completes in VS Code by logging a completion message so the task does not hang.
+
+
 ## 1.27.0
 
 ### Features
