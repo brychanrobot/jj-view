@@ -1099,30 +1099,16 @@ export class JjService {
 
         try {
             const toolName = 'partial-squash';
-            const isWindows = process.platform === 'win32';
-            const program = isWindows ? 'cmd' : 'cp';
-
-            // For 'squash', $right is a directory snapshot. We must target the specific file within it.
-            const destPath = isWindows ? `$right\\${fileRelPath.replace(/\//g, '\\')}` : `$right/${fileRelPath}`;
-
-            const editArgs = isWindows
-                ? `["/c", "copy", "/Y", "${tmpFile.replace(/\\/g, '\\\\')}", "${destPath.replace(/\\/g, '\\\\')}"]`
-                : `["${tmpFile}", "${destPath}"]`;
+            const normalizedScriptPath = this.getScriptPath('batch-edit');
+            const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
+                '$left',
+                '$right',
+                tmpFile.split(path.sep).join('/'),
+                fileRelPath.split(path.sep).join('/'),
+            ]);
 
             // squash --from X --into Y --tool ...
-            const args = [
-                '--from',
-                fromRev,
-                '--into',
-                intoRev,
-                '--tool',
-                toolName,
-                '--config',
-                `merge-tools.${toolName}.program="${program}"`,
-                '--config',
-                `merge-tools.${toolName}.edit-args=${editArgs}`,
-                fileRelPath,
-            ];
+            const args = ['--from', fromRev, '--into', intoRev, '--tool', toolName, ...toolConfig, fileRelPath];
 
             await this.run('squash', args, { isMutation: true });
         } finally {
