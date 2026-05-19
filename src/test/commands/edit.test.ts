@@ -5,8 +5,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { editCommand } from '../../commands/edit';
-import type { JjResourceState, JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
+import type { JjResourceState } from '../../scm-resource-state';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 

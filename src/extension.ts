@@ -51,10 +51,11 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
-import { type JjResourceState, JjScmProvider } from './jj-scm-provider';
+import { JjScmProvider } from './jj-scm-provider';
 import { JjService } from './jj-service';
 import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
+import type { JjResourceState } from './scm-resource-state';
 import { resolveJjBinary } from './utils/binary-utils';
 
 export interface Api {

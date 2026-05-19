@@ -18,16 +18,9 @@ import { JjService } from './jj-service';
 import type { JjLogEntry, JjStatusEntry } from './jj-types';
 import type { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { RefreshScheduler } from './refresh-scheduler';
-import { createDiffUris } from './uri-utils';
-import { formatDisplayChangeId } from './utils/jj-utils';
+import { createJjResourceState, type JjResourceState } from './scm-resource-state';
 
-export interface JjResourceState extends vscode.SourceControlResourceState {
-    revision: string;
-    /** The URIs used for generating diffs. */
-    leftUri?: vscode.Uri;
-    rightUri?: vscode.Uri;
-    diffTitle?: string;
-}
+import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
 
 export class JjScmProvider implements vscode.Disposable {
     private _disposed = false;
@@ -334,12 +327,24 @@ export class JjScmProvider implements vscode.Disposable {
                     this._workingCopyGroup.label = 'Working Copy';
                 }
 
+                const wcFlags = [ScmContextValue.GroupAllowShowMultiFileDiff, ScmContextValue.GroupAllowAbandon];
+                if (currentEntry) {
+                    if (canAbsorbCommit(currentEntry)) {
+                        wcFlags.push(ScmContextValue.GroupAllowAbsorb);
+                    }
+                    if (canSquashCommit(currentEntry)) {
+                        wcFlags.push(ScmContextValue.GroupAllowSquash);
+                    }
+                }
+                this._workingCopyGroup.contextValue = wcFlags.join(' ');
+
                 // Working copy items are squashable if the parent is mutable
                 this._workingCopyGroup.resourceStates = changes.map((c) => {
                     const state = this.toResourceState(c, currentEntry?.change_id || '@', {
                         squashable: parentMutable,
                         multipleAncestors: ancestorsToDisplay.length > 1,
                         openDiffOnClick,
+                        hasChild,
                     });
                     decorationMap.set(state.resourceUri.toString(), c);
                     this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
@@ -378,9 +383,17 @@ export class JjScmProvider implements vscode.Disposable {
 
                     // Reuse existing group or create new one
                     let group: vscode.SourceControlResourceGroup;
-                    const contextValue = canSquash
-                        ? ScmContextValue.AncestorGroupSquashable
-                        : ScmContextValue.AncestorGroupMutable;
+                    const groupFlags = [
+                        ScmContextValue.GroupAllowShowMultiFileDiff,
+                        ScmContextValue.GroupAllowShowDetails,
+                    ];
+                    if (isMutableCommit(ancestorEntry)) {
+                        groupFlags.push(ScmContextValue.GroupAllowEdit);
+                    }
+                    if (canSquashCommit(ancestorEntry)) {
+                        groupFlags.push(ScmContextValue.GroupAllowSquash);
+                    }
+                    const contextValue = groupFlags.join(' ');
 
                     if (i < this._parentGroups.length) {
                         group = this._parentGroups[i];
@@ -559,72 +572,12 @@ export class JjScmProvider implements vscode.Disposable {
     private toResourceState(
         entry: JjStatusEntry,
         revision: string = '@',
-        options: {
-            editable?: boolean;
-            workingCopyChangeId?: string;
-            squashable?: boolean;
-            multipleAncestors?: boolean;
-            openDiffOnClick?: boolean;
-        } = {},
+        options: Parameters<typeof createJjResourceState>[3] = {},
     ): JjResourceState {
-        const root = this._sourceControl.rootUri?.fsPath || '';
-        const isCurrentWorkingCopy = revision === '@' || revision === this._currentEntry?.change_id;
-        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, {
+        return createJjResourceState(entry, revision, this._sourceControl.rootUri?.fsPath || '', {
             ...options,
             workingCopyChangeId: this._currentEntry?.change_id,
         });
-
-        const openDiffOnClick = options.openDiffOnClick ?? true;
-        const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
-
-        const diffTitle = `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
-
-        const diffCommand: vscode.Command = {
-            command: 'vscode.diff',
-            title: 'Open Changes',
-            arguments: [leftUri, rightUri, diffTitle],
-        };
-
-        const command: vscode.Command = entry.conflicted
-            ? {
-                  command: 'jj-view.openMergeEditor',
-                  title: 'Open 3-Way Merge',
-                  arguments: [{ resourceUri }],
-              }
-            : openDiffOnClick || isDeleted
-              ? diffCommand
-              : {
-                    command: 'vscode.open',
-                    title: 'Open File',
-                    arguments: [resourceUri.with({ query: '' })],
-                };
-
-        return {
-            resourceUri,
-            command,
-            leftUri,
-            rightUri,
-            diffTitle,
-            decorations: {
-                tooltip: entry.conflicted ? 'Conflicted' : entry.status,
-                faded: false,
-                strikeThrough: entry.status === 'removed',
-            },
-            contextValue: entry.conflicted
-                ? ScmContextValue.Conflict
-                : isCurrentWorkingCopy
-                  ? options.squashable
-                      ? options.multipleAncestors
-                          ? ScmContextValue.WorkingCopySquashableMulti
-                          : ScmContextValue.WorkingCopySquashable
-                      : ScmContextValue.WorkingCopy
-                  : options.squashable
-                    ? options.multipleAncestors
-                        ? ScmContextValue.AncestorSquashableMulti
-                        : ScmContextValue.AncestorSquashable
-                    : ScmContextValue.AncestorMutable,
-            revision: revision,
-        };
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {

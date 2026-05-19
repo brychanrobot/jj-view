@@ -738,74 +738,69 @@
                 {
                     "command": "jj-view.absorb",
                     "group": "inline",
-                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowAbsorb\\b/"
                 },
                 {
                     "command": "jj-view.showMultiFileDiff",
                     "group": "inline@1",
-                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor/ || scmResourceGroup == 'jj.group.workingCopy'"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowShowMultiFileDiff\\b/"
                 },
                 {
                     "command": "jj-view.abandon",
                     "group": "inline@2",
-                    "when": "scmResourceGroup == 'jj.group.workingCopy'"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowAbandon\\b/"
                 },
                 {
                     "command": "jj-view.squashRevisionIntoParent",
                     "group": "inline@3",
-                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable || scmResourceGroupState == 'jj.group.ancestor:squashable'"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
                 },
                 {
                     "command": "jj-view.squashRevisionIntoAncestor",
                     "group": "inline@4",
-                    "when": "scmResourceGroup == 'jj.group.workingCopy' && jj.parentMutable || scmResourceGroupState == 'jj.group.ancestor:squashable'"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
                 },
                 {
                     "command": "jj-view.showDetails",
                     "group": "inline@5",
-                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor/"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowShowDetails\\b/"
                 },
                 {
                     "command": "jj-view.edit",
                     "group": "inline@6",
-                    "when": "scmResourceGroupState =~ /^jj\\.group\\.ancestor:(mutable|squashable)/"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowEdit\\b/"
                 }
             ],
             "scm/resourceState/context": [
                 {
                     "command": "jj-view.openFile",
                     "group": "inline@1",
-                    "when": "(scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/) && jj.openDiffOnClick || scmResourceState == 'jj.resource.conflict'"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowOpen\\b/ && jj.openDiffOnClick || scmResourceState =~ /\\bjj\\.resource\\.allowOpenMergeEditor\\b/"
                 },
                 {
                     "command": "jj-view.openChanges",
                     "group": "inline@1",
-                    "when": "(scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/) && !jj.openDiffOnClick || scmResourceState == 'jj.resource.conflict'"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowOpen\\b/ && !jj.openDiffOnClick || scmResourceState =~ /\\bjj\\.resource\\.allowOpenMergeEditor\\b/"
                 },
                 {
                     "command": "jj-view.restore",
                     "group": "inline@2",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ || scmResourceState =~ /^jj\\.resource\\.ancestor/"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowRestore\\b/"
                 },
                 {
                     "command": "jj-view.squashFilesIntoAncestor",
                     "group": "inline@3",
-                    "when": "scmResourceState =~ /jj\\.resource.*:squashable:multi/"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowSquashIntoAncestor\\b/"
                 },
                 {
                     "command": "jj-view.squashFilesIntoParent",
                     "group": "inline@4",
-                    "when": "scmResourceState =~ /jj\\.resource.*:squashable/"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowSquashIntoParent\\b/"
                 },
                 {
                     "command": "jj-view.squashFilesIntoChild",
                     "group": "inline@5",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.ancestor/"
-                },
-                {
-                    "command": "jj-view.squashFilesIntoChild",
-                    "group": "inline@6",
-                    "when": "scmResourceState =~ /^jj\\.resource\\.workingCopy/ && jj.hasChild"
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\.allowSquashIntoChild\\b/"
                 }
             ],
             "scm/change/title": [

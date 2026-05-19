@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { JjResourceState } from '../jj-scm-provider';
+import type { JjResourceState } from '../scm-resource-state';
 
 // Opens the file on disk (usually the working copy version).
 // Strips the query parameter to ensure VS Code opens the local file path.

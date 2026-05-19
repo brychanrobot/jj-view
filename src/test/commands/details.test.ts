@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
 import type { JjLogWebviewProvider } from '../../jj-log-webview-provider';
-import type { JjResourceState } from '../../jj-scm-provider';
+import type { JjResourceState } from '../../scm-resource-state';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {

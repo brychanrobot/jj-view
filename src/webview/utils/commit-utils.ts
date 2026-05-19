@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommitAction, JjLogEntry } from '../../jj-types';
+import { canAbsorbCommit, canSquashCommit, isMutableCommit } from '../../utils/jj-utils';
 
 export interface CommitActionStates {
     newChild: boolean;
@@ -18,21 +19,22 @@ export interface CommitActionStates {
 export function computeCommitActions(
     commit: JjLogEntry,
     hiddenActions: Set<CommitAction>,
-    isImmutable: boolean,
+    _isImmutable: boolean,
     isSelected: boolean,
     selectionCount: number,
     hasImmutableSelection: boolean,
 ): { visibleActions: CommitActionStates; vscodeContext: Record<string, unknown> } {
     const visibleActions: CommitActionStates = {
         newChild: !hiddenActions.has('newChild'),
-        edit: !isImmutable && !commit.is_current_working_copy && !hiddenActions.has('edit'),
-        squash: !hiddenActions.has('squash') && commit.parents?.length === 1 && !commit.parents[0].is_immutable,
-        abandon: !isImmutable && !hiddenActions.has('abandon'),
+        edit: isMutableCommit(commit) && !commit.is_current_working_copy && !hiddenActions.has('edit'),
+        squash: !hiddenActions.has('squash') && canSquashCommit(commit),
+        abandon: isMutableCommit(commit) && !hiddenActions.has('abandon'),
     };
 
     const vscodeContext = {
         webviewSection: 'commit',
         'jj.isCurrentWorkingCopy': commit.is_current_working_copy,
+
         'jj.newChildVisible': visibleActions.newChild,
         'jj.editVisible': visibleActions.edit,
         'jj.squashVisible': visibleActions.squash,
@@ -42,24 +44,25 @@ export function computeCommitActions(
         changeId: commit.change_id,
 
         // Abandon, New Before, and New After supported on multi-selection, but also on unselected items
-        'jj.canAbandon': !isImmutable && (!isSelected || !hasImmutableSelection),
-        'jj.canNewBefore': !isImmutable && (!isSelected || !hasImmutableSelection),
+        'jj.canAbandon': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
+        'jj.canNewBefore': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
         'jj.canNewAfter': !isSelected || !hasImmutableSelection,
-        'jj.canUpload': !isImmutable && (!isSelected || !hasImmutableSelection),
+        'jj.canUpload': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
 
         // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
-        'jj.canEdit': !isImmutable && !commit.is_current_working_copy && (!isSelected || selectionCount <= 1),
+        'jj.canEdit':
+            isMutableCommit(commit) && !commit.is_current_working_copy && (!isSelected || selectionCount <= 1),
         'jj.canDuplicate': !isSelected || selectionCount <= 1,
         'jj.canNewChild': !isSelected || selectionCount <= 1,
 
         // Rebase source must be mutable, and we rebase ONTO the current selection
-        'jj.canRebaseOnto': !isImmutable && !isSelected && selectionCount > 0,
+        'jj.canRebaseOnto': isMutableCommit(commit) && !isSelected && selectionCount > 0,
 
         // Merge requires multiple items selected
         'jj.canMerge': isSelected && selectionCount > 1,
 
         // Absorb requires at least one mutable parent and single-item context
-        'jj.canAbsorb': commit.parents?.some((ref) => !ref.is_immutable) && (!isSelected || selectionCount <= 1),
+        'jj.canAbsorb': canAbsorbCommit(commit) && (!isSelected || selectionCount <= 1),
 
         preventDefaultContextMenuItems: true,
     };

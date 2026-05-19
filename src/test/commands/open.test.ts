@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { openChangesCommand, openFileCommand } from '../../commands/open';
-import type { JjResourceState } from '../../jj-scm-provider';
+import type { JjResourceState } from '../../scm-resource-state';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', () => {

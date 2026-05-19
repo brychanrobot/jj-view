@@ -55,7 +55,7 @@ suite('JJ SCM Visibility Integration Test', () => {
         assert.strictEqual(workingCopyGroup.resourceStates.length, 1);
 
         const resourceState = workingCopyGroup.resourceStates[0];
-        assert.strictEqual(resourceState.contextValue, ScmContextValue.WorkingCopy);
+        assert.ok((resourceState.contextValue as string).includes(ScmContextValue.ResourceAllowRestore));
 
         // 2. Ensure parent mutability
         // Create new commit "first commit" and work on top of it ("working on this")

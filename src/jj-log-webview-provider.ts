@@ -9,7 +9,7 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
-import { formatCommitTitle } from './utils/jj-utils';
+import { canAbsorbCommit, formatCommitTitle } from './utils/jj-utils';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
@@ -218,11 +218,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         const selectedCommit = this._cachedCommits.find(
                             (c) => c.change_id === data.payload.commitIds[0],
                         );
-                        if (selectedCommit?.parents) {
-                            // If any parent is NOT immutable (i.e. is mutable), then we can absorb
-                            parentMutable = selectedCommit.parents.some((parent) => !parent.is_immutable);
-                        } else if (selectedCommit) {
-                            parentMutable = false;
+                        if (selectedCommit) {
+                            parentMutable = canAbsorbCommit(selectedCommit);
                         }
                     }
 

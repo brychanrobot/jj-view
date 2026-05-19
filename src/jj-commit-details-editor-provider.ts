@@ -2,11 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
-import { createDiffUris } from './uri-utils';
-import { shortenChangeId } from './utils/jj-utils';
+import { createJjResourceState } from './scm-resource-state';
 
 export class JjCommitDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
@@ -312,16 +310,17 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         const changeId = message.payload.changeId;
                         const isImmutable = message.payload.isImmutable;
 
-                        const { leftUri, rightUri } = createDiffUris(file, changeId, this._jj.workspaceRoot, {
+                        const state = createJjResourceState(file, changeId, this._jj.workspaceRoot, {
                             editable: !isImmutable,
+                            openDiffOnClick: true,
                         });
 
-                        await vscode.commands.executeCommand(
-                            'vscode.diff',
-                            leftUri,
-                            rightUri,
-                            `${path.basename(file.path)} (${shortenChangeId(changeId, minChangeIdLength)})${!isImmutable ? ' (Editable)' : ''}`,
-                        );
+                        if (state.command) {
+                            await vscode.commands.executeCommand(
+                                state.command.command,
+                                ...(state.command.arguments ?? []),
+                            );
+                        }
                         break;
                     }
                     case 'openMultiDiff':

@@ -31,22 +31,31 @@ export enum JjContextKey {
 }
 
 /**
- * Context values assigned to SCM Resource Groups and States.
- * Evaluated against `scmResourceGroupState` and `scmResourceState` in `package.json`.
+ * Context values used as `SourceControlResourceGroup.contextValue` (ScmContextValue.Group*)
+ * or `SourceControlResourceState.contextValue` (ScmContextValue.Resource*).
+ *
+ * For SCM Resource States, the contextValue contains a space-separated list of capability keys
+ * (e.g. "jj.resource.allowRestore jj.resource.allowOpen"), and package.json matches them via regex
+ * like `scmResourceState =~ /\bjj\.resource\.allowRestore\b/`.
  */
 export enum ScmContextValue {
-    // Group States
+    // SCM Resource Group IDs
     WorkingCopyGroup = 'jj.group.workingCopy',
     ConflictGroup = 'jj.group.conflict',
-    AncestorGroupMutable = 'jj.group.ancestor:mutable',
-    AncestorGroupSquashable = 'jj.group.ancestor:squashable',
 
-    // Item States
-    WorkingCopy = 'jj.resource.workingCopy',
-    WorkingCopySquashable = 'jj.resource.workingCopy:squashable',
-    WorkingCopySquashableMulti = 'jj.resource.workingCopy:squashable:multi',
-    Conflict = 'jj.resource.conflict',
-    AncestorMutable = 'jj.resource.ancestor:mutable',
-    AncestorSquashable = 'jj.resource.ancestor:squashable',
-    AncestorSquashableMulti = 'jj.resource.ancestor:squashable:multi',
+    // SCM Resource Group Capabilities
+    GroupAllowShowMultiFileDiff = 'jj.group.allowShowMultiFileDiff',
+    GroupAllowShowDetails = 'jj.group.allowShowDetails',
+    GroupAllowEdit = 'jj.group.allowEdit',
+    GroupAllowSquash = 'jj.group.allowSquash',
+    GroupAllowAbsorb = 'jj.group.allowAbsorb',
+    GroupAllowAbandon = 'jj.group.allowAbandon',
+
+    // SCM Resource Item Capabilities
+    ResourceAllowRestore = 'jj.resource.allowRestore',
+    ResourceAllowSquashIntoParent = 'jj.resource.allowSquashIntoParent',
+    ResourceAllowSquashIntoAncestor = 'jj.resource.allowSquashIntoAncestor',
+    ResourceAllowSquashIntoChild = 'jj.resource.allowSquashIntoChild',
+    ResourceAllowOpen = 'jj.resource.allowOpen',
+    ResourceAllowOpenMergeEditor = 'jj.resource.allowOpenMergeEditor',
 }

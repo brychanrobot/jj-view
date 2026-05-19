@@ -6,8 +6,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjResourceState, JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
+import type { JjResourceState } from '../scm-resource-state';
 import { formatCommitDescription } from '../utils/format-utils';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
