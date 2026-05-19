@@ -52,11 +52,20 @@ test.describe('JJ Binary Configuration E2E', () => {
         const repo = new TestRepo();
         repo.init();
 
-        // Launch with empty PATH and empty HOME to avoid discovery
+        // Filter PATH to exclude directories containing 'jj' so we don't crash the extension host
+        // by passing an empty PATH.
+        const isWin = process.platform === 'win32';
+        const jjBinaryName = isWin ? 'jj.exe' : 'jj';
+        const filteredPath = (process.env.PATH || '')
+            .split(path.delimiter)
+            .filter((p) => !fs.existsSync(path.join(p, jjBinaryName)))
+            .join(path.delimiter);
+
+        // Launch with filtered PATH and empty HOME to avoid discovery
         const { app, page, userDataDir } = await launchVSCode(
             repo,
             { 'jj-view.binaryPath': '' }, // Ensure not set
-            { PATH: '', HOME: path.join(os.tmpdir(), 'jj-empty-home') },
+            { PATH: filteredPath, HOME: path.join(os.tmpdir(), 'jj-empty-home') },
         );
 
         try {
