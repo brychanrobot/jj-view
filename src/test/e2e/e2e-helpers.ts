@@ -418,33 +418,33 @@ export async function clickScmAction(page: Page, rowName: string | RegExp, actio
         await row.hover();
         await page.waitForTimeout(500); // Give it more time to settle
 
-        // Debug: Log all buttons found in this row
-        // Try finding by name (contains matching)
-        let button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
+        const iconMap: Record<string, string> = {
+            [SCM_ACTIONS.Abandon]: '.codicon-trash',
+            [SCM_ACTIONS.SquashRevisionIntoParent]: '.codicon-arrow-down',
+            [SCM_ACTIONS.SquashRevisionIntoAncestor]: '.codicon-jj-icon-squash-into',
+            [SCM_ACTIONS.SquashFilesIntoParent]: '.codicon-arrow-down',
+            [SCM_ACTIONS.SquashFilesIntoAncestor]: '.codicon-jj-icon-squash-into',
+            [SCM_ACTIONS.SquashFilesIntoChild]: '.codicon-arrow-up',
+            [SCM_ACTIONS.Absorb]: '.codicon-magnet',
+            [SCM_ACTIONS.DiscardChanges]: '.codicon-discard',
+            [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
+            [SCM_ACTIONS.Edit]: '.codicon-edit',
+            [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
+            [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
+        };
 
-        // Fallback: If not found by name, try some common icon classes if we know them
-        if (!(await button.isVisible())) {
-            const iconMap: Record<string, string> = {
-                [SCM_ACTIONS.Abandon]: '.codicon-trash',
-                [SCM_ACTIONS.SquashRevisionIntoParent]: '.codicon-arrow-down',
-                [SCM_ACTIONS.SquashRevisionIntoAncestor]: '.codicon-jj-icon-squash-into',
-                [SCM_ACTIONS.SquashFilesIntoParent]: '.codicon-arrow-down',
-                [SCM_ACTIONS.SquashFilesIntoAncestor]: '.codicon-jj-icon-squash-into',
-                [SCM_ACTIONS.SquashFilesIntoChild]: '.codicon-arrow-up',
-                [SCM_ACTIONS.Absorb]: '.codicon-magnet',
-                [SCM_ACTIONS.DiscardChanges]: '.codicon-discard',
-                [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
-                [SCM_ACTIONS.Edit]: '.codicon-edit',
-                [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
-                [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
-            };
-            const cls = iconMap[actionTitle];
-            if (cls) {
-                process.stdout.write(
-                    `[clickScmAction] Button "${actionTitle}" not found by name, trying fallback class "${cls}"\n`,
-                );
-                button = row.locator('.action-item', { has: page.locator(cls) }).first();
-            }
+        const cls = iconMap[actionTitle];
+        let button: Locator;
+
+        if (cls) {
+            button = row.locator('.action-item', { has: page.locator(cls) }).first();
+        } else {
+            button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
+        }
+
+        // Fallback: If not found by class, try finding by name
+        if (cls && !(await button.isVisible())) {
+            button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
         }
 
         await expect(button).toBeVisible({ timeout: 1000 });
@@ -533,6 +533,77 @@ export async function setScmDescription(page: Page, description: string) {
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
         await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 3000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
+}
+
+/**
+ * Asserts that the SCM input row contains the expected description.
+ * Handles VS Code's text wrapping/concatenation.
+ */
+export async function expectScmDescription(page: Page, expected: string | RegExp) {
+    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+    if (expected instanceof RegExp) {
+        await expect(scmInputRow).toHaveText(expected);
+    } else {
+        const words = expected.trim().split(/\s+/).filter(Boolean);
+        const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+        await expect(scmInputRow).toHaveText(new RegExp(regexPattern));
+    }
+}
+
+/**
+ * Locates an SCM tree item, optionally matching a parent group name.
+ */
+export async function getScmItemLocator(
+    page: Page,
+    fileName: string | RegExp,
+    groupName?: string | RegExp,
+): Promise<Locator> {
+    if (groupName) {
+        const allItems = await page.getByRole('treeitem').all();
+        let groupIdx = -1;
+        const groupNamePattern = groupName instanceof RegExp ? groupName : new RegExp(groupName, 'i');
+        const fileNamePattern = fileName instanceof RegExp ? fileName : new RegExp(fileName, 'i');
+
+        for (let i = 0; i < allItems.length; i++) {
+            const label = (await allItems[i].getAttribute('aria-label')) || '';
+            if (groupNamePattern.test(label)) {
+                groupIdx = i;
+                break;
+            }
+        }
+
+        if (groupIdx === -1) {
+            throw new Error(`Group "${groupName}" not found`);
+        }
+
+        for (let i = groupIdx + 1; i < allItems.length; i++) {
+            const label = (await allItems[i].getAttribute('aria-label')) || '';
+            const level = await allItems[i].getAttribute('aria-level');
+
+            if (fileNamePattern.test(label)) {
+                return allItems[i];
+            }
+
+            if (level === '1') {
+                throw new Error(`File "${fileName}" not found in group "${groupName}"`);
+            }
+        }
+        throw new Error(`File "${fileName}" not found in group "${groupName}"`);
+    } else {
+        return page.getByRole('treeitem', { name: fileName }).first();
+    }
+}
+
+/**
+ * Asserts that a file matching fileNamePattern is listed under an SCM group matching groupNamePattern.
+ */
+export async function expectFileInScmGroup(
+    page: Page,
+    groupNamePattern: RegExp | string,
+    fileNamePattern: RegExp | string,
+) {
+    const locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
+    await expect(locator).toBeVisible();
 }
 
 /**
@@ -789,43 +860,7 @@ async function openScmItem(
         async () => {
             await focusSCM(page);
 
-            if (groupName) {
-                // Find all tree items to locate the group and the file relatively
-                const allItems = await page.getByRole('treeitem').all();
-                let groupIdx = -1;
-                const groupNamePattern = groupName instanceof RegExp ? groupName : new RegExp(groupName, 'i');
-                const fileNamePattern = fileName instanceof RegExp ? fileName : new RegExp(fileName, 'i');
-
-                for (let i = 0; i < allItems.length; i++) {
-                    const label = (await allItems[i].getAttribute('aria-label')) || '';
-                    if (groupNamePattern.test(label)) {
-                        groupIdx = i;
-                        break;
-                    }
-                }
-
-                if (groupIdx === -1) {
-                    throw new Error(`Group "${groupName}" not found`);
-                }
-
-                // Search for the file after the group header
-                for (let i = groupIdx + 1; i < allItems.length; i++) {
-                    const label = (await allItems[i].getAttribute('aria-label')) || '';
-                    const level = await allItems[i].getAttribute('aria-level');
-
-                    if (fileNamePattern.test(label)) {
-                        row = allItems[i];
-                        break;
-                    }
-
-                    // If we hit another Level 1 item, we've moved out of the target group
-                    if (level === '1') {
-                        throw new Error(`File "${fileName}" not found in group "${groupName}"`);
-                    }
-                }
-            } else {
-                row = page.getByRole('treeitem', { name: fileName }).first();
-            }
+            row = await getScmItemLocator(page, fileName, groupName);
 
             if (!row) {
                 throw new Error(`File "${fileName}" not found`);
@@ -914,8 +949,9 @@ export async function pickQuickPickItem(
         const quickPick = page.locator('.quick-input-widget').filter({ visible: true });
 
         if (options?.submitAsArbitraryText) {
-            // Give VS Code a moment to register the input value change in the extension host
-            await page.waitForTimeout(200);
+            // Wait for the list to filter down (no items should match the arbitrary text)
+            const listRow = quickPick.locator('.monaco-list-row');
+            await expect(listRow).toHaveCount(0, { timeout: 2000 });
             await input.press('Enter');
         } else {
             // Find the item by text within the quickpick list

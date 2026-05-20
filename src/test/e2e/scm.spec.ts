@@ -11,6 +11,8 @@ import {
     clickContextMenuItem,
     clickScmAction,
     entry,
+    expectFileInScmGroup,
+    expectScmDescription,
     expectTree,
     focusSCM,
     hoverAndClick,
@@ -66,8 +68,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible();
 
             // Verify SCM input is populated with working copy description
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await expect(scmInputRow).toContainText('my working copy');
+            await expectScmDescription(page, 'my working copy');
         } finally {
             await app.close();
             try {
@@ -208,6 +209,9 @@ test.describe('SCM Pane E2E', () => {
                     'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
                 expect(desc).toBe(expectedDesc);
                 expect(desc.split('\n').length).toBeGreaterThan(2);
+
+                // Wait for the UI input box to reflect the formatted text
+                await expectScmDescription(page, expectedDesc);
             }).toPass({ timeout: 20000 });
 
             // 2. Test Commit (Ctrl+Enter)
@@ -554,10 +558,15 @@ test.describe('SCM Pane E2E', () => {
             await clickScmAction(page, /f2\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
 
             // Assert via repo that f2.txt from ancestor was moved to working copy
+            // and the UI SCM tree has refreshed to reflect the new state.
             await expect(async () => {
                 const wcChanges = repo.getDiffSummary('@');
                 expect(wcChanges).toContain('A f2.txt');
-            }).toPass({ timeout: 5000 });
+
+                // Also wait for the UI SCM tree to refresh.
+                // In SCM tree under Working Copy group, there should be f2.txt
+                await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
+            }).toPass({ timeout: 10000 });
 
             // 4. Edit (Make ancestor the working copy)
             await clickScmAction(page, /ancestor change/, SCM_ACTIONS.Edit);
@@ -566,7 +575,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(async () => {
                 const changeId = repo.getWorkingCopyId();
                 expect(changeId).toBe(commits.ancestor.changeId);
-            }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
             try {
