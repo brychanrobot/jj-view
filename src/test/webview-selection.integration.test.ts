@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import type { GerritService } from '../gerrit-service';
+import type { CodeForgeService } from '../code-forge-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjService } from '../jj-service';
@@ -52,14 +52,14 @@ suite('Webview Selection Integration Test', () => {
 
         jj = new JjService(repo.path);
         const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-        const gerritService = createMock<GerritService>({
+        const codeForgeService = createMock<CodeForgeService>({
             onDidUpdate: () => {
                 return { dispose: () => {} };
             },
             isEnabled: false,
-            detectGerritHost: () => Promise.resolve(),
             startPolling: () => {},
             stopPolling: () => {},
+            detectActiveProvider: () => Promise.resolve(),
             dispose: () => {},
         });
         const outputChannel = createMock<vscode.OutputChannel>({
@@ -69,7 +69,7 @@ suite('Webview Selection Integration Test', () => {
         provider = new JjLogWebviewProvider(
             extensionUri,
             jj,
-            gerritService,
+            codeForgeService,
             commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({

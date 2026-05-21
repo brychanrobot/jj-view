@@ -13,18 +13,17 @@ vi.mock('vscode', async () => {
 });
 
 // Import after mock
-import type { GerritService } from '../gerrit-service';
+import type { CodeForgeService } from '../code-forge-service';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { createMock } from './test-utils';
 
 describe('handleTerminalExecution', () => {
-    let gerritService: GerritService;
+    let codeForgeService: CodeForgeService;
     let outputChannel: vscode.OutputChannel;
     let scmProvider: JjScmProvider;
 
     beforeEach(() => {
-        gerritService = createMock<GerritService>({
-            forceRefresh: vi.fn(),
+        codeForgeService = createMock<CodeForgeService>({
             requestRefreshWithBackoffs: vi.fn(),
         });
         outputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
@@ -34,52 +33,51 @@ describe('handleTerminalExecution', () => {
     });
 
     it('detects "jj upload" and schedules staggered refreshes', () => {
-        const result = handleTerminalExecution('jj upload', gerritService, outputChannel, scmProvider);
+        const result = handleTerminalExecution('jj upload', codeForgeService, outputChannel, scmProvider);
 
         expect(result).toBe(true);
-        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('detects "jj gerrit upload" with arguments', () => {
         const result = handleTerminalExecution(
             'jj gerrit upload --change abc123',
-            gerritService,
+            codeForgeService,
             outputChannel,
             scmProvider,
         );
 
         expect(result).toBe(true);
-        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('ignores non-jj commands', () => {
-        const result = handleTerminalExecution('git push origin main', gerritService, outputChannel, scmProvider);
+        const result = handleTerminalExecution('git push origin main', codeForgeService, outputChannel, scmProvider);
 
         expect(result).toBe(false);
-        expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
-        expect(gerritService.forceRefresh).not.toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
     });
 
     it('ignores jj commands without upload', () => {
-        const result = handleTerminalExecution('jj log --revisions @', gerritService, outputChannel, scmProvider);
+        const result = handleTerminalExecution('jj log --revisions @', codeForgeService, outputChannel, scmProvider);
 
         expect(result).toBe(false);
-        expect(gerritService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).not.toHaveBeenCalled();
     });
 
     it('handles leading whitespace in command', () => {
-        const result = handleTerminalExecution('  jj upload  ', gerritService, outputChannel, scmProvider);
+        const result = handleTerminalExecution('  jj upload  ', codeForgeService, outputChannel, scmProvider);
 
         expect(result).toBe(true);
-        expect(gerritService.requestRefreshWithBackoffs).toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
         expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     it('logs detected upload command', () => {
-        handleTerminalExecution('jj upload', gerritService, outputChannel, scmProvider);
+        handleTerminalExecution('jj upload', codeForgeService, outputChannel, scmProvider);
 
-        expect(outputChannel.appendLine).toHaveBeenCalledWith('[Extension] Detected terminal upload: "jj upload"');
+        expect(outputChannel.appendLine).toHaveBeenCalledWith('[Extension] Detected terminal upload/push: "jj upload"');
     });
 });

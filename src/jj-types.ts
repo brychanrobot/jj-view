@@ -5,40 +5,42 @@
 
 export interface JjBookmark {
     name: string;
-    remote?: string;
+    remote?: string | null;
 }
 
 /**
- * Metadata retrieved from Gerrit about a specific Change.
+ * Metadata retrieved from a code forge about a specific Change/PR.
  */
-export interface GerritClInfo {
-    /** The Gerrit Change-Id (e.g. I123...) */
-    changeId: string;
-    /** The Gerrit Change number (e.g. 123456) */
-    changeNumber: number;
-    /** Current status of the change in Gerrit */
+export interface CodeForgeChangeInfo {
+    /** Unique identifier for the change (e.g. Gerrit Change-Id or GitHub PR node ID) */
+    id: string;
+    /** User-facing sequential number (e.g. Gerrit change number or GitHub PR number) */
+    number: number;
+    /** The display label (e.g. "CL 123456" or "PR #42") */
+    displayLabel: string;
+    /** Human-readable provider name (e.g. "Gerrit" or "GitHub") */
+    providerName: string;
+    /** Standardized status across forges */
     status: 'NEW' | 'MERGED' | 'ABANDONED';
-    /** Whether the change is currently submittable according to Gerrit labels */
+    /** Whether the change is currently submittable/mergeable */
     submittable: boolean;
-    /** The web URL to the Gerrit change */
+    /** The web URL to the change/PR */
     url: string;
-    /** Number of unresolved comments on the change */
+    /** Number of unresolved comments/discussions */
     unresolvedComments: number;
-    /** The SHA-1 commit ID of the current revision in Gerrit */
+    /** The commit ID of the current remote revision */
     currentRevision?: string;
-    /** Map of files in the current Gerrit revision and their blob SHAs */
+    /** Map of files in the current remote revision and their blob SHAs */
     files?: Record<string, { newSha?: string; status?: string }>;
     /** Aggregate sync status (contentSynced && parentSynced) */
     synced?: boolean;
-    /** Whether the Gerrit parent pointers match the latest patchsets of the local parents */
+    /** Whether the remote parent pointers match the latest patchsets of the local parents */
     parentSynced?: boolean;
-    /** List of commit SHAs for the parents as recorded by Gerrit */
-    gerritParents?: string[];
-    /** The full commit message of the current revision in Gerrit */
+    /** List of commit SHAs for the parents as recorded by the remote */
+    remoteParents?: string[];
+    /** The full commit message of the current remote revision */
     remoteDescription?: string;
-    /** @deprecated Use gerritParents */
-    remoteParentRevision?: string;
-    /** Whether the file contents match exactly between local and Gerrit */
+    /** Whether the file contents match exactly between local and remote */
     contentSynced?: boolean;
 }
 
@@ -82,8 +84,8 @@ export interface JjLogEntry {
     conflict?: boolean;
     is_hidden?: boolean;
     changes?: JjStatusEntry[];
-    gerritCl?: GerritClInfo;
-    gerritNeedsUpload?: boolean;
+    codeForgeChange?: CodeForgeChangeInfo;
+    codeForgeNeedsUpload?: boolean;
 }
 
 export interface JjStatusEntry {
@@ -95,7 +97,7 @@ export interface JjStatusEntry {
     conflicted?: boolean;
 }
 
-export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openGerrit' | 'upload';
+export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload';
 
 export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
 export type ToggleableCommitAction = (typeof TOGGLEABLE_COMMIT_ACTIONS)[number];

@@ -6,8 +6,8 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildLogTemplate, CHANGE_ID_EXPR, LOG_ENTRY_SCHEMA } from './jj-template-builder';
-import type { JjLogEntry, JjStatusEntry } from './jj-types';
+import { BOOKMARK_SCHEMA, buildLogTemplate, CHANGE_ID_EXPR, LOG_ENTRY_SCHEMA } from './jj-template-builder';
+import type { JjBookmark, JjLogEntry, JjStatusEntry } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
 
@@ -284,16 +284,27 @@ export class JjService {
         }
     }
 
-    async getBookmarks(): Promise<string[]> {
-        const output = await this.run('bookmark', ['list', '-T', 'name ++ "\n"', '--all-remotes'], {
+    async getBookmarks(options: { revision?: string } = {}): Promise<JjBookmark[]> {
+        const template = buildLogTemplate(BOOKMARK_SCHEMA);
+        const args = ['list', '-T', template];
+        if (options.revision) {
+            args.push('-r', options.revision);
+        }
+        const output = await this.run('bookmark', args, {
             useCachedSnapshot: true,
             label: 'getBookmarks',
         });
-        const lines = output
-            .trim()
-            .split('\n')
-            .filter((line) => line.length > 0);
-        return Array.from(new Set(lines));
+        const trimmed = output.trim();
+        if (!trimmed) {
+            return [];
+        }
+        try {
+            const jsonListString = `[${trimmed.replace(/\r?\n/g, ',')}]`;
+            return JSON.parse(jsonListString) as JjBookmark[];
+        } catch (e) {
+            this.logger(`Failed to parse bookmarks JSON: ${e}. Raw output: ${output}`);
+            return [];
+        }
     }
 
     async moveBookmark(name: string, toRevision: string): Promise<string> {

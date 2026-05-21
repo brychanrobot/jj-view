@@ -23,7 +23,9 @@ export async function setBookmarkCommand(
         // Show QuickPick to allow selecting an existing bookmark or creating a new one
         const quickPick = vscode.window.createQuickPick();
         quickPick.placeholder = 'Select a bookmark to move, or type a new name to create';
-        quickPick.items = bookmarks.map((b) => ({ label: b, description: 'Move bookmark' }));
+        quickPick.items = bookmarks
+            .filter((b) => !b.remote)
+            .map((b) => ({ label: b.name, description: 'Move bookmark' }));
         quickPick.matchOnDescription = true;
 
         quickPick.onDidAccept(async () => {

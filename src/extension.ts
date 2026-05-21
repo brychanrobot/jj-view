@@ -4,6 +4,9 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import type { CodeForgeProvider } from './code-forge-provider';
+import { CodeForgeRegistry } from './code-forge-registry';
+import { CodeForgeService } from './code-forge-service';
 import { abandonCommand } from './commands/abandon';
 import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
@@ -45,8 +48,9 @@ import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
 import { workspaceDeleteCommand } from './commands/workspace-delete';
 import { workspaceForgetCommand } from './commands/workspace-forget';
-import { GerritService } from './gerrit-service';
+import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
+import { GitHubProvider } from './github-provider';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -61,6 +65,7 @@ import { resolveJjBinary } from './utils/binary-utils';
 export interface Api {
     scmProvider: JjScmProvider;
     jj: JjService;
+    registerCodeForgeProvider(provider: CodeForgeProvider): vscode.Disposable;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -129,8 +134,28 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    const gerritService = new GerritService(workspaceRoot, jj, outputChannel);
-    context.subscriptions.push(gerritService);
+    const codeForgeRegistry = new CodeForgeRegistry();
+    context.subscriptions.push(codeForgeRegistry);
+    const gerritProvider = new GerritProvider(jj, outputChannel);
+    const githubProvider = new GitHubProvider(outputChannel);
+
+    context.subscriptions.push(codeForgeRegistry.register(gerritProvider));
+    context.subscriptions.push(codeForgeRegistry.register(githubProvider));
+
+    const codeForgeService = new CodeForgeService(workspaceRoot, jj, codeForgeRegistry, outputChannel);
+    context.subscriptions.push(codeForgeService);
+
+    // Track active provider changes to update context keys
+    const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
+        vscode.commands.executeCommand('setContext', 'jj.codeForgeActive', !!provider);
+        vscode.commands.executeCommand(
+            'setContext',
+            'jj.codeForgeTerm',
+            provider?.changeTerm?.toLowerCase() || 'change',
+        );
+    };
+    updateContextKeys(codeForgeRegistry.getActive());
+    context.subscriptions.push(codeForgeRegistry.onDidActiveProviderChange(updateContextKeys));
 
     const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
     const editProvider = new JjEditFileSystemProvider(jj);
@@ -302,7 +327,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.upload', async (...args: unknown[]) => {
-            await uploadCommand(scmProvider, jj, gerritService, args, outputChannel);
+            await uploadCommand(scmProvider, jj, codeForgeService, args, outputChannel);
         }),
     );
 
@@ -334,7 +359,7 @@ export function activate(context: vscode.ExtensionContext) {
     const logWebviewProvider = new JjLogWebviewProvider(
         context.extensionUri,
         jj,
-        gerritService,
+        codeForgeService,
         commitDetailsProvider,
         (ids) => {
             scmProvider.handleSelectionChange(ids);
@@ -362,10 +387,10 @@ export function activate(context: vscode.ExtensionContext) {
     // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
     scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
 
-    // Detect terminal 'jj upload' commands and trigger immediate Gerrit refresh
+    // Detect terminal 'jj upload' or 'jj git push' commands and trigger immediate refresh
     context.subscriptions.push(
         vscode.window.onDidEndTerminalShellExecution((event) => {
-            handleTerminalExecution(event.execution.commandLine.value, gerritService, outputChannel, scmProvider);
+            handleTerminalExecution(event.execution.commandLine.value, codeForgeService, outputChannel, scmProvider);
         }),
     );
 
@@ -470,20 +495,21 @@ export function activate(context: vscode.ExtensionContext) {
     return {
         scmProvider,
         jj,
+        registerCodeForgeProvider: (provider: CodeForgeProvider) => codeForgeRegistry.register(provider),
     };
 }
 
-/** Checks if a terminal command is a jj upload and triggers staggered Gerrit refreshes. */
+/** Checks if a terminal command is a jj upload or push and triggers staggered code forge refreshes. */
 export function handleTerminalExecution(
     commandLine: string,
-    gerritService: GerritService,
+    codeForgeService: CodeForgeService,
     outputChannel: vscode.OutputChannel,
     scmProvider: JjScmProvider,
 ): boolean {
     const cmd = commandLine.trim();
-    if (cmd.startsWith('jj') && cmd.includes('upload')) {
-        outputChannel.appendLine(`[Extension] Detected terminal upload: "${cmd}"`);
-        gerritService.requestRefreshWithBackoffs();
+    if (cmd.startsWith('jj') && (cmd.includes('upload') || cmd.includes('git push'))) {
+        outputChannel.appendLine(`[Extension] Detected terminal upload/push: "${cmd}"`);
+        codeForgeService.requestRefreshWithBackoffs();
         scmProvider.refresh();
         return true;
     }

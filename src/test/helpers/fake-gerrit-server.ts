@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as http from 'node:http';
-import type { GerritChange } from '../../gerrit-service';
+import type { GerritChange } from '../../gerrit-provider';
 
 export class FakeGerritServer {
     private changes = new Map<string, GerritChange>();

@@ -1398,19 +1398,90 @@ log = "none()"
         expect(head.working_copies).toContain('alpha:1.0');
     });
 
-    test('getBookmarks returns bookmark names', async () => {
-        repo.bookmark('feature-a', '@');
-        repo.bookmark('feature-b', '@');
+    test('getBookmarks returns JjBookmark objects including remote bookmarks', async () => {
+        repo.describe('root commit');
+        const ids = await buildGraph(repo, [
+            { label: 'commitA', description: 'test bookmark push', bookmarks: ['feature-a', 'feature-b'] },
+            {
+                label: 'commitB',
+                parents: ['commitA'],
+                description: 'test local bookmark move',
+                isCurrentWorkingCopy: true,
+            },
+        ]);
 
-        const bookmarks = await jjService.getBookmarks();
+        // Setup a remote repo and push a bookmark to it to simulate a remote bookmark
+        const remoteRepo = new TestRepo();
+        remoteRepo.init();
+        try {
+            repo.addRemote('origin', remoteRepo.path);
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
-        expect(bookmarks).toContain('feature-a');
-        expect(bookmarks).toContain('feature-b');
-        // We expect unique names.
-        // Note: We cannot easily simulate duplicates (remote vs local) in this simple test setup
-        // without valid remote fetching, but the implementation uses Set to guarantee uniqueness.
-        const uniqueBookmarks = new Set(bookmarks);
-        expect(bookmarks.length).toBe(uniqueBookmarks.size);
+            // Push feature-a to remote
+            repo.gitPush('feature-a');
+
+            // Move feature-a locally so it points to a different commit than the remote
+            repo.bookmarkMove('feature-a', ids.commitB.changeId);
+
+            // After move, feature-a@origin points to the parent, while local feature-a points to the child.
+            // Since their targets differ, feature-a@origin will be returned by getBookmarks().
+            const bookmarks = await jjService.getBookmarks();
+
+            expect(bookmarks).toEqual([
+                { name: 'feature-a', remote: null },
+                { name: 'feature-a', remote: 'origin' },
+                { name: 'feature-b', remote: null },
+            ]);
+        } finally {
+            remoteRepo.dispose();
+        }
+    });
+
+    test('getBookmarks with revision filters bookmarks by revision', async () => {
+        const remoteRepo = new TestRepo();
+        remoteRepo.init();
+        try {
+            repo.addRemote('origin', remoteRepo.path);
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+
+            repo.describe('root commit');
+            const ids = await buildGraph(repo, [
+                { label: 'commitA', description: 'commit A', bookmarks: ['feature-b'] },
+                { label: 'commitB', parents: ['commitA'], description: 'commit B', bookmarks: ['feature-c'] },
+                { label: 'commitC', parents: ['commitB'], description: 'commit C', bookmarks: ['feature-a'] },
+                { label: 'commitD', parents: ['commitC'], description: 'commit D', isCurrentWorkingCopy: true },
+            ]);
+
+            // Push feature-b (which is at commitA) to remote
+            repo.gitPush('feature-b');
+
+            // Move feature-b locally to commit B
+            repo.bookmarkMove('feature-b', ids.commitB.changeId);
+
+            // Push feature-a (which is at commitC) to remote
+            repo.gitPush('feature-a');
+
+            // Move feature-a locally to commit D
+            repo.bookmarkMove('feature-a', ids.commitD.changeId);
+
+            // Query bookmarks on Commit B (@--)
+            const parentBookmarks = await jjService.getBookmarks({ revision: '@--' });
+            expect(parentBookmarks).toEqual([
+                { name: 'feature-b', remote: null },
+                { name: 'feature-b', remote: 'origin' },
+                { name: 'feature-c', remote: null },
+                { name: 'feature-c', remote: 'origin' },
+            ]);
+
+            // Query bookmarks on Commit D (@)
+            const childBookmarks = await jjService.getBookmarks({ revision: '@' });
+            expect(childBookmarks).toEqual([
+                { name: 'feature-a', remote: null },
+                { name: 'feature-a', remote: 'origin' },
+            ]);
+        } finally {
+            remoteRepo.dispose();
+        }
     });
 
     describe('checkTrackedPaths', () => {

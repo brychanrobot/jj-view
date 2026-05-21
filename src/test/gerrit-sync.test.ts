@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { type GerritRevision, GerritService } from '../gerrit-service';
+import { CodeForgeRegistry } from '../code-forge-registry';
+import { CodeForgeService } from '../code-forge-service';
+import { GerritProvider, type GerritRevision } from '../gerrit-provider';
 import { JjService } from '../jj-service';
-import type { GerritClInfo, JjLogEntry } from '../jj-types';
+import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
 import { createMock, exposePrivate } from './test-utils';
@@ -19,6 +21,13 @@ vi.mock('vscode', () => ({
     workspace: {
         getConfiguration: () => mockConfig,
         onDidChangeConfiguration: vi.fn(),
+    },
+    Disposable: class {
+        static from = vi.fn();
+        constructor(private callOnDispose: () => void) {}
+        dispose() {
+            this.callOnDispose?.();
+        }
     },
     EventEmitter: class {
         event = vi.fn();
@@ -37,7 +46,9 @@ vi.mock('vscode', () => ({
 describe('Gerrit Sync Verification', () => {
     let repo: TestRepo;
     let jjService: JjService;
-    let service: GerritService;
+    let registry: CodeForgeRegistry;
+    let provider: GerritProvider;
+    let service: CodeForgeService;
     let fakeGerritServer: FakeGerritServer;
 
     beforeEach(async () => {
@@ -49,7 +60,7 @@ describe('Gerrit Sync Verification', () => {
 
         // Allow host probing to succeed
         vi.spyOn(
-            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritService.prototype),
+            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritProvider.prototype),
             'probeGerritHost',
         ).mockResolvedValue(true);
 
@@ -67,6 +78,14 @@ describe('Gerrit Sync Verification', () => {
         repo.dispose();
         vi.clearAllMocks();
     });
+
+    function initService(): CodeForgeService {
+        registry = new CodeForgeRegistry();
+        provider = new GerritProvider(jjService);
+        registry.register(provider);
+        service = new CodeForgeService(repo.path, jjService, registry);
+        return service;
+    }
 
     function mockGerritResponse(
         changeId: string,
@@ -113,11 +132,11 @@ describe('Gerrit Sync Verification', () => {
             '',
         );
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result?.contentSynced).toBe(true);
     });
@@ -139,11 +158,11 @@ describe('Gerrit Sync Verification', () => {
             '',
         );
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result?.contentSynced).toBeUndefined();
     });
@@ -167,11 +186,11 @@ describe('Gerrit Sync Verification', () => {
             '',
         );
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result?.contentSynced).toBe(true);
     });
@@ -193,11 +212,11 @@ describe('Gerrit Sync Verification', () => {
             '',
         );
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result?.contentSynced).toBeUndefined();
     });
@@ -219,11 +238,11 @@ describe('Gerrit Sync Verification', () => {
             '',
         );
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         // When revisions match, we now set synced=true explicitly as it's definitely synced
         expect(result?.contentSynced).toBe(true);
@@ -255,29 +274,29 @@ describe('Gerrit Sync Verification', () => {
             } as Record<string, GerritRevision>,
         });
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result?.contentSynced).toBe(true); // Content matches
 
-        // Structural verification now happens in populateGerritInfo
+        // Structural verification now happens in populateCodeForgeInfo
         const commit = createMock<JjLogEntry>({
             commit_id: commitId,
             change_id: 'I6666666666666666666666666666666666666666',
             parents: parents,
         });
 
-        service.populateGerritInfo([commit]);
-        expect(commit.gerritCl?.parentSynced).toBe(false); // Parents differ
-        expect(commit.gerritCl?.synced).toBe(false);
+        service.populateCodeForgeInfo([commit]);
+        expect(commit.codeForgeChange?.parentSynced).toBe(false); // Parents differ
+        expect(commit.codeForgeChange?.synced).toBe(false);
     });
 
-    describe('populateGerritInfo', () => {
+    describe('populateCodeForgeInfo', () => {
         beforeEach(async () => {
-            service = new GerritService(repo.path, jjService);
+            service = initService();
             await service.awaitReady();
         });
 
@@ -292,9 +311,11 @@ describe('Gerrit Sync Verification', () => {
             });
 
             // Mock cache
-            vi.spyOn(service, 'getCachedClStatus').mockReturnValue({
-                changeId: 'I1',
-                changeNumber: 1,
+            vi.spyOn(provider, 'getCachedChangeInfo').mockReturnValue({
+                id: 'I1',
+                number: 1,
+                displayLabel: 'CL/1',
+                providerName: 'Gerrit',
                 status: 'NEW',
                 submittable: false,
                 url: '',
@@ -303,9 +324,9 @@ describe('Gerrit Sync Verification', () => {
                 synced: false,
             });
 
-            service.populateGerritInfo([commit]);
+            service.populateCodeForgeInfo([commit]);
 
-            expect(commit.gerritNeedsUpload).toBe(true);
+            expect(commit.codeForgeNeedsUpload).toBe(true);
         });
 
         test('computes gerritNeedsUpload recursively for descendants of out-of-sync commits', () => {
@@ -334,11 +355,13 @@ describe('Gerrit Sync Verification', () => {
                 parents: [{ commit_id: 'c2', change_id: 'I2', is_immutable: false }], // Child of c2
             });
 
-            vi.spyOn(service, 'getCachedClStatus').mockImplementation((changeId) => {
+            vi.spyOn(provider, 'getCachedChangeInfo').mockImplementation((changeId?: string) => {
                 if (changeId === 'I1') {
                     return {
-                        changeId: 'I1',
-                        changeNumber: 1,
+                        id: 'I1',
+                        number: 1,
+                        displayLabel: 'CL/1',
+                        providerName: 'Gerrit',
                         status: 'NEW',
                         submittable: false,
                         url: '',
@@ -349,8 +372,10 @@ describe('Gerrit Sync Verification', () => {
                 }
                 if (changeId === 'I2' || changeId === 'I3') {
                     return {
-                        changeId,
-                        changeNumber: 2,
+                        id: changeId || '',
+                        number: 2,
+                        displayLabel: `CL/${changeId}`,
+                        providerName: 'Gerrit',
                         status: 'NEW',
                         submittable: false,
                         url: '',
@@ -362,11 +387,11 @@ describe('Gerrit Sync Verification', () => {
                 return undefined;
             });
 
-            service.populateGerritInfo([c1, c2, c3]);
+            service.populateCodeForgeInfo([c1, c2, c3]);
 
-            expect(c1.gerritNeedsUpload).toBe(true); // Direct
-            expect(c2.gerritNeedsUpload).toBe(true); // Inherited from c1
-            expect(c3.gerritNeedsUpload).toBe(true); // Inherited transitively from c1
+            expect(c1.codeForgeNeedsUpload).toBe(true); // Direct
+            expect(c2.codeForgeNeedsUpload).toBe(true); // Inherited from c1
+            expect(c3.codeForgeNeedsUpload).toBe(true); // Inherited transitively from c1
         });
 
         test('does not set gerritNeedsUpload if all are in sync', () => {
@@ -379,9 +404,11 @@ describe('Gerrit Sync Verification', () => {
                 parents: [],
             });
 
-            vi.spyOn(service, 'getCachedClStatus').mockReturnValue({
-                changeId: 'I1',
-                changeNumber: 1,
+            vi.spyOn(provider, 'getCachedChangeInfo').mockReturnValue({
+                id: 'I1',
+                number: 1,
+                displayLabel: 'CL/1',
+                providerName: 'Gerrit',
                 status: 'NEW',
                 submittable: false,
                 url: '',
@@ -390,9 +417,9 @@ describe('Gerrit Sync Verification', () => {
                 synced: true,
             });
 
-            service.populateGerritInfo([commit]);
+            service.populateCodeForgeInfo([commit]);
 
-            expect(commit.gerritNeedsUpload).toBe(false);
+            expect(commit.codeForgeNeedsUpload).toBe(false);
         });
 
         test('detects structural mismatch (rebase hole) in a stack', () => {
@@ -411,8 +438,10 @@ describe('Gerrit Sync Verification', () => {
             // Mock the cache contents
             // Parent A is in sync on Gerrit
             const aCl = {
-                changeId: 'IA',
-                changeNumber: 1,
+                id: 'IA',
+                number: 1,
+                displayLabel: 'CL/1',
+                providerName: 'Gerrit',
                 status: 'NEW' as const,
                 currentRevision: 'a-local',
                 contentSynced: true,
@@ -424,19 +453,21 @@ describe('Gerrit Sync Verification', () => {
             };
             // Child B has matching content, BUT its parent in Gerrit is an OLD revision of A
             const bCl = {
-                changeId: 'IB',
-                changeNumber: 2,
+                id: 'IB',
+                number: 2,
+                displayLabel: 'CL/2',
+                providerName: 'Gerrit',
                 status: 'NEW' as const,
                 currentRevision: 'b-old-remote',
                 contentSynced: true,
-                gerritParents: ['a-old-remote'], // Doesn't match aCl.currentRevision
+                remoteParents: ['a-old-remote'], // Doesn't match aCl.currentRevision
                 synced: false,
                 url: '',
                 unresolvedComments: 0,
                 submittable: false,
             };
 
-            vi.spyOn(service, 'getCachedClStatus').mockImplementation((changeId) => {
+            vi.spyOn(provider, 'getCachedChangeInfo').mockImplementation((changeId?: string) => {
                 if (changeId === 'IA') {
                     return aCl;
                 }
@@ -447,19 +478,19 @@ describe('Gerrit Sync Verification', () => {
             });
 
             // Access private cache to populate it for structural check
-            const servicePriv = exposePrivate<{
-                resolveCacheKey: (id: string) => string;
-                cache: Map<string, GerritClInfo>;
-            }>(service);
-            vi.spyOn(servicePriv, 'resolveCacheKey').mockImplementation((id) => id);
-            servicePriv.cache.set('IA', aCl);
-            servicePriv.cache.set('IB', bCl);
+            const providerPriv = exposePrivate<{
+                resolveCacheKey: (id?: string) => string | undefined;
+                cache: Map<string, CodeForgeChangeInfo>;
+            }>(provider);
+            vi.spyOn(providerPriv, 'resolveCacheKey').mockImplementation((id) => id);
+            providerPriv.cache.set('IA', aCl);
+            providerPriv.cache.set('IB', bCl);
 
-            service.populateGerritInfo([a, b]);
+            service.populateCodeForgeInfo([a, b]);
 
-            expect(b.gerritCl?.parentSynced).toBe(false);
-            expect(b.gerritCl?.synced).toBe(false);
-            expect(b.gerritNeedsUpload).toBe(true);
+            expect(b.codeForgeChange?.parentSynced).toBe(false);
+            expect(b.codeForgeChange?.synced).toBe(false);
+            expect(b.codeForgeNeedsUpload).toBe(true);
         });
     });
 });

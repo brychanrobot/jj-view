@@ -54,11 +54,39 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         }
     }
 
+    class Disposable {
+        static from = vi.fn();
+        constructor(private callOnDispose: () => void) {}
+        dispose() {
+            this.callOnDispose?.();
+        }
+    }
+
+    class EventEmitter<T> {
+        private listeners: ((data: T) => void)[] = [];
+        event = (listener: (data: T) => void) => {
+            this.listeners.push(listener);
+            return {
+                dispose: () => {
+                    this.listeners = this.listeners.filter((l) => l !== listener);
+                },
+            };
+        };
+        fire = (data: T) => {
+            this.listeners.forEach((l) => {
+                l(data);
+            });
+        };
+        dispose = vi.fn();
+    }
+
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
         Position,
         Range,
         Selection,
+        Disposable,
+        EventEmitter,
         Uri: class MockUri {
             constructor(
                 public fsPath: string,

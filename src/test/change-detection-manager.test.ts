@@ -10,7 +10,7 @@ import { ChangeDetectionManager } from '../change-detection-manager';
 import { DirectoryWatcher } from '../directory-watcher';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { accessPrivate, createMock } from './test-utils';
 
 // Mock VS Code
 const mockGetConfiguration = vi.fn();
@@ -156,8 +156,8 @@ describe('ChangeDetectionManager', () => {
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
             // 2. Blur the window
-            const windowMock = vscode.window as unknown as { state: { focused: boolean } };
-            windowMock.state.focused = false;
+            const windowState = accessPrivate<{ focused: boolean }>(vscode.window, 'state');
+            windowState.focused = false;
             onDidChangeWindowState({ focused: false });
 
             // Wait 5.1s, should NOT call refresh (paused)
@@ -166,7 +166,7 @@ describe('ChangeDetectionManager', () => {
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
             // 3. Focus the window
-            windowMock.state.focused = true;
+            windowState.focused = true;
             onDidChangeWindowState({ focused: true });
 
             // Wait for the immediate (10ms) poll to trigger

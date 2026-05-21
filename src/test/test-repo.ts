@@ -172,6 +172,10 @@ export class TestRepo {
         this.exec(['bookmark', 'create', name, '-r', revision]);
     }
 
+    bookmarkMove(name: string, revision: string) {
+        this.exec(['bookmark', 'set', name, '-r', revision]);
+    }
+
     tag(name: string, revision: string) {
         this.exec(['tag', 'set', name, '-r', revision]);
     }
@@ -350,8 +354,43 @@ export class TestRepo {
         this.exec(['git', 'import']);
     }
 
+    gitPush(bookmarkName: string) {
+        this.exec(['git', 'push', '--bookmark', bookmarkName]);
+    }
+
     listWorkspaces(): string {
         return this.exec(['workspace', 'list']);
+    }
+
+    hasGitRef(ref: string): boolean {
+        try {
+            cp.execFileSync('git', ['show-ref', '--verify', ref], {
+                cwd: this.path,
+                stdio: 'ignore',
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    listGitRefs(prefix?: string): string[] {
+        try {
+            const output = cp.execFileSync('git', ['show-ref'], {
+                cwd: this.path,
+                encoding: 'utf-8',
+            });
+            const refs = output
+                .split('\n')
+                .map((line) => line.trim().split(/\s+/)[1])
+                .filter(Boolean);
+            if (prefix) {
+                return refs.filter((ref) => ref.startsWith(prefix));
+            }
+            return refs;
+        } catch {
+            return [];
+        }
     }
 }
 

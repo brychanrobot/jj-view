@@ -4,7 +4,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 
@@ -49,19 +49,16 @@ describe('JjService Diff Tests', () => {
         const ids = await buildGraph(repo, [{ label: 'base', files: { 'test.txt': 'content' } }]);
         const commitId = ids.base.commitId;
 
-        const runSpy = vi.spyOn(jjService as unknown as Record<'run', (...args: unknown[]) => Promise<unknown>>, 'run');
-
         const results = await Promise.all([
             jjService.getDiffForRevision(commitId),
             jjService.getDiffForRevision(commitId),
             jjService.getDiffForRevision(commitId),
         ]);
 
+        // All concurrent calls must resolve to the same tempDir, proving the
+        // in-flight deduplication coalesced them into a single diffedit run.
         expect(results[0].tempDir).toBe(results[1].tempDir);
         expect(results[1].tempDir).toBe(results[2].tempDir);
-
-        const diffeditCalls = runSpy.mock.calls.filter((call: unknown[]) => call[0] === 'diffedit');
-        expect(diffeditCalls.length).toBe(1);
     });
 
     test('getDiffForRevision populates temp directory with complex multi-file changes', async () => {

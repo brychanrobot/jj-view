@@ -39,7 +39,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     const isCurrentWorkingCopy = commit.is_current_working_copy;
     const isConflict = commit.conflict;
     const isEmpty = commit.is_empty;
-    const gerritCl = commit.gerritCl;
+    const codeForgeChange = commit.codeForgeChange;
 
     // Memoized Visibility and Context Keys
     const { visibleActions, vscodeContext } = React.useMemo(
@@ -422,10 +422,10 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                     </span>
                 </div>
 
-                {/* Gerrit Info */}
-                {gerritCl && (
+                {/* Code Forge Info */}
+                {codeForgeChange && (
                     <div
-                        className="gerrit-row"
+                        className="code-forge-row"
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -437,16 +437,16 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         }}
                     >
                         {/* Status Badge */}
-                        {(gerritCl.status === 'MERGED' || gerritCl.status === 'ABANDONED') && (
+                        {(codeForgeChange.status === 'MERGED' || codeForgeChange.status === 'ABANDONED') && (
                             <span
                                 style={{
                                     border: '1px solid',
                                     borderColor:
-                                        gerritCl.status === 'MERGED'
+                                        codeForgeChange.status === 'MERGED'
                                             ? 'var(--vscode-descriptionForeground)'
                                             : 'var(--vscode-gitDecoration-ignoredResourceForeground)',
                                     color:
-                                        gerritCl.status === 'MERGED'
+                                        codeForgeChange.status === 'MERGED'
                                             ? 'var(--vscode-descriptionForeground)'
                                             : 'var(--vscode-gitDecoration-ignoredResourceForeground)',
                                     backgroundColor: 'transparent',
@@ -461,19 +461,19 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     lineHeight: '14px',
                                 }}
                             >
-                                {gerritCl.status}
+                                {codeForgeChange.status}
                             </span>
                         )}
 
                         {/* CL Link */}
                         <a
-                            href={gerritCl.url}
+                            href={codeForgeChange.url}
                             onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                onAction('openGerrit', {
+                                onAction('openCodeForge', {
                                     changeId: commit.change_id,
-                                    url: gerritCl.url,
+                                    url: codeForgeChange.url,
                                 });
                             }}
                             style={{
@@ -484,23 +484,23 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 alignItems: 'center',
                                 gap: '3px',
                             }}
-                            title={gerritCl.url}
+                            title={codeForgeChange.url}
                         >
-                            <span>CL/{gerritCl.changeNumber}</span>
+                            <span>{codeForgeChange.displayLabel}</span>
                             <span className="codicon codicon-link-external" style={{ fontSize: '10px' }} />
                         </a>
 
                         {/* Sync Status Button or Icon */}
-                        {gerritCl.status === 'NEW' &&
-                            (!commit.gerritNeedsUpload ? (
+                        {codeForgeChange.status === 'NEW' &&
+                            (!commit.codeForgeNeedsUpload ? (
                                 // Synced - Non-interactive Icon
                                 <div
                                     title={
-                                        gerritCl.parentSynced === false
-                                            ? 'Parent mismatch (Local parent differs from Gerrit)'
-                                            : gerritCl.synced
-                                              ? 'Synced (content matches Gerrit)'
-                                              : 'Up to date with Gerrit'
+                                        codeForgeChange.parentSynced === false
+                                            ? 'Parent mismatch (Local parent differs from remote)'
+                                            : codeForgeChange.synced
+                                              ? 'Synced (content matches remote)'
+                                              : 'Up to date with remote'
                                     }
                                     style={{
                                         display: 'flex',
@@ -521,11 +521,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                         onAction('upload', { changeId: commit.change_id });
                                     }}
                                     title={
-                                        gerritCl.parentSynced === false
+                                        codeForgeChange.parentSynced === false
                                             ? 'Parent mismatch (Click to push update)'
                                             : 'Local changes need upload (Click to push)'
                                     }
-                                    aria-label="Upload changes to Gerrit"
+                                    aria-label={`Upload changes to ${codeForgeChange.providerName}`}
                                     style={{
                                         cursor: 'pointer',
                                         display: 'flex',
@@ -542,9 +542,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             ))}
 
                         {/* Attributes */}
-                        {gerritCl.unresolvedComments > 0 && (
+                        {codeForgeChange.unresolvedComments > 0 && (
                             <span
-                                title={`${gerritCl.unresolvedComments} Unresolved Comments`}
+                                title={`${codeForgeChange.unresolvedComments} Unresolved Comments`}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -554,11 +554,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 }}
                             >
                                 <span className="codicon codicon-comment-discussion" style={{ fontSize: '11px' }} />
-                                <span>{gerritCl.unresolvedComments}</span>
+                                <span>{codeForgeChange.unresolvedComments}</span>
                             </span>
                         )}
 
-                        {gerritCl.submittable && gerritCl.status === 'NEW' && (
+                        {codeForgeChange.submittable && codeForgeChange.status === 'NEW' && (
                             <span
                                 title="Ready to Submit"
                                 style={{

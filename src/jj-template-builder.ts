@@ -129,3 +129,9 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
         },
     },
 };
+
+// Schema for JjBookmark
+export const BOOKMARK_SCHEMA: Record<string, JjTemplateField> = {
+    name: { type: 'string', expr: 'name' },
+    remote: { type: 'nullable', expr: 'remote', valueExpr: 'remote' },
+};

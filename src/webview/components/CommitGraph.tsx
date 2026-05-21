@@ -74,7 +74,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 height = ROW_HEIGHT_ELISION;
             } else {
                 const commit = row as JjLogEntry;
-                height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                height = commit.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
             }
             currentOffset += height;
         });
@@ -159,7 +159,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
                     const commit = row as JjLogEntry;
                     const isSelected = selectedCommitIds?.has(commit.change_id);
-                    const height = commit.gerritCl ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                    const height = commit.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
                     const paddingLeft = compactPaddingMap?.get(i) ?? graphAreaWidth;
                     return (
                         <div

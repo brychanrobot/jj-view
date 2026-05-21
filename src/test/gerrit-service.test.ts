@@ -7,7 +7,9 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // Vitest
 import * as vscode from 'vscode';
-import { GerritService } from '../gerrit-service';
+import { CodeForgeRegistry } from '../code-forge-registry';
+import { CodeForgeService } from '../code-forge-service';
+import { GerritProvider } from '../gerrit-provider';
 import { JjService } from '../jj-service';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
@@ -23,7 +25,13 @@ vi.mock('vscode', () => ({
         getConfiguration: () => mockConfig,
         onDidChangeConfiguration: vi.fn(),
     },
-    Disposable: { from: vi.fn() },
+    Disposable: class {
+        static from = vi.fn();
+        constructor(private callOnDispose: () => void) {}
+        dispose() {
+            this.callOnDispose?.();
+        }
+    },
     EventEmitter: class {
         private listeners: ((data: unknown) => void)[] = [];
         event = (listener: (data: unknown) => void) => {
@@ -49,7 +57,9 @@ vi.mock('vscode', () => ({
 
 describe('GerritService Detection', () => {
     let repo: TestRepo;
-    let service: GerritService;
+    let service: CodeForgeService;
+    let registry: CodeForgeRegistry;
+    let provider: GerritProvider;
     let jjService: JjService;
     let mockOnDidChangeWindowState: ReturnType<typeof vi.fn>;
     let fakeGerritServer: FakeGerritServer;
@@ -65,7 +75,7 @@ describe('GerritService Detection', () => {
 
         // Default: allow host probing to succeed in tests
         vi.spyOn(
-            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritService.prototype),
+            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritProvider.prototype),
             'probeGerritHost',
         ).mockResolvedValue(true);
 
@@ -85,9 +95,17 @@ describe('GerritService Detection', () => {
         vi.clearAllMocks();
     });
 
+    function initService(): CodeForgeService {
+        registry = new CodeForgeRegistry();
+        provider = new GerritProvider(jjService);
+        registry.register(provider);
+        service = new CodeForgeService(repo.path, jjService, registry);
+        return service;
+    }
+
     // Helper to access private property without using 'any'
-    function getGerritHost(srv: GerritService): string | undefined {
-        return accessPrivate<string | undefined>(srv, '_gerritHost');
+    function getGerritHost(): string | undefined {
+        return accessPrivate<string | undefined>(provider, 'gerritHost');
     }
 
     test('Detects from extension setting (highest priority)', async () => {
@@ -98,74 +116,98 @@ describe('GerritService Detection', () => {
             return undefined;
         });
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         expect(service.isEnabled).toBe(true);
-        expect(getGerritHost(service)).toBe('https://setting-host.com');
+        expect(getGerritHost()).toBe('https://setting-host.com');
     });
 
     test('Detects from .gitreview file (secondary priority)', async () => {
         const gitreviewPath = path.join(repo.path, '.gitreview');
         await fs.promises.writeFile(gitreviewPath, '[gerrit]\nhost=gitreview-host.com\n');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
-        expect(getGerritHost(service)).toBe('https://gitreview-host.com');
+        expect(getGerritHost()).toBe('https://gitreview-host.com');
     });
 
     test('Detects from googlesource.com remote', async () => {
         repo.addRemote('origin', 'https://chromium.googlesource.com/chromium/src.git');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // Should convert to -review and strip path
-        expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
+        expect(getGerritHost()).toBe('https://chromium-review.googlesource.com');
     });
 
     test('Detects from remote with existing -review.googlesource.com', async () => {
         repo.addRemote('origin', 'https://chromium-review.googlesource.com/chromium/src');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
-        expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
+        expect(getGerritHost()).toBe('https://chromium-review.googlesource.com');
     });
 
     test('Detects from remote with /gerrit/ path', async () => {
         repo.addRemote('origin', 'https://git.eclipse.org/gerrit/p/platform.git');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // existing logic for non-googlesource just does replace .git and ensures https.
-        expect(getGerritHost(service)).toBe('https://git.eclipse.org/gerrit/p/platform');
+        expect(getGerritHost()).toBe('https://git.eclipse.org/gerrit/p/platform');
     });
 
     test('Handles ssh remote format', async () => {
         repo.addRemote('origin', 'ssh://user@gerrit.googlesource.com:29418/repo');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // Should strip repo path
-        expect(getGerritHost(service)).toBe('https://gerrit-review.googlesource.com');
+        expect(getGerritHost()).toBe('https://gerrit-review.googlesource.com');
     });
 
     test('Detects from sso:// remote', async () => {
         repo.addRemote('origin', 'sso://chromium/chromium/src.git');
 
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
-        expect(getGerritHost(service)).toBe('https://chromium-review.googlesource.com');
+        expect(getGerritHost()).toBe('https://chromium-review.googlesource.com');
+    });
+
+    test('detect clears cache on gerritHost change, but preserves it if unchanged', async () => {
+        service = initService();
+
+        // 1. Initial detection sets gerritHost to chromium-review
+        repo.addRemote('origin', 'https://chromium.googlesource.com/chromium/src.git');
+        await provider.detect(repo.path, await jjService.getGitRemotes());
+        expect(getGerritHost()).toBe('https://chromium-review.googlesource.com');
+
+        // Populate cache
+        const cache = accessPrivate<Map<string, unknown>>(provider, 'cache');
+        cache.set('some-key', { status: 'NEW' });
+
+        // 2. Detect again with the same remote/host -> cache should be preserved
+        await provider.detect(repo.path, await jjService.getGitRemotes());
+        expect(getGerritHost()).toBe('https://chromium-review.googlesource.com');
+        expect(cache.has('some-key')).toBe(true);
+
+        // 3. Detect with different remote/host -> cache should be cleared
+        const remotes = [{ name: 'origin', url: 'https://gerrit.googlesource.com/gerrit.git' }];
+        await provider.detect(repo.path, remotes);
+        expect(getGerritHost()).toBe('https://gerrit-review.googlesource.com');
+        expect(cache.has('some-key')).toBe(false);
     });
 
     test('ensureFreshStatuses prioritizes Description Change-Id', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
@@ -179,14 +221,14 @@ describe('GerritService Detection', () => {
         await service.ensureFreshStatuses([
             { commitId: 'commit-sha', changeId: 'z-change-id', description: desc, parents: [] },
         ]);
-        const result = service.getCachedClStatus('z-change-id', desc);
+        const result = provider.getCachedChangeInfo('z-change-id', desc);
 
-        expect(result?.changeId).toBe('I1234567890abcdef1234567890abcdef12345678');
+        expect(result?.id).toBe('I1234567890abcdef1234567890abcdef12345678');
     });
 
     test('ensureFreshStatuses prioritizes Link trailer when Change-Id is missing', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         fakeGerritServer.addChange({
@@ -195,16 +237,16 @@ describe('GerritService Detection', () => {
             status: 'NEW',
         });
 
-        const desc = 'Description\n\nLink: https://chromium-review.googlesource.com/c/chromium/src/+/7812281\n';
+        const desc = `Description\n\nLink: ${fakeGerritServer.url}/c/chromium/src/+/7812281\n`;
         await service.ensureFreshStatuses([{ commitId: 'commit-sha', description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
-        expect(result?.changeNumber).toBe(7812281);
+        expect(result?.number).toBe(7812281);
     });
 
     test('ensureFreshStatuses extracts change number from different Link formats', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         fakeGerritServer.addChange({ _number: 111, status: 'NEW', change_id: 'I111' });
@@ -212,30 +254,32 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({ _number: 333, status: 'NEW', change_id: 'I333' });
         fakeGerritServer.addChange({ _number: 444, status: 'NEW', change_id: 'I444' });
 
+        const host = fakeGerritServer.url;
+
         // Format 1: /+/123
-        const desc1 = 'Desc\n\nLink: https://host.com/c/proj/+/111';
+        const desc1 = `Desc\n\nLink: ${host}/c/proj/+/111`;
         await service.ensureFreshStatuses([{ commitId: 'c1', description: desc1, parents: [] }]);
-        expect(service.getCachedClStatus(undefined, desc1)?.changeNumber).toBe(111);
+        expect(provider.getCachedChangeInfo(undefined, desc1)?.number).toBe(111);
 
         // Format 2: /123
-        const desc2 = 'Desc\n\nLink: https://host.com/222';
+        const desc2 = `Desc\n\nLink: ${host}/222`;
         await service.ensureFreshStatuses([{ commitId: 'c2', description: desc2, parents: [] }]);
-        expect(service.getCachedClStatus(undefined, desc2)?.changeNumber).toBe(222);
+        expect(provider.getCachedChangeInfo(undefined, desc2)?.number).toBe(222);
 
         // Format 3: /123/ (trailing slash)
-        const desc3 = 'Desc\n\nLink: https://host.com/333/';
+        const desc3 = `Desc\n\nLink: ${host}/333/`;
         await service.ensureFreshStatuses([{ commitId: 'c3', description: desc3, parents: [] }]);
-        expect(service.getCachedClStatus(undefined, desc3)?.changeNumber).toBe(333);
+        expect(provider.getCachedChangeInfo(undefined, desc3)?.number).toBe(333);
 
         // Format 4: /+/123/4 (with patchset number — should extract 444, not 7)
-        const desc4 = 'Desc\n\nLink: https://host.com/c/proj/+/444/7';
+        const desc4 = `Desc\n\nLink: ${host}/c/proj/+/444/7`;
         await service.ensureFreshStatuses([{ commitId: 'c4', description: desc4, parents: [] }]);
-        expect(service.getCachedClStatus(undefined, desc4)?.changeNumber).toBe(444);
+        expect(provider.getCachedChangeInfo(undefined, desc4)?.number).toBe(444);
     });
 
     test('ensureFreshStatuses prioritizes Change-Id over Link trailer', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
@@ -249,15 +293,15 @@ describe('GerritService Detection', () => {
         const jjId = 'I1234567890abcdef1234567890abcdef12345678';
 
         await service.ensureFreshStatuses([{ commitId: 'commit-sha', changeId: jjId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(jjId, desc);
+        const result = provider.getCachedChangeInfo(jjId, desc);
 
-        expect(result?.changeId).toBe(changeId);
-        expect(result?.changeNumber).toBe(123);
+        expect(result?.id).toBe(changeId);
+        expect(result?.number).toBe(123);
     });
 
     test('ensureFreshStatuses falls back to Computed Change-Id', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I000000000000ffffffffffffffffffffffffffff';
@@ -274,26 +318,26 @@ describe('GerritService Detection', () => {
         const desc = 'Description without ID';
 
         await service.ensureFreshStatuses([{ commitId: 'commit-sha', changeId: jjId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(jjId, desc);
+        const result = provider.getCachedChangeInfo(jjId, desc);
 
-        expect(result?.changeNumber).toBe(456);
+        expect(result?.number).toBe(456);
     });
 
     test('ensureFreshStatuses ignores commit SHA if Change-Id logic fails (or just returns undefined)', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const desc = 'Description without ID';
         await service.ensureFreshStatuses([{ commitId: 'commit-sha', description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc);
 
         expect(result).toBeUndefined();
     });
 
     test('ensureFreshStatuses handles invalid JJ Change-Id gracefully', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const desc = 'Description with old Change-Id footer\n\nChange-Id: Ioldid\n';
@@ -305,14 +349,14 @@ describe('GerritService Detection', () => {
                 parents: [],
             },
         ]);
-        const result = service.getCachedClStatus('invalid-jj-id-with-a', desc);
+        const result = provider.getCachedChangeInfo('invalid-jj-id-with-a', desc);
 
         expect(result).toBeUndefined();
     });
 
     test('ensureFreshStatuses updates cache when status changes', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // Pre-populate gerrit server
@@ -333,14 +377,14 @@ describe('GerritService Detection', () => {
         fakeGerritServer.updateChange(cacheKey, { status: 'MERGED' });
 
         await service.ensureFreshStatuses([item]);
-        const result = service.getCachedClStatus('change-1', desc);
+        const result = provider.getCachedChangeInfo('change-1', desc);
 
         expect(result?.status).toBe('MERGED');
     });
 
     test('ensureFreshStatuses detects changes', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // 1. Setup Cache with OLD data
@@ -371,12 +415,12 @@ describe('GerritService Detection', () => {
         const hasChanges = await service.ensureFreshStatuses(items);
 
         expect(hasChanges).toBe(true);
-        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey1}`)?.status).toBe('MERGED');
+        expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey1}`)?.status).toBe('MERGED');
     });
 
     test('ensureFreshStatuses returns false if no changes', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // 1. Setup Gerrit and Cache
@@ -411,7 +455,7 @@ describe('GerritService Detection', () => {
         vi.useFakeTimers();
 
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
 
@@ -426,7 +470,7 @@ describe('GerritService Detection', () => {
         await service.ensureFreshStatuses([{ commitId: 'c1', changeId: 'change-1', description: desc, parents: [] }]);
 
         // Verify it's cached
-        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
+        expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
         // Track onDidUpdate calls
         let updateFired = false;
@@ -449,7 +493,7 @@ describe('GerritService Detection', () => {
 
     test('forceRefresh clears cache and fires onDidUpdate', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
 
@@ -464,7 +508,7 @@ describe('GerritService Detection', () => {
         await service.ensureFreshStatuses([{ commitId: 'c1', changeId: 'change-1', description: desc, parents: [] }]);
 
         // Verify it's cached
-        expect(service.getCachedClStatus(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
+        expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
         // Track onDidUpdate calls
         let updateFired = false;
@@ -480,7 +524,7 @@ describe('GerritService Detection', () => {
 
     test('ensureFreshStatuses parses changed files', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
@@ -505,7 +549,7 @@ describe('GerritService Detection', () => {
 
         const desc = `Change-Id: ${changeId}`;
         await service.ensureFreshStatuses([{ commitId: 'local-sha', changeId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(changeId, desc);
+        const result = provider.getCachedChangeInfo(changeId, desc);
 
         expect(result?.files).toEqual({
             'file1.txt': { status: 'M', newSha: 'abc' },
@@ -516,7 +560,7 @@ describe('GerritService Detection', () => {
 
     test('ensureFreshStatuses detects extra local files as not synced', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // 1. Create a commit with 2 files locally
@@ -547,7 +591,7 @@ describe('GerritService Detection', () => {
         // 3. Trigger fetch
         const desc = `Change-Id: ${changeId}`;
         await service.ensureFreshStatuses([{ commitId, changeId, description: desc, parents: [] }]);
-        const result = service.getCachedClStatus(changeId, desc);
+        const result = provider.getCachedChangeInfo(changeId, desc);
 
         // 4. Verify
         expect(result).toBeDefined();
@@ -557,7 +601,7 @@ describe('GerritService Detection', () => {
 
     test('ensureFreshStatuses detects description mismatch as not synced', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
@@ -588,13 +632,13 @@ describe('GerritService Detection', () => {
 
         // Pass a DIFFERENT local description
         await service.ensureFreshStatuses([{ commitId, changeId, description: localDesc, parents: [] }]);
-        const resultNoSync = service.getCachedClStatus(changeId, localDesc);
+        const resultNoSync = provider.getCachedChangeInfo(changeId, localDesc);
         expect(resultNoSync?.contentSynced).toBeFalsy();
     });
 
     test('ensureFreshStatuses accepts matching description regardless of whitespace', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeId = 'I1234567890abcdef1234567890abcdef12345678';
@@ -625,13 +669,13 @@ describe('GerritService Detection', () => {
 
         // Pass exactly the base description (different whitespace/trimming)
         await service.ensureFreshStatuses([{ commitId, changeId, description: baseDescription, parents: [] }]);
-        const resultSynced = service.getCachedClStatus(changeId, baseDescription);
+        const resultSynced = provider.getCachedChangeInfo(changeId, baseDescription);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 
     test('ensureFreshStatuses ignores Change-Id footer differences', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
@@ -661,13 +705,13 @@ describe('GerritService Detection', () => {
         const commitId = repo.getCommitId('@').trim();
 
         await service.ensureFreshStatuses([{ commitId, changeId: jjId, description: localDesc, parents: [] }]);
-        const resultSynced = service.getCachedClStatus(jjId, localDesc);
+        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 
     test('ensureFreshStatuses ignores Link trailer footer differences during sync', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const changeNumber = 7812281;
@@ -699,33 +743,53 @@ describe('GerritService Detection', () => {
         const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
 
         await service.ensureFreshStatuses([{ commitId, changeId: jjId, description: localDesc, parents: [] }]);
-        const resultSynced = service.getCachedClStatus(jjId, localDesc);
+        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 
     test('requestRefreshWithBackoffs schedules multiple refreshes', async () => {
         vi.useFakeTimers();
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         const forceRefreshSpy = vi.spyOn(service, 'forceRefresh');
 
-        // Mock scheduler to verify delays
-        const scheduler = vi.fn().mockImplementation((fn, delay) => {
-            setTimeout(fn, delay);
-        });
+        service.requestRefreshWithBackoffs();
 
-        service.requestRefreshWithBackoffs(scheduler);
+        // No refreshes yet — all timers are pending
+        expect(forceRefreshSpy).not.toHaveBeenCalled();
 
-        expect(scheduler).toHaveBeenCalledTimes(4);
-        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 2000);
-        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 3000);
-        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 5000);
-        expect(scheduler).toHaveBeenCalledWith(expect.any(Function), 10000);
+        // Advance through each delay checkpoint and verify incremental firing
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(forceRefreshSpy).toHaveBeenCalledTimes(1);
 
-        // Advance time to trigger all refreshes
+        await vi.advanceTimersByTimeAsync(1000); // +3000 total
+        expect(forceRefreshSpy).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(2000); // +5000 total
+        expect(forceRefreshSpy).toHaveBeenCalledTimes(3);
+
+        await vi.advanceTimersByTimeAsync(5000); // +10000 total
+        expect(forceRefreshSpy).toHaveBeenCalledTimes(4);
+
+        vi.useRealTimers();
+    });
+
+    test('requestRefreshWithBackoffs cancels previous wave when called again', async () => {
+        vi.useFakeTimers();
+        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        service = initService();
+        await service.awaitReady();
+
+        const forceRefreshSpy = vi.spyOn(service, 'forceRefresh');
+
+        service.requestRefreshWithBackoffs();
+        // Before any timer fires, call again — this should cancel the first wave
+        service.requestRefreshWithBackoffs();
+
         await vi.advanceTimersByTimeAsync(10000);
+        // Only the second wave's 4 refreshes should have fired, not 8
         expect(forceRefreshSpy).toHaveBeenCalledTimes(4);
 
         vi.useRealTimers();
@@ -739,7 +803,7 @@ describe('GerritService Detection', () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
 
         // Initialize service
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
 
         // Spy on _onDidUpdate.fire to verify refreshes
@@ -779,66 +843,66 @@ describe('GerritService Detection', () => {
         vi.useRealTimers();
     });
 
-    test('detectGerritHost is rate-limited and coalesced', async () => {
+    test('detectActiveProvider is rate-limited and coalesced', async () => {
         vi.useFakeTimers();
 
         // Start with no config so detection fails
         mockConfig.get.mockReturnValue(undefined);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
 
-        // Spy on public jjService.getGitRemotes
-        const getGitRemotesSpy = vi.spyOn(jjService, 'getGitRemotes');
+        // Spy on registry.autoDetect (never spy on JjService methods!)
+        const autoDetectSpy = vi.spyOn(registry, 'autoDetect');
 
         // Advance timers by 31 seconds to bypass rate limit from constructor detection
         await vi.advanceTimersByTimeAsync(31000);
 
-        // Call detectGerritHost - should attempt detection because rate limit has passed
-        await service.detectGerritHost();
-        expect(getGitRemotesSpy).toHaveBeenCalledTimes(1);
+        // Call detectActiveProvider - should attempt detection because rate limit has passed
+        await service.detectActiveProvider();
+        expect(autoDetectSpy).toHaveBeenCalledTimes(1);
 
-        // Call detectGerritHost again immediately - should NOT run due to 30s limit
-        await service.detectGerritHost();
-        expect(getGitRemotesSpy).toHaveBeenCalledTimes(1);
+        // Call detectActiveProvider again immediately - should NOT run due to 30s limit
+        await service.detectActiveProvider();
+        expect(autoDetectSpy).toHaveBeenCalledTimes(1);
 
         // Call with force = true - should run regardless of time limit
-        await service.detectGerritHost(true);
-        expect(getGitRemotesSpy).toHaveBeenCalledTimes(2);
+        await service.detectActiveProvider(true);
+        expect(autoDetectSpy).toHaveBeenCalledTimes(2);
 
         // Advance timers by 31 seconds - should now run again
         await vi.advanceTimersByTimeAsync(31000);
-        await service.detectGerritHost();
-        expect(getGitRemotesSpy).toHaveBeenCalledTimes(3);
+        await service.detectActiveProvider();
+        expect(autoDetectSpy).toHaveBeenCalledTimes(3);
 
         // Test coalescing: call multiple times in parallel.
-        // We mock getGitRemotes to return a promise that resolves slowly.
-        let resolveRemotes: (value: { name: string; url: string }[]) => void = () => {};
-        const slowRemotesPromise = new Promise<{ name: string; url: string }[]>((resolve) => {
-            resolveRemotes = resolve;
+        // We mock registry.autoDetect to return a promise that resolves slowly.
+        let resolveAutoDetect: () => void = () => {};
+        const slowAutoDetectPromise = new Promise<void>((resolve) => {
+            resolveAutoDetect = resolve;
         });
-        getGitRemotesSpy.mockImplementation(() => slowRemotesPromise);
+        autoDetectSpy.mockImplementation(() => slowAutoDetectPromise);
 
         // Advance timers past rate limit first
         await vi.advanceTimersByTimeAsync(31000);
 
-        const p1 = service.detectGerritHost();
-        const p2 = service.detectGerritHost();
-        const p3 = service.detectGerritHost(true); // force doesn't bypass active coalesced promise if already running
+        const p1 = service.detectActiveProvider();
+        const p2 = service.detectActiveProvider();
+        const p3 = service.detectActiveProvider(true); // force doesn't bypass active coalesced promise if already running
 
-        resolveRemotes([]);
+        resolveAutoDetect();
         await Promise.all([p1, p2, p3]);
 
-        // getGitRemotes should only be called once for these parallel invocations
-        expect(getGitRemotesSpy).toHaveBeenCalledTimes(4);
+        // autoDetect should only be called once for these parallel invocations
+        expect(autoDetectSpy).toHaveBeenCalledTimes(4);
 
         vi.useRealTimers();
     });
 
-    test('detectGerritHost fires onDidUpdate only when host status changes', async () => {
+    test('detectActiveProvider fires onDidUpdate only when host status changes', async () => {
         // Start disabled
         mockConfig.get.mockReturnValue(undefined);
-        service = new GerritService(repo.path, jjService);
+        service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
 
@@ -848,61 +912,25 @@ describe('GerritService Detection', () => {
         });
 
         // Try detecting, still fails, should not fire
-        await service.detectGerritHost(true);
+        await service.detectActiveProvider(true);
         expect(updateCount).toBe(0);
 
         // Set config so it succeeds
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
-        await service.detectGerritHost(true);
+        await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(true);
         expect(updateCount).toBe(1);
 
         // Detect again with same host, should not fire
-        await service.detectGerritHost(true);
+        await service.detectActiveProvider(true);
         expect(updateCount).toBe(1);
 
         // Change config back to undefined, should fire when disabled
         mockConfig.get.mockReturnValue(undefined);
-        await service.detectGerritHost(true);
+        await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(false);
         expect(updateCount).toBe(2);
 
         disposable.dispose();
-    });
-
-    test('isGerrit triggers detectGerritHost when host is not set', async () => {
-        vi.useFakeTimers();
-
-        // Start disabled
-        mockConfig.get.mockReturnValue(undefined);
-        service = new GerritService(repo.path, jjService);
-        await service.awaitReady();
-        expect(service.isEnabled).toBe(false);
-
-        const detectSpy = vi.spyOn(service, 'detectGerritHost');
-
-        // isGerrit should trigger detection
-        const result = await service.isGerrit();
-        expect(result).toBe(false);
-        expect(detectSpy).toHaveBeenCalledTimes(1);
-
-        // Now set gerrit url
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
-
-        // Calling isGerrit should trigger detect again because _gerritHost is undefined and rate-limiting is not hit
-        // Since isGerrit() does not pass force=true, rate-limiting is active.
-        // Advance timers by 31 seconds to bypass rate limit naturally
-        await vi.advanceTimersByTimeAsync(31000);
-
-        const result2 = await service.isGerrit();
-        expect(result2).toBe(true);
-        expect(detectSpy).toHaveBeenCalledTimes(2);
-
-        // When it is enabled, calling isGerrit should be instant and not call detectGerritHost
-        const result3 = await service.isGerrit();
-        expect(result3).toBe(true);
-        expect(detectSpy).toHaveBeenCalledTimes(2); // Still 2
-
-        vi.useRealTimers();
     });
 });

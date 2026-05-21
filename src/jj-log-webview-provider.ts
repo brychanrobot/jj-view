@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import type { CodeForgeService } from './code-forge-service';
 import { showJjError, withDelayedProgress } from './commands/command-utils';
-import type { GerritService } from './gerrit-service';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import type { JjService } from './jj-service';
@@ -20,14 +20,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _jj: JjService,
-        private readonly _gerrit: GerritService,
+        private readonly _codeForge: CodeForgeService,
         private readonly _commitDetailsProvider: JjCommitDetailsEditorProvider,
         private readonly _onSelectionChange: (commits: string[]) => void,
         private readonly _context: vscode.ExtensionContext,
         public readonly outputChannel?: vscode.OutputChannel, // Optional
     ) {
-        // Gerrit updates only need to re-render, not re-fetch jj log
-        this._gerrit.onDidUpdate(() => this.refreshGerrit());
+        // Code forge updates only need to re-render, not re-fetch jj log
+        this._codeForge.onDidUpdate(() => this.refreshCodeForge());
 
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('jj-view.logTheme') || e.affectsConfiguration('jj-view.graphLabelAlignment')) {
@@ -103,7 +103,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'webviewLoaded':
                     await this.refresh();
                     break;
-                case 'openGerrit':
+                case 'openCodeForge':
                     if (data.payload.url) {
                         await vscode.env.openExternal(vscode.Uri.parse(data.payload.url));
                     }
@@ -268,49 +268,49 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            // Background fetch Gerrit status for commits
-            await this.refreshGerrit();
+            // Background fetch code forge status for commits
+            await this.refreshCodeForge();
 
             // Also refresh details panel if open
             await this._commitDetailsProvider.refresh();
         }
     }
 
-    /** Re-fetch Gerrit data for cached commits and re-render. */
-    private async refreshGerrit() {
+    /** Re-fetch code forge data for cached commits and re-render. */
+    private async refreshCodeForge() {
         if (!this._view || this._cachedCommits.length === 0) {
             return;
         }
-        if (!this._gerrit.isEnabled) {
-            await this._gerrit.detectGerritHost();
-            // Since detectGerritHost() fires onDidUpdate if a host is detected,
-            // that event listener has already triggered a concurrent refreshGerrit().
+        if (!this._codeForge.isEnabled) {
+            await this._codeForge.detectActiveProvider();
+            // Since detectActiveProvider() fires onDidUpdate if a provider is detected,
+            // that event listener has already triggered a concurrent refreshCodeForge().
             // We return early here to avoid duplicate parallel fetches.
             return;
         }
 
         try {
-            this._gerrit.startPolling();
+            this._codeForge.startPolling();
 
-            const gerritStart = performance.now();
-            const hasChanges = await this._gerrit.ensureFreshStatuses(
+            const start = performance.now();
+            const hasChanges = await this._codeForge.ensureFreshStatuses(
                 this._cachedCommits.map((c) => ({
                     commitId: c.commit_id ?? '',
-                    parents: c.parents,
                     changeId: c.change_id,
                     description: c.description,
+                    bookmarks: c.bookmarks?.filter((b) => !b.remote).map((b) => b.name),
                 })),
             );
 
-            const gerritDuration = performance.now() - gerritStart;
-            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit fetch took ${gerritDuration.toFixed(0)}ms`);
+            const duration = performance.now() - start;
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Code forge fetch took ${duration.toFixed(0)}ms`);
 
             if (hasChanges) {
-                this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit data changed, re-rendering');
+                this.outputChannel?.appendLine('[JjLogWebviewProvider] Code forge data changed, re-rendering');
                 this._renderCommits(this._cachedCommits);
             }
         } catch (e) {
-            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Gerrit refresh failed: ${e}`);
+            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Code forge refresh failed: ${e}`);
         }
     }
 
@@ -320,10 +320,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const logTheme = config.get<string>('logTheme', 'default');
         const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
 
-        if (this._gerrit.isEnabled) {
-            this._gerrit.populateGerritInfo(commits);
+        if (this._codeForge.isEnabled) {
+            this._codeForge.populateCodeForgeInfo(commits);
         } else {
-            this.outputChannel?.appendLine('[JjLogWebviewProvider] Gerrit service is disabled.');
+            this.outputChannel?.appendLine('[JjLogWebviewProvider] Code forge service is disabled.');
         }
 
         this._view?.webview.postMessage({

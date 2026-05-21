@@ -1019,3 +1019,14 @@ export async function clearActiveEditor(page: Page) {
 export async function closeActiveEditor(page: Page) {
     await page.keyboard.press(isMac ? 'Meta+w' : 'Control+w');
 }
+
+/**
+ * Asserts that a badge link exists inside a commit row and points to the correct URL.
+ */
+export async function expectBadgeLink(row: Locator, hasText: string, expectedUrl: string) {
+    const badgeLink = row.locator('a', { hasText });
+    await expect(badgeLink).toBeVisible({
+        timeout: 20000,
+    });
+    await expect(badgeLink).toHaveAttribute('href', expectedUrl);
+}

@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test';
 import { convertJjChangeIdToHex } from '../../utils/jj-utils';
 import { FakeGerritServer } from '../helpers/fake-gerrit-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
-import { focusJJLog, launchVSCode, waitForLogCommitRow } from './e2e-helpers';
+import { expectBadgeLink, focusJJLog, launchVSCode, waitForLogCommitRow } from './e2e-helpers';
 
 test.describe('Gerrit Integration E2E', () => {
     let gerrit: FakeGerritServer;
@@ -48,7 +48,7 @@ test.describe('Gerrit Integration E2E', () => {
 
         // 3. Link Only
         const numLink = 1234;
-        repo.describe(`Link Only\n\nLink: http://localhost/c/project/+/${numLink}`, commits['link-only'].changeId);
+        repo.describe(`Link Only\n\nLink: ${gerrit.url}/c/project/+/${numLink}`, commits['link-only'].changeId);
         gerrit.registerChangeByNumber(numLink);
         clNumbers['link-only'] = numLink;
 
@@ -74,30 +74,34 @@ test.describe('Gerrit Integration E2E', () => {
 
             // Explicit Change-Id
             const row1 = await waitForLogCommitRow(page, 'Explicit Change-Id');
-            await expect(row1.locator('a', { hasText: `CL/${clNumbers['explicit-change-id']}` })).toBeVisible({
-                timeout: 20000,
-            });
+            await expectBadgeLink(
+                row1,
+                `CL/${clNumbers['explicit-change-id']}`,
+                `${gerrit.url}/c/${clNumbers['explicit-change-id']}`,
+            );
 
             // Fallback (has parent mismatch)
             const rowFallback = await waitForLogCommitRow(page, 'Fallback Only');
-            await expect(rowFallback.locator('a', { hasText: `CL/${clNumbers['fallback-only']}` })).toBeVisible({
-                timeout: 20000,
-            });
+            await expectBadgeLink(
+                rowFallback,
+                `CL/${clNumbers['fallback-only']}`,
+                `${gerrit.url}/c/${clNumbers['fallback-only']}`,
+            );
 
             const uploadButton = rowFallback.getByRole('button', { name: 'Upload changes to Gerrit' });
             await expect(uploadButton).toBeVisible();
 
             // Link Only
             const rowLink = await waitForLogCommitRow(page, 'Link Only');
-            await expect(rowLink.locator('a', { hasText: `CL/${clNumbers['link-only']}` })).toBeVisible({
-                timeout: 20000,
-            });
+            await expectBadgeLink(rowLink, `CL/${clNumbers['link-only']}`, `${gerrit.url}/c/${clNumbers['link-only']}`);
 
             // Mixed
             const rowMixed = await waitForLogCommitRow(page, 'Mixed trailers');
-            await expect(rowMixed.locator('a', { hasText: `CL/${clNumbers['mixed-trailers']}` })).toBeVisible({
-                timeout: 20000,
-            });
+            await expectBadgeLink(
+                rowMixed,
+                `CL/${clNumbers['mixed-trailers']}`,
+                `${gerrit.url}/c/${clNumbers['mixed-trailers']}`,
+            );
 
             // Test upload command
             await uploadButton.click();

@@ -5,13 +5,13 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import type { CodeForgeService } from '../code-forge-service';
 import { abandonCommand } from '../commands/abandon';
 import { editCommand } from '../commands/edit';
 import { newCommand } from '../commands/new';
 import { redoCommand } from '../commands/redo';
 import { squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { undoCommand } from '../commands/undo';
-import type { GerritService } from '../gerrit-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjScmProvider } from '../jj-scm-provider';
@@ -87,21 +87,21 @@ suite('Webview Commands End-to-End Integration Test', () => {
         disposables.push(scm);
 
         const extensionUri = vscode.Uri.file(__dirname);
-        const gerritService = createMock<GerritService>({
+        const codeForgeService = createMock<CodeForgeService>({
             onDidUpdate: () => {
                 return { dispose: () => {} };
             },
             isEnabled: false,
-            detectGerritHost: () => Promise.resolve(),
             startPolling: () => {},
             stopPolling: () => {},
+            detectActiveProvider: () => Promise.resolve(),
             dispose: () => {},
         });
         const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
         provider = new JjLogWebviewProvider(
             extensionUri,
             jj,
-            gerritService,
+            codeForgeService,
             commitDetailsProvider,
             () => {},
             mockContext,

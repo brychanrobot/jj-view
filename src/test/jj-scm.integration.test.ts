@@ -517,8 +517,7 @@ suite('JJ SCM Provider Integration Test', () => {
         ]);
 
         await scmProvider.refresh({ forceSnapshot: true });
-        const group = (scmProvider as unknown as { _workingCopyGroup: vscode.SourceControlResourceGroup })
-            ._workingCopyGroup;
+        const group = accessPrivate<vscode.SourceControlResourceGroup>(scmProvider, '_workingCopyGroup');
         assert.strictEqual(group.resourceStates.length, 2);
 
         // Call command directly
@@ -612,8 +611,7 @@ suite('JJ SCM Provider Integration Test', () => {
         await scmProvider.refresh({ forceSnapshot: true });
 
         // Mock resource state validation
-        const group = (scmProvider as unknown as { _workingCopyGroup: vscode.SourceControlResourceGroup })
-            ._workingCopyGroup;
+        const group = accessPrivate<vscode.SourceControlResourceGroup>(scmProvider, '_workingCopyGroup');
         const resource = group.resourceStates[0];
 
         await squashFilesIntoParentCommand(scmProvider, jj, [resource]);
@@ -686,22 +684,23 @@ suite('JJ SCM Provider Integration Test', () => {
 
             // Use JjLogWebviewProvider
             const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
-            const { GerritService } = await import('../gerrit-service');
+            const { CodeForgeService } = await import('../code-forge-service');
             const { JjCommitDetailsEditorProvider } = await import('../jj-commit-details-editor-provider');
             const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-            const gerritService = createMock<InstanceType<typeof GerritService>>({
+            const codeForgeService = createMock<InstanceType<typeof CodeForgeService>>({
                 onDidUpdate: () => {
                     return { dispose: () => {} };
                 },
                 isEnabled: false,
                 startPolling: () => {},
+                detectActiveProvider: () => Promise.resolve(),
                 dispose: () => {},
             });
             const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
             const provider = new JjLogWebviewProvider(
                 extensionUri,
                 jj,
-                gerritService,
+                codeForgeService,
                 commitDetailsProvider,
                 () => {},
                 createMock<vscode.ExtensionContext>({

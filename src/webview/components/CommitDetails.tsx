@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import type { JjStatusEntry } from '../../jj-types';
+import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
 import { BasePill, BookmarkPill, TagPill } from './Bookmark';
@@ -13,18 +13,13 @@ interface CommitDetailsProps {
     changeId: string;
     commitId: string;
     description: string;
-    files: Array<{
-        path: string;
-        status: string;
-        additions?: number;
-        deletions?: number;
-    }>;
+    files: JjStatusEntry[];
     isImmutable: boolean;
     isEmpty?: boolean;
     isConflict?: boolean;
     author?: { name: string; email: string; timestamp: string };
     committer?: { name: string; email: string; timestamp: string };
-    bookmarks?: Array<{ name: string; remote?: string }>;
+    bookmarks?: Array<JjBookmark>;
     tags?: string[];
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
@@ -34,6 +29,30 @@ interface CommitDetailsProps {
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
+}
+
+interface SaveFailedMessage {
+    type: 'saveFailed';
+}
+
+interface UpdateDescriptionMessage {
+    type: 'updateDescription';
+    payload: {
+        description: string;
+        selectionStart: number;
+        selectionEnd: number;
+    };
+}
+
+type WebviewMessage = SaveFailedMessage | UpdateDescriptionMessage;
+
+function isWebviewMessage(data: unknown): data is WebviewMessage {
+    return (
+        typeof data === 'object' &&
+        data !== null &&
+        'type' in data &&
+        typeof (data as Record<string, unknown>).type === 'string'
+    );
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -96,13 +115,18 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
 
     React.useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            if (event.data.type === 'saveFailed') {
+            const data = event.data;
+            if (!isWebviewMessage(data)) {
+                return;
+            }
+
+            if (data.type === 'saveFailed') {
                 setIsSaving(false);
                 if (saveTimeoutRef.current) {
                     clearTimeout(saveTimeoutRef.current);
                 }
-            } else if (event.data.type === 'updateDescription') {
-                const { description: newDesc, selectionStart, selectionEnd } = event.data.payload;
+            } else if (data.type === 'updateDescription') {
+                const { description: newDesc, selectionStart, selectionEnd } = data.payload;
                 isApplyingExtensionEdit.current = true;
                 try {
                     if (textareaRef.current) {
@@ -589,11 +613,11 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                             <button
                                 key={file.path}
                                 type="button"
-                                onClick={() => onOpenDiff(file as unknown as JjStatusEntry, isImmutable)}
+                                onClick={() => onOpenDiff(file, isImmutable)}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {
                                         e.preventDefault();
-                                        onOpenDiff(file as unknown as JjStatusEntry, isImmutable);
+                                        onOpenDiff(file, isImmutable);
                                     }
                                 }}
                                 style={{
