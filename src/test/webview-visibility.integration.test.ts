@@ -68,6 +68,7 @@ suite('Webview Visibility Integration Test', () => {
         const gerritService = createMock<GerritService>({
             onDidUpdate: () => ({ dispose: () => {} }),
             isEnabled: false,
+            detectGerritHost: () => Promise.resolve(),
             startPolling: () => {},
             stopPolling: () => {},
             dispose: () => {},

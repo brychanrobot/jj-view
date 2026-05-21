@@ -59,18 +59,20 @@ export class GerritService implements vscode.Disposable {
     private _initPromise: Promise<void>;
 
     private lastRefreshTime: number = 0;
+    private lastDetectionTime = 0;
+    private detectPromise: Promise<void> | undefined;
 
     constructor(
         private workspaceRoot: string,
         private jjService: JjService,
         private outputChannel?: vscode.OutputChannel, // Optional for easier testing
     ) {
-        this._initPromise = this.detectGerritHost();
+        this._initPromise = this.detectGerritHost(true);
 
         // Listen for config changes
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('jj-view.gerrit')) {
-                this.detectGerritHost();
+                this.detectGerritHost(true);
             }
         });
 
@@ -153,126 +155,151 @@ export class GerritService implements vscode.Disposable {
         }
     }
 
-    private async detectGerritHost() {
+    public async detectGerritHost(force = false): Promise<void> {
+        if (!force && this._gerritHost) {
+            return;
+        }
+
+        const now = Date.now();
+        if (!force && now - this.lastDetectionTime < 30000) {
+            return;
+        }
+
+        if (this.detectPromise) {
+            return this.detectPromise;
+        }
+
+        this.detectPromise = (async () => {
+            this.lastDetectionTime = now;
+            await this._doDetectGerritHost();
+        })();
+
+        try {
+            await this.detectPromise;
+        } finally {
+            this.detectPromise = undefined;
+        }
+    }
+
+    private async _doDetectGerritHost() {
+        const oldHost = this._gerritHost;
+        let detectedHost: string | undefined;
+
         // 1. Check extension setting
         const config = vscode.workspace.getConfiguration('jj-view');
         const settingHost = config.get<string>('gerrit.host');
 
         if (settingHost) {
-            this._gerritHost = settingHost.replace(/\/$/, ''); // Remove trailing slash
-            return;
-        }
-
-        // 2. Check .gitreview file
-        try {
-            const gitreviewPath = path.join(this.workspaceRoot, '.gitreview');
-            if (fs.existsSync(gitreviewPath)) {
-                const content = await fs.promises.readFile(gitreviewPath, 'utf8');
-                const match = content.match(/host=(.+)/);
-                if (match?.[1]) {
-                    let host = match[1].trim();
-                    if (!host.startsWith('http')) {
-                        host = `https://${host}`;
-                    }
-                    this._gerritHost = host.replace(/\/$/, '');
-                    return;
-                }
-            }
-        } catch (e) {
-            console.error('Failed to parse .gitreview:', e);
-        }
-
-        // 3. Check git remotes via jj
-        try {
-            const remotes = await this.jjService.getGitRemotes();
-
-            // Prioritize 'origin', then 'gerrit', then others
-            // Find specific remotes if they exist
-            const origin = remotes.find((r) => r.name === 'origin');
-            const gerrit = remotes.find((r) => r.name === 'gerrit');
-
-            // Create a sorted list based on priority
-            const sortedRemotes = [];
-            if (origin) {
-                sortedRemotes.push(origin);
-            }
-            if (gerrit) {
-                sortedRemotes.push(gerrit);
-            }
-            // Add remaining
-            remotes.forEach((r) => {
-                if (r.name !== 'origin' && r.name !== 'gerrit') {
-                    sortedRemotes.push(r);
-                }
-            });
-
-            for (const { name, url } of sortedRemotes) {
-                this.outputChannel?.appendLine(`[GerritService] Checking remote '${name}' URL: '${url}'`);
-
-                let host: string | undefined;
-
-                if (url.includes('googlesource.com') || url.includes('/gerrit/')) {
-                    host = url;
-                } else if (url.startsWith('sso://')) {
-                    // Handle sso://chromium/chromium/src.git -> https://chromium.googlesource.com/chromium/src.git
-                    // Format: sso://<host-part>/<path>
-                    // We'll treat the first segment as the subdomain for googlesource.com
-                    const match = url.match(/sso:\/\/([^/]+)\/(.+)/);
-                    if (match) {
-                        host = `https://${match[1]}.googlesource.com/${match[2]}`;
-                    }
-                }
-
-                if (host) {
-                    // Handle SSH: ssh://user@host:port/path -> https://host
-                    if (host.startsWith('ssh://')) {
-                        const match = host.match(/ssh:\/\/([^@]+@)?([^:/]+)(:\d+)?\/(.+)/);
-                        if (match) {
-                            host = `https://${match[2]}`;
+            detectedHost = settingHost.replace(/\/$/, ''); // Remove trailing slash
+        } else {
+            // 2. Check .gitreview file
+            try {
+                const gitreviewPath = path.join(this.workspaceRoot, '.gitreview');
+                if (fs.existsSync(gitreviewPath)) {
+                    const content = await fs.promises.readFile(gitreviewPath, 'utf8');
+                    const match = content.match(/host=(.+)/);
+                    if (match?.[1]) {
+                        let host = match[1].trim();
+                        if (!host.startsWith('http')) {
+                            host = `https://${host}`;
                         }
+                        detectedHost = host.replace(/\/$/, '');
                     }
+                }
+            } catch (e) {
+                console.error('Failed to parse .gitreview:', e);
+            }
 
-                    if (host.endsWith('.git')) {
-                        host = host.slice(0, -4);
+            // 3. Check git remotes via jj
+            if (!detectedHost) {
+                try {
+                    const remotes = await this.jjService.getGitRemotes();
+
+                    // Prioritize 'origin', then 'gerrit', then others
+                    const origin = remotes.find((r) => r.name === 'origin');
+                    const gerrit = remotes.find((r) => r.name === 'gerrit');
+
+                    const sortedRemotes = [];
+                    if (origin) {
+                        sortedRemotes.push(origin);
                     }
+                    if (gerrit) {
+                        sortedRemotes.push(gerrit);
+                    }
+                    remotes.forEach((r) => {
+                        if (r.name !== 'origin' && r.name !== 'gerrit') {
+                            sortedRemotes.push(r);
+                        }
+                    });
 
-                    // For googlesource.com, extract origin or convert to https
-                    if (host.includes('googlesource.com')) {
-                        try {
-                            const urlObj = new URL(host);
-                            host = urlObj.origin;
-                        } catch {
-                            if (!host.startsWith('http')) {
-                                const match = host.match(/([a-zA-Z0-9-]+\.googlesource\.com)/);
+                    for (const { name, url } of sortedRemotes) {
+                        this.outputChannel?.appendLine(`[GerritService] Checking remote '${name}' URL: '${url}'`);
+
+                        let host: string | undefined;
+
+                        if (url.includes('googlesource.com') || url.includes('/gerrit/')) {
+                            host = url;
+                        } else if (url.startsWith('sso://')) {
+                            const match = url.match(/sso:\/\/([^/]+)\/(.+)/);
+                            if (match) {
+                                host = `https://${match[1]}.googlesource.com/${match[2]}`;
+                            }
+                        }
+
+                        if (host) {
+                            if (host.startsWith('ssh://')) {
+                                const match = host.match(/ssh:\/\/([^@]+@)?([^:/]+)(:\d+)?\/(.+)/);
                                 if (match) {
-                                    host = `https://${match[1]}`;
+                                    host = `https://${match[2]}`;
                                 }
+                            }
+
+                            if (host.endsWith('.git')) {
+                                host = host.slice(0, -4);
+                            }
+
+                            if (host.includes('googlesource.com')) {
+                                try {
+                                    const urlObj = new URL(host);
+                                    host = urlObj.origin;
+                                } catch {
+                                    if (!host.startsWith('http')) {
+                                        const match = host.match(/([a-zA-Z0-9-]+\.googlesource\.com)/);
+                                        if (match) {
+                                            host = `https://${match[1]}`;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (host.includes('googlesource.com') && !host.includes('-review')) {
+                                host = host.replace('.googlesource.com', '-review.googlesource.com');
+                            }
+
+                            if (await this.probeGerritHost(host)) {
+                                detectedHost = host;
+                                break;
+                            } else {
+                                this.outputChannel?.appendLine(`[GerritService] Probe failed for host: ${host}`);
                             }
                         }
                     }
-
-                    // Append -review if on googlesource
-                    if (host.includes('googlesource.com') && !host.includes('-review')) {
-                        host = host.replace('.googlesource.com', '-review.googlesource.com');
-                    }
-
-                    // Verify if it is a Gerrit host
-                    if (await this.probeGerritHost(host)) {
-                        this._gerritHost = host;
-                        this.outputChannel?.appendLine(`[GerritService] Detected host: ${this._gerritHost}`);
-                        this._onDidUpdate.fire(); // Notify listeners that we are now enabled
-                        return;
-                    } else {
-                        this.outputChannel?.appendLine(`[GerritService] Probe failed for host: ${host}`);
-                    }
+                } catch (e) {
+                    this.outputChannel?.appendLine(`[GerritService] Failed to detect git remotes: ${e}`);
                 }
             }
-        } catch (e) {
-            this.outputChannel?.appendLine(`[GerritService] Failed to detect git remotes: ${e}`);
         }
 
-        this._gerritHost = undefined;
-        this.outputChannel?.appendLine('[GerritService] No Gerrit host detected.');
+        this._gerritHost = detectedHost;
+        if (this._gerritHost) {
+            this.outputChannel?.appendLine(`[GerritService] Detected host: ${this._gerritHost}`);
+        } else {
+            this.outputChannel?.appendLine('[GerritService] No Gerrit host detected.');
+        }
+
+        if (this._gerritHost !== oldHost) {
+            this._onDidUpdate.fire();
+        }
     }
 
     private async probeGerritHost(host: string): Promise<boolean> {
@@ -300,6 +327,9 @@ export class GerritService implements vscode.Disposable {
     }
 
     public async isGerrit(): Promise<boolean> {
+        if (!this._gerritHost) {
+            await this.detectGerritHost();
+        }
         return !!this._gerritHost;
     }
 

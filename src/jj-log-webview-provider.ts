@@ -282,6 +282,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             return;
         }
         if (!this._gerrit.isEnabled) {
+            await this._gerrit.detectGerritHost();
+            // Since detectGerritHost() fires onDidUpdate if a host is detected,
+            // that event listener has already triggered a concurrent refreshGerrit().
+            // We return early here to avoid duplicate parallel fetches.
             return;
         }
 

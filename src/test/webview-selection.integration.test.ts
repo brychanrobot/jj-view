@@ -57,6 +57,7 @@ suite('Webview Selection Integration Test', () => {
                 return { dispose: () => {} };
             },
             isEnabled: false,
+            detectGerritHost: () => Promise.resolve(),
             startPolling: () => {},
             stopPolling: () => {},
             dispose: () => {},

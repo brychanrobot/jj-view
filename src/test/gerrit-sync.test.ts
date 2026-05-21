@@ -8,7 +8,7 @@ import { JjService } from '../jj-service';
 import type { GerritClInfo, JjLogEntry } from '../jj-types';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, exposePrivate } from './test-utils';
 
 // Mock VS Code configuration
 const mockConfig = {
@@ -49,7 +49,7 @@ describe('Gerrit Sync Verification', () => {
 
         // Allow host probing to succeed
         vi.spyOn(
-            GerritService.prototype as unknown as { probeGerritHost: (h: string) => Promise<boolean> },
+            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritService.prototype),
             'probeGerritHost',
         ).mockResolvedValue(true);
 
@@ -447,10 +447,10 @@ describe('Gerrit Sync Verification', () => {
             });
 
             // Access private cache to populate it for structural check
-            const servicePriv = service as unknown as {
+            const servicePriv = exposePrivate<{
                 resolveCacheKey: (id: string) => string;
                 cache: Map<string, GerritClInfo>;
-            };
+            }>(service);
             vi.spyOn(servicePriv, 'resolveCacheKey').mockImplementation((id) => id);
             servicePriv.cache.set('IA', aCl);
             servicePriv.cache.set('IB', bCl);

@@ -28,3 +28,7 @@ export function accessPrivate<T = unknown>(obj: object, key: string): T {
 export function setPrivate(obj: object, key: string, value: unknown): void {
     (obj as Record<string, unknown>)[key] = value;
 }
+
+export function exposePrivate<T>(obj: object): T {
+    return obj as unknown as T;
+}

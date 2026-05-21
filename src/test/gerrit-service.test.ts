@@ -11,6 +11,7 @@ import { GerritService } from '../gerrit-service';
 import { JjService } from '../jj-service';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
+import { accessPrivate, asMock, exposePrivate } from './test-utils';
 
 // Mock VS Code
 const mockConfig = {
@@ -58,13 +59,13 @@ describe('GerritService Detection', () => {
         repo.init();
         mockConfig.get.mockReset();
 
-        mockOnDidChangeWindowState = vscode.window.onDidChangeWindowState as unknown as ReturnType<typeof vi.fn>;
+        mockOnDidChangeWindowState = asMock(vscode.window.onDidChangeWindowState);
         mockOnDidChangeWindowState.mockReset();
         mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
 
         // Default: allow host probing to succeed in tests
         vi.spyOn(
-            GerritService.prototype as unknown as { probeGerritHost(h: string): Promise<boolean> },
+            exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritService.prototype),
             'probeGerritHost',
         ).mockResolvedValue(true);
 
@@ -86,7 +87,7 @@ describe('GerritService Detection', () => {
 
     // Helper to access private property without using 'any'
     function getGerritHost(srv: GerritService): string | undefined {
-        return (srv as unknown as { _gerritHost: string | undefined })._gerritHost;
+        return accessPrivate<string | undefined>(srv, '_gerritHost');
     }
 
     test('Detects from extension setting (highest priority)', async () => {
@@ -774,6 +775,133 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(2);
 
         disposable.dispose();
+
+        vi.useRealTimers();
+    });
+
+    test('detectGerritHost is rate-limited and coalesced', async () => {
+        vi.useFakeTimers();
+
+        // Start with no config so detection fails
+        mockConfig.get.mockReturnValue(undefined);
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+        expect(service.isEnabled).toBe(false);
+
+        // Spy on public jjService.getGitRemotes
+        const getGitRemotesSpy = vi.spyOn(jjService, 'getGitRemotes');
+
+        // Advance timers by 31 seconds to bypass rate limit from constructor detection
+        await vi.advanceTimersByTimeAsync(31000);
+
+        // Call detectGerritHost - should attempt detection because rate limit has passed
+        await service.detectGerritHost();
+        expect(getGitRemotesSpy).toHaveBeenCalledTimes(1);
+
+        // Call detectGerritHost again immediately - should NOT run due to 30s limit
+        await service.detectGerritHost();
+        expect(getGitRemotesSpy).toHaveBeenCalledTimes(1);
+
+        // Call with force = true - should run regardless of time limit
+        await service.detectGerritHost(true);
+        expect(getGitRemotesSpy).toHaveBeenCalledTimes(2);
+
+        // Advance timers by 31 seconds - should now run again
+        await vi.advanceTimersByTimeAsync(31000);
+        await service.detectGerritHost();
+        expect(getGitRemotesSpy).toHaveBeenCalledTimes(3);
+
+        // Test coalescing: call multiple times in parallel.
+        // We mock getGitRemotes to return a promise that resolves slowly.
+        let resolveRemotes: (value: { name: string; url: string }[]) => void = () => {};
+        const slowRemotesPromise = new Promise<{ name: string; url: string }[]>((resolve) => {
+            resolveRemotes = resolve;
+        });
+        getGitRemotesSpy.mockImplementation(() => slowRemotesPromise);
+
+        // Advance timers past rate limit first
+        await vi.advanceTimersByTimeAsync(31000);
+
+        const p1 = service.detectGerritHost();
+        const p2 = service.detectGerritHost();
+        const p3 = service.detectGerritHost(true); // force doesn't bypass active coalesced promise if already running
+
+        resolveRemotes([]);
+        await Promise.all([p1, p2, p3]);
+
+        // getGitRemotes should only be called once for these parallel invocations
+        expect(getGitRemotesSpy).toHaveBeenCalledTimes(4);
+
+        vi.useRealTimers();
+    });
+
+    test('detectGerritHost fires onDidUpdate only when host status changes', async () => {
+        // Start disabled
+        mockConfig.get.mockReturnValue(undefined);
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+        expect(service.isEnabled).toBe(false);
+
+        let updateCount = 0;
+        const disposable = service.onDidUpdate(() => {
+            updateCount++;
+        });
+
+        // Try detecting, still fails, should not fire
+        await service.detectGerritHost(true);
+        expect(updateCount).toBe(0);
+
+        // Set config so it succeeds
+        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        await service.detectGerritHost(true);
+        expect(service.isEnabled).toBe(true);
+        expect(updateCount).toBe(1);
+
+        // Detect again with same host, should not fire
+        await service.detectGerritHost(true);
+        expect(updateCount).toBe(1);
+
+        // Change config back to undefined, should fire when disabled
+        mockConfig.get.mockReturnValue(undefined);
+        await service.detectGerritHost(true);
+        expect(service.isEnabled).toBe(false);
+        expect(updateCount).toBe(2);
+
+        disposable.dispose();
+    });
+
+    test('isGerrit triggers detectGerritHost when host is not set', async () => {
+        vi.useFakeTimers();
+
+        // Start disabled
+        mockConfig.get.mockReturnValue(undefined);
+        service = new GerritService(repo.path, jjService);
+        await service.awaitReady();
+        expect(service.isEnabled).toBe(false);
+
+        const detectSpy = vi.spyOn(service, 'detectGerritHost');
+
+        // isGerrit should trigger detection
+        const result = await service.isGerrit();
+        expect(result).toBe(false);
+        expect(detectSpy).toHaveBeenCalledTimes(1);
+
+        // Now set gerrit url
+        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+
+        // Calling isGerrit should trigger detect again because _gerritHost is undefined and rate-limiting is not hit
+        // Since isGerrit() does not pass force=true, rate-limiting is active.
+        // Advance timers by 31 seconds to bypass rate limit naturally
+        await vi.advanceTimersByTimeAsync(31000);
+
+        const result2 = await service.isGerrit();
+        expect(result2).toBe(true);
+        expect(detectSpy).toHaveBeenCalledTimes(2);
+
+        // When it is enabled, calling isGerrit should be instant and not call detectGerritHost
+        const result3 = await service.isGerrit();
+        expect(result3).toBe(true);
+        expect(detectSpy).toHaveBeenCalledTimes(2); // Still 2
 
         vi.useRealTimers();
     });
