@@ -751,12 +751,12 @@
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowAbandon\\b/"
                 },
                 {
-                    "command": "jj-view.squashRevisionIntoParent",
+                    "command": "jj-view.squashRevisionIntoAncestor",
                     "group": "inline@3",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
                 },
                 {
-                    "command": "jj-view.squashRevisionIntoAncestor",
+                    "command": "jj-view.squashRevisionIntoParent",
                     "group": "inline@4",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
                 },
