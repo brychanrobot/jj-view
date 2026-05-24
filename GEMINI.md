@@ -33,6 +33,10 @@ This document outlines the coding standards, testing strategies, and architectur
 
 - Use **ESLint** for code quality (`pnpm lint`).
 
+### Configuration Settings
+
+- Whenever you add or modify configuration settings in `package.json` under `contributes.configuration`, you **MUST** document them in the settings table of `README.md`. Ensure that the default values and descriptions match precisely.
+
 ## Testing Strategy
 
 **CRITICAL RULE**: Tests should **NEVER** mock `JjService` methods.

@@ -83,6 +83,10 @@
                     "type": "string",
                     "description": "Gerrit project name. If not set, extension attempts to detect it from git remotes."
                 },
+                "jj-view.gitlab.host": {
+                    "type": "string",
+                    "description": "GitLab host URL (e.g., https://gitlab.com). If not set, extension attempts to detect it from git remotes."
+                },
                 "jj-view.uploadCommand": {
                     "type": "string",
                     "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'."

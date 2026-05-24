@@ -110,6 +110,9 @@ export async function launchVSCode(
         '--disable-gpu',
         '--disable-dev-shm-usage',
         '--disable-updates',
+        // --- THESE PREVENT WINDOW FOCUS ---
+        '--headless=new',
+        '--no-startup-window',
     ];
 
     if (process.env.VSIX_PATH) {

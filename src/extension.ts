@@ -51,6 +51,7 @@ import { workspaceForgetCommand } from './commands/workspace-forget';
 import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
 import { GitHubProvider } from './github-provider';
+import { GitLabProvider } from './gitlab-provider';
 import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -138,9 +139,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(codeForgeRegistry);
     const gerritProvider = new GerritProvider(jj, outputChannel);
     const githubProvider = new GitHubProvider(outputChannel);
+    const gitlabProvider = new GitLabProvider(outputChannel, context.secrets);
 
     context.subscriptions.push(codeForgeRegistry.register(gerritProvider));
     context.subscriptions.push(codeForgeRegistry.register(githubProvider));
+    context.subscriptions.push(codeForgeRegistry.register(gitlabProvider));
 
     const codeForgeService = new CodeForgeService(workspaceRoot, jj, codeForgeRegistry, outputChannel);
     context.subscriptions.push(codeForgeService);
