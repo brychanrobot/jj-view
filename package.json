@@ -905,7 +905,7 @@
         "@types/vscode": "^1.104.0",
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
-        "@vscode/vsce": "^3.7.1",
+        "@vscode/vsce": "^3.9.1",
         "adm-zip": "^0.5.16",
         "esbuild": "^0.27.1",
         "handlebars": "^4.7.9",
