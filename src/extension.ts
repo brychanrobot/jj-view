@@ -4,6 +4,7 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { CodeForgeAuthManager } from './code-forge-auth';
 import type { CodeForgeProvider } from './code-forge-provider';
 import { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
@@ -137,9 +138,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
+    const authManager = new CodeForgeAuthManager(context, outputChannel);
     const gerritProvider = new GerritProvider(jj, outputChannel);
-    const githubProvider = new GitHubProvider(outputChannel);
-    const gitlabProvider = new GitLabProvider(outputChannel, context.secrets);
+    const githubProvider = new GitHubProvider(authManager, outputChannel);
+    const gitlabProvider = new GitLabProvider(authManager, outputChannel);
 
     context.subscriptions.push(codeForgeRegistry.register(gerritProvider));
     context.subscriptions.push(codeForgeRegistry.register(githubProvider));
@@ -151,6 +153,9 @@ export function activate(context: vscode.ExtensionContext) {
     // Track active provider changes to update context keys
     const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
         vscode.commands.executeCommand('setContext', 'jj.codeForgeActive', !!provider);
+        vscode.commands.executeCommand('setContext', 'jj.codeForgeProvider', provider?.id);
+        const manageable = !!provider?.isAuthManageable;
+        vscode.commands.executeCommand('setContext', 'jj.codeForgeAuthManageable', manageable);
         vscode.commands.executeCommand(
             'setContext',
             'jj.codeForgeTerm',
@@ -159,6 +164,77 @@ export function activate(context: vscode.ExtensionContext) {
     };
     updateContextKeys(codeForgeRegistry.getActive());
     context.subscriptions.push(codeForgeRegistry.onDidActiveProviderChange(updateContextKeys));
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.manageAuth', async () => {
+            const activeProvider = codeForgeRegistry.getActive();
+            if (!activeProvider) {
+                vscode.window.showErrorMessage('No active code forge provider detected.');
+                return;
+            }
+            if (!activeProvider.isAuthManageable) {
+                vscode.window.showInformationMessage(
+                    `Authentication management is not supported for ${activeProvider.displayName}.`,
+                );
+                return;
+            }
+
+            const providerId = activeProvider.id;
+            const isSkipped = authManager.isAuthSkipped(providerId);
+            const items: (vscode.QuickPickItem & { execute(): Promise<void> })[] = [];
+
+            if (!(await activeProvider.hasAuth?.())) {
+                items.push({
+                    label: isSkipped
+                        ? '$(pass) Enable Authentication Prompts'
+                        : '$(circle-slash) Disable Authentication Prompts',
+                    description: `Currently ${isSkipped ? 'disabled (skipped)' : 'enabled'} for ${activeProvider.displayName}`,
+                    execute: async () => {
+                        await authManager.setAuthSkipped(providerId, !isSkipped);
+                        vscode.window.showInformationMessage(
+                            `Authentication prompts for ${activeProvider.displayName} have been ${!isSkipped ? 'disabled' : 'enabled'}.`,
+                        );
+                        codeForgeService.forceRefresh();
+                    },
+                });
+            }
+
+            for (const item of (await activeProvider.getAuthManageItems?.()) ?? []) {
+                items.push({
+                    label: item.label,
+                    description: item.description,
+                    detail: item.detail,
+                    execute: () => item.execute(),
+                });
+            }
+
+            items.push({
+                label: '$(refresh) Reset All Preferences',
+                description: 'Reset auth preferences for all code forge providers',
+                execute: async () => {
+                    await authManager.resetAllChoices();
+                    vscode.window.showInformationMessage('Authentication preferences have been reset.');
+                    codeForgeService.forceRefresh();
+                },
+            });
+
+            const choice = await vscode.window.showQuickPick(items, {
+                placeHolder: `Manage Authentication for ${activeProvider.displayName}`,
+            });
+
+            if (!choice) {
+                return;
+            }
+
+            await choice.execute();
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.gitlab.enterPat', async () => {
+            await gitlabProvider.promptForPat();
+        }),
+    );
 
     const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
     const editProvider = new JjEditFileSystemProvider(jj);

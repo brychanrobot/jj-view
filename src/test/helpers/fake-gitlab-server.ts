@@ -25,6 +25,7 @@ export class FakeGitLabServer {
     private server: http.Server | undefined;
     public url = '';
     public requests: { url: string; method: string }[] = [];
+    public statusOverride: { status: number; headers?: Record<string, string>; body?: string } | undefined;
 
     public registerMR(bookmark: string, mr: FakeMrInfo) {
         this.mrs.set(bookmark, mr);
@@ -38,6 +39,16 @@ export class FakeGitLabServer {
         this.server = http.createServer((req, res) => {
             const urlStr = req.url || '';
             this.requests.push({ url: urlStr, method: req.method || 'GET' });
+
+            if (this.statusOverride) {
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...this.statusOverride.headers,
+                };
+                res.writeHead(this.statusOverride.status, headers);
+                res.end(this.statusOverride.body || '');
+                return;
+            }
 
             const urlObj = new URL(urlStr, `http://${req.headers.host || 'localhost'}`);
             const pathname = urlObj.pathname;

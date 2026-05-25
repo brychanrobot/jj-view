@@ -49,4 +49,14 @@ export interface CodeForgeProvider {
     deactivate(): void;
     /** Hook to clear provider's cached data */
     clearCache(): void;
+    /** Check if authentication is currently configured/available for this provider */
+    hasAuth?(): Promise<boolean>;
+    /** True if this provider supports managing authentication preferences/tokens */
+    readonly isAuthManageable?: boolean;
+    /** Returns custom authentication management items for this provider */
+    getAuthManageItems?(): Promise<AuthManageItem[]>;
+}
+
+export interface AuthManageItem extends vscode.QuickPickItem {
+    execute(): Promise<void>;
 }

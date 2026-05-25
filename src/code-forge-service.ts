@@ -50,6 +50,7 @@ export class CodeForgeService implements vscode.Disposable {
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (
                     e.affectsConfiguration('jj-view.gerrit') ||
+                    e.affectsConfiguration('jj-view.github') ||
                     e.affectsConfiguration('jj-view.gitlab') ||
                     e.affectsConfiguration('jj-view.codeForge')
                 ) {

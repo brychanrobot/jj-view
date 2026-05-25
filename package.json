@@ -460,6 +460,17 @@
                 "command": "jj-view.toggleCommitAction.abandon.off",
                 "title": "○ Abandon",
                 "category": "JJ View"
+            },
+            {
+                "command": "jj-view.manageAuth",
+                "title": "Manage Code Forge Authentication",
+                "category": "JJ View",
+                "icon": "$(key)"
+            },
+            {
+                "command": "jj-view.gitlab.enterPat",
+                "title": "Enter GitLab Personal Access Token (PAT)",
+                "category": "JJ View"
             }
         ],
         "keybindings": [
@@ -736,6 +747,11 @@
                 {
                     "command": "jj-view.refresh",
                     "group": "navigation@10"
+                },
+                {
+                    "command": "jj-view.manageAuth",
+                    "group": "navigation@0",
+                    "when": "jj.codeForgeAuthManageable"
                 }
             ],
             "scm/resourceGroup/context": [

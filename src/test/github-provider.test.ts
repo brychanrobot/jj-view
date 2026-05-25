@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
-import type { ChangeStatusRequest } from '../code-forge-provider';
+import * as vscode from 'vscode';
+import type { CodeForgeAuthManager } from '../code-forge-auth';
+import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitHubProvider } from '../github-provider';
 import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
 
@@ -15,6 +16,15 @@ vi.mock('vscode', () => ({
             get: vi.fn(),
         }),
         onDidChangeConfiguration: vi.fn(),
+    },
+    window: {
+        showWarningMessage: vi.fn(),
+        showInputBox: vi.fn(),
+        showErrorMessage: vi.fn(),
+        showInformationMessage: vi.fn(),
+    },
+    authentication: {
+        getSession: vi.fn(),
     },
     Disposable: class {
         static from = vi.fn();
@@ -30,10 +40,29 @@ vi.mock('vscode', () => ({
 describe('GitHubProvider', () => {
     let provider: GitHubProvider;
     let mockOutputChannel: vscode.OutputChannel;
+    let mockAuthManager: CodeForgeAuthManager;
 
     beforeEach(() => {
         mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
-        provider = new GitHubProvider(mockOutputChannel);
+        mockAuthManager = createMock<CodeForgeAuthManager>({
+            isAuthSkipped: vi.fn().mockReturnValue(false),
+            hasPromptedThisSession: vi.fn().mockReturnValue(false),
+            markPromptedThisSession: vi.fn(),
+            setAuthSkipped: vi.fn(),
+            registerProvider: vi.fn(),
+            getSessionToken: vi.fn().mockResolvedValue('test-token'),
+            hasOAuthSession: vi.fn().mockResolvedValue(false),
+            performOAuthSignIn: vi.fn(),
+            getAuthManageItems: vi.fn(),
+            promptForPat: vi.fn(),
+            secrets: createMock<vscode.SecretStorage>({
+                get: vi.fn(),
+                store: vi.fn(),
+                delete: vi.fn(),
+            }),
+        });
+        provider = new GitHubProvider(mockAuthManager, mockOutputChannel);
+        vi.mocked(vscode.window.showWarningMessage).mockReset();
     });
 
     test('parseGitHubUrl correctly parses standard and dotted repo URLs', () => {
@@ -71,12 +100,6 @@ describe('GitHubProvider', () => {
         expect(result2).toBe(false);
         expect(accessPrivate(provider, 'owner')).toBeUndefined();
         expect(accessPrivate(provider, 'repo')).toBeUndefined();
-    });
-
-    test('clearCache resets tokenRequested state', () => {
-        setPrivate(provider, 'tokenRequested', true);
-        provider.clearCache();
-        expect(accessPrivate(provider, 'tokenRequested')).toBe(false);
     });
 
     test('detect clears cache on owner/repo change, but preserves it if unchanged', async () => {
@@ -323,5 +346,95 @@ describe('GitHubProvider', () => {
         expect(cache.get('bm-1')).toBeDefined();
         const cachedEntry = cache.get('bm-1') as { status: string } | undefined;
         expect(cachedEntry?.status).toBe('NEW');
+    });
+
+    test('getSessionToken delegates to authManager.getSessionToken', async () => {
+        vi.mocked(mockAuthManager.getSessionToken).mockResolvedValue('delegated-token');
+        const getSession = exposePrivate<{ getSessionToken(): Promise<string | undefined> }>(
+            provider,
+        ).getSessionToken.bind(provider);
+        const token = await getSession();
+        expect(token).toBe('delegated-token');
+        expect(mockAuthManager.getSessionToken).toHaveBeenCalledWith('github', {
+            scopes: ['repo'],
+            envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+            secretTokenKey: 'github_token',
+            promptMessage: 'GitHub authentication is required to fetch PR status.',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            alternativeChoice: expect.any(Object),
+        });
+    });
+
+    test('hasAuth returns true if environment variable JJ_VIEW_GITHUB_TOKEN is set', async () => {
+        const originalEnv = process.env.JJ_VIEW_GITHUB_TOKEN;
+        try {
+            process.env.JJ_VIEW_GITHUB_TOKEN = 'test-token';
+            const hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+        } finally {
+            process.env.JJ_VIEW_GITHUB_TOKEN = originalEnv;
+        }
+    });
+
+    test('hasAuth returns true if stored token is found, false otherwise', async () => {
+        const originalEnv = process.env.JJ_VIEW_GITHUB_TOKEN;
+        delete process.env.JJ_VIEW_GITHUB_TOKEN;
+        try {
+            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+            let hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+            expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('github_token');
+
+            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
+            hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+            expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('github', ['repo']);
+
+            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
+            hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(false);
+        } finally {
+            process.env.JJ_VIEW_GITHUB_TOKEN = originalEnv;
+        }
+    });
+
+    test('getAuthManageItems delegates to authManager.getAuthManageItems', async () => {
+        const expectedItems = [{ label: 'test-item', execute: vi.fn() }] as AuthManageItem[];
+        vi.mocked(mockAuthManager.getAuthManageItems).mockResolvedValue(expectedItems);
+
+        const items = await provider.getAuthManageItems();
+        expect(items).toBe(expectedItems);
+        expect(mockAuthManager.getAuthManageItems).toHaveBeenCalledWith(
+            'github',
+            expect.objectContaining({
+                displayName: 'GitHub',
+                scopes: ['repo'],
+                envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+                secretTokenKey: 'github_token',
+                hasAuth: expect.any(Function),
+                clearCache: expect.any(Function),
+                promptForPat: expect.any(Function),
+            }),
+        );
+    });
+
+    test('promptForPat delegates to authManager.promptForPat', async () => {
+        const expectedResult = { status: 'success', token: 'mock-token' } as const;
+        vi.mocked(mockAuthManager.promptForPat).mockResolvedValue(expectedResult);
+
+        const result = await provider.promptForPat();
+        expect(result).toBe(expectedResult);
+        expect(mockAuthManager.promptForPat).toHaveBeenCalledWith(
+            expect.objectContaining({
+                providerId: 'github',
+                displayName: 'GitHub',
+                secretTokenKey: 'github_token',
+                prompt: "Enter your GitHub Personal Access Token (PAT). Requires 'repo' scope.",
+                placeHolder: 'ghp_...',
+                clearCache: expect.any(Function),
+            }),
+        );
     });
 });

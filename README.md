@@ -116,12 +116,30 @@ The extension automatically refreshes the view when:
 - `jj` operations are performed via the CLI (external changes are polled).
 - You switch focus back to the VS Code window.
 
+## 🌐 Code Forge Integrations
+
+**JJ View** integrates with popular code forge providers to bring your pull request/change reviews directly into the VS Code interface:
+
 ### 🤖 Gerrit Integration
+- Displays the current **Gerrit Status** (e.g., Active, Merged) and provides a click-to-open link to the CL.
+- Configuration: Set `jj-view.gerrit.host` and `jj-view.gerrit.project` if they aren't automatically detected from your remotes or `.gitreview`.
 
-If you use Gerrit, **JJ View** provides enhanced integration:
+### 🐱 GitHub Integration
+- Displays the **PR status** (e.g., Open, Merged, Draft), checks for mergeability, and shows the count of unresolved comments.
+- Supports uploading changes directly via SCM actions.
+- Automatically detected from your Git remote URL.
 
-- Shows the current **Gerrit Status** (e.g., Active, Merged) and provides a link to the CL.
-- Configuration: Set `jj-view.gerrit.host` and `jj-view.gerrit.project` if they aren't automatically detected.
+### 🦊 GitLab Integration
+- Displays the **Merge Request status** (e.g., Open, Merged, Draft), checks for mergeability, and shows the count of unresolved comments.
+- Supports uploading changes directly via SCM actions.
+- Auto-detected from Git remote URLs (including self-hosted instances). Set `jj-view.gitlab.host` if you use a custom self-hosted instance.
+
+### 🔑 Authentication
+
+Configuring credentials (such as OAuth tokens or Personal Access Tokens) for GitHub and GitLab is seamless:
+- Integrates with VS Code's built-in OAuth flows or allows you to securely store a Personal Access Token (PAT).
+- Automatically prompts you when authentication is required to fetch status for private repositories.
+- Provides a **Manage Code Forge Authentication** option in the Source Control title bar to easily update tokens, disable/enable auth prompts, or reset preferences.
 
 ## Extension Settings
 

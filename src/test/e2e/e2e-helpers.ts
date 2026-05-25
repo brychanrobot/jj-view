@@ -6,7 +6,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { expect, type Locator } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 import { downloadAndUnzipVSCode, SilentReporter } from '@vscode/test-electron';
 import { type ElectronApplication, _electron as electron, type Frame, type Page } from 'playwright';
 import type { TestRepo } from '../test-repo';
@@ -110,7 +110,8 @@ export async function launchVSCode(
         '--disable-gpu',
         '--disable-dev-shm-usage',
         '--disable-updates',
-        // --- THESE PREVENT WINDOW FOCUS ---
+        '--password-store=basic',
+        // --- THESE PREVENT WINDOW FOCUS AND WINDOW VISIBILITY ---
         '--headless=new',
         '--no-startup-window',
     ];
@@ -632,10 +633,32 @@ export async function clickNotificationButton(page: Page, actionLabel: string) {
 }
 
 /**
+ * Waits for a notification toast containing the expected text to be visible.
+ */
+export async function expectNotificationToast(page: Page, text: string | RegExp, timeout = 10000) {
+    const toast = page.locator('.notifications-toasts .notification-toast');
+    await expect(toast.filter({ hasText: text }).first()).toBeVisible({ timeout });
+}
+
+/**
+ * Returns the locator for the active QuickInput widget.
+ */
+export function locateQuickInputWidget(page: Page): Locator {
+    return page.locator('.quick-input-widget');
+}
+
+/**
+ * Returns the locator for a specific item in the active QuickInput widget.
+ */
+export function locateQuickInputItem(page: Page, label: string | RegExp): Locator {
+    return locateQuickInputWidget(page).locator('.monaco-list-row').filter({ hasText: label });
+}
+
+/**
  * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
  */
 export async function waitForQuickInput(page: Page, timeout: number = 10000): Promise<Locator> {
-    const quickInput = page.locator('.quick-input-widget').filter({ visible: true });
+    const quickInput = locateQuickInputWidget(page).filter({ visible: true });
     const input = quickInput.locator('input.input');
     await expect(input).toBeVisible({ timeout });
     return input;
@@ -645,7 +668,7 @@ export async function waitForQuickInput(page: Page, timeout: number = 10000): Pr
  * Robustly presses a shortcut key to open the QuickInput widget, retrying if VS Code ignores the keypress.
  */
 export async function openQuickInputWithShortcut(page: Page, shortcut: string): Promise<Locator> {
-    const quickInput = page.locator('.quick-input-widget');
+    const quickInput = locateQuickInputWidget(page);
     const input = quickInput.locator('input.input');
 
     // Ensure any leftover quick input is closed first
@@ -949,21 +972,37 @@ export async function pickQuickPickItem(
             await expect(input).toHaveValue(label);
         }
 
-        const quickPick = page.locator('.quick-input-widget').filter({ visible: true });
+        const quickPick = locateQuickInputWidget(page).filter({ visible: true });
 
         if (options?.submitAsArbitraryText) {
             // Wait for the list to filter down (no items should match the arbitrary text)
             const listRow = quickPick.locator('.monaco-list-row');
             await expect(listRow).toHaveCount(0, { timeout: 2000 });
             await input.press('Enter');
+
+            // Wait for the quick pick to close or transition (input value changes/clears)
+            await expect(async () => {
+                const isInputVisible = await input.isVisible();
+                if (!isInputVisible) {
+                    return; // Closed successfully
+                }
+                if (typeof label === 'string') {
+                    const value = await input.inputValue().catch(() => '');
+                    expect(value).not.toBe(label);
+                } else {
+                    const listRows = quickPick.locator('.monaco-list-row');
+                    await expect(listRows).toHaveCount(0);
+                }
+            }).toPass({ timeout: 5000 });
         } else {
             // Find the item by text within the quickpick list
-            const item = quickPick.locator('.monaco-list-row').filter({ hasText: label }).first();
+            const item = locateQuickInputItem(page, label).first();
             await expect(item).toBeVisible({ timeout: 2000 });
             await item.click();
-        }
 
-        await expect(quickPick).not.toBeVisible({ timeout: 5000 });
+            // Wait for the clicked item to disappear (either closed or transitioned)
+            await expect(item).not.toBeVisible({ timeout: 5000 });
+        }
     }, `Failed to pick QuickPick item "${label}"`).toPass({ timeout: 15000 });
 }
 
@@ -1032,4 +1071,40 @@ export async function expectBadgeLink(row: Locator, hasText: string, expectedUrl
         timeout: 20000,
     });
     await expect(badgeLink).toHaveAttribute('href', expectedUrl);
+}
+
+/**
+ * Prints the extension's logs from the VS Code user data directory if the test failed.
+ */
+export function maybePrintExtensionLogs(userDataDir: string) {
+    try {
+        const testInfo = test.info();
+        if (testInfo.status !== 'passed' && testInfo.status !== 'skipped') {
+            const findJjViewLog = (dir: string): string | undefined => {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isDirectory()) {
+                        const found = findJjViewLog(fullPath);
+                        if (found) {
+                            return found;
+                        }
+                    } else if (entry.name.includes('JJ View') && entry.name.endsWith('.log')) {
+                        return fullPath;
+                    }
+                }
+                return undefined;
+            };
+            const logFile = findJjViewLog(userDataDir);
+            if (logFile) {
+                console.log('--- JJ VIEW OUTPUT CHANNEL LOG ---');
+                console.log(fs.readFileSync(logFile, 'utf8'));
+                console.log('----------------------------------');
+            } else {
+                console.log('Could not find JJ View log file in', userDataDir);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to read logs:', err);
+    }
 }

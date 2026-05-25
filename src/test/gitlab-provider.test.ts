@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
-import type { ChangeStatusRequest } from '../code-forge-provider';
+import * as vscode from 'vscode';
+import type { CodeForgeAuthManager } from '../code-forge-auth';
+import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitLabProvider } from '../gitlab-provider';
 import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
 
@@ -14,6 +15,18 @@ vi.mock('vscode', () => ({
             get: vi.fn(),
         }),
         onDidChangeConfiguration: vi.fn(),
+    },
+    window: {
+        showWarningMessage: vi.fn(),
+        showInputBox: vi.fn(),
+        showErrorMessage: vi.fn(),
+        showInformationMessage: vi.fn(),
+    },
+    authentication: {
+        getSession: vi.fn(),
+    },
+    extensions: {
+        getExtension: vi.fn(),
     },
     Disposable: class {
         static from = vi.fn();
@@ -29,10 +42,31 @@ vi.mock('vscode', () => ({
 describe('GitLabProvider', () => {
     let provider: GitLabProvider;
     let mockOutputChannel: vscode.OutputChannel;
+    let mockAuthManager: CodeForgeAuthManager;
 
     beforeEach(() => {
         mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
-        provider = new GitLabProvider(mockOutputChannel);
+        mockAuthManager = createMock<CodeForgeAuthManager>({
+            isAuthSkipped: vi.fn().mockReturnValue(false),
+            hasPromptedThisSession: vi.fn().mockReturnValue(false),
+            markPromptedThisSession: vi.fn(),
+            setAuthSkipped: vi.fn(),
+            isProviderUnavailable: vi.fn().mockReturnValue(false),
+            setProviderUnavailable: vi.fn(),
+            registerProvider: vi.fn(),
+            getSessionToken: vi.fn().mockResolvedValue('test-token'),
+            hasOAuthSession: vi.fn().mockResolvedValue(false),
+            performOAuthSignIn: vi.fn(),
+            getAuthManageItems: vi.fn(),
+            promptForPat: vi.fn(),
+            secrets: createMock<vscode.SecretStorage>({
+                get: vi.fn(),
+                store: vi.fn(),
+                delete: vi.fn(),
+            }),
+        });
+        provider = new GitLabProvider(mockAuthManager, mockOutputChannel);
+        vi.mocked(vscode.window.showWarningMessage).mockReset();
     });
 
     test('parseGitLabUrl correctly parses standard, subgroup, and configured host URLs', () => {
@@ -108,12 +142,6 @@ describe('GitLabProvider', () => {
         expect(result2).toBe(false);
         expect(accessPrivate(provider, 'gitlabHost')).toBeUndefined();
         expect(accessPrivate(provider, 'projectPath')).toBeUndefined();
-    });
-
-    test('clearCache resets tokenRequested state', () => {
-        setPrivate(provider, 'tokenRequested', true);
-        provider.clearCache();
-        expect(accessPrivate(provider, 'tokenRequested')).toBe(false);
     });
 
     test('parseGitLabMr calculates submittable correctly based on draft, merge_status, and blocking_discussions_resolved', () => {
@@ -274,5 +302,156 @@ describe('GitLabProvider', () => {
         expect(fetchBatchSpy.mock.calls[0][0].length).toBe(10);
         expect(fetchBatchSpy.mock.calls[1][0].length).toBe(10);
         expect(fetchBatchSpy.mock.calls[2][0].length).toBe(5);
+    });
+
+    test('getSessionToken delegates to authManager.getSessionToken', async () => {
+        vi.mocked(mockAuthManager.getSessionToken).mockResolvedValue('delegated-gitlab-token');
+        const getSession = exposePrivate<{ getSessionToken(prompt?: boolean): Promise<string | undefined> }>(
+            provider,
+        ).getSessionToken.bind(provider);
+
+        // Test default call (silent)
+        const tokenDefault = await getSession();
+        expect(tokenDefault).toBe('delegated-gitlab-token');
+        expect(mockAuthManager.getSessionToken).toHaveBeenLastCalledWith('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
+            secretTokenKey: 'gitlab_token',
+            promptMessage: expect.any(String),
+            signInLabel: 'Sign In (OAuth)',
+            prompt: false,
+            alternativeChoice: expect.any(Object),
+            shouldSkipPrompt: expect.any(Function),
+            extensionInstaller: expect.any(Object),
+        });
+
+        // Test with prompting
+        const tokenPrompt = await getSession(true);
+        expect(tokenPrompt).toBe('delegated-gitlab-token');
+        expect(mockAuthManager.getSessionToken).toHaveBeenLastCalledWith('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
+            secretTokenKey: 'gitlab_token',
+            promptMessage: expect.any(String),
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            alternativeChoice: expect.any(Object),
+            shouldSkipPrompt: expect.any(Function),
+            extensionInstaller: expect.any(Object),
+        });
+    });
+
+    test('handle403Warning triggers warning on 403 Forbidden', () => {
+        const response = createMock<Response>({
+            status: 403,
+            headers: createMock<Headers>({
+                get: vi.fn().mockReturnValue(null),
+            }),
+        });
+
+        exposePrivate<{ handle403Warning(r: Response): void }>(provider).handle403Warning(response);
+
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+            expect.stringContaining('GitLab request failed (403 Forbidden)'),
+        );
+    });
+
+    test('handle403Warning triggers warning with scopes if x-oauth-scopes present', () => {
+        const response = createMock<Response>({
+            status: 403,
+            headers: createMock<Headers>({
+                get: vi.fn().mockImplementation((name: string) => {
+                    if (name === 'x-oauth-scopes') {
+                        return 'read_user, read_repository';
+                    }
+                    return null;
+                }),
+            }),
+        });
+
+        exposePrivate<{ handle403Warning(r: Response): void }>(provider).handle403Warning(response);
+
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+            expect.stringContaining(
+                "The provided token has scopes [read_user, read_repository] but requires 'Merge Request' read/write permissions or 'api' scope",
+            ),
+        );
+    });
+
+    test('hasAuth returns true if environment variable JJ_VIEW_GITLAB_TOKEN is set', async () => {
+        const originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
+        try {
+            process.env.JJ_VIEW_GITLAB_TOKEN = 'test-token';
+            const hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+        } finally {
+            process.env.JJ_VIEW_GITLAB_TOKEN = originalEnv;
+        }
+    });
+
+    test('hasAuth returns true if stored token is found, false otherwise', async () => {
+        const originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
+        delete process.env.JJ_VIEW_GITLAB_TOKEN;
+        try {
+            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+            let hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+            expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('gitlab_token');
+
+            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
+            hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(true);
+            expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('gitlab', ['api']);
+
+            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
+            hasAuth = await provider.hasAuth();
+            expect(hasAuth).toBe(false);
+        } finally {
+            process.env.JJ_VIEW_GITLAB_TOKEN = originalEnv;
+        }
+    });
+
+    test('getAuthManageItems delegates to authManager.getAuthManageItems', async () => {
+        const expectedItems = [{ label: 'test-item', execute: vi.fn() }] as AuthManageItem[];
+        vi.mocked(mockAuthManager.getAuthManageItems).mockResolvedValue(expectedItems);
+
+        const items = await provider.getAuthManageItems();
+        expect(items).toBe(expectedItems);
+        expect(mockAuthManager.getAuthManageItems).toHaveBeenCalledWith(
+            'gitlab',
+            expect.objectContaining({
+                displayName: 'GitLab',
+                scopes: ['api'],
+                envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
+                secretTokenKey: 'gitlab_token',
+                hasAuth: expect.any(Function),
+                clearCache: expect.any(Function),
+                promptForPat: expect.any(Function),
+                extensionInstaller: expect.objectContaining({
+                    extensionId: 'GitLab.gitlab-workflow',
+                    extensionName: 'GitLab Workflow',
+                    providerName: 'GitLab',
+                }),
+            }),
+        );
+    });
+
+    test('promptForPat delegates to authManager.promptForPat', async () => {
+        const expectedResult = { status: 'success', token: 'mock-token' } as const;
+        vi.mocked(mockAuthManager.promptForPat).mockResolvedValue(expectedResult);
+
+        const result = await provider.promptForPat();
+        expect(result).toBe(expectedResult);
+        expect(mockAuthManager.promptForPat).toHaveBeenCalledWith(
+            expect.objectContaining({
+                providerId: 'gitlab',
+                displayName: 'GitLab',
+                secretTokenKey: 'gitlab_token',
+                prompt: "Enter your GitLab Personal Access Token (PAT). Requires 'Merge Request' read/write permissions or 'api' scope.",
+                placeHolder: 'glpat-...',
+                clearCache: expect.any(Function),
+            }),
+        );
     });
 });

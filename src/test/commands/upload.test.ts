@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
+import type { CodeForgeAuthManager } from '../../code-forge-auth';
 import type { CodeForgeService } from '../../code-forge-service';
 import { uploadCommand } from '../../commands/upload';
 import { GitHubProvider } from '../../github-provider';
@@ -264,7 +265,10 @@ describe('uploadCommand', () => {
         try {
             mockConfig.get.mockReturnValue(undefined);
 
-            const githubProvider = new GitHubProvider(mockOutputChannel);
+            const mockAuthManager = createMock<CodeForgeAuthManager>({
+                registerProvider: vi.fn(),
+            });
+            const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
             const githubCodeForgeService = createMock<CodeForgeService>({
                 isEnabled: true,
                 requestRefreshWithBackoffs: vi.fn(),
@@ -309,7 +313,10 @@ describe('uploadCommand', () => {
 
             mockConfig.get.mockReturnValue(undefined);
 
-            const githubProvider = new GitHubProvider(mockOutputChannel);
+            const mockAuthManager = createMock<CodeForgeAuthManager>({
+                registerProvider: vi.fn(),
+            });
+            const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
             const githubCodeForgeService = createMock<CodeForgeService>({
                 isEnabled: true,
                 requestRefreshWithBackoffs: vi.fn(),

@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
+import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
+import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
@@ -54,16 +55,21 @@ export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
     public readonly displayName = 'GitHub';
     public readonly changeTerm = 'PR' as const;
+    public readonly isAuthManageable = true;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
     private owner: string | undefined;
     private repo: string | undefined;
-    private tokenRequested = false;
 
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
-    constructor(private outputChannel?: vscode.OutputChannel) {}
+    constructor(
+        private readonly authManager: CodeForgeAuthManager,
+        private outputChannel?: vscode.OutputChannel,
+    ) {
+        this.authManager.registerProvider(this.id);
+    }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const remotePriority = (name: string): number => {
@@ -116,28 +122,6 @@ export class GitHubProvider implements CodeForgeProvider {
                 owner: match[1],
                 repo: match[2],
             };
-        }
-        return undefined;
-    }
-
-    private async getSessionToken(): Promise<string | undefined> {
-        if (process.env.JJ_VIEW_GITHUB_TOKEN) {
-            return process.env.JJ_VIEW_GITHUB_TOKEN;
-        }
-        try {
-            // Try silently first
-            let session = await vscode.authentication.getSession('github', ['repo'], { silent: true });
-            if (session) {
-                return session.accessToken;
-            }
-            // If silent failed, prompt once
-            if (!this.tokenRequested) {
-                this.tokenRequested = true;
-                session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-                return session?.accessToken;
-            }
-        } catch (e) {
-            this.outputChannel?.appendLine(`[GitHubProvider] Failed to get OAuth token: ${e}`);
         }
         return undefined;
     }
@@ -220,7 +204,7 @@ export class GitHubProvider implements CodeForgeProvider {
         const results = new Map<string, CodeForgeChangeInfo>();
         const token = await this.getSessionToken();
         if (!token) {
-            throw new Error('No GitHub session token available');
+            return results;
         }
         if (!this.owner || !this.repo) {
             return results;
@@ -289,6 +273,18 @@ export class GitHubProvider implements CodeForgeProvider {
                 },
             }),
         });
+
+        if (response.status === 401 && token) {
+            this.outputChannel?.appendLine(
+                `[GitHubProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
+            );
+            await this.authManager.clearInvalidToken({
+                providerId: 'github',
+                secretTokenKey: 'github_token',
+                currentToken: token,
+                envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+            });
+        }
 
         if (!response.ok) {
             throw new Error(`GraphQL request failed with status: ${response.statusText}`);
@@ -369,16 +365,65 @@ export class GitHubProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
-        this.tokenRequested = false;
         this._onDidUpdate.fire();
     }
 
     public activate(): void {
-        this.tokenRequested = false;
         this.outputChannel?.appendLine('[GitHubProvider] Activated');
     }
 
     public deactivate(): void {
         this.outputChannel?.appendLine('[GitHubProvider] Deactivated');
+    }
+
+    private async getSessionToken(): Promise<string | undefined> {
+        return this.authManager.getSessionToken(this.id, {
+            scopes: ['repo'],
+            envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+            secretTokenKey: 'github_token',
+            promptMessage: 'GitHub authentication is required to fetch PR status.',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            alternativeChoice: {
+                label: 'Enter PAT',
+                execute: () => this.promptForPat(),
+            },
+        });
+    }
+
+    public async promptForPat(): Promise<AuthResult> {
+        return this.authManager.promptForPat({
+            providerId: this.id,
+            displayName: this.displayName,
+            secretTokenKey: 'github_token',
+            prompt: "Enter your GitHub Personal Access Token (PAT). Requires 'repo' scope.",
+            placeHolder: 'ghp_...',
+            clearCache: () => this.clearCache(),
+        });
+    }
+
+    public async hasAuth(): Promise<boolean> {
+        if (process.env.JJ_VIEW_GITHUB_TOKEN) {
+            return true;
+        }
+        try {
+            const storedToken = await this.authManager.secrets.get('github_token');
+            if (storedToken) {
+                return true;
+            }
+        } catch {}
+        return this.authManager.hasOAuthSession(this.id, ['repo']);
+    }
+
+    public async getAuthManageItems(): Promise<AuthManageItem[]> {
+        return this.authManager.getAuthManageItems(this.id, {
+            displayName: this.displayName,
+            scopes: ['repo'],
+            envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+            secretTokenKey: 'github_token',
+            hasAuth: () => this.hasAuth(),
+            clearCache: () => this.clearCache(),
+            promptForPat: () => this.promptForPat(),
+        });
     }
 }

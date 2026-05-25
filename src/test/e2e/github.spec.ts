@@ -7,7 +7,18 @@ import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
-import { expectBadgeLink, focusJJLog, launchVSCode, waitForLogCommitRow } from './e2e-helpers';
+import {
+    expectBadgeLink,
+    expectNotificationToast,
+    focusJJLog,
+    focusSCM,
+    launchVSCode,
+    locateQuickInputItem,
+    locateQuickInputWidget,
+    pickQuickPickItem,
+    waitForLogCommitRow,
+    waitForQuickInput,
+} from './e2e-helpers';
 
 test.describe('GitHub Integration E2E', () => {
     let github: FakeGitHubServer;
@@ -222,6 +233,132 @@ test.describe('GitHub Integration E2E', () => {
             } catch {}
             repo.dispose();
             remoteRepo.dispose();
+        }
+    });
+
+    test('Manages GitHub auth choices via Quick Pick', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const { app, page, userDataDir } = await launchVSCode(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+            },
+        );
+
+        try {
+            await focusSCM(page);
+            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+            await scmInputRow.click();
+
+            // Click the Manage Auth button in the Source Control title bar
+            const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
+            await expect(manageAuthButton).toBeVisible({ timeout: 15000 });
+            await manageAuthButton.click();
+
+            // Now the custom Quick Pick should be visible. Let's select "Disable Authentication Prompts"
+            await pickQuickPickItem(page, /Disable Authentication Prompts/);
+
+            // Verify confirmation message or state by checking that the quick pick closed
+            const quickPick = locateQuickInputWidget(page);
+            await expect(quickPick).not.toBeVisible();
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
+
+    test('Manages GitHub PAT flow via Quick Pick', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const { app, page, userDataDir } = await launchVSCode(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+            },
+            true, // showNotifications = true
+        );
+
+        try {
+            await focusSCM(page);
+            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+            await scmInputRow.click();
+
+            // Click the Manage Auth button in the Source Control title bar
+            const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
+            await expect(manageAuthButton).toBeVisible({ timeout: 15000 });
+            await manageAuthButton.click();
+
+            // Check that the items "Sign In (OAuth)" and "Enter Personal Access Token (PAT)" are present
+            const quickPick = locateQuickInputWidget(page).filter({ visible: true });
+            await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible();
+
+            // Click "Enter Personal Access Token (PAT)"
+            await pickQuickPickItem(page, 'Enter Personal Access Token');
+
+            // Wait for the showInputBox input to appear
+            const input = await waitForQuickInput(page);
+            await input.focus();
+            await input.fill('ghp_test-mock-token');
+            await input.press('Enter');
+
+            // Wait for input box to close
+            await expect(quickPick).not.toBeVisible();
+
+            // Re-open the Manage Auth menu
+            await focusSCM(page);
+            await scmInputRow.click();
+            await manageAuthButton.click();
+            await expect(quickPick).toBeVisible();
+
+            // Verify "Update Personal Access Token (PAT)" and "Clear Personal Access Token (PAT)" are now visible
+            await expect(locateQuickInputItem(page, 'Update Personal Access Token (PAT)')).toBeVisible();
+            await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).toBeVisible();
+
+            // Click "Clear Personal Access Token (PAT)"
+            await pickQuickPickItem(page, 'Clear Personal Access Token');
+
+            // Wait for menu to close
+            await expect(quickPick).not.toBeVisible();
+
+            // Wait for the success toast to appear, indicating the deletion is complete
+            await expectNotificationToast(page, 'Successfully cleared stored GitHub Personal Access Token');
+
+            // Re-open again to confirm it reverted back to "Enter Personal Access Token (PAT)"
+            await expect(async () => {
+                const isVisible = await quickPick.isVisible();
+                if (isVisible) {
+                    await page.keyboard.press('Escape');
+                    await expect(quickPick).not.toBeVisible();
+                }
+                await focusSCM(page);
+                await scmInputRow.click();
+                await manageAuthButton.click();
+                await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible({
+                    timeout: 2000,
+                });
+            }).toPass({ timeout: 15000 });
+
+            await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
         }
     });
 });
