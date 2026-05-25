@@ -28,6 +28,9 @@ export enum JjContextKey {
 
     /** Mirrors the jj-view.openDiffOnClick setting; controls inline button visibility */
     OpenDiffOnClick = 'jj.openDiffOnClick',
+
+    /** True when the workspace contains multiple jj repositories */
+    MultipleRepositories = 'jj.multipleRepositories',
 }
 
 /**

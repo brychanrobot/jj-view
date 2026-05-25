@@ -16,7 +16,7 @@
         "Other"
     ],
     "activationEvents": [
-        "workspaceContains:.jj"
+        "workspaceContains:**/.jj"
     ],
     "main": "./dist/extension.js",
     "contributes": {
@@ -231,6 +231,12 @@
                 "title": "Refresh",
                 "category": "JJ View",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "jj-view.switchRepository",
+                "title": "Switch Repository",
+                "category": "JJ View",
+                "icon": "$(repo)"
             },
             {
                 "command": "jj-view.restore",
@@ -574,6 +580,11 @@
                     "when": "view == jj-view.logView && jj.selection.allowNewBefore"
                 },
                 {
+                    "command": "jj-view.switchRepository",
+                    "group": "navigation@9",
+                    "when": "view == jj-view.logView && jj.multipleRepositories"
+                },
+                {
                     "command": "jj-view.workspaceAdd",
                     "group": "navigation@10",
                     "when": "view == jj-view.logView"
@@ -728,6 +739,11 @@
                 {
                     "command": "jj-view.commit",
                     "group": "navigation@3"
+                },
+                {
+                    "command": "jj-view.switchRepository",
+                    "group": "navigation@9",
+                    "when": "scmProvider == 'jj' && jj.multipleRepositories"
                 },
                 {
                     "command": "jj-view.refresh",

@@ -32,6 +32,7 @@ import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
 import { restoreCommand } from './commands/restore';
 import { showCurrentChangeCommand } from './commands/show';
+import { switchRepositoryCommand } from './commands/switch-repository';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -61,6 +62,7 @@ import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import type { JjResourceState } from './scm-resource-state';
 import { resolveJjBinary } from './utils/binary-utils';
+import { resolveJjWorkspaceRoot } from './utils/workspace-discovery';
 
 export interface Api {
     scmProvider: JjScmProvider;
@@ -68,16 +70,33 @@ export interface Api {
     registerCodeForgeProvider(provider: CodeForgeProvider): vscode.Disposable;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext): Promise<Api | undefined> {
     if (!vscode.workspace.workspaceFolders) {
         return;
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    const vscodeWorkspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
     const outputChannel = vscode.window.createOutputChannel('JJ View');
     context.subscriptions.push(outputChannel);
 
-    const jj = new JjService(workspaceRoot, (msg) => outputChannel.appendLine(msg));
+    const resolution = await resolveJjWorkspaceRoot(vscodeWorkspaceRoot, context);
+    const jjWorkspaceRoot = resolution.root;
+    if (!jjWorkspaceRoot) {
+        outputChannel.appendLine('[Extension] No Jujutsu repository found in workspace.');
+        return;
+    }
+
+    vscode.commands.executeCommand(
+        'setContext',
+        JjContextKey.MultipleRepositories,
+        resolution.candidateCount > 1,
+    );
+
+    if (jjWorkspaceRoot !== vscodeWorkspaceRoot) {
+        outputChannel.appendLine(`[Extension] Using Jujutsu repository at: ${jjWorkspaceRoot}`);
+    }
+
+    const jj = new JjService(jjWorkspaceRoot, (msg) => outputChannel.appendLine(msg));
 
     // Resolve jj binary path and handle failure
     const updateBinaryPath = async () => {
@@ -88,7 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
         let errorMessage: string | undefined;
 
         try {
-            resolvedPath = await resolveJjBinary(preferredPath, workspaceRoot);
+            resolvedPath = await resolveJjBinary(preferredPath, jjWorkspaceRoot);
             if (!resolvedPath) {
                 errorMessage = `Could not find 'jj' binary. Please ensure 'jj' is installed and in your PATH, or configure its path manually.`;
             }
@@ -142,7 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(codeForgeRegistry.register(gerritProvider));
     context.subscriptions.push(codeForgeRegistry.register(githubProvider));
 
-    const codeForgeService = new CodeForgeService(workspaceRoot, jj, codeForgeRegistry, outputChannel);
+    const codeForgeService = new CodeForgeService(jjWorkspaceRoot, jj, codeForgeRegistry, outputChannel);
     context.subscriptions.push(codeForgeService);
 
     // Track active provider changes to update context keys
@@ -162,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
     const scmProvider = new JjScmProvider(
         context,
         jj,
-        workspaceRoot,
+        jjWorkspaceRoot,
         outputChannel,
         viewFileSystemProvider,
         editProvider,
@@ -262,6 +281,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.refresh', async () => {
             await refreshCommand(scmProvider);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.switchRepository', async () => {
+            await switchRepositoryCommand(context, jjWorkspaceRoot, outputChannel);
         }),
     );
 
