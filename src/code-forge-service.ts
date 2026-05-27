@@ -121,8 +121,8 @@ export class CodeForgeService implements vscode.Disposable {
         const activeProvider = this.registry.getActive();
         if (activeProvider) {
             this.outputChannel?.appendLine(`[CodeForgeService] Force refresh triggered`);
-            activeProvider.clearCache();
             this.lastRefreshTime = Date.now();
+            this._onDidUpdate.fire();
         }
     }
 

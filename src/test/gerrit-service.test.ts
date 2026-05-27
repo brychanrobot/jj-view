@@ -451,7 +451,7 @@ describe('GerritService Detection', () => {
         expect(hasChanges3).toBe(false);
     });
 
-    test('startPolling clears cache and fires onDidUpdate', async () => {
+    test('startPolling preserves cache and fires onDidUpdate', async () => {
         vi.useFakeTimers();
 
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
@@ -486,12 +486,14 @@ describe('GerritService Detection', () => {
 
         // onDidUpdate should have been fired to notify listeners to re-fetch
         expect(updateFired).toBe(true);
+        // Verify cache is preserved (not cleared)
+        expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
         disposable.dispose();
 
         vi.useRealTimers();
     });
 
-    test('forceRefresh clears cache and fires onDidUpdate', async () => {
+    test('forceRefresh preserves cache and fires onDidUpdate', async () => {
         mockConfig.get.mockReturnValue(fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -519,6 +521,8 @@ describe('GerritService Detection', () => {
         service.forceRefresh();
 
         expect(updateFired).toBe(true);
+        // Verify cache is preserved (not cleared)
+        expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
         disposable.dispose();
     });
 
