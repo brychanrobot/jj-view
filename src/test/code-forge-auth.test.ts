@@ -66,8 +66,12 @@ describe('CodeForgeAuthManager', () => {
 
         authManager = new CodeForgeAuthManager(context, outputChannel);
         vi.mocked(vscode.window.showWarningMessage).mockReset();
+        vi.mocked(vscode.window.showErrorMessage).mockReset();
+        vi.mocked(vscode.window.showInformationMessage).mockReset();
+        vi.mocked(vscode.window.showInputBox).mockReset();
         vi.mocked(vscode.authentication.getSession).mockReset();
         vi.mocked(vscode.extensions.getExtension).mockReset();
+        vi.mocked(vscode.commands.executeCommand).mockReset();
     });
 
     test('isAuthSkipped and setAuthSkipped persistent states', async () => {
@@ -224,6 +228,37 @@ describe('CodeForgeAuthManager', () => {
         expect(authManager.isAuthSkipped('github')).toBe(true);
     });
 
+    test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension installer prompts to install extension', async () => {
+        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In (OAuth)' as never);
+        vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // extension not installed
+        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
+
+        const token = await authManager.getSessionToken('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'NON_EXISTENT_ENV_KEY',
+            promptMessage: 'GitLab authentication required',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            extensionInstaller: {
+                extensionId: 'gitlab.gitlab-workflow',
+                extensionName: 'GitLab Workflow',
+                providerName: 'GitLab',
+            },
+        });
+
+        expect(token).toBeUndefined();
+        expect(vscode.extensions.getExtension).toHaveBeenCalledWith('gitlab.gitlab-workflow');
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
+            'Install GitLab Extension',
+        );
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'workbench.extensions.search',
+            'gitlab.gitlab-workflow',
+        );
+        expect(vscode.authentication.getSession).not.toHaveBeenCalledWith('gitlab', ['api'], { createIfNone: true });
+    });
+
     test('getSessionToken skip prompt check', async () => {
         vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('No authentication provider found'));
         authManager.setProviderUnavailable('gitlab', true);
@@ -236,7 +271,7 @@ describe('CodeForgeAuthManager', () => {
             signInLabel: 'Sign In (OAuth)',
             prompt: true,
             shouldSkipPrompt: () => {
-                const hasGitLabExtension = !!vscode.extensions.getExtension('GitLab.gitlab-workflow');
+                const hasGitLabExtension = !!vscode.extensions.getExtension('gitlab.gitlab-workflow');
                 return authManager.isProviderUnavailable('gitlab') && !hasGitLabExtension;
             },
         });
@@ -255,19 +290,19 @@ describe('CodeForgeAuthManager', () => {
         vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
         const result = await authManager.handleAuthError('gitlab', new Error('No authentication provider found'), {
             extensionInstaller: {
-                extensionId: 'GitLab.gitlab-workflow',
+                extensionId: 'gitlab.gitlab-workflow',
                 extensionName: 'GitLab Workflow',
                 providerName: 'GitLab',
             },
         });
         expect(result).toBeUndefined();
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension or configure a Personal Access Token (PAT).",
+            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
             'Install GitLab Extension',
         );
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'workbench.extensions.search',
-            'GitLab.gitlab-workflow',
+            'gitlab.gitlab-workflow',
         );
     });
 
@@ -276,7 +311,7 @@ describe('CodeForgeAuthManager', () => {
         const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'test-pat' });
         const result = await authManager.handleAuthError('gitlab', new Error('No authentication provider found'), {
             extensionInstaller: {
-                extensionId: 'GitLab.gitlab-workflow',
+                extensionId: 'gitlab.gitlab-workflow',
                 extensionName: 'GitLab Workflow',
                 providerName: 'GitLab',
             },
@@ -313,7 +348,7 @@ describe('CodeForgeAuthManager', () => {
                 hasOAuth: false,
                 clearCache,
                 extensionInstaller: {
-                    extensionId: 'GitLab.gitlab-workflow',
+                    extensionId: 'gitlab.gitlab-workflow',
                     extensionName: 'GitLab Workflow',
                     providerName: 'GitLab',
                 },
@@ -329,30 +364,31 @@ describe('CodeForgeAuthManager', () => {
             );
         });
 
-        test('aborts and calls handleAuthError when required extension is missing', async () => {
+        test('aborts and prompts to install when required extension is missing', async () => {
             vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined);
+            vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
             const clearCache = vi.fn();
-            const handleAuthErrorSpy = vi.spyOn(authManager, 'handleAuthError').mockResolvedValue(undefined);
 
             await authManager.performOAuthSignIn('gitlab', ['api'], {
                 hasOAuth: false,
                 clearCache,
                 extensionInstaller: {
-                    extensionId: 'GitLab.gitlab-workflow',
+                    extensionId: 'gitlab.gitlab-workflow',
                     extensionName: 'GitLab Workflow',
                     providerName: 'GitLab',
                 },
             });
 
-            expect(vscode.extensions.getExtension).toHaveBeenCalledWith('GitLab.gitlab-workflow');
+            expect(vscode.extensions.getExtension).toHaveBeenCalledWith('gitlab.gitlab-workflow');
             expect(vscode.authentication.getSession).not.toHaveBeenCalled();
             expect(clearCache).not.toHaveBeenCalled();
-            expect(handleAuthErrorSpy).toHaveBeenCalledWith(
-                'gitlab',
-                expect.any(Error),
-                expect.objectContaining({
-                    extensionInstaller: expect.any(Object),
-                }),
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
+                'Install GitLab Extension',
+            );
+            expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+                'workbench.extensions.search',
+                'gitlab.gitlab-workflow',
             );
         });
 
@@ -366,7 +402,7 @@ describe('CodeForgeAuthManager', () => {
                 hasOAuth: false,
                 clearCache,
                 extensionInstaller: {
-                    extensionId: 'GitLab.gitlab-workflow',
+                    extensionId: 'gitlab.gitlab-workflow',
                     extensionName: 'GitLab Workflow',
                     providerName: 'GitLab',
                 },

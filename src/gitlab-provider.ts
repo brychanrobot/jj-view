@@ -9,6 +9,8 @@ import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 
+const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
+
 interface GitLabMergeRequest {
     id: number;
     iid: number;
@@ -165,7 +167,7 @@ export class GitLabProvider implements CodeForgeProvider {
         );
 
         if (choice === installAction) {
-            vscode.commands.executeCommand('workbench.extensions.search', 'GitLab.gitlab-workflow');
+            vscode.commands.executeCommand('workbench.extensions.search', GITLAB_EXTENSION_ID);
         } else if (choice === patAction) {
             await this.promptForPat();
         }
@@ -478,11 +480,11 @@ export class GitLabProvider implements CodeForgeProvider {
                 execute: () => this.promptForPat(),
             },
             shouldSkipPrompt: () => {
-                const hasGitLabExtension = !!vscode.extensions.getExtension('GitLab.gitlab-workflow');
+                const hasGitLabExtension = !!vscode.extensions.getExtension(GITLAB_EXTENSION_ID);
                 return this.authManager.isProviderUnavailable(this.id) && !hasGitLabExtension;
             },
             extensionInstaller: {
-                extensionId: 'GitLab.gitlab-workflow',
+                extensionId: GITLAB_EXTENSION_ID,
                 extensionName: 'GitLab Workflow',
                 providerName: 'GitLab',
             },
@@ -523,7 +525,7 @@ export class GitLabProvider implements CodeForgeProvider {
             clearCache: () => this.clearCache(),
             promptForPat: () => this.promptForPat(),
             extensionInstaller: {
-                extensionId: 'GitLab.gitlab-workflow',
+                extensionId: GITLAB_EXTENSION_ID,
                 extensionName: 'GitLab Workflow',
                 providerName: 'GitLab',
             },

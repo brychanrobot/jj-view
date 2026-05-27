@@ -429,7 +429,7 @@ describe('GitLabProvider', () => {
                 clearCache: expect.any(Function),
                 promptForPat: expect.any(Function),
                 extensionInstaller: expect.objectContaining({
-                    extensionId: 'GitLab.gitlab-workflow',
+                    extensionId: 'gitlab.gitlab-workflow',
                     extensionName: 'GitLab Workflow',
                     providerName: 'GitLab',
                 }),

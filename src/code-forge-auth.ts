@@ -249,6 +249,12 @@ export class CodeForgeAuthManager {
         try {
             const choice = await vscode.window.showWarningMessage(options.promptMessage, ...choices);
             if (choice === signInLabel) {
+                if (
+                    options.extensionInstaller &&
+                    !vscode.extensions.getExtension(options.extensionInstaller.extensionId)
+                ) {
+                    return this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
+                }
                 const session = await vscode.authentication.getSession(providerId, options.scopes, {
                     createIfNone: true,
                 });
@@ -289,15 +295,9 @@ export class CodeForgeAuthManager {
             alternativeChoice?: AlternativeChoice;
         },
     ): Promise<void> {
-        if (options.extensionInstaller) {
-            const hasExtension = !!vscode.extensions.getExtension(options.extensionInstaller.extensionId);
-            if (!hasExtension) {
-                await this.handleAuthError(providerId, new Error('No authentication provider found'), {
-                    extensionInstaller: options.extensionInstaller,
-                    alternativeChoice: options.alternativeChoice,
-                });
-                return;
-            }
+        if (options.extensionInstaller && !vscode.extensions.getExtension(options.extensionInstaller.extensionId)) {
+            await this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
+            return;
         }
         try {
             const session = await vscode.authentication.getSession(providerId, scopes, {
@@ -317,6 +317,35 @@ export class CodeForgeAuthManager {
                 alternativeChoice: options.alternativeChoice,
             });
         }
+    }
+
+    /**
+     * Prompts the user to install the missing authentication provider extension or configure a PAT.
+     */
+    private async promptInstallOrPat(
+        extensionInstaller: ExtensionInstaller,
+        alternativeChoice?: AlternativeChoice,
+    ): Promise<AuthToken | undefined> {
+        const { providerName, extensionName, extensionId } = extensionInstaller;
+        const installAction = `Install ${providerName} Extension`;
+        const patAction = alternativeChoice ? alternativeChoice.label : 'Enter PAT';
+        const choices = [installAction];
+        if (alternativeChoice) {
+            choices.push(patAction);
+        }
+
+        const message = alternativeChoice
+            ? `${providerName} authentication provider is not available. Please install the official '${extensionName}' extension or configure a Personal Access Token (PAT).`
+            : `${providerName} authentication provider is not available. Please install the official '${extensionName}' extension.`;
+
+        const choice = await vscode.window.showErrorMessage(message, ...choices);
+        if (choice === installAction) {
+            vscode.commands.executeCommand('workbench.extensions.search', extensionId);
+        } else if (alternativeChoice && choice === patAction) {
+            const result = await alternativeChoice.execute();
+            return result.status === 'success' ? result.token : undefined;
+        }
+        return undefined;
     }
 
     public async handleAuthError(
@@ -339,24 +368,7 @@ export class CodeForgeAuthManager {
             errorStr.includes('No authentication provider');
 
         if (isUnregistered && options?.extensionInstaller) {
-            const { providerName, extensionName, extensionId } = options.extensionInstaller;
-            const installAction = `Install ${providerName} Extension`;
-            const patAction = options.alternativeChoice ? options.alternativeChoice.label : 'Enter PAT';
-            const choices = [installAction];
-            if (options.alternativeChoice) {
-                choices.push(patAction);
-            }
-
-            const choice = await vscode.window.showErrorMessage(
-                `${providerName} authentication provider is not available. Please install the official '${extensionName}' extension or configure a Personal Access Token (PAT).`,
-                ...choices,
-            );
-            if (choice === installAction) {
-                vscode.commands.executeCommand('workbench.extensions.search', extensionId);
-            } else if (options.alternativeChoice && choice === patAction) {
-                const result = await options.alternativeChoice.execute();
-                return result.status === 'success' ? result.token : undefined;
-            }
+            return this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
         } else {
             vscode.window.showErrorMessage(`Authentication failed for ${providerId}: ${error}`);
         }

@@ -328,6 +328,69 @@ test.describe('GitLab Integration E2E', () => {
         }
     });
 
+    test('Shows extension-not-found interstitial when signing in via OAuth without GitLab extension', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://gitlab.com/test-owner/test-repo.git');
+
+        const { app, page, userDataDir } = await launchVSCode(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'gitlab',
+                'jj-view.gitlab.host': gitlab.url,
+            },
+            {
+                JJ_VIEW_GITLAB_API_URL: gitlab.url,
+                // No JJ_VIEW_GITLAB_TOKEN: forces the auth prompt
+            },
+            true, // showNotifications = true
+        );
+
+        try {
+            await focusSCM(page);
+            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+            await scmInputRow.click();
+
+            // Click the Manage Auth button in the Source Control title bar
+            const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
+            await expect(manageAuthButton).toBeVisible({ timeout: 15000 });
+            await manageAuthButton.click();
+
+            // The Quick Pick should be visible. Select "Sign In (OAuth)"
+            await pickQuickPickItem(page, /Sign In.*OAuth/);
+
+            // Since the GitLab Workflow extension is not installed in the E2E environment
+            // (VS Code runs with --disable-extensions), we expect an error notification
+            // explaining the extension is missing, with options to install or use a PAT.
+            const notificationToast = page.locator('.notifications-toasts .notification-toast', {
+                hasText: 'authentication provider is not available',
+            });
+            await expect(notificationToast).toBeVisible({ timeout: 10000 });
+
+            // The toast should offer "Enter PAT" as an alternative
+            const enterPatButton = notificationToast.getByRole('button', { name: 'Enter PAT' });
+            await expect(enterPatButton).toBeVisible();
+            await enterPatButton.click();
+
+            // Wait for the showInputBox input to appear for PAT entry
+            const input = await waitForQuickInput(page);
+            await input.focus();
+            await input.fill('glpat-extension-not-found-test');
+            await input.press('Enter');
+
+            // Verify the quick input is gone — PAT was accepted
+            const quickPick = locateQuickInputWidget(page).filter({ visible: true });
+            await expect(quickPick).not.toBeVisible();
+        } finally {
+            maybePrintExtensionLogs(userDataDir);
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
+
     test('Shows warning notification toast on 403 Forbidden scope errors', async () => {
         const repo = new TestRepo();
         repo.init();
