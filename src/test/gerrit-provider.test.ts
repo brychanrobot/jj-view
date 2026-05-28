@@ -63,7 +63,7 @@ describe('GerritProvider', () => {
     beforeEach(() => {
         mockJjService = createMock<JjService>({});
         mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
-        provider = new GerritProvider(mockJjService, mockOutputChannel);
+        provider = new GerritProvider(mockOutputChannel);
     });
 
     test('detect trims and checks for blank gerrit.host setting', async () => {
@@ -113,7 +113,7 @@ describe('GerritProvider', () => {
             },
         ];
 
-        const result = await provider.fetchStatuses(changes);
+        const result = await provider.fetchStatuses(changes, mockJjService);
         expect(result).toBe(false); // No cache changes were registered
 
         // Verify cache was preserved (not deleted)

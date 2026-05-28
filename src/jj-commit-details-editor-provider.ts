@@ -9,12 +9,14 @@ import { createJjResourceState } from './scm-resource-state';
 export class JjCommitDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
     public readonly changeId: string;
+    public readonly repoRoot?: vscode.Uri;
     public draftDescription?: string;
     public persistedDescription?: string;
 
-    constructor(uri: vscode.Uri, changeId: string) {
+    constructor(uri: vscode.Uri, changeId: string, repoRoot?: vscode.Uri) {
         this.uri = uri;
         this.changeId = changeId;
+        this.repoRoot = repoRoot;
     }
 
     dispose(): void {}
@@ -50,10 +52,23 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
-        private readonly _jj: JjService,
+        private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
     ) {}
 
-    public async refresh(): Promise<void> {
+    private getJjService(document: JjCommitDocument): JjService | undefined {
+        if (document.repoRoot) {
+            const repo = this._repositoryManager.getRepositoryForUri(document.repoRoot);
+            if (repo) {
+                return repo.jj;
+            }
+        }
+        return this._repositoryManager.focusedRepository?.jj;
+    }
+
+    public async refresh(reason?: string): Promise<void> {
+        const reasonStr = reason ? ` (reason: ${reason})` : '';
+        console.log(`[JjCommitDetailsEditorProvider] Refreshing${reasonStr}...`);
+
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
@@ -67,7 +82,12 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             }
 
             try {
-                const logs = await this._jj.getLog({ revision: changeId });
+                const state = this._documentStates.get(changeId);
+                const jj = state ? this.getJjService(state.document) : this._repositoryManager.focusedRepository?.jj;
+                if (!jj) {
+                    continue;
+                }
+                const logs = await jj.getLog({ revision: changeId });
                 if (logs.length === 0) {
                     panels.forEach((p) => {
                         p.dispose();
@@ -76,7 +96,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 }
 
                 const log = logs[0];
-                const filesWithStats = await this._jj.getChanges(changeId).catch(() => log.changes || []);
+                const filesWithStats = await jj.getChanges(changeId).catch(() => log.changes || []);
 
                 for (const panel of panels) {
                     panel.webview.postMessage({
@@ -101,8 +121,17 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         },
                     });
                 }
-            } catch (_) {
-                // Ignore errors for individual refreshes
+            } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                if (errMsg.includes("doesn't exist") || errMsg.includes('does not exist')) {
+                    panels.forEach((p) => {
+                        try {
+                            p.dispose();
+                        } catch {
+                            // Ignore if already disposed
+                        }
+                    });
+                }
             }
         }
     }
@@ -177,10 +206,15 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         _openContext: vscode.CustomDocumentOpenContext,
         _token: vscode.CancellationToken,
     ): Promise<JjCommitDocument> {
-        // URI format: jj-commit://commit/Commit:%20<shortId>?changeId=<changeId>
+        // URI format: jj-commit://commit/Commit:%20<shortId>?changeId=<changeId>&repoRoot=<repoRoot>
         const query = new URLSearchParams(uri.query);
         const changeId = query.get('changeId') || uri.path.split('/').pop() || uri.path;
-        return new JjCommitDocument(uri, changeId);
+        const repoRoot = query.get('repoRoot');
+        return new JjCommitDocument(
+            uri,
+            changeId,
+            repoRoot ? vscode.Uri.file(decodeURIComponent(repoRoot)) : undefined,
+        );
     }
 
     public async resolveCustomEditor(
@@ -216,15 +250,20 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
         const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
 
+        const jj = this.getJjService(document);
+        if (!jj) {
+            panel.dispose();
+            return;
+        }
         try {
-            const logs = await this._jj.getLog({ revision: document.changeId });
+            const logs = await jj.getLog({ revision: document.changeId });
             if (logs.length === 0) {
                 panel.dispose();
                 return;
             }
 
             const log = logs[0];
-            const filesWithStats = await this._jj.getChanges(document.changeId).catch(() => log.changes || []);
+            const filesWithStats = await jj.getChanges(document.changeId).catch(() => log.changes || []);
 
             const initialDescription = (log.description || '').trim();
             const initialData = {
@@ -310,7 +349,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         const changeId = message.payload.changeId;
                         const isImmutable = message.payload.isImmutable;
 
-                        const state = createJjResourceState(file, changeId, this._jj.workspaceRoot, {
+                        const state = createJjResourceState(file, changeId, jj.workspaceRoot, {
                             editable: !isImmutable,
                             openDiffOnClick: true,
                         });

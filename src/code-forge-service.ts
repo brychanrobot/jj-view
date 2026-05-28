@@ -178,7 +178,7 @@ export class CodeForgeService implements vscode.Disposable {
         if (!activeProvider) {
             return false;
         }
-        return activeProvider.fetchStatuses(changes);
+        return activeProvider.fetchStatuses(changes, this.jjService);
     }
 
     private verifyStructureSync(

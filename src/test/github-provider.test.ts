@@ -7,7 +7,9 @@ import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitHubProvider } from '../github-provider';
+import { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
+import { TestRepo } from './test-repo';
 import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
@@ -311,8 +313,15 @@ describe('GitHubProvider', () => {
             });
         }
 
-        const result = await provider.fetchStatuses(changes);
-        expect(result).toBe(true);
+        const testRepo = new TestRepo();
+        try {
+            testRepo.init();
+            const jj = new JjService(testRepo.path, () => {});
+            const result = await provider.fetchStatuses(changes, jj);
+            expect(result).toBe(true);
+        } finally {
+            testRepo.dispose();
+        }
 
         expect(fetchBatchSpy).toHaveBeenCalledTimes(3);
         expect(fetchBatchSpy.mock.calls[0][0].length).toBe(20);
@@ -352,8 +361,15 @@ describe('GitHubProvider', () => {
             },
         ];
 
-        const result = await provider.fetchStatuses(changes);
-        expect(result).toBe(false); // No cache changes were registered
+        const testRepo = new TestRepo();
+        try {
+            testRepo.init();
+            const jj = new JjService(testRepo.path, () => {});
+            const result = await provider.fetchStatuses(changes, jj);
+            expect(result).toBe(false); // No cache changes were registered
+        } finally {
+            testRepo.dispose();
+        }
 
         // Verify cache was preserved (not deleted)
         expect(cache.get('bm-1')).toBeDefined();
@@ -555,8 +571,14 @@ describe('GitHubProvider', () => {
         const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
 
         const changes: ChangeStatusRequest[] = [{ commitId: 'sha-local-differs', bookmarks: ['my-feature-merged'] }];
-
-        await provider.fetchStatuses(changes);
+        const testRepo = new TestRepo();
+        try {
+            testRepo.init();
+            const jj = new JjService(testRepo.path, () => {});
+            await provider.fetchStatuses(changes, jj);
+        } finally {
+            testRepo.dispose();
+        }
 
         // my-feature-merged SHOULD be cached even though local commit ID doesn't match
         expect(cache.get('my-feature-merged')).toBeDefined();

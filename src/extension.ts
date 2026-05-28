@@ -7,10 +7,11 @@ import * as vscode from 'vscode';
 import { CodeForgeAuthManager } from './code-forge-auth';
 import type { CodeForgeProvider } from './code-forge-provider';
 import { CodeForgeRegistry } from './code-forge-registry';
-import { CodeForgeService } from './code-forge-service';
+import type { CodeForgeService } from './code-forge-service';
 import { abandonCommand } from './commands/abandon';
 import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
+import { extractUriFromArgs } from './commands/command-utils';
 import { commitCommand } from './commands/commit';
 import { commitPromptCommand } from './commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from './commands/compare-all-files-with-revision';
@@ -58,31 +59,39 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
+import type { JjRepository } from './jj-repository';
+import { JjRepositoryManager } from './jj-repository-manager';
 import { JjScmProvider } from './jj-scm-provider';
-import { JjService } from './jj-service';
+import type { JjService } from './jj-service';
 import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import type { JjResourceState } from './scm-resource-state';
 import { resolveJjBinary } from './utils/binary-utils';
+import { JjOutputChannel } from './utils/output-channel';
 
 export interface Api {
-    scmProvider: JjScmProvider;
-    jj: JjService;
+    repositoryManager: JjRepositoryManager;
     registerCodeForgeProvider(provider: CodeForgeProvider): vscode.Disposable;
 }
 
-export function activate(context: vscode.ExtensionContext) {
-    if (!vscode.workspace.workspaceFolders) {
-        return;
+export async function activate(context: vscode.ExtensionContext): Promise<Api> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    const workspaceRoot = folders.length > 0 ? folders[0].uri.fsPath : '';
+    const realOutputChannel = vscode.window.createOutputChannel('JJ View');
+    const outputChannel = new JjOutputChannel(realOutputChannel);
+    context.subscriptions.push(realOutputChannel);
+
+    // Get preferred binary path configuration
+    const config = vscode.workspace.getConfiguration('jj-view');
+    const preferredPath = config.get<string>('binaryPath');
+    let resolvedBinaryPath: string | undefined;
+    try {
+        resolvedBinaryPath = await resolveJjBinary(preferredPath, workspaceRoot);
+    } catch {
+        // Ignore initial error, updateBinaryPath() below will show notification
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const outputChannel = vscode.window.createOutputChannel('JJ View');
-    context.subscriptions.push(outputChannel);
-
-    const jj = new JjService(workspaceRoot, (msg) => outputChannel.appendLine(msg));
-
-    // Resolve jj binary path and handle failure
+    // Configure configurations update listener
     const updateBinaryPath = async () => {
         const config = vscode.workspace.getConfiguration('jj-view');
         const preferredPath = config.get<string>('binaryPath');
@@ -100,7 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (resolvedPath) {
-            jj.binaryPath = resolvedPath;
+            repositoryManager.setBinaryPath(resolvedPath);
             outputChannel.appendLine(`[Extension] Using jj binary at: ${resolvedPath}`);
         } else if (errorMessage) {
             showBinaryError(errorMessage);
@@ -116,31 +125,16 @@ export function activate(context: vscode.ExtensionContext) {
         });
     };
 
-    updateBinaryPath();
-
     const setOpenDiffOnClickContext = () => {
         const value = vscode.workspace.getConfiguration('jj-view').get<boolean>('openDiffOnClick', true);
         vscode.commands.executeCommand('setContext', JjContextKey.OpenDiffOnClick, value);
     };
     setOpenDiffOnClickContext();
 
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(async (e) => {
-            if (e.affectsConfiguration('jj-view.binaryPath')) {
-                await updateBinaryPath();
-                scmProvider.refresh();
-            }
-            if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
-                setOpenDiffOnClickContext();
-                scmProvider.refresh();
-            }
-        }),
-    );
-
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
     const authManager = new CodeForgeAuthManager(context, outputChannel);
-    const gerritProvider = new GerritProvider(jj, outputChannel);
+    const gerritProvider = new GerritProvider(outputChannel);
     const githubProvider = new GitHubProvider(authManager, outputChannel);
     const gitlabProvider = new GitLabProvider(authManager, outputChannel);
 
@@ -148,8 +142,37 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(codeForgeRegistry.register(githubProvider));
     context.subscriptions.push(codeForgeRegistry.register(gitlabProvider));
 
-    const codeForgeService = new CodeForgeService(workspaceRoot, jj, codeForgeRegistry, outputChannel);
-    context.subscriptions.push(codeForgeService);
+    const repositoryManager = new JjRepositoryManager(
+        codeForgeRegistry,
+        outputChannel,
+        context.workspaceState,
+        resolvedBinaryPath,
+    );
+    context.subscriptions.push(repositoryManager);
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (e.affectsConfiguration('jj-view.binaryPath')) {
+                await updateBinaryPath();
+                await repositoryManager.scan();
+            }
+            if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
+                setOpenDiffOnClickContext();
+                await Promise.all(
+                    Array.from(scmProviders.values()).map((scm) =>
+                        scm.repo.refresh({ reason: 'openDiffOnClick config change' }),
+                    ),
+                );
+            }
+            if (
+                e.affectsConfiguration('jj-view.autoRepositoryDetection') ||
+                e.affectsConfiguration('jj-view.scanRepositories') ||
+                e.affectsConfiguration('jj-view.ignoredRepositories')
+            ) {
+                await repositoryManager.scan();
+            }
+        }),
+    );
 
     // Track active provider changes to update context keys
     const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
@@ -195,7 +218,10 @@ export function activate(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage(
                             `Authentication prompts for ${activeProvider.displayName} have been ${!isSkipped ? 'disabled' : 'enabled'}.`,
                         );
-                        codeForgeService.forceRefresh();
+                        const focused = repositoryManager.focusedRepository;
+                        if (focused) {
+                            focused.codeForge.forceRefresh();
+                        }
                     },
                 });
             }
@@ -215,7 +241,10 @@ export function activate(context: vscode.ExtensionContext) {
                 execute: async () => {
                     await authManager.resetAllChoices();
                     vscode.window.showInformationMessage('Authentication preferences have been reset.');
-                    codeForgeService.forceRefresh();
+                    const focused = repositoryManager.focusedRepository;
+                    if (focused) {
+                        focused.codeForge.forceRefresh();
+                    }
                 },
             });
 
@@ -237,21 +266,8 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    const viewFileSystemProvider = new JjViewFileSystemProvider(jj);
-    const editProvider = new JjEditFileSystemProvider(jj);
-    const scmProvider = new JjScmProvider(
-        context,
-        jj,
-        workspaceRoot,
-        outputChannel,
-        viewFileSystemProvider,
-        editProvider,
-    );
-
-    // Wire up the edit provider to trigger scm refreshes
-    editProvider.onDidWrite = () => scmProvider.refresh();
-
-    context.subscriptions.push(vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider));
+    const viewFileSystemProvider = new JjViewFileSystemProvider(repositoryManager);
+    const editFileSystemProvider = new JjEditFileSystemProvider(repositoryManager);
 
     // Register FileSystemProvider for read-only access to old file versions (for diffs)
     context.subscriptions.push(
@@ -259,178 +275,18 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Register FileSystemProvider for editable access to mutable revision files
-    context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editProvider));
+    context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editFileSystemProvider));
 
-    const disposable = vscode.commands.registerCommand('jj-view.showCurrentChange', async () => {
-        await showCurrentChangeCommand(jj, outputChannel);
-    });
+    const scmProviders = new Map<string, JjScmProvider>();
+    const activeScmSubscriptions = new Map<string, vscode.Disposable>();
 
-    const newCmd = vscode.commands.registerCommand('jj-view.new', async (...args: unknown[]) => {
-        await newCommand(scmProvider, jj, args);
-    });
+    // Wire up edit provider refresh
+    editFileSystemProvider.onDidWrite = (repo) => {
+        const scm = scmProviders.get(repo.rootUri.fsPath);
+        scm?.refresh();
+    };
 
-    const newMergeCommand = vscode.commands.registerCommand(
-        'jj-view.newMergeChange',
-        async (arg: MergeCommandArg | undefined) => {
-            await newMergeChangeCommand(scmProvider, jj, arg);
-        },
-    );
-
-    const commitCmd = vscode.commands.registerCommand('jj-view.commit', async () => {
-        await commitCommand(scmProvider, jj);
-    });
-
-    const commitPromptCmd = vscode.commands.registerCommand('jj-view.commitPrompt', async () => {
-        await commitPromptCommand(scmProvider, jj);
-    });
-
-    const describePromptCmd = vscode.commands.registerCommand('jj-view.describePrompt', async () => {
-        await describePromptCommand(scmProvider, jj);
-    });
-
-    const focusDescriptionInputCmd = vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
-        await focusDescriptionInputCommand();
-    });
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.abandon', async (arg: unknown) => {
-            await abandonCommand(scmProvider, jj, [arg]);
-        }),
-        vscode.commands.registerCommand(
-            'jj-view.restore',
-            async (...resourceStates: vscode.SourceControlResourceState[]) => {
-                await restoreCommand(scmProvider, jj, resourceStates);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squashRevisionIntoParent', async (...args: unknown[]) => {
-            await squashRevisionIntoParentCommand(scmProvider, jj, args);
-        }),
-        vscode.commands.registerCommand('jj-view.squashRevisionIntoAncestor', async (...args: unknown[]) => {
-            await squashRevisionIntoAncestorCommand(scmProvider, jj, args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.completeSquashRevision', async () => {
-            const storageDir = scmProvider.getSquashStorageDir();
-            const msgPath = path.join(storageDir, 'SQUASH_MSG');
-            const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
-            if (doc) {
-                if (doc.isDirty) {
-                    await doc.save();
-                }
-                await completeSquashRevisionCommand(scmProvider, jj, doc.getText());
-            }
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.setDescription', (...args: unknown[]) =>
-            setDescriptionCommand(scmProvider, jj, args),
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squashSelectionIntoParent', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                return;
-            }
-            await squashSelectionIntoParentCommand(scmProvider, jj, editor);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.refresh', async () => {
-            await refreshCommand(scmProvider);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            'jj-view.openFile',
-            async (resourceState: vscode.SourceControlResourceState) => {
-                await openFileCommand(resourceState);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.openChanges', async (resourceState: JjResourceState) => {
-            await openChangesCommand(resourceState);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            'jj-view.squashHunkIntoParent',
-            async (uri: vscode.Uri, changes: unknown, index: number) => {
-                await squashHunkIntoParentCommand(scmProvider, jj, uri, changes, index);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.squashFilesIntoParent', async (...args: unknown[]) => {
-            await squashFilesIntoParentCommand(scmProvider, jj, args);
-        }),
-        vscode.commands.registerCommand('jj-view.squashFilesIntoChild', async (...args: unknown[]) => {
-            await squashFilesIntoChildCommand(scmProvider, jj, args);
-        }),
-        vscode.commands.registerCommand('jj-view.squashFilesIntoAncestor', async (...args: unknown[]) => {
-            await squashFilesIntoAncestorCommand(scmProvider, jj, args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.duplicate', async (arg: unknown) => {
-            await duplicateCommand(scmProvider, jj, [arg]);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.edit', async (arg: unknown) => {
-            await editCommand(scmProvider, jj, [arg]);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.newBefore', async (...args: unknown[]) => {
-            await newBeforeCommand(scmProvider, jj, args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.newAfter', async (...args: unknown[]) => {
-            await newAfterCommand(scmProvider, jj, args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.upload', async (...args: unknown[]) => {
-            await uploadCommand(scmProvider, jj, codeForgeService, args, outputChannel);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            'jj-view.discardChange',
-            async (uri: vscode.Uri, changes: unknown, index: number) => {
-                await discardChangeCommand(scmProvider, uri, changes, index);
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.setBookmark', async (arg: { commitId: string }) => {
-            await setBookmarkCommand(scmProvider, jj, arg);
-        }),
-    );
-
-    const commitDetailsProvider = new JjCommitDetailsEditorProvider(context.extensionUri, jj);
+    const commitDetailsProvider = new JjCommitDetailsEditorProvider(context.extensionUri, repositoryManager);
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider(JjCommitDetailsEditorProvider.viewType, commitDetailsProvider, {
             webviewOptions: {
@@ -439,14 +295,16 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    // Register view provider
+    // Get an initial repo for webview log startup
     const logWebviewProvider = new JjLogWebviewProvider(
         context.extensionUri,
-        jj,
-        codeForgeService,
-        commitDetailsProvider,
+        undefined,
         (ids) => {
-            scmProvider.handleSelectionChange(ids);
+            const focused = repositoryManager.focusedRepository;
+            if (focused) {
+                const scm = scmProviders.get(focused.rootUri.fsPath);
+                scm?.handleSelectionChange(ids);
+            }
         },
         context,
         outputChannel,
@@ -456,53 +314,252 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.showDetails', async (arg: unknown) => {
-            await showDetailsCommand(logWebviewProvider, [arg]);
+        commitDetailsProvider.onDidClosePanel((changeId) => {
+            logWebviewProvider.handlePanelClosed(changeId);
         }),
     );
 
-    const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
-        await logWebviewProvider.refresh();
+    // SCM Discovery Lifecycle integration
+    repositoryManager.onDidOpenRepository((repo) => {
+        const repoPrefix = path.basename(repo.rootUri.fsPath);
+        const repoOutputChannel = new JjOutputChannel(realOutputChannel, repoPrefix);
+        const scmProvider = new JjScmProvider(
+            context,
+            repo,
+            repoOutputChannel,
+            viewFileSystemProvider,
+            editFileSystemProvider,
+            () => repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath,
+        );
+
+        const decorationProvider = vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider);
+        const repoStatusSub = repo.onDidStatusChange(async (event) => {
+            if (repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath) {
+                // Update context keys for focused repo
+                vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scmProvider.parentMutable);
+                vscode.commands.executeCommand('setContext', JjContextKey.HasChild, scmProvider.hasChild);
+
+                // Refresh webview and commit details panel in parallel
+                await Promise.all([
+                    logWebviewProvider.refresh(event.reason),
+                    commitDetailsProvider.refresh(event.reason),
+                ]);
+            }
+        });
+
+        const composite = vscode.Disposable.from(scmProvider, decorationProvider, repoStatusSub);
+        scmProviders.set(repo.rootUri.fsPath, scmProvider);
+        activeScmSubscriptions.set(repo.rootUri.fsPath, composite);
+
+        // Fire and forget: check if we should warn about git colocation
+        checkGitColocation(repo.jj).catch((e) =>
+            outputChannel.appendLine(`[Extension] Colocation check failed for ${repoPrefix}: ${e}`),
+        );
     });
-    context.subscriptions.push(refreshDisposable);
 
-    context.subscriptions.push(scmProvider);
+    repositoryManager.onDidCloseRepository(async (repo) => {
+        const sub = activeScmSubscriptions.get(repo.rootUri.fsPath);
+        if (sub) {
+            sub.dispose();
+            activeScmSubscriptions.delete(repo.rootUri.fsPath);
+        }
+        scmProviders.delete(repo.rootUri.fsPath);
+    });
 
-    // Refresh tree immediately when SCM is ready (parallel to SCM view calculations)
-    scmProvider.onRepoStateReady(() => logWebviewProvider.refresh());
+    repositoryManager.onDidChangeFocusedRepository((repo) => {
+        if (repo) {
+            logWebviewProvider.updateRepository(repo);
+            const scm = scmProviders.get(repo.rootUri.fsPath);
+            if (scm) {
+                vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scm.parentMutable);
+                vscode.commands.executeCommand('setContext', JjContextKey.HasChild, scm.hasChild);
+            }
+            repo.codeForge.detectActiveProvider(true);
+        }
+    });
 
-    // Detect terminal 'jj upload' or 'jj git push' commands and trigger immediate refresh
+    // Helper to contextually resolve SCM & JjService based on command arguments or editor focus
+    const resolveRepositoryLocal = (args: unknown[]) => resolveRepository(args, repositoryManager, scmProviders);
+
+    // Command Wrap utility
+    function registerWrappedCommand(
+        commandId: string,
+        handler: (scm: JjScmProvider, jj: JjService, ...args: unknown[]) => Promise<void> | void,
+    ): vscode.Disposable {
+        return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
+            const context = resolveRepositoryLocal(args);
+            if (context) {
+                repositoryManager.setFocusedRepository(context.repo);
+                await handler(context.scm, context.repo.jj, ...args);
+            } else {
+                outputChannel.appendLine(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+            }
+        });
+    }
+
+    // Register all wrapped commands
     context.subscriptions.push(
-        vscode.window.onDidEndTerminalShellExecution((event) => {
-            handleTerminalExecution(event.execution.commandLine.value, codeForgeService, outputChannel, scmProvider);
+        registerWrappedCommand('jj-view.focusRepository', () => {
+            // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
+        }),
+        registerWrappedCommand('jj-view.showCurrentChange', async (_scm, jj) => {
+            await showCurrentChangeCommand(jj, outputChannel);
+        }),
+        registerWrappedCommand('jj-view.new', async (scm, jj, ...args) => {
+            await newCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.newMergeChange', async (scm, jj, ...args) => {
+            const arg = args[0] as MergeCommandArg | undefined;
+            await newMergeChangeCommand(scm, jj, arg);
+        }),
+        registerWrappedCommand('jj-view.commit', async (scm, jj) => {
+            await commitCommand(scm, jj);
+        }),
+        registerWrappedCommand('jj-view.commitPrompt', async (scm, jj) => {
+            await commitPromptCommand(scm, jj);
+        }),
+        registerWrappedCommand('jj-view.describePrompt', async (scm, jj) => {
+            await describePromptCommand(scm, jj);
         }),
     );
 
-    // For now, let's expose the refresh command to also refresh the tree
-    const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
-    context.subscriptions.push(refreshCmd);
-
-    const undoCmd = vscode.commands.registerCommand('jj-view.undo', async () => {
-        await undoCommand(scmProvider, jj);
-        await logWebviewProvider.refresh(); // Extra refresh for log
-    });
-
-    const redoCmd = vscode.commands.registerCommand('jj-view.redo', async () => {
-        await redoCommand(scmProvider, jj);
-        await logWebviewProvider.refresh(); // Extra refresh for log
-    });
-
-    const rebaseOntoSelectedCmd = vscode.commands.registerCommand(
-        'jj-view.rebaseOntoSelected',
-        async (arg: CommitMenuContext) => {
-            await rebaseOntoSelectedCommand(scmProvider, jj, arg);
-        },
+    // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
+            await focusDescriptionInputCommand();
+        }),
     );
 
-    context.subscriptions.push(undoCmd);
-    context.subscriptions.push(redoCmd);
-    context.subscriptions.push(rebaseOntoSelectedCmd);
+    context.subscriptions.push(
+        registerWrappedCommand('jj-view.abandon', async (scm, jj, ...args) => {
+            await abandonCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.restore', async (scm, jj, ...args) => {
+            const states = args as vscode.SourceControlResourceState[];
+            await restoreCommand(scm, jj, states);
+        }),
+        registerWrappedCommand('jj-view.squashRevisionIntoParent', async (scm, jj, ...args) => {
+            await squashRevisionIntoParentCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.squashRevisionIntoAncestor', async (scm, jj, ...args) => {
+            await squashRevisionIntoAncestorCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.completeSquashRevision', async (scm, jj) => {
+            const storageDir = scm.getSquashStorageDir();
+            const msgPath = path.join(storageDir, 'SQUASH_MSG');
+            const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
+            if (doc) {
+                if (doc.isDirty) {
+                    await doc.save();
+                }
+                await completeSquashRevisionCommand(scm, jj, doc.getText());
+            }
+        }),
+        registerWrappedCommand('jj-view.setDescription', async (scm, jj, ...args) => {
+            await setDescriptionCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.squashSelectionIntoParent', async (scm, jj) => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                await squashSelectionIntoParentCommand(scm, jj, editor);
+            }
+        }),
+        registerWrappedCommand('jj-view.refresh', async (scm) => {
+            await refreshCommand(scm);
+        }),
+        registerWrappedCommand('jj-view.openFile', async (_scm, _jj, ...args) => {
+            const state = args[0] as vscode.SourceControlResourceState | undefined;
+            await openFileCommand(state);
+        }),
+        registerWrappedCommand('jj-view.openChanges', async (_scm, _jj, ...args) => {
+            const state = args[0] as JjResourceState | undefined;
+            await openChangesCommand(state);
+        }),
+        registerWrappedCommand('jj-view.undo', async (scm, jj) => {
+            await undoCommand(scm, jj);
+            await scm.repo.refresh({ reason: 'undo' });
+        }),
+        registerWrappedCommand('jj-view.redo', async (scm, jj) => {
+            await redoCommand(scm, jj);
+            await scm.repo.refresh({ reason: 'redo' });
+        }),
+        registerWrappedCommand('jj-view.duplicate', async (scm, jj, ...args) => {
+            await duplicateCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.edit', async (scm, jj, ...args) => {
+            await editCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.newBefore', async (scm, jj, ...args) => {
+            const changeIds = args as string[];
+            await newBeforeCommand(scm, jj, changeIds);
+        }),
+        registerWrappedCommand('jj-view.newAfter', async (scm, jj, ...args) => {
+            const changeIds = args as string[];
+            await newAfterCommand(scm, jj, changeIds);
+        }),
+        registerWrappedCommand('jj-view.upload', async (scm, jj, ...args) => {
+            await uploadCommand(scm, jj, scm.repo.codeForge, args, outputChannel);
+        }),
+        registerWrappedCommand('jj-view.setBookmark', async (scm, jj, ...args) => {
+            const arg = args[0] as { commitId: string };
+            await setBookmarkCommand(scm, jj, arg);
+        }),
+        registerWrappedCommand('jj-view.showDetails', async (_scm, _jj, ...args) => {
+            await showDetailsCommand(logWebviewProvider, args);
+        }),
+        registerWrappedCommand('jj-view.openMergeEditor', async (scm, _jj, ...args) => {
+            const rest = args.slice(1);
+            await openMergeEditorCommand(scm, args[0], ...rest);
+        }),
+        registerWrappedCommand('jj-view.absorb', async (scm, jj, ...args) => {
+            await absorbCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.showMultiFileDiff', async (_scm, jj, ...args) => {
+            await showMultiFileDiffCommand(jj, outputChannel, ...args);
+        }),
+        registerWrappedCommand('jj-view.compareWithWorkingCopy', async (_scm, jj, ...args) => {
+            await compareAllFilesWithRevisionCommand(jj, outputChannel, ...args);
+        }),
+        registerWrappedCommand('jj-view.compareFileWith', async (_scm, jj, ...args) => {
+            await compareFileWithRevisionCommand(jj, outputChannel, ...args);
+        }),
+        registerWrappedCommand('jj-view.workspaceAdd', async (scm, jj) => {
+            await workspaceAddCommand(scm, jj);
+        }),
+        registerWrappedCommand('jj-view.workspaceForget', async (scm, jj, ...args) => {
+            await workspaceForgetCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.workspaceDelete', async (scm, jj, ...args) => {
+            await workspaceDeleteCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.discardChange', async (scm, _jj, ...args) => {
+            const uri = args[0] as vscode.Uri;
+            const changes = args[1];
+            const index = args[2] as number;
+            await discardChangeCommand(scm, uri, changes, index);
+        }),
+        registerWrappedCommand('jj-view.squashHunkIntoParent', async (scm, jj, ...args) => {
+            const uri = args[0] as vscode.Uri;
+            const changes = args[1];
+            const index = args[2] as number;
+            await squashHunkIntoParentCommand(scm, jj, uri, changes, index);
+        }),
+        registerWrappedCommand('jj-view.rebaseOntoSelected', async (scm, jj, ...args) => {
+            const arg = args[0] as CommitMenuContext;
+            await rebaseOntoSelectedCommand(scm, jj, arg);
+        }),
+        registerWrappedCommand('jj-view.squashFilesIntoParent', async (scm, jj, ...args) => {
+            await squashFilesIntoParentCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.squashFilesIntoAncestor', async (scm, jj, ...args) => {
+            await squashFilesIntoAncestorCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.squashFilesIntoChild', async (scm, jj, ...args) => {
+            await squashFilesIntoChildCommand(scm, jj, args);
+        }),
+    );
 
+    // Register log theme visibility actions
     for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {
         context.subscriptions.push(
             vscode.commands.registerCommand(`jj-view.hideCommitAction.${actionId}`, () =>
@@ -517,69 +574,38 @@ export function activate(context: vscode.ExtensionContext) {
         );
     }
 
-    context.subscriptions.push(disposable);
-    context.subscriptions.push(newCmd);
-    context.subscriptions.push(newMergeCommand);
-    context.subscriptions.push(commitCmd);
-    context.subscriptions.push(commitPromptCmd);
-    context.subscriptions.push(describePromptCmd);
-    context.subscriptions.push(focusDescriptionInputCmd);
-    context.subscriptions.push(scmProvider);
+    const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
+        await logWebviewProvider.refresh();
+    });
+    context.subscriptions.push(refreshDisposable);
+
+    const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
+    context.subscriptions.push(refreshCmd);
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.openMergeEditor', async (arg: unknown, ...rest: unknown[]) => {
-            await openMergeEditorCommand(scmProvider, arg, ...rest);
+        vscode.window.onDidEndTerminalShellExecution((event) => {
+            const focused = repositoryManager.focusedRepository;
+            if (focused) {
+                const scm = scmProviders.get(focused.rootUri.fsPath);
+                if (scm) {
+                    handleTerminalExecution(event.execution.commandLine.value, focused.codeForge, outputChannel, scm);
+                }
+            }
         }),
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.absorb', async (...args: unknown[]) => {
-            await absorbCommand(scmProvider, jj, args);
-        }),
-    );
+    // Load cached repositories immediately
+    await repositoryManager.initializeFromCache();
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.showMultiFileDiff', async (...args: unknown[]) => {
-            await showMultiFileDiffCommand(jj, outputChannel, ...args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.compareWithWorkingCopy', async (...args: unknown[]) => {
-            await compareAllFilesWithRevisionCommand(jj, outputChannel, ...args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.compareFileWith', async (...args: unknown[]) => {
-            await compareFileWithRevisionCommand(jj, outputChannel, ...args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.workspaceAdd', async () => {
-            await workspaceAddCommand(scmProvider, jj);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.workspaceForget', async (...args: unknown[]) => {
-            await workspaceForgetCommand(scmProvider, jj, args);
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.workspaceDelete', async (...args: unknown[]) => {
-            await workspaceDeleteCommand(scmProvider, jj, args);
-        }),
-    );
-
-    // Fire and forget: check if we should warn about git colocation
-    checkGitColocation(jj).catch((e) => outputChannel.appendLine(`[Extension] Colocation check failed: ${e}`));
+    // Trigger initial scan (non-blocking)
+    if (!resolvedBinaryPath) {
+        updateBinaryPath().then(() => repositoryManager.scan());
+    } else {
+        repositoryManager.scan();
+    }
 
     return {
-        scmProvider,
-        jj,
+        repositoryManager,
         registerCodeForgeProvider: (provider: CodeForgeProvider) => codeForgeRegistry.register(provider),
     };
 }
@@ -595,11 +621,53 @@ export function handleTerminalExecution(
     if (cmd.startsWith('jj') && (cmd.includes('upload') || cmd.includes('git push'))) {
         outputChannel.appendLine(`[Extension] Detected terminal upload/push: "${cmd}"`);
         codeForgeService.requestRefreshWithBackoffs();
-        scmProvider.refresh();
+        scmProvider.refresh({ reason: 'terminal upload/push' });
         return true;
     }
     return false;
 }
 
-// This method is called when your extension is deactivated
+export function resolveRepository(
+    args: unknown[],
+    repositoryManager: JjRepositoryManager,
+    scmProviders: Map<string, JjScmProvider>,
+): { repo: JjRepository; scm: JjScmProvider } | undefined {
+    let uri: vscode.Uri | undefined;
+
+    // 1. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
+    uri = extractUriFromArgs(args);
+
+    // 2. Check active editor document URI (handles file tabs and jj-commit custom editor)
+    if (!uri) {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const docUri = activeEditor.document.uri;
+            if (docUri.scheme === 'jj-commit') {
+                const query = new URLSearchParams(docUri.query);
+                const repoRoot = query.get('repoRoot');
+                if (repoRoot) {
+                    uri = vscode.Uri.file(decodeURIComponent(repoRoot));
+                }
+            } else {
+                uri = docUri;
+            }
+        }
+    }
+
+    // 3. Resolve repository and scm from candidate URI, or fallback to focused repository
+    let repo = uri ? repositoryManager.getRepositoryForUri(uri) : undefined;
+    if (!repo) {
+        repo = repositoryManager.focusedRepository;
+    }
+
+    if (repo) {
+        const scm = scmProviders.get(repo.rootUri.fsPath);
+        if (scm) {
+            return { repo, scm };
+        }
+    }
+
+    return undefined;
+}
+
 export function deactivate() {}

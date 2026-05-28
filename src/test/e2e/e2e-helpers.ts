@@ -25,7 +25,7 @@ export interface VSCodeContext {
  * Renamed to launchVSCode to avoid confusion with local setup functions in specs.
  */
 export async function launchVSCode(
-    repo: TestRepo,
+    repo: { path: string },
     extraSettings: Record<string, unknown> = {},
     extraEnv: Record<string, string | undefined> = {},
     showNotifications = false,
@@ -151,33 +151,46 @@ export async function launchVSCode(
         }
     }
 
-    const app = await electron.launch({
-        executablePath: vscodePath,
-        args,
-        env,
-    });
+    let launched: { app: ElectronApplication; page: Page } | undefined;
+    await expect(async () => {
+        const app = await electron.launch({
+            executablePath: vscodePath,
+            args,
+            env,
+        });
 
-    const page = await app.firstWindow();
+        try {
+            const page = await app.firstWindow({ timeout: 2000 });
+            launched = { app, page };
+        } catch (err) {
+            await app.close();
+            throw err;
+        }
+    }).toPass({ timeout: 7000 });
+
+    if (!launched) {
+        throw new Error('Failed to launch VS Code app or obtain its first window');
+    }
 
     // Capture page console logs for debugging if verbose mode is enabled
     if (process.env.VERBOSE) {
-        page.on('console', (msg) => {
+        launched.page.on('console', (msg) => {
             console.log(`PAGE LOG: ${msg.text()}`);
         });
-        page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
+        launched.page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
     }
 
     // Wait for the workbench to be ready
-    await expect(page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
+    await expect(launched.page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
 
     // Hide notification toasts via CSS unless requested. Error-level toasts (e.g. "failed to load
     // extension") bypass VS Code's Do Not Disturb / displayMode settings and can
     // overlay buttons, causing click interception in tests.
     if (!showNotifications) {
-        await page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
+        await launched.page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
     }
 
-    return { app, page, userDataDir };
+    return { ...launched, userDataDir };
 }
 
 /**
@@ -220,7 +233,7 @@ export async function ensureViewVisible(
  */
 export async function focusSCM(page: Page) {
     const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
-    const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
+    const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
 
     await ensureViewVisible(page, scmTitle.or(scmInput), isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
 
@@ -441,6 +454,7 @@ export const SCM_ACTIONS = {
     Edit: 'Edit',
     MultiFileDiff: 'Multi-File Diff',
     CompleteSquashRevision: 'Complete Squash Revision',
+    FocusRepository: 'Show Repository in JJ Log',
 } as const;
 
 /**
@@ -466,6 +480,7 @@ export async function clickScmAction(page: Page, rowName: string | RegExp, actio
             [SCM_ACTIONS.Edit]: '.codicon-edit',
             [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
             [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
+            [SCM_ACTIONS.FocusRepository]: '.codicon-eye',
         };
 
         const cls = iconMap[actionTitle];
@@ -474,11 +489,6 @@ export async function clickScmAction(page: Page, rowName: string | RegExp, actio
         if (cls) {
             button = row.locator('.action-item', { has: page.locator(cls) }).first();
         } else {
-            button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
-        }
-
-        // Fallback: If not found by class, try finding by name
-        if (cls && !(await button.isVisible())) {
             button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
         }
 
@@ -537,7 +547,7 @@ export async function expectSettingsOpen(page: Page, settingName: string | RegEx
  * @returns The locator targeting the Source Control Input treeitem.
  */
 export async function setScmDescription(page: Page, description: string): Promise<Locator> {
-    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
 
     await expect(async () => {
         // 1. Ensure the SCM input is visible and focused
@@ -569,7 +579,7 @@ export async function setScmDescription(page: Page, description: string): Promis
         // 4. Validate that the input editor's text content is exactly what we typed
         const words = description.trim().split(/\s+/).filter(Boolean);
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
-        const exactRegex = new RegExp('^\\s*' + regexPattern + '\\s*$');
+        const exactRegex = new RegExp(`^\\s*${regexPattern}\\s*$`);
         await expect(scmInputRow.locator('.monaco-editor')).toHaveText(exactRegex, { timeout: 3000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
 
@@ -581,7 +591,7 @@ export async function setScmDescription(page: Page, description: string): Promis
  * Handles VS Code's text wrapping/concatenation.
  */
 export async function expectScmDescription(page: Page, expected: string | RegExp) {
-    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+    const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
     if (expected instanceof RegExp) {
         await expect(scmInputRow).toHaveText(expected);
     } else {
