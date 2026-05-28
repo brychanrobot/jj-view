@@ -31,21 +31,8 @@ suite('Extension Test Suite', () => {
         const api = (await extension.activate()) as Api;
         assert.ok(api, 'Extension did not return API');
 
-        // Verify scmProvider is exported
-        assert.ok(api.scmProvider, 'scmProvider not exported');
-
-        // Verify dependency injection: viewFileSystemProvider must be assigned for cache invalidation
-        // This catches the bug where viewFileSystemProvider wasn't passed to scmProvider constructor
-        assert.ok(api.scmProvider.viewFileSystemProvider, 'viewFileSystemProvider not assigned to scmProvider');
-
-        // Verify other basics
-        assert.ok(api.jj, 'jj service not exported');
-
-        // Verify JJ service is bound to the correct workspace
-        assert.strictEqual(api.jj.workspaceRoot, repo.path, 'JJ service root mismatch');
-
-        // Verify scmProvider has viewFileSystemProvider (essential for cache invalidation fix)
-        assert.ok(api.scmProvider.viewFileSystemProvider, 'viewFileSystemProvider not assigned to scmProvider');
+        // Verify repositoryManager is exported
+        assert.ok(api.repositoryManager, 'repositoryManager not exported');
     });
 
     test('Command jj-view.focusDescriptionInput should be registered', async () => {

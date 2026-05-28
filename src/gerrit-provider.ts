@@ -57,10 +57,7 @@ export class GerritProvider implements CodeForgeProvider {
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
-    constructor(
-        private jjService: JjService,
-        private outputChannel?: vscode.OutputChannel,
-    ) {}
+    constructor(private outputChannel?: vscode.OutputChannel) {}
 
     public async detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const detectedHost = vscode.workspace.getConfiguration('jj-view').get<string>('gerrit.host')?.trim();
@@ -225,7 +222,7 @@ export class GerritProvider implements CodeForgeProvider {
         return undefined;
     }
 
-    public async fetchStatuses(changes: ChangeStatusRequest[]): Promise<boolean> {
+    public async fetchStatuses(changes: ChangeStatusRequest[], jj: JjService): Promise<boolean> {
         if (!this.gerritHost || changes.length === 0) {
             return false;
         }
@@ -252,7 +249,7 @@ export class GerritProvider implements CodeForgeProvider {
         const cacheKeyBatches = chunkArray(cacheKeysArray, BATCH_SIZE);
 
         const batchPromises = cacheKeyBatches.map((batchCacheKeys, batchIndex) =>
-            this.processBatch(batchCacheKeys, batchIndex, changesByCacheKey),
+            this.processBatch(batchCacheKeys, batchIndex, changesByCacheKey, jj),
         );
 
         const results = await Promise.all(batchPromises);
@@ -267,6 +264,7 @@ export class GerritProvider implements CodeForgeProvider {
         batchCacheKeys: string[],
         batchIndex: number,
         changesByCacheKey: Map<string, { commitId: string; description?: string }[]>,
+        jj: JjService,
     ): Promise<boolean> {
         let batchChanged = false;
         this.outputChannel?.appendLine(
@@ -289,7 +287,7 @@ export class GerritProvider implements CodeForgeProvider {
                 const changesForCacheKey = changesByCacheKey.get(cacheKey) || [];
                 await Promise.all(
                     changesForCacheKey.map((change) =>
-                        this.verifyContentSync(change.commitId, change.description, info),
+                        this.verifyContentSync(change.commitId, change.description, info, jj),
                     ),
                 );
                 this.cache.set(cacheKey, info);
@@ -395,6 +393,7 @@ export class GerritProvider implements CodeForgeProvider {
         commitId: string,
         description: string | undefined,
         info: CodeForgeChangeInfo,
+        jj: JjService,
     ): Promise<void> {
         if (info.status !== 'NEW' || !info.files) {
             return;
@@ -413,7 +412,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         const gerritFiles = info.files;
         try {
-            const localChanges = await this.jjService.getChanges(commitId);
+            const localChanges = await jj.getChanges(commitId);
             const localPaths = new Set(localChanges.filter((c) => c.status !== 'deleted').map((c) => c.path));
 
             const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
@@ -424,7 +423,7 @@ export class GerritProvider implements CodeForgeProvider {
             }
 
             if (gerritPaths.length > 0) {
-                const localHashes = await this.jjService.getGitBlobHashes(commitId, gerritPaths);
+                const localHashes = await jj.getGitBlobHashes(commitId, gerritPaths);
 
                 for (const file of gerritPaths) {
                     const gerritFile = gerritFiles[file];

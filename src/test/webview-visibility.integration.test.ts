@@ -4,11 +4,10 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import type { CodeForgeService } from '../code-forge-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
-import { JjService } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
+import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -53,34 +52,25 @@ function createMockWebviewView() {
 }
 
 suite('Webview Visibility Integration Test', () => {
-    let jj: JjService;
     let provider: JjLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
+    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
         await repo.init();
 
-        jj = new JjService(repo.path);
-
         const extensionUri = vscode.Uri.file(__dirname);
-        const codeForgeService = createMock<CodeForgeService>({
-            onDidUpdate: () => ({ dispose: () => {} }),
-            isEnabled: false,
-            startPolling: () => {},
-            stopPolling: () => {},
-            detectActiveProvider: () => Promise.resolve(),
-            dispose: () => {},
-        });
         const outputChannel = createMock<vscode.OutputChannel>({
-            appendLine: (msg) => console.log(`[OutputChannel] ${msg}`),
+            appendLine: () => {},
         });
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
+        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
+
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
         provider = new JjLogWebviewProvider(
             extensionUri,
-            jj,
-            codeForgeService,
+            contextHelper.repository,
             commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
@@ -99,6 +89,9 @@ suite('Webview Visibility Integration Test', () => {
             d.dispose();
         });
         disposables = [];
+        if (contextHelper) {
+            await contextHelper.repositoryManager.dispose();
+        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         repo.dispose();
     });

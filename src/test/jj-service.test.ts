@@ -178,10 +178,11 @@ log = "none()"
 
         test('getWorkspaces returns all workspace names', async () => {
             await jjService.workspaceAdd(path.join(repo.path, 'ws1'), 'ws1');
-            await jjService.workspaceAdd(path.join(repo.path, 'ws2'), 'ws2');
+            await jjService.workspaceAdd(path.join(repo.path, 'ws_colon'), 'ws:colon');
+            await jjService.workspaceAdd(path.join(repo.path, 'ws-dash_under'), 'ws-dash_under');
 
             const workspaces = await jjService.getWorkspaces();
-            expect(workspaces.sort()).toEqual(['default', 'ws1', 'ws2']);
+            expect(workspaces.map((w) => w.name).sort()).toEqual(['default', 'ws-dash_under', 'ws1', 'ws:colon']);
         });
 
         test('creates a new change with parent', async () => {
