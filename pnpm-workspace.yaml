@@ -1,0 +1,9 @@
+# Copyright 2026 Google LLC
+# SPDX-License-Identifier: Apache-2.0
+
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  keytar: true
+  ttf2woff2: true
+  "@vscode/vsce-sign": true

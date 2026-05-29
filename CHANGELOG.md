@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.29.0
+
+### Features
+
+- **Code Forge Provider System**: Introduced a unified integration system that adds support for **GitHub** and **GitLab** alongside the existing **Gerrit** integration:
+    - Displays pull request (GitHub), merge request (GitLab), and change list (Gerrit) status badges directly in the Source Control view.
+    - Adds credential and API token management in the Source Control panel.
+    - Automatically prompts to install helper extensions (such as GitLab Workflow) when needed.
+    - Improves host auto-detection and error recovery across all providers.
+
+### Fixes
+
+- **Squash Actions**:
+    - Reordered the inline SCM resource group actions.
+    - Fixed path handling issues on Windows during partial squash operations.
+- **SCM**: Fixed context values for command keybindings to resolve keybinding triggers in some situations.
+
+### Chores & Maintenance
+
+- Updated dependencies and resolved test stability issues.
+
 ## 1.28.0
 
 ### Features
