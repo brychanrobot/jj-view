@@ -92,17 +92,24 @@ test.describe('SCM Pane E2E', () => {
         try {
             await focusSCM(page);
 
-            // Set Description and Commit with robust helper
-            const scmInput = await setScmDescription(page, 'Updated description explicitly');
+            const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
 
-            // Commit using button inside the Source Control view title bar
-            const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
-            await commitButton.click();
-
-            // Wait for description to appear in log (indicating commit success)
+            // Set Description and Commit with robust helper inside a single retry-safe block
             await expect(async () => {
-                expect(repo.log()).toContain('Updated description explicitly');
-            }).toPass({ timeout: 5000 });
+                await setScmDescription(page, 'Updated description explicitly');
+
+                // Allow the asynchronous IPC from the renderer to update the SCM inputBox
+                // value on the extension host before clicking Commit.
+                await page.waitForTimeout(200);
+
+                // Commit using button inside the Source Control view title bar
+                const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
+                await commitButton.click();
+
+                await expect(async () => {
+                    expect(repo.log()).toContain('Updated description explicitly');
+                }).toPass({ timeout: 5000 });
+            }).toPass({ timeout: 15000 });
 
             // Ensure wait for SCM refresh before next action
             await expect(scmInput).not.toContainText('Updated description explicitly', { timeout: 10000 });

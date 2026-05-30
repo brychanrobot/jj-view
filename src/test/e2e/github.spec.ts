@@ -303,7 +303,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible();
 
             // Click "Enter Personal Access Token (PAT)"
-            await pickQuickPickItem(page, 'Enter Personal Access Token');
+            await pickQuickPickItem(page, /Enter Personal Access Token/);
 
             // Wait for the showInputBox input to appear
             const input = await waitForQuickInput(page);
@@ -324,7 +324,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).toBeVisible();
 
             // Click "Clear Personal Access Token (PAT)"
-            await pickQuickPickItem(page, 'Clear Personal Access Token');
+            await pickQuickPickItem(page, /Clear Personal Access Token/);
 
             // Wait for menu to close
             await expect(quickPick).not.toBeVisible();

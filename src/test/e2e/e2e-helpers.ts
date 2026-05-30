@@ -188,33 +188,54 @@ export async function pressScmShortcut(page: Page) {
 }
 
 /**
+ * Robustly ensures a specific VS Code view pane/sidebar is visible using its keyboard shortcut.
+ * Resolves window/iframe focus issues before pressing the keys.
+ */
+export async function ensureViewVisible(
+    page: Page,
+    paneLocator: Locator,
+    shortcut: string,
+    timeout = 20000,
+): Promise<void> {
+    if (await paneLocator.isVisible()) {
+        return;
+    }
+    await expect(async () => {
+        // Clear focus from any active iframe/webview to allow top-level keybinding to work.
+        // Blurring activeElement directly doesn't work if focus is trapped inside a webview iframe
+        // within VS Code's shadow DOM. Focusing a top-level tab steals focus back to the main window.
+        await page
+            .getByRole('tab', { name: /Explorer/i })
+            .first()
+            .focus()
+            .catch(() => {});
+
+        await page.keyboard.press(shortcut);
+        await expect(paneLocator).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout });
+}
+
+/**
  * Ensures the SCM view is open and focused.
  */
 export async function focusSCM(page: Page) {
+    const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
+    const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
+
+    await ensureViewVisible(page, scmTitle.or(scmInput), isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
+
     await expect(async () => {
-        // Use standard shortcut to show/focus Source Control
-        await pressScmShortcut(page);
-
-        // Wait for either the input row or the side bar title to be visible
-        const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
-        const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
-
-        await expect(scmTitle.or(scmInput)).toBeVisible({ timeout: 2000 });
-
         // Click the SCM input row to ensure the provider context is active
         await scmInput.click();
-    }).toPass({ timeout: 20000 });
+    }).toPass({ timeout: 5000 });
 }
 
 /**
  * Ensures the JJ Log pane is open and focused.
  */
 export async function focusJJLog(page: Page) {
-    await expect(async () => {
-        await page.keyboard.press('Control+Alt+l');
-        // Check if the pane header appears
-        await expect(page.locator('.pane-header', { hasText: 'JJ Log' }).first()).toBeVisible({ timeout: 2000 });
-    }).toPass({ timeout: 20000 });
+    const paneLocator = page.locator('.pane-header', { hasText: 'JJ Log' }).first();
+    await ensureViewVisible(page, paneLocator, 'Control+Alt+l');
 }
 
 /**
@@ -521,6 +542,7 @@ export async function setScmDescription(page: Page, description: string): Promis
     await expect(async () => {
         // 1. Ensure the SCM input is visible and focused
         await pressScmShortcut(page);
+        await scmInputRow.click();
 
         // Wait for the native edit context or a textarea to be active
         await page
@@ -537,17 +559,18 @@ export async function setScmDescription(page: Page, description: string): Promis
             });
 
         // 2. Clear the input
-        await page.keyboard.press('Control+A');
+        await page.keyboard.press(isMac ? 'Meta+A' : 'Control+A');
         await page.keyboard.press('Backspace');
 
         // 3. Set the description
         // Use insertText for speed, but follow up with a validation
         await page.keyboard.insertText(description);
 
-        // 4. Validate that all words appear in order inside the row (ignoring VS Code's weird whitespace concatenation).
+        // 4. Validate that the input editor's text content is exactly what we typed
         const words = description.trim().split(/\s+/).filter(Boolean);
-        const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
-        await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 3000 });
+        const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+        const exactRegex = new RegExp('^\\s*' + regexPattern + '\\s*$');
+        await expect(scmInputRow.locator('.monaco-editor')).toHaveText(exactRegex, { timeout: 3000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
 
     return scmInputRow;
@@ -690,6 +713,14 @@ export async function openQuickInputWithShortcut(page: Page, shortcut: string): 
 
     await expect(async () => {
         if (!(await input.isVisible())) {
+            // Clear focus from any active iframe/webview to allow top-level keybinding to work.
+            // Blurring activeElement directly doesn't work if focus is trapped inside a webview iframe
+            // within VS Code's shadow DOM. Focusing a top-level tab steals focus back to the main window.
+            await page
+                .getByRole('tab', { name: /Explorer/i })
+                .first()
+                .focus()
+                .catch(() => {});
             await page.keyboard.press(shortcut);
         }
         await waitForQuickInput(page, 200);
@@ -821,36 +852,71 @@ export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
 
 /**
  * Robustly opens a file via the File Explorer tree view.
+ * Pass the `repo` object to enable deep filesystem vs UI diagnostic dumping on failure.
  */
-export async function openFileInEditor(page: Page, fileName: string): Promise<Locator> {
-    const explorerPane = page.locator('#workbench\\.view\\.explorer');
-    const fileRowInExplorer = page.getByRole('treeitem', { name: fileName }).first();
+export async function openFileInEditor(page: Page, fileName: string, repo?: TestRepo): Promise<Locator> {
+    void repo;
     const tab = page.getByRole('tab', { name: fileName, selected: true });
+    const editor = page.locator('.editor-instance .monaco-editor').first();
 
-    await expect(async () => {
-        // Ensure Explorer sidebar is open
-        if (!(await explorerPane.isVisible())) {
-            await page.keyboard.press('Control+Shift+E');
-            await expect(explorerPane).toBeVisible({ timeout: 200 });
-        }
+    let attempt = 0;
+    let lastDiagnosticLogs: string[] = []; // Store logs outside the retry loop
 
-        // If the file tab is already open and selected, we don't need to click anything
-        if (await tab.isVisible()) {
-            const editor = page.locator('.editor-group-container.active .monaco-editor').first();
-            if (await editor.isVisible()) {
+    try {
+        await expect(async () => {
+            attempt++;
+            const logs: string[] = [];
+            const log = (msg: string) => logs.push(`[Attempt ${attempt}] ${msg}`);
+            lastDiagnosticLogs = logs; // Update outer reference on every attempt
+
+            // 1. If it's already open and perfectly set up, exit early
+            if ((await tab.isVisible()) && (await editor.isVisible())) {
                 return;
             }
+
+            // 3. Use Quick Open to open the file
+            log(`Opening file "${fileName}" via Quick Open...`);
+            await openQuickInputWithShortcut(page, isMac ? 'Meta+P' : 'Control+P');
+            await pickQuickPickItem(page, fileName, { submitAsArbitraryText: true });
+
+            // 4. Wait for the tab to become active and the Monaco editor to mount
+            log(`Waiting for editor to mount...`);
+            await expect(async () => {
+                await expect(tab).toBeVisible({ timeout: 0 });
+                await expect(editor).toBeVisible({ timeout: 0 });
+            }).toPass({
+                timeout: 5000,
+                intervals: [200],
+            });
+        }).toPass({
+            timeout: 15000,
+            intervals: [500, 1000, 2000],
+        });
+    } catch (error: unknown) {
+        // INJECT THE LOGS DIRECTLY INTO THE PLAYWRIGHT TIMEOUT ERROR
+        if (error instanceof Error) {
+            let repoDiagnostics = '';
+            if (repo) {
+                try {
+                    const files = repo.listFiles('@');
+                    repoDiagnostics = `\n\n--- REPO FILES ---\n${files.join('\n')}`;
+                } catch (e) {
+                    repoDiagnostics = `\n\n--- REPO FILES ---\nFailed to list files: ${String(e)}`;
+                }
+            }
+            error.message =
+                'Failed to open file "' +
+                fileName +
+                '" in editor.\n' +
+                error.message +
+                '\n\n--- DIAGNOSTIC DUMP (Last Attempt) ---\n' +
+                lastDiagnosticLogs.join('\n') +
+                repoDiagnostics;
         }
+        throw error;
+    }
 
-        await expect(fileRowInExplorer).toBeVisible({ timeout: 200 });
-        await fileRowInExplorer.click();
-        await expect(tab).toBeVisible({ timeout: 200 });
-
-        const editor = page.locator('.editor-group-container.active .monaco-editor').first();
-        await expect(editor).toBeVisible({ timeout: 200 });
-    }, `Failed to open file "${fileName}" in editor`).toPass({ timeout: 7000 });
-
-    return page.locator('.editor-group-container.active .monaco-editor').first();
+    return editor;
 }
 
 /**
@@ -977,47 +1043,51 @@ export async function pickQuickPickItem(
     options?: { submitAsArbitraryText?: boolean },
 ) {
     await expect(async () => {
-        const input = await waitForQuickInput(page);
+        const quickInput = locateQuickInputWidget(page).filter({ visible: true });
+        const input = quickInput.locator('input.input');
 
-        // If it's a string, type/fill it to filter the quick pick list
+        await expect(input).toBeVisible({ timeout: 5000 });
+
         if (typeof label === 'string') {
             await input.focus();
-            await input.fill(label);
-            await expect(input).toHaveValue(label);
-        }
 
-        const quickPick = locateQuickInputWidget(page).filter({ visible: true });
+            // Clear the input natively
+            await page.keyboard.press(isMac ? 'Meta+A' : 'Control+A');
+            await page.keyboard.press('Backspace');
+
+            // Type exactly like a human to ensure VS Code's internal state catches the text
+            await input.pressSequentially(label, { delay: 15 });
+
+            await expect(input).toHaveValue(label, { timeout: 2000 });
+        }
 
         if (options?.submitAsArbitraryText) {
-            // Wait for the list to filter down (no items should match the arbitrary text)
-            const listRow = quickPick.locator('.monaco-list-row');
-            await expect(listRow).toHaveCount(0, { timeout: 2000 });
-            await input.press('Enter');
+            // Wait for any background fetching/validation to finish.
+            // VS Code shows a progress bar when extensions are fetching async data.
+            const progressBar = quickInput.locator('.monaco-progress-container.active');
+            await expect(progressBar)
+                .toBeHidden({ timeout: 5000 })
+                .catch(() => {});
 
-            // Wait for the quick pick to close or transition (input value changes/clears)
-            await expect(async () => {
-                const isInputVisible = await input.isVisible();
-                if (!isInputVisible) {
-                    return; // Closed successfully
-                }
-                if (typeof label === 'string') {
-                    const value = await input.inputValue().catch(() => '');
-                    expect(value).not.toBe(label);
-                } else {
-                    const listRows = quickPick.locator('.monaco-list-row');
-                    await expect(listRows).toHaveCount(0);
-                }
-            }).toPass({ timeout: 5000 });
+            // Give the VS Code debouncer a little time to flush the state
+            await page.waitForTimeout(200);
+
+            // Fire native Enter
+            await page.keyboard.press('Enter');
+
+            // Verify it closed
+            await expect(quickInput).not.toBeVisible({ timeout: 5000 });
         } else {
-            // Find the item by text within the quickpick list
             const item = locateQuickInputItem(page, label).first();
-            await expect(item).toBeVisible({ timeout: 2000 });
+            await expect(item).toBeVisible({ timeout: 1000 });
             await item.click();
-
-            // Wait for the clicked item to disappear (either closed or transitioned)
-            await expect(item).not.toBeVisible({ timeout: 5000 });
+            await expect(item).not.toBeVisible({ timeout: 500 });
         }
-    }, `Failed to pick QuickPick item "${label}"`).toPass({ timeout: 15000 });
+    }, `Failed to pick QuickPick item "${label}"`).toPass({
+        timeout: 20000,
+        // Add a backoff so we don't spam if the UI is genuinely stuck
+        intervals: [1000, 2000, 5000],
+    });
 }
 
 /**
