@@ -21,6 +21,7 @@ import { showDetailsCommand } from './commands/details';
 import { discardChangeCommand } from './commands/discard-change';
 import { duplicateCommand } from './commands/duplicate';
 import { editCommand } from './commands/edit';
+import { focusDescriptionInputCommand } from './commands/focus-description-input';
 import { type MergeCommandArg, newMergeChangeCommand } from './commands/merge';
 import { openMergeEditorCommand } from './commands/merge-editor';
 import { showMultiFileDiffCommand } from './commands/multi-diff';
@@ -287,6 +288,10 @@ export function activate(context: vscode.ExtensionContext) {
         await describePromptCommand(scmProvider, jj);
     });
 
+    const focusDescriptionInputCmd = vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
+        await focusDescriptionInputCommand();
+    });
+
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.abandon', async (arg: unknown) => {
             await abandonCommand(scmProvider, jj, [arg]);
@@ -518,6 +523,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(commitCmd);
     context.subscriptions.push(commitPromptCmd);
     context.subscriptions.push(describePromptCmd);
+    context.subscriptions.push(focusDescriptionInputCmd);
     context.subscriptions.push(scmProvider);
 
     context.subscriptions.push(

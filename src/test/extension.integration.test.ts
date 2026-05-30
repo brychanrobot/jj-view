@@ -47,4 +47,9 @@ suite('Extension Test Suite', () => {
         // Verify scmProvider has viewFileSystemProvider (essential for cache invalidation fix)
         assert.ok(api.scmProvider.viewFileSystemProvider, 'viewFileSystemProvider not assigned to scmProvider');
     });
+
+    test('Command jj-view.focusDescriptionInput should be registered', async () => {
+        const commands = await vscode.commands.getCommands(true);
+        assert.ok(commands.includes('jj-view.focusDescriptionInput'), 'jj-view.focusDescriptionInput not registered');
+    });
 });

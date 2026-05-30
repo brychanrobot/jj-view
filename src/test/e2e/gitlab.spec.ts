@@ -216,8 +216,6 @@ test.describe('GitLab Integration E2E', () => {
             await waitForLogCommitRow(page, 'MR Commit');
 
             await focusSCM(page);
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow.click();
 
             // Click the Manage Auth button in the Source Control title bar
             const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
@@ -259,8 +257,6 @@ test.describe('GitLab Integration E2E', () => {
 
         try {
             await focusSCM(page);
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow.click();
 
             // Click the Manage Auth button in the Source Control title bar
             const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
@@ -285,7 +281,6 @@ test.describe('GitLab Integration E2E', () => {
 
             // Re-open the Manage Auth menu
             await focusSCM(page);
-            await scmInputRow.click();
             await manageAuthButton.click();
             await expect(quickPick).toBeVisible();
 
@@ -310,7 +305,6 @@ test.describe('GitLab Integration E2E', () => {
                     await expect(quickPick).not.toBeVisible();
                 }
                 await focusSCM(page);
-                await scmInputRow.click();
                 await manageAuthButton.click();
                 await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible({
                     timeout: 2000,
@@ -348,8 +342,6 @@ test.describe('GitLab Integration E2E', () => {
 
         try {
             await focusSCM(page);
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow.click();
 
             // Click the Manage Auth button in the Source Control title bar
             const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();

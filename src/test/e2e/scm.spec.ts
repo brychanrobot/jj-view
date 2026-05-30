@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickContextMenuItem,
@@ -91,11 +91,9 @@ test.describe('SCM Pane E2E', () => {
 
         try {
             await focusSCM(page);
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
-            await scmInputRow.click(); // Focus the editor
 
             // Set Description and Commit with robust helper
-            await setScmDescription(page, 'Updated description explicitly');
+            const scmInput = await setScmDescription(page, 'Updated description explicitly');
 
             // Commit using button inside the Source Control view title bar
             const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
@@ -107,7 +105,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
 
             // Ensure wait for SCM refresh before next action
-            await expect(scmInputRow).not.toContainText('Updated description explicitly', { timeout: 10000 });
+            await expect(scmInput).not.toContainText('Updated description explicitly', { timeout: 10000 });
 
             const prevWcId = repo.getWorkingCopyId();
 
@@ -144,11 +142,11 @@ test.describe('SCM Pane E2E', () => {
 
         try {
             await focusSCM(page);
-            const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
+            let scmInput: Locator | undefined;
 
             // Set Description and Save with Control+S
             await expect(async () => {
-                await setScmDescription(page, 'Using keyboard shortcuts');
+                scmInput = await setScmDescription(page, 'Using keyboard shortcuts');
                 await page.keyboard.press('Control+S');
 
                 // Wait for input to be stable (picked up by the backend)
@@ -157,7 +155,7 @@ test.describe('SCM Pane E2E', () => {
 
             // Set Description and Commit with Control+Enter
             await expect(async () => {
-                await setScmDescription(page, 'Commit via keyboard');
+                scmInput = await setScmDescription(page, 'Commit via keyboard');
                 await page.keyboard.press('Control+Enter');
 
                 // Wait for it to be committed and appear in log
@@ -165,10 +163,10 @@ test.describe('SCM Pane E2E', () => {
                 expect(log).toContain('Commit via keyboard');
             }).toPass({ timeout: 15000 });
 
-            // Wait for input to clear in UI
-
-            // Wait for input to clear in UI
-            await expect(scmInputRow).not.toContainText('Commit via keyboard', { timeout: 10000 });
+            if (!scmInput) {
+                throw new Error('scmInput not initialized');
+            }
+            await expect(scmInput).not.toContainText('Commit via keyboard', { timeout: 10000 });
         } finally {
             await app.close();
             try {
@@ -219,8 +217,9 @@ test.describe('SCM Pane E2E', () => {
                 'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
             const messageToFormat2 = `Commit Title\n\n${longBody2}`;
 
-            await setScmDescription(page, messageToFormat2);
+            const scmInput2 = await setScmDescription(page, messageToFormat2);
             await page.keyboard.press('Control+Enter');
+            await expect(scmInput2).not.toContainText('Commit Title', { timeout: 10000 });
 
             // Wait for it to be committed, formatted, and appear in log
             await expect(async () => {
@@ -450,8 +449,9 @@ test.describe('SCM Pane E2E', () => {
 
             // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
             await focusSCM(page);
-            await setScmDescription(page, 'commit wc');
+            const scmInputSquash = await setScmDescription(page, 'commit wc');
             await page.keyboard.press('Control+Enter');
+            await expect(scmInputSquash).not.toContainText('commit wc', { timeout: 10000 });
 
             await expect(async () => {
                 expect(repo.getParents('@').length).toBe(1);

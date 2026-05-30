@@ -67,6 +67,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Refresh`: Refresh the current status and log.
 - `JJ View: Show Current Change`: Focus the graph on the current working copy change.
 - `JJ View: Show Details`: Open a dedicated panel with full details of the selected commit.
+- `JJ View: Focus SCM Description Input`: Focus the description input field in the Source Control view.
 - `JJ View: Undo`: Undo the last `jj` operation.
 - `JJ View: Redo`: Redo the last undone `jj` operation.
 
@@ -107,6 +108,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 
 - **Commit**: `Ctrl+Enter` (or `Cmd+Enter` on macOS) in the SCM input box to commit changes.
 - **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box or Commit Details panel to save the description without finishing the commit.
+- **Focus SCM Description Input**: `Ctrl+Shift+G` (or `Cmd+Shift+G` on macOS) to open Source Control and focus the description input field (overrides VS Code's default SCM view binding when `scmProvider == 'jj'`).
 
 ### 🔄 Automatic Refresh
 

@@ -209,6 +209,11 @@
                 "icon": "$(save)"
             },
             {
+                "command": "jj-view.focusDescriptionInput",
+                "title": "Focus SCM Description Input",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.commit",
                 "title": "Commit",
                 "category": "JJ View",
@@ -485,6 +490,12 @@
                 "key": "ctrl+enter",
                 "mac": "cmd+enter",
                 "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
+            },
+            {
+                "command": "jj-view.focusDescriptionInput",
+                "key": "ctrl+shift+g",
+                "mac": "cmd+shift+g",
+                "when": "scmProvider == 'jj'"
             }
         ],
         "menus": {

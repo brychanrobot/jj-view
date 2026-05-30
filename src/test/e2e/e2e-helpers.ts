@@ -181,18 +181,28 @@ export async function launchVSCode(
 }
 
 /**
- * Ensures the SCM view is open.
+ * Presses the keyboard shortcut to focus the SCM view / SCM description input.
+ */
+export async function pressScmShortcut(page: Page) {
+    await page.keyboard.press(isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
+}
+
+/**
+ * Ensures the SCM view is open and focused.
  */
 export async function focusSCM(page: Page) {
     await expect(async () => {
-        // Control+Shift+G is the standard VS Code shortcut to show/focus Source Control
-        await page.keyboard.press('Control+Shift+G');
+        // Use standard shortcut to show/focus Source Control
+        await pressScmShortcut(page);
 
         // Wait for either the input row or the side bar title to be visible
         const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
         const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
 
         await expect(scmTitle.or(scmInput)).toBeVisible({ timeout: 2000 });
+
+        // Click the SCM input row to ensure the provider context is active
+        await scmInput.click();
     }).toPass({ timeout: 20000 });
 }
 
@@ -500,15 +510,17 @@ export async function expectSettingsOpen(page: Page, settingName: string | RegEx
 
 /**
  * Robustly sets the description in the SCM input field.
- * Uses Playwright's .fill() most of the time, but includes
- * explicit validation to prevent partial/mangled entries.
+ * Focuses the input using the focusDescriptionInput shortcut,
+ * inserts the description text, and validates the input value.
+ *
+ * @returns The locator targeting the Source Control Input treeitem.
  */
-export async function setScmDescription(page: Page, description: string) {
+export async function setScmDescription(page: Page, description: string): Promise<Locator> {
     const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' });
 
     await expect(async () => {
         // 1. Ensure the SCM input is visible and focused
-        await scmInputRow.click();
+        await pressScmShortcut(page);
 
         // Wait for the native edit context or a textarea to be active
         await page
@@ -537,6 +549,8 @@ export async function setScmDescription(page: Page, description: string) {
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
         await expect(scmInputRow).toHaveText(new RegExp(regexPattern), { timeout: 3000 });
     }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
+
+    return scmInputRow;
 }
 
 /**

@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { test } from '@playwright/test';
 import { downloadAndUnzipVSCode, SilentReporter } from '@vscode/test-electron';
 import { _electron as electron } from 'playwright';
+import { focusSCM } from '../e2e/e2e-helpers';
 import { buildGraph, TestRepo } from '../test-repo';
 
 /**
@@ -225,7 +226,7 @@ if __name__ == "__main__":
     }
 
     // 4. Switch to SCM View
-    await page.keyboard.press('Control+Shift+G');
+    await focusSCM(page);
     await page.waitForTimeout(2000);
 
     // 5. Layout Adjustment: Maximize JJ Log View
