@@ -379,7 +379,8 @@ export class JjScmProvider implements vscode.Disposable {
                         minChangeIdLength,
                     );
                     const desc = ancestorEntry.description?.trim() || '(no description)';
-                    const label = `${prefix}: ${shortId} - ${desc}`;
+                    const subject = desc.split('\n', 1 /* limit */)[0].trim();
+                    const label = `${prefix}: ${shortId} - ${subject}`;
 
                     // Reuse existing group or create new one
                     let group: vscode.SourceControlResourceGroup;

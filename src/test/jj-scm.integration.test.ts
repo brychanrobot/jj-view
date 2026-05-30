@@ -259,6 +259,34 @@ suite('JJ SCM Provider Integration Test', () => {
         await scmProvider.refresh({ forceSnapshot: true });
     });
 
+    test('Shows parent commit changes with only the first line of a multiline description', async () => {
+        await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'First line of description\nSecond line of description',
+                files: { 'parent-file.txt': 'content' },
+            },
+            {
+                parents: ['parent'],
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await scmProvider.refresh({ forceSnapshot: true });
+
+        const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        assert.ok(parentGroups && parentGroups.length > 0, 'Should have at least one parent group');
+        const parentGroup = parentGroups[0];
+        assert.ok(
+            parentGroup.label.includes('First line of description'),
+            `Label should contain first line. Got: ${parentGroup.label}`,
+        );
+        assert.ok(
+            !parentGroup.label.includes('Second line of description'),
+            `Label should NOT contain second line. Got: ${parentGroup.label}`,
+        );
+    });
+
     test('Fetches multiple mutable ancestors based on config', async () => {
         await buildGraph(repo, [
             {
