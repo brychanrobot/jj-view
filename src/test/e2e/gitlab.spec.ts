@@ -439,4 +439,60 @@ test.describe('GitLab Integration E2E', () => {
             repo.dispose();
         }
     });
+
+    test('Detects MR from fork targeting mainline repo', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://gitlab.com/mainline-owner/mainline-repo.git');
+        repo.addRemote('fork', 'https://gitlab.com/fork-owner/fork-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            { label: 'fork-commit', parents: ['base'], description: 'Fork Commit', bookmarks: ['my-fork-branch'] },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        gitlab.registerMR('my-fork-branch', {
+            id: 99,
+            iid: 99,
+            state: 'opened',
+            title: 'MR Title',
+            description: 'MR Desc',
+            web_url: 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/99',
+            draft: false,
+            merge_status: 'can_be_merged',
+            detailed_merge_status: 'mergeable',
+            sha: commits['fork-commit'].commitId,
+            source_project_id: 200, // Allowed fork source project ID
+        });
+
+        const { app, page, userDataDir } = await launchVSCode(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'gitlab',
+                'jj-view.gitlab.host': gitlab.url,
+            },
+            {
+                JJ_VIEW_GITLAB_API_URL: gitlab.url,
+                JJ_VIEW_GITLAB_TOKEN: 'test-token',
+            },
+        );
+
+        try {
+            await focusJJLog(page);
+
+            const row = await waitForLogCommitRow(page, 'Fork Commit');
+
+            // Verify MR badge is shown with correct ID (even though it's submitted from project ID 200, which is the fork)
+            await expectBadgeLink(row, 'MR !99', 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/99');
+        } finally {
+            maybePrintExtensionLogs(userDataDir);
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

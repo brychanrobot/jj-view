@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitHubProvider } from '../github-provider';
+import type { CodeForgeChangeInfo } from '../jj-types';
 import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
@@ -100,6 +101,18 @@ describe('GitHubProvider', () => {
         expect(result2).toBe(false);
         expect(accessPrivate(provider, 'owner')).toBeUndefined();
         expect(accessPrivate(provider, 'repo')).toBeUndefined();
+    });
+
+    test('detect prioritizes upstream remote over origin', async () => {
+        const remotes = [
+            { name: 'origin', url: 'https://github.com/fork-owner/fork-repo.git' },
+            { name: 'upstream', url: 'https://github.com/mainline-owner/mainline-repo.git' },
+        ];
+        const result = await provider.detect('/root', remotes);
+
+        expect(result).toBe(true);
+        expect(accessPrivate(provider, 'owner')).toBe('mainline-owner');
+        expect(accessPrivate(provider, 'repo')).toBe('mainline-repo');
     });
 
     test('detect clears cache on owner/repo change, but preserves it if unchanged', async () => {
@@ -436,5 +449,117 @@ describe('GitHubProvider', () => {
                 clearCache: expect.any(Function),
             }),
         );
+    });
+
+    test('fetchBatchFromNetwork handles parent repository for forks', async () => {
+        setPrivate(provider, 'owner', 'fork-owner');
+        setPrivate(provider, 'repo', 'fork-repo');
+
+        const originalFetch = global.fetch;
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                data: {
+                    repository: {
+                        parent: {
+                            pr_0: {
+                                nodes: [
+                                    {
+                                        id: 'parent-pr-id',
+                                        number: 42,
+                                        state: 'OPEN',
+                                        mergeable: 'MERGEABLE',
+                                        url: 'https://github.com/parent-owner/parent-repo/pull/42',
+                                        commits: {
+                                            nodes: [
+                                                {
+                                                    commit: {
+                                                        oid: 'sha-parent',
+                                                        message: 'msg',
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        pr_0: {
+                            nodes: [],
+                        },
+                    },
+                },
+            }),
+        });
+        global.fetch = fetchMock;
+
+        try {
+            const fetchBatch = exposePrivate<{
+                fetchBatchFromNetwork(
+                    bookmarkNames: string[],
+                    bookmarkToCommitId: Map<string, string>,
+                ): Promise<Map<string, CodeForgeChangeInfo>>;
+            }>(provider).fetchBatchFromNetwork.bind(provider);
+
+            const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
+            expect(results.size).toBe(1);
+            const pr = results.get('my-feature-branch');
+            expect(pr).toBeDefined();
+            expect(pr?.id).toBe('parent-pr-id');
+            expect(pr?.number).toBe(42);
+            expect(pr?.url).toBe('https://github.com/parent-owner/parent-repo/pull/42');
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+            expect(requestBody.query).toContain('parent {');
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
+    test('fetchStatuses matches closed/merged PRs even if local commit ID differs', async () => {
+        setPrivate(provider, 'owner', 'my-owner');
+        setPrivate(provider, 'repo', 'my-repo');
+        const allowedOwners = accessPrivate<Set<string>>(provider, 'allowedOwners');
+        allowedOwners.clear();
+        allowedOwners.add('my-owner');
+
+        vi.spyOn(
+            exposePrivate<{
+                fetchBatchFromNetwork(
+                    bookmarkNames: string[],
+                    bookmarkToCommitId: Map<string, string>,
+                ): Promise<Map<string, CodeForgeChangeInfo>>;
+            }>(provider),
+            'fetchBatchFromNetwork',
+        ).mockResolvedValue(
+            new Map([
+                [
+                    'my-feature-merged',
+                    {
+                        id: 'pr-1',
+                        number: 1,
+                        displayLabel: 'PR #1',
+                        providerName: 'GitHub',
+                        status: 'MERGED',
+                        submittable: true,
+                        url: 'url-1',
+                        unresolvedComments: 0,
+                        currentRevision: 'sha-merged',
+                    },
+                ],
+            ]),
+        );
+
+        const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+
+        const changes: ChangeStatusRequest[] = [{ commitId: 'sha-local-differs', bookmarks: ['my-feature-merged'] }];
+
+        await provider.fetchStatuses(changes);
+
+        // my-feature-merged SHOULD be cached even though local commit ID doesn't match
+        expect(cache.get('my-feature-merged')).toBeDefined();
+        expect(cache.get('my-feature-merged')?.contentSynced).toBe(false);
     });
 });

@@ -18,6 +18,7 @@ export interface FakeMrInfo {
     blocking_discussions_resolved?: boolean;
     sha: string;
     user_notes_count?: number;
+    source_project_id?: number;
 }
 
 export class FakeGitLabServer {
@@ -28,6 +29,9 @@ export class FakeGitLabServer {
     public statusOverride: { status: number; headers?: Record<string, string>; body?: string } | undefined;
 
     public registerMR(bookmark: string, mr: FakeMrInfo) {
+        if (mr.source_project_id === undefined) {
+            mr.source_project_id = 100;
+        }
         this.mrs.set(bookmark, mr);
     }
 
@@ -87,6 +91,35 @@ export class FakeGitLabServer {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(results));
                 return;
+            }
+
+            if (pathname.includes('/projects/')) {
+                if (!pathname.endsWith('/merge_requests') && !pathname.includes('/merge_requests/')) {
+                    const projectPath = decodeURIComponent(
+                        pathname.substring(pathname.indexOf('/projects/') + '/projects/'.length),
+                    );
+                    if (projectPath === 'fork-owner/fork-repo') {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(
+                            JSON.stringify({
+                                id: 200,
+                                forked_from_project: {
+                                    id: 100,
+                                    path_with_namespace: 'mainline-owner/mainline-repo',
+                                },
+                            }),
+                        );
+                        return;
+                    } else if (projectPath === 'mainline-owner/mainline-repo') {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(
+                            JSON.stringify({
+                                id: 100,
+                            }),
+                        );
+                        return;
+                    }
+                }
             }
 
             res.writeHead(404);

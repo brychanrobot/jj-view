@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitLabProvider } from '../gitlab-provider';
+import type { CodeForgeChangeInfo } from '../jj-types';
 import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
 
 vi.mock('vscode', () => ({
@@ -144,6 +145,18 @@ describe('GitLabProvider', () => {
         expect(accessPrivate(provider, 'projectPath')).toBeUndefined();
     });
 
+    test('detect prioritizes upstream remote over origin', async () => {
+        const remotes = [
+            { name: 'origin', url: 'https://gitlab.com/fork-owner/fork-repo.git' },
+            { name: 'upstream', url: 'https://gitlab.com/mainline-owner/mainline-repo.git' },
+        ];
+        const result = await provider.detect('/root', remotes);
+
+        expect(result).toBe(true);
+        expect(accessPrivate(provider, 'gitlabHost')).toBe('https://gitlab.com');
+        expect(accessPrivate(provider, 'projectPath')).toBe('mainline-owner/mainline-repo');
+    });
+
     test('parseGitLabMr calculates submittable correctly based on draft, merge_status, and blocking_discussions_resolved', () => {
         interface MockGitLabMr {
             id: number;
@@ -266,11 +279,14 @@ describe('GitLabProvider', () => {
         const fetchBatchSpy = vi
             .spyOn(
                 exposePrivate<{
-                    fetchBatchFromNetwork(bookmarkNames: string[]): Promise<Map<string, unknown>>;
+                    fetchBatchFromNetwork(
+                        bookmarkNames: string[],
+                        bookmarkToCommitId: Map<string, string>,
+                    ): Promise<Map<string, unknown>>;
                 }>(provider),
                 'fetchBatchFromNetwork',
             )
-            .mockImplementation(async (bookmarkNames: string[]) => {
+            .mockImplementation(async (bookmarkNames: string[], _bookmarkToCommitId: Map<string, string>) => {
                 const results = new Map<string, unknown>();
                 for (const name of bookmarkNames) {
                     results.set(name, {
@@ -453,5 +469,91 @@ describe('GitLabProvider', () => {
                 clearCache: expect.any(Function),
             }),
         );
+    });
+
+    test('fetchBatchFromNetwork handles fork parent resolution', async () => {
+        setPrivate(provider, 'gitlabHost', 'https://gitlab.com');
+        setPrivate(provider, 'projectPath', 'fork-owner/fork-repo');
+
+        const originalFetch = global.fetch;
+        const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+            if (url.includes('/projects/fork-owner%2Ffork-repo')) {
+                return createMock<Response>({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        id: 200,
+                        forked_from_project: {
+                            id: 100,
+                            path_with_namespace: 'mainline-owner/mainline-repo',
+                        },
+                    }),
+                });
+            }
+            if (url.includes('/projects/mainline-owner%2Fmainline-repo/merge_requests/42')) {
+                return createMock<Response>({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        id: 101,
+                        iid: 42,
+                        state: 'opened',
+                        web_url: 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42',
+                        sha: 'sha-parent',
+                        merge_status: 'can_be_merged',
+                        source_project_id: 200,
+                    }),
+                });
+            }
+            if (url.includes('/projects/mainline-owner%2Fmainline-repo/merge_requests')) {
+                return createMock<Response>({
+                    ok: true,
+                    status: 200,
+                    json: async () => [
+                        {
+                            id: 102,
+                            iid: 43,
+                            state: 'opened',
+                            web_url: 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/43',
+                            sha: 'sha-other',
+                            merge_status: 'can_be_merged',
+                            source_project_id: 999, // Mismatched fork (ignored)
+                        },
+                        {
+                            id: 101,
+                            iid: 42,
+                            state: 'opened',
+                            web_url: 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42',
+                            sha: 'sha-parent',
+                            merge_status: 'can_be_merged',
+                            source_project_id: 200, // Allowed fork (chosen)
+                        },
+                    ],
+                });
+            }
+            return createMock<Response>({ ok: false, status: 404 });
+        });
+        global.fetch = fetchMock;
+
+        try {
+            const fetchBatch = exposePrivate<{
+                fetchBatchFromNetwork(
+                    bookmarkNames: string[],
+                    bookmarkToCommitId: Map<string, string>,
+                ): Promise<Map<string, CodeForgeChangeInfo>>;
+            }>(provider).fetchBatchFromNetwork.bind(provider);
+
+            const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
+            expect(results.size).toBe(1);
+            const mr = results.get('my-feature-branch');
+            expect(mr).toBeDefined();
+            expect(mr?.id).toBe('101');
+            expect(mr?.number).toBe(42);
+            expect(mr?.url).toBe('https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42');
+
+            expect(accessPrivate(provider, 'resolvedProjectPath')).toBe('mainline-owner/mainline-repo');
+        } finally {
+            global.fetch = originalFetch;
+        }
     });
 });

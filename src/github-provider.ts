@@ -16,6 +16,11 @@ interface GitHubPrNode {
     mergeable: string;
     reviewDecision?: string | null;
     url: string;
+    headRepository?: {
+        owner: {
+            login: string;
+        };
+    } | null;
     reviewThreads?: {
         nodes?: {
             isResolved: boolean;
@@ -42,11 +47,26 @@ interface GitHubPrNode {
 interface GitHubGqlResponse {
     errors?: unknown[];
     data?: {
-        repository?: Record<
+        repository?: {
+            parent?: Record<
+                string,
+                {
+                    nodes?: GitHubPrNode[];
+                }
+            > | null;
+        } & Record<
             string,
-            {
-                nodes?: GitHubPrNode[];
-            }
+            | {
+                  nodes?: GitHubPrNode[];
+              }
+            | Record<
+                  string,
+                  {
+                      nodes?: GitHubPrNode[];
+                  }
+              >
+            | null
+            | undefined
         >;
     };
 }
@@ -60,6 +80,7 @@ export class GitHubProvider implements CodeForgeProvider {
     private cache = new Map<string, CodeForgeChangeInfo>();
     private owner: string | undefined;
     private repo: string | undefined;
+    private allowedOwners = new Set<string>();
 
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
@@ -74,15 +95,23 @@ export class GitHubProvider implements CodeForgeProvider {
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const remotePriority = (name: string): number => {
             const lower = name.toLowerCase();
-            if (lower === 'origin') {
+            if (lower === 'upstream') {
                 return 0;
             }
-            if (lower === 'upstream') {
+            if (lower === 'origin') {
                 return 1;
             }
             return 2;
         };
         const prioritized = [...remotes].sort((a, b) => remotePriority(a.name) - remotePriority(b.name));
+
+        this.allowedOwners.clear();
+        for (const remote of remotes) {
+            const parsed = this.parseGitHubUrl(remote.url);
+            if (parsed) {
+                this.allowedOwners.add(parsed.owner.toLowerCase());
+            }
+        }
 
         let owner: string | undefined;
         let repo: string | undefined;
@@ -148,10 +177,12 @@ export class GitHubProvider implements CodeForgeProvider {
         }
 
         const bookmarkNames = new Set<string>();
+        const bookmarkToCommitId = new Map<string, string>();
         for (const change of changes) {
             if (change.bookmarks) {
                 for (const bookmark of change.bookmarks) {
                     bookmarkNames.add(bookmark);
+                    bookmarkToCommitId.set(bookmark, change.commitId);
                 }
             }
         }
@@ -168,7 +199,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
         const processBatch = async (batch: string[]): Promise<void> => {
             try {
-                const fetchedInfoMap = await this.fetchBatchFromNetwork(batch);
+                const fetchedInfoMap = await this.fetchBatchFromNetwork(batch, bookmarkToCommitId);
                 for (const bookmark of batch) {
                     const info = fetchedInfoMap.get(bookmark);
                     const oldInfo = this.cache.get(bookmark);
@@ -177,8 +208,10 @@ export class GitHubProvider implements CodeForgeProvider {
                         const matchingChange = changes.find((c) => c.bookmarks?.includes(bookmark));
                         if (matchingChange) {
                             info.contentSynced = info.currentRevision === matchingChange.commitId;
+                            this.cache.set(bookmark, info);
+                        } else {
+                            this.cache.delete(bookmark);
                         }
-                        this.cache.set(bookmark, info);
                     } else {
                         this.cache.delete(bookmark);
                     }
@@ -200,7 +233,10 @@ export class GitHubProvider implements CodeForgeProvider {
         return changed;
     }
 
-    private async fetchBatchFromNetwork(bookmarkNames: string[]): Promise<Map<string, CodeForgeChangeInfo>> {
+    private async fetchBatchFromNetwork(
+        bookmarkNames: string[],
+        bookmarkToCommitId: Map<string, string>,
+    ): Promise<Map<string, CodeForgeChangeInfo>> {
         const results = new Map<string, CodeForgeChangeInfo>();
         const token = await this.getSessionToken();
         if (!token) {
@@ -222,6 +258,11 @@ export class GitHubProvider implements CodeForgeProvider {
                     mergeable
                     reviewDecision
                     headRefName
+                    headRepository {
+                        owner {
+                            login
+                        }
+                    }
                     # commits(last: 1) fetches the last commit in chronological order,
                     # which is the HEAD (latest) commit of the PR.
                     commits(last: 1) {
@@ -252,6 +293,9 @@ export class GitHubProvider implements CodeForgeProvider {
         const query = `
         query($owner: String!, $name: String!) {
             repository(owner: $owner, name: $name) {
+                parent {
+                    ${aliasQueries.join('\n')}
+                }
                 ${aliasQueries.join('\n')}
             }
         }
@@ -297,11 +341,32 @@ export class GitHubProvider implements CodeForgeProvider {
 
         const repoData = json.data?.repository;
         if (repoData) {
+            const filterPrNodes = (nodes?: GitHubPrNode[], localCommitId?: string) => {
+                return (nodes || []).filter((pr) => {
+                    const headOwner = pr.headRepository?.owner?.login;
+                    if (headOwner) {
+                        return this.allowedOwners.size === 0 || this.allowedOwners.has(headOwner.toLowerCase());
+                    }
+                    if (localCommitId && pr.commits?.nodes?.[0]?.commit?.oid) {
+                        return pr.commits.nodes[0].commit.oid === localCommitId;
+                    }
+                    return false;
+                });
+            };
+
             for (let i = 0; i < bookmarkNames.length; i++) {
                 const alias = `pr_${i}`;
-                const prNodes = repoData[alias]?.nodes;
-                if (Array.isArray(prNodes) && prNodes.length > 0) {
-                    const pr = prNodes[0];
+                const parentPrNodes = repoData.parent?.[alias]?.nodes;
+                const prData = repoData[alias] as { nodes?: GitHubPrNode[] } | undefined;
+                const prNodes = prData?.nodes;
+
+                const localCommitId = bookmarkToCommitId.get(bookmarkNames[i]);
+                const filteredParentNodes = filterPrNodes(parentPrNodes, localCommitId);
+                const filteredChildNodes = filterPrNodes(prNodes, localCommitId);
+                const chosenPrNodes = filteredParentNodes.length > 0 ? filteredParentNodes : filteredChildNodes;
+
+                if (chosenPrNodes.length > 0) {
+                    const pr = chosenPrNodes[0];
                     const info = this.parseGitHubPr(pr);
                     if (info) {
                         results.set(bookmarkNames[i], info);

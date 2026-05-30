@@ -14,6 +14,7 @@ export interface FakePrInfo {
     currentRevision?: string;
     remoteParents?: string[];
     unresolvedComments?: number;
+    headOwner?: string;
 }
 
 interface GqlPrNode {
@@ -22,6 +23,11 @@ interface GqlPrNode {
     state: string;
     mergeable: string;
     url: string;
+    headRepository?: {
+        owner?: {
+            login?: string;
+        };
+    };
     reviewThreads?: {
         nodes?: {
             isResolved: boolean;
@@ -90,6 +96,11 @@ export class FakeGitHubServer {
                                     state: pr.state,
                                     mergeable: pr.mergeable,
                                     url: pr.url,
+                                    headRepository: {
+                                        owner: {
+                                            login: pr.headOwner || 'test-owner',
+                                        },
+                                    },
                                 };
 
                                 if (pr.unresolvedComments !== undefined) {

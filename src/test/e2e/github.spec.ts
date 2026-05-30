@@ -361,4 +361,54 @@ test.describe('GitHub Integration E2E', () => {
             repo.dispose();
         }
     });
+
+    test('Detects PR from fork targeting mainline repo', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/mainline-owner/mainline-repo.git');
+        repo.addRemote('fork', 'https://github.com/fork-owner/fork-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            { label: 'fork-commit', parents: ['base'], description: 'Fork Commit', bookmarks: ['my-fork-branch'] },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.registerPR('my-fork-branch', {
+            id: 'pr_node_id_fork',
+            number: 99,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/mainline-owner/mainline-repo/pull/99',
+            currentRevision: commits['fork-commit'].commitId,
+            headOwner: 'fork-owner',
+        });
+
+        const { app, page, userDataDir } = await launchVSCode(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        try {
+            await focusJJLog(page);
+
+            const row = await waitForLogCommitRow(page, 'Fork Commit');
+
+            // Verify PR badge is shown with correct number and URL (even though the headOwner is 'fork-owner')
+            await expectBadgeLink(row, 'PR #99', 'https://github.com/mainline-owner/mainline-repo/pull/99');
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

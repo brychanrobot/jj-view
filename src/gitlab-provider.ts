@@ -24,6 +24,14 @@ interface GitLabMergeRequest {
     user_notes_count?: number;
     web_url: string;
     sha: string;
+    source_project_id?: number;
+}
+
+interface GitLabRequestContext {
+    apiBaseUrl: string;
+    sharedToken?: string;
+    tokenPromise: Promise<string | undefined> | null;
+    bookmarkToCommitId: Map<string, string>;
 }
 
 export class GitLabProvider implements CodeForgeProvider {
@@ -35,6 +43,11 @@ export class GitLabProvider implements CodeForgeProvider {
     private cache = new Map<string, CodeForgeChangeInfo>();
     private gitlabHost: string | undefined;
     private projectPath: string | undefined;
+    private resolvedProjectPath: string | undefined;
+    private allowedProjectIds = new Set<number>();
+    private remoteProjectPaths = new Set<string>();
+    private forkResolutionPromise: Promise<string> | null = null;
+    private forkResolutionPromiseHasToken = false;
     private extensionPromptShown = false;
 
     private _onDidUpdate = new vscode.EventEmitter<void>();
@@ -54,10 +67,10 @@ export class GitLabProvider implements CodeForgeProvider {
 
         const remotePriority = (name: string): number => {
             const lower = name.toLowerCase();
-            if (lower === 'origin') {
+            if (lower === 'upstream') {
                 return 0;
             }
-            if (lower === 'upstream') {
+            if (lower === 'origin') {
                 return 1;
             }
             return 2;
@@ -77,6 +90,13 @@ export class GitLabProvider implements CodeForgeProvider {
         }
 
         if (host && projectPath) {
+            const projectPaths = new Set<string>();
+            for (const remote of remotes) {
+                const parsed = this.parseGitLabUrl(remote.url, preferredHost);
+                if (parsed) {
+                    projectPaths.add(parsed.projectPath);
+                }
+            }
             if (this.gitlabHost !== host || this.projectPath !== projectPath) {
                 this.clearCache();
                 this.authManager.setProviderUnavailable(this.id, false);
@@ -84,6 +104,7 @@ export class GitLabProvider implements CodeForgeProvider {
             }
             this.gitlabHost = host;
             this.projectPath = projectPath;
+            this.remoteProjectPaths = projectPaths;
             this.outputChannel?.appendLine(
                 `[GitLabProvider] Detected GitLab repo: host=${this.gitlabHost}, projectPath=${this.projectPath}`,
             );
@@ -195,10 +216,12 @@ export class GitLabProvider implements CodeForgeProvider {
         }
 
         const bookmarkNames = new Set<string>();
+        const bookmarkToCommitId = new Map<string, string>();
         for (const change of changes) {
             if (change.bookmarks) {
                 for (const bookmark of change.bookmarks) {
                     bookmarkNames.add(bookmark);
+                    bookmarkToCommitId.set(bookmark, change.commitId);
                 }
             }
         }
@@ -215,7 +238,7 @@ export class GitLabProvider implements CodeForgeProvider {
 
         const processBatch = async (batch: string[]): Promise<void> => {
             try {
-                const fetchedInfoMap = await this.fetchBatchFromNetwork(batch);
+                const fetchedInfoMap = await this.fetchBatchFromNetwork(batch, bookmarkToCommitId);
                 for (const bookmark of batch) {
                     const info = fetchedInfoMap.get(bookmark);
                     const oldInfo = this.cache.get(bookmark);
@@ -224,8 +247,10 @@ export class GitLabProvider implements CodeForgeProvider {
                         const matchingChange = changes.find((c) => c.bookmarks?.includes(bookmark));
                         if (matchingChange) {
                             info.contentSynced = info.currentRevision === matchingChange.commitId;
+                            this.cache.set(bookmark, info);
+                        } else {
+                            this.cache.delete(bookmark);
                         }
-                        this.cache.set(bookmark, info);
                     } else {
                         this.cache.delete(bookmark);
                     }
@@ -247,132 +272,309 @@ export class GitLabProvider implements CodeForgeProvider {
         return changed;
     }
 
-    private async fetchBatchFromNetwork(bookmarkNames: string[]): Promise<Map<string, CodeForgeChangeInfo>> {
+    private async fetchBatchFromNetwork(
+        bookmarkNames: string[],
+        bookmarkToCommitId: Map<string, string>,
+    ): Promise<Map<string, CodeForgeChangeInfo>> {
         const results = new Map<string, CodeForgeChangeInfo>();
         const projectPath = this.projectPath;
         if (!this.gitlabHost || !projectPath || bookmarkNames.length === 0) {
             return results;
         }
 
-        let sharedToken = await this.getSessionToken(false);
-        let tokenPromise: Promise<string | undefined> | null = null;
+        const sharedToken = await this.getSessionToken(false);
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+
+        // Resolve upstream project path once if fork
+        if (!this.resolvedProjectPath) {
+            await this.resolveForkPath(apiBaseUrl, sharedToken);
+        }
+
+        const context: GitLabRequestContext = {
+            apiBaseUrl,
+            sharedToken,
+            tokenPromise: null,
+            bookmarkToCommitId,
+        };
+
+        const fetchBookmarkWrapper = async (bookmark: string): Promise<void> => {
+            const info = await this.fetchBookmark(bookmark, context);
+            if (info) {
+                results.set(bookmark, info);
+            }
+        };
+
+        await Promise.all(bookmarkNames.map((bookmark) => fetchBookmarkWrapper(bookmark)));
+        return results;
+    }
+
+    private async fetchBookmark(
+        bookmark: string,
+        context: GitLabRequestContext,
+    ): Promise<CodeForgeChangeInfo | undefined> {
+        const projectPath = this.projectPath;
+        if (!projectPath) {
+            return undefined;
+        }
 
         const acquireToken = async (): Promise<string | undefined> => {
-            if (sharedToken) {
-                return sharedToken;
+            if (context.sharedToken) {
+                return context.sharedToken;
             }
-            if (!tokenPromise) {
-                tokenPromise = (async () => {
+            if (!context.tokenPromise) {
+                context.tokenPromise = (async () => {
                     const promptToken = await this.getSessionToken(true);
                     if (promptToken) {
-                        sharedToken = promptToken;
+                        context.sharedToken = promptToken;
                     }
                     return promptToken;
                 })();
             }
-            return tokenPromise;
+            return context.tokenPromise;
         };
 
-        const getHeaders = (t: string | undefined): Record<string, string> => {
-            const h: Record<string, string> = {
-                'User-Agent': 'jj-view-vscode-extension',
-            };
-            if (t) {
-                h.Authorization = `Bearer ${t}`;
-            }
-            return h;
-        };
+        const getUrl = (path: string) =>
+            `${context.apiBaseUrl}/projects/${encodeURIComponent(path)}/merge_requests?source_branch=${encodeURIComponent(bookmark)}&with_merge_status_recheck=true`;
 
-        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        try {
+            let currentPath = this.resolvedProjectPath || projectPath;
+            let response = await fetchWithTimeout(getUrl(currentPath), 15000, {
+                headers: this.getHeaders(context.sharedToken),
+            });
 
-        const fetchBookmark = async (bookmark: string): Promise<void> => {
-            const urlStr = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests?source_branch=${encodeURIComponent(bookmark)}&with_merge_status_recheck=true`;
+            const retryResult = await this.tryUnauthenticatedRetry(
+                response,
+                currentPath,
+                getUrl,
+                context,
+                acquireToken,
+            );
+            response = retryResult.response;
+            currentPath = retryResult.currentPath;
 
-            try {
-                let response = await fetchWithTimeout(urlStr, 15000, { headers: getHeaders(sharedToken) });
+            await this.handleInvalidTokenIfNeeded(response.status, context);
 
-                if ((response.status === 401 || response.status === 404) && !sharedToken) {
-                    if (this.authManager.isProviderUnavailable(this.id)) {
-                        if (!this.extensionPromptShown) {
-                            this.extensionPromptShown = true;
-                            this.promptInstallGitLabExtension();
-                        }
-                    } else {
-                        this.outputChannel?.appendLine(
-                            `[GitLabProvider] Unauthenticated request failed with status ${response.status}. Prompting for GitLab OAuth...`,
-                        );
-                        const promptToken = await acquireToken();
-                        if (promptToken) {
-                            response = await fetchWithTimeout(urlStr, 15000, { headers: getHeaders(promptToken) });
-                        }
-                    }
-                }
-
-                const currentToken = sharedToken;
-                if (response.status === 401 && currentToken) {
-                    this.outputChannel?.appendLine(
-                        `[GitLabProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
-                    );
-                    // Reset the in-memory token cache so the next request re-fetches credentials.
-                    if (sharedToken === currentToken) {
-                        sharedToken = undefined;
-                        tokenPromise = null;
-                    }
-                    await this.authManager.clearInvalidToken({
-                        providerId: 'gitlab',
-                        secretTokenKey: 'gitlab_token',
-                        currentToken,
-                        envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
-                    });
-                }
-
-                if (!response.ok) {
-                    this.outputChannel?.appendLine(
-                        `[GitLabProvider] Request failed with status ${response.status}: ${response.statusText}`,
-                    );
-                    this.handle403Warning(response);
-                    return;
-                }
-
-                const mrs = (await response.json()) as GitLabMergeRequest[];
-                if (Array.isArray(mrs) && mrs.length > 0) {
-                    const openMr = mrs.find((mr) => mr.state === 'opened');
-                    const selectedMr = openMr || mrs[0];
-
-                    let detailedMr = selectedMr;
-                    const singleMrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${selectedMr.iid}`;
-                    try {
-                        const singleResponse = await fetchWithTimeout(singleMrUrl, 15000, {
-                            headers: getHeaders(sharedToken),
-                        });
-                        if (singleResponse.ok) {
-                            detailedMr = (await singleResponse.json()) as GitLabMergeRequest;
-                        } else {
-                            this.outputChannel?.appendLine(
-                                `[GitLabProvider] Failed to fetch single MR detail with status ${singleResponse.status}, falling back to list MR data`,
-                            );
-                            this.handle403Warning(singleResponse);
-                        }
-                    } catch (singleErr) {
-                        this.outputChannel?.appendLine(
-                            `[GitLabProvider] Error fetching single MR detail: ${singleErr}, falling back to list MR data`,
-                        );
-                    }
-
-                    const info = this.parseGitLabMr(detailedMr);
-                    if (info) {
-                        results.set(bookmark, info);
-                    }
-                }
-            } catch (error) {
+            if (!response.ok) {
                 this.outputChannel?.appendLine(
-                    `[GitLabProvider] Failed to fetch MR for bookmark ${bookmark}: ${error}`,
+                    `[GitLabProvider] Request failed with status ${response.status}: ${response.statusText}`,
                 );
+                this.handle403Warning(response);
+                return undefined;
             }
-        };
 
-        await Promise.all(bookmarkNames.map((bookmark) => fetchBookmark(bookmark)));
-        return results;
+            const mrs = (await response.json()) as GitLabMergeRequest[];
+            if (Array.isArray(mrs) && mrs.length > 0) {
+                const filteredMrs = this.filterGitLabMrs(mrs, bookmark, context.bookmarkToCommitId);
+                if (filteredMrs.length > 0) {
+                    const openMr = filteredMrs.find((mr) => mr.state === 'opened');
+                    const selectedMr = openMr || filteredMrs[0];
+
+                    const detailedMr = await this.fetchSingleMrDetails(
+                        context.apiBaseUrl,
+                        currentPath,
+                        selectedMr,
+                        context.sharedToken,
+                    );
+
+                    return this.parseGitLabMr(detailedMr);
+                }
+            }
+        } catch (error) {
+            this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch MR for bookmark ${bookmark}: ${error}`);
+        }
+        return undefined;
+    }
+
+    private async tryUnauthenticatedRetry(
+        response: Response,
+        currentPath: string,
+        getUrl: (path: string) => string,
+        context: GitLabRequestContext,
+        acquireToken: () => Promise<string | undefined>,
+    ): Promise<{ response: Response; currentPath: string }> {
+        if ((response.status === 401 || response.status === 404) && !context.sharedToken) {
+            if (this.authManager.isProviderUnavailable(this.id)) {
+                if (!this.extensionPromptShown) {
+                    this.extensionPromptShown = true;
+                    this.promptInstallGitLabExtension();
+                }
+            } else {
+                this.outputChannel?.appendLine(
+                    `[GitLabProvider] Unauthenticated request failed with status ${response.status}. Prompting for GitLab OAuth...`,
+                );
+                const promptToken = await acquireToken();
+                if (promptToken) {
+                    const resolvedPath = await this.resolveForkPath(context.apiBaseUrl, promptToken);
+                    const retriedResponse = await fetchWithTimeout(getUrl(resolvedPath), 15000, {
+                        headers: this.getHeaders(promptToken),
+                    });
+                    return { response: retriedResponse, currentPath: resolvedPath };
+                }
+            }
+        }
+        return { response, currentPath };
+    }
+
+    private async handleInvalidTokenIfNeeded(status: number, context: GitLabRequestContext): Promise<void> {
+        const currentToken = context.sharedToken;
+        if (status === 401 && currentToken) {
+            this.outputChannel?.appendLine(
+                `[GitLabProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
+            );
+            // Reset the in-memory token cache so the next request re-fetches credentials.
+            if (context.sharedToken === currentToken) {
+                context.sharedToken = undefined;
+                context.tokenPromise = null;
+            }
+            await this.authManager.clearInvalidToken({
+                providerId: 'gitlab',
+                secretTokenKey: 'gitlab_token',
+                currentToken,
+                envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
+            });
+        }
+    }
+
+    private filterGitLabMrs(
+        mrs: GitLabMergeRequest[],
+        bookmark: string,
+        bookmarkToCommitId: Map<string, string>,
+    ): GitLabMergeRequest[] {
+        return mrs.filter((mr) => {
+            const sourceId = mr.source_project_id;
+            if (sourceId) {
+                return this.allowedProjectIds.size === 0 || this.allowedProjectIds.has(sourceId);
+            }
+            const localCommitId = bookmarkToCommitId.get(bookmark);
+            if (localCommitId && mr.sha) {
+                return mr.sha === localCommitId;
+            }
+            return false;
+        });
+    }
+
+    private async fetchSingleMrDetails(
+        apiBaseUrl: string,
+        projectPath: string,
+        selectedMr: GitLabMergeRequest,
+        token: string | undefined,
+    ): Promise<GitLabMergeRequest> {
+        const singleMrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${selectedMr.iid}`;
+        try {
+            const response = await fetchWithTimeout(singleMrUrl, 15000, {
+                headers: this.getHeaders(token),
+            });
+            if (response.ok) {
+                return (await response.json()) as GitLabMergeRequest;
+            }
+            this.outputChannel?.appendLine(
+                `[GitLabProvider] Failed to fetch single MR detail with status ${response.status}, falling back to list MR data`,
+            );
+            this.handle403Warning(response);
+        } catch (err) {
+            this.outputChannel?.appendLine(
+                `[GitLabProvider] Error fetching single MR detail: ${err}, falling back to list MR data`,
+            );
+        }
+        return selectedMr;
+    }
+
+    private getHeaders(token: string | undefined): Record<string, string> {
+        const headers: Record<string, string> = {
+            'User-Agent': 'jj-view-vscode-extension',
+        };
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
+    private async resolveForkPath(apiBaseUrl: string, token: string | undefined): Promise<string> {
+        const projectPath = this.projectPath;
+        if (!projectPath) {
+            return '';
+        }
+        if (this.resolvedProjectPath) {
+            return this.resolvedProjectPath;
+        }
+        if (this.forkResolutionPromise && (this.forkResolutionPromiseHasToken || !token)) {
+            return this.forkResolutionPromise;
+        }
+        this.forkResolutionPromiseHasToken = !!token;
+        this.forkResolutionPromise = (async () => {
+            // First resolve project IDs for all configured remote project paths
+            for (const path of this.remoteProjectPaths) {
+                if (path === projectPath) {
+                    continue;
+                }
+                const projectInfo = await this.fetchProjectInfo(apiBaseUrl, path, token);
+                if (projectInfo) {
+                    if (projectInfo.id) {
+                        this.allowedProjectIds.add(projectInfo.id);
+                    }
+                    if (projectInfo.forked_from_project?.id) {
+                        this.allowedProjectIds.add(projectInfo.forked_from_project.id);
+                    }
+                }
+            }
+
+            const projectInfo = await this.fetchProjectInfo(apiBaseUrl, projectPath, token);
+            if (projectInfo) {
+                if (projectInfo.id) {
+                    this.allowedProjectIds.add(projectInfo.id);
+                }
+                if (projectInfo.forked_from_project?.id) {
+                    this.allowedProjectIds.add(projectInfo.forked_from_project.id);
+                }
+                if (projectInfo.forked_from_project?.path_with_namespace) {
+                    this.resolvedProjectPath = projectInfo.forked_from_project.path_with_namespace;
+                    this.outputChannel?.appendLine(
+                        `[GitLabProvider] Detected parent project for fork: ${this.resolvedProjectPath}`,
+                    );
+                } else {
+                    // Mark as resolved (none) so we don't query again
+                    this.resolvedProjectPath = projectPath;
+                }
+            }
+            this.forkResolutionPromise = null;
+            this.forkResolutionPromiseHasToken = false;
+            return this.resolvedProjectPath || projectPath;
+        })();
+        return this.forkResolutionPromise;
+    }
+
+    private async fetchProjectInfo(
+        apiBaseUrl: string,
+        path: string,
+        token: string | undefined,
+    ): Promise<
+        | {
+              id?: number;
+              forked_from_project?: {
+                  id?: number;
+                  path_with_namespace?: string;
+              };
+          }
+        | undefined
+    > {
+        try {
+            const projectUrl = `${apiBaseUrl}/projects/${encodeURIComponent(path)}`;
+            const response = await fetchWithTimeout(projectUrl, 10000, {
+                headers: this.getHeaders(token),
+            });
+            if (response.ok) {
+                return (await response.json()) as {
+                    id?: number;
+                    forked_from_project?: {
+                        id?: number;
+                        path_with_namespace?: string;
+                    };
+                };
+            }
+        } catch (e) {
+            this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
+        }
+        return undefined;
     }
 
     private parseGitLabMr(mr: GitLabMergeRequest): CodeForgeChangeInfo | undefined {
@@ -452,6 +654,11 @@ export class GitLabProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.resolvedProjectPath = undefined;
+        this.allowedProjectIds.clear();
+        this.remoteProjectPaths.clear();
+        this.forkResolutionPromise = null;
+        this.forkResolutionPromiseHasToken = false;
         this.hasWarned403 = false;
         this._onDidUpdate.fire();
     }
