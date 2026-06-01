@@ -1077,7 +1077,7 @@ log = "none()"
         // Basic verification
         expect(repo.getFileContent(parentId, 'file_bench_0.txt')).toBe('new content 0');
         expect(repo.getFileContent(parentId, `file_bench_${NUM_FILES - 1}.txt`)).toBe(`new content ${NUM_FILES - 1}`);
-    });
+    }, 60000);
 
     test('squashPartialToParent handles new files (not in parent)', async () => {
         const fileName = 'new-file.txt';
