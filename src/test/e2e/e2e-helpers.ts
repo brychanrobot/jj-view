@@ -42,6 +42,11 @@ export async function launchVSCode(
         if (pooledWindow.extraSettingsHash === extraSettingsHash) {
             // Write the new path to a file so the extension can read it
             const nextWorkspaceFile = path.join(pooledWindow.userDataDir, 'next-workspace.txt');
+
+            // Ensure the parent directory still exists (in case it was cleaned up incorrectly or some OS thing)
+            if (!fs.existsSync(pooledWindow.userDataDir)) {
+                fs.mkdirSync(pooledWindow.userDataDir, { recursive: true });
+            }
             fs.writeFileSync(nextWorkspaceFile, repo.path);
 
             // Trigger the test command via the keyboard shortcut we added
