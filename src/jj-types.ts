@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export interface JjBookmark {
-    name: string;
-    remote?: string | null;
-}
+import { z } from 'zod';
+
+export const JjBookmarkSchema = z.object({
+    name: z.string(),
+    remote: z.string().nullable().optional(),
+});
+export type JjBookmark = z.infer<typeof JjBookmarkSchema>;
 
 /**
  * Metadata retrieved from a code forge about a specific Change/PR.
@@ -47,55 +50,58 @@ export interface CodeForgeChangeInfo {
 /**
  * Metadata about a commit's parent, retrieved from jj.
  */
-export interface CommitParent {
-    /** The SHA-1 commit ID of the parent revision. */
-    commit_id: string;
-    /** The jj change ID of the parent revision (e.g. 'qutpskpt'). */
-    change_id: string;
-    /** Whether the parent is an immutable revision (e.g. main@origin). */
-    is_immutable: boolean;
-}
+export const CommitParentSchema = z.object({
+    commit_id: z.string(),
+    change_id: z.string(),
+    is_immutable: z.boolean(),
+});
+export type CommitParent = z.infer<typeof CommitParentSchema>;
 
-export interface JjLogEntry {
-    commit_id: string;
-    change_id: string;
-    change_id_shortest?: string;
-    description: string;
-    author: {
-        name: string;
-        email: string;
-        timestamp: string;
-    };
-    committer: {
-        name: string;
-        email: string;
-        timestamp: string;
-    };
-    parents: CommitParent[];
-    nearest_visible_ancestors?: string[];
-    bookmarks?: JjBookmark[];
-    tags?: string[];
-    working_copies?: string[];
-    is_current_working_copy?: boolean;
-    is_immutable?: boolean;
-    is_empty?: boolean;
-    is_divergent?: boolean;
-    change_id_offset?: number;
-    conflict?: boolean;
-    is_hidden?: boolean;
-    changes?: JjStatusEntry[];
-    codeForgeChange?: CodeForgeChangeInfo;
-    codeForgeNeedsUpload?: boolean;
-}
+export const JjStatusEntrySchema = z.object({
+    path: z.string(),
+    oldPath: z.string().optional(),
+    status: z.enum(['modified', 'added', 'removed', 'renamed', 'copied', 'deleted']),
+    additions: z.number().optional(),
+    deletions: z.number().optional(),
+    conflicted: z.boolean().optional(),
+});
+export type JjStatusEntry = z.infer<typeof JjStatusEntrySchema>;
 
-export interface JjStatusEntry {
-    path: string;
-    oldPath?: string;
-    status: 'modified' | 'added' | 'removed' | 'renamed' | 'copied' | 'deleted'; // 'deleted' is sometimes used for removed
-    additions?: number;
-    deletions?: number;
-    conflicted?: boolean;
-}
+// CodeForgeChangeInfoSchema requires definition or we can just accept unknown/any for now since we don't parse it directly from jj, it is hydrated later.
+// We'll leave it as any in the schema and type it properly.
+
+export const JjLogEntrySchema = z.object({
+    commit_id: z.string(),
+    change_id: z.string(),
+    change_id_shortest: z.string().optional(),
+    description: z.string(),
+    author: z.object({
+        name: z.string(),
+        email: z.string(),
+        timestamp: z.string(),
+    }),
+    committer: z.object({
+        name: z.string(),
+        email: z.string(),
+        timestamp: z.string(),
+    }),
+    parents: z.array(CommitParentSchema),
+    nearest_visible_ancestors: z.array(z.string()).optional(),
+    bookmarks: z.array(JjBookmarkSchema).optional(),
+    tags: z.array(z.string()).optional(),
+    working_copies: z.array(z.string()).optional(),
+    is_current_working_copy: z.boolean().optional(),
+    is_immutable: z.boolean().optional(),
+    is_empty: z.boolean().optional(),
+    is_divergent: z.boolean().optional(),
+    change_id_offset: z.number().optional(),
+    conflict: z.boolean().optional(),
+    is_hidden: z.boolean().optional(),
+    changes: z.array(JjStatusEntrySchema).optional(),
+    codeForgeChange: z.any().optional(), // Hydrated later, not in raw JSON
+    codeForgeNeedsUpload: z.boolean().optional(), // Hydrated later
+});
+export type JjLogEntry = z.infer<typeof JjLogEntrySchema> & { codeForgeChange?: CodeForgeChangeInfo };
 
 export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload';
 

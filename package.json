@@ -946,7 +946,6 @@
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
-
         "typescript": "^5.9.3",
         "vitest": "^4.0.16"
     },
@@ -962,6 +961,7 @@
         "react": "^19.2.3",
         "react-dom": "^19.2.3",
         "renderdag-ts": "git+https://github.com/brychanrobot/renderdag-ts.git",
-        "ts-pattern": "^5.9.0"
+        "ts-pattern": "^5.9.0",
+        "zod": "^4.4.3"
     }
 }

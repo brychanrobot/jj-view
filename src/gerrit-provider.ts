@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { z } from 'zod';
 import type { ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
@@ -13,38 +14,43 @@ import { fetchWithTimeout } from './utils/fetch-utils';
 import { resolveGerritChangeKey, stripGerritTrailers } from './utils/gerrit-utils';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
 
-export interface GerritFile {
-    status?: string;
-    new_sha?: string;
-}
+export const GerritFileSchema = z.object({
+    status: z.string().optional(),
+    new_sha: z.string().optional(),
+});
+export type GerritFile = z.infer<typeof GerritFileSchema>;
 
-export interface GerritRevision {
-    files?: Record<string, GerritFile>;
-    commit?: {
-        message: string;
-        parents?: { commit: string }[];
-    };
-}
+export const GerritRevisionSchema = z.object({
+    files: z.record(z.string(), GerritFileSchema).optional(),
+    commit: z
+        .object({
+            message: z.string(),
+            parents: z.array(z.object({ commit: z.string() })).optional(),
+        })
+        .optional(),
+});
+export type GerritRevision = z.infer<typeof GerritRevisionSchema>;
 
-export interface GerritChange {
-    change_id: string;
-    _number: number;
-    status: 'NEW' | 'MERGED' | 'ABANDONED';
-    submittable: boolean;
-    unresolved_comment_count?: number;
-    current_revision?: string;
-    revisions?: Record<string, GerritRevision>;
-    project?: string;
-    branch?: string;
-    subject?: string;
-    created?: string;
-    updated?: string;
-    mergeable?: boolean;
-    insertions?: number;
-    deletions?: number;
-    owner?: { _account_id: number };
-    labels?: Record<string, unknown>;
-}
+export const GerritChangeSchema = z.object({
+    change_id: z.string(),
+    _number: z.number(),
+    status: z.enum(['NEW', 'MERGED', 'ABANDONED']),
+    submittable: z.boolean(),
+    unresolved_comment_count: z.number().optional(),
+    current_revision: z.string().optional(),
+    revisions: z.record(z.string(), GerritRevisionSchema).optional(),
+    project: z.string().optional(),
+    branch: z.string().optional(),
+    subject: z.string().optional(),
+    created: z.string().optional(),
+    updated: z.string().optional(),
+    mergeable: z.boolean().optional(),
+    insertions: z.number().optional(),
+    deletions: z.number().optional(),
+    owner: z.object({ _account_id: z.number() }).optional(),
+    labels: z.record(z.string(), z.unknown()).optional(),
+});
+export type GerritChange = z.infer<typeof GerritChangeSchema>;
 
 export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
@@ -345,11 +351,29 @@ export class GerritProvider implements CodeForgeProvider {
 
     private parseBatchResponse(text: string): GerritChange[][] {
         const jsonStr = text.replace(/^\)]}'\n/, '');
-        const data: GerritChange[] | GerritChange[][] = JSON.parse(jsonStr);
-        return this.isBatchResponse(data) ? data : [data];
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(jsonStr);
+        } catch (e) {
+            this.outputChannel?.appendLine(`[GerritProvider] Error parsing batch response: ${e}`);
+            return [];
+        }
+
+        const arraySchema = z.array(z.array(GerritChangeSchema).or(GerritChangeSchema));
+        const validation = arraySchema.safeParse(parsed);
+
+        if (!validation.success) {
+            this.outputChannel?.appendLine(
+                `[GerritProvider] Validation failed for batch response: ${validation.error.message}`,
+            );
+            return [];
+        }
+
+        const data = validation.data;
+        return this.isBatchResponse(data) ? data : [data as GerritChange[]];
     }
 
-    private isBatchResponse(data: GerritChange[] | GerritChange[][]): data is GerritChange[][] {
+    private isBatchResponse(data: (GerritChange | GerritChange[])[]): data is GerritChange[][] {
         return data.length > 0 && Array.isArray(data[0]);
     }
 

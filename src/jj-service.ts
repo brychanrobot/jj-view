@@ -6,8 +6,9 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { z } from 'zod';
 import { BOOKMARK_SCHEMA, buildLogTemplate, CHANGE_ID_EXPR, LOG_ENTRY_SCHEMA } from './jj-template-builder';
-import type { JjBookmark, JjLogEntry, JjStatusEntry } from './jj-types';
+import { type JjBookmark, JjBookmarkSchema, type JjLogEntry, JjLogEntrySchema, type JjStatusEntry } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
 
@@ -300,7 +301,13 @@ export class JjService {
         }
         try {
             const jsonListString = `[${trimmed.replace(/\r?\n/g, ',')}]`;
-            return JSON.parse(jsonListString) as JjBookmark[];
+            const parsed = JSON.parse(jsonListString);
+            const validation = z.array(JjBookmarkSchema).safeParse(parsed);
+            if (!validation.success) {
+                this.logger(`Failed to validate bookmarks JSON: ${validation.error.message}. Raw output: ${output}`);
+                return [];
+            }
+            return validation.data;
         } catch (e) {
             this.logger(`Failed to parse bookmarks JSON: ${e}. Raw output: ${output}`);
             return [];
@@ -346,7 +353,13 @@ export class JjService {
             }
             const jsonPart = line.substring(jsonStart);
             try {
-                const entry = JSON.parse(jsonPart) as JjLogEntry;
+                const parsed = JSON.parse(jsonPart);
+                const validation = JjLogEntrySchema.safeParse(parsed);
+                if (!validation.success) {
+                    console.error(`Failed to validate log entry: ${validation.error.message}`, line);
+                    continue;
+                }
+                const entry = validation.data;
                 entries.push(entry);
                 visibleIds.add(entry.change_id);
             } catch (e) {

@@ -3,73 +3,99 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import { z } from 'zod';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 
-interface GitHubPrNode {
-    id: string;
-    number: number;
-    state: string;
-    mergeable: string;
-    reviewDecision?: string | null;
-    url: string;
-    headRepository?: {
-        owner: {
-            login: string;
-        };
-    } | null;
-    reviewThreads?: {
-        nodes?: {
-            isResolved: boolean;
-        }[];
-    };
-    commits?: {
-        nodes?: {
-            commit?: {
-                oid: string;
-                message: string;
-                parents?: {
-                    nodes?: {
-                        oid: string;
-                    }[];
-                };
-                statusCheckRollup?: {
-                    state: string;
-                } | null;
-            };
-        }[];
-    };
-}
+export const GitHubPrNodeSchema = z.object({
+    id: z.string(),
+    number: z.number(),
+    state: z.string(),
+    mergeable: z.string(),
+    reviewDecision: z.string().nullable().optional(),
+    url: z.string(),
+    headRepository: z
+        .object({
+            owner: z.object({
+                login: z.string(),
+            }),
+        })
+        .nullable()
+        .optional(),
+    reviewThreads: z
+        .object({
+            nodes: z
+                .array(
+                    z.object({
+                        isResolved: z.boolean(),
+                    }),
+                )
+                .optional(),
+        })
+        .optional(),
+    commits: z
+        .object({
+            nodes: z
+                .array(
+                    z.object({
+                        commit: z
+                            .object({
+                                oid: z.string(),
+                                message: z.string(),
+                                parents: z
+                                    .object({
+                                        nodes: z
+                                            .array(
+                                                z.object({
+                                                    oid: z.string(),
+                                                }),
+                                            )
+                                            .optional(),
+                                    })
+                                    .optional(),
+                                statusCheckRollup: z
+                                    .object({
+                                        state: z.string(),
+                                    })
+                                    .nullable()
+                                    .optional(),
+                            })
+                            .optional(),
+                    }),
+                )
+                .optional(),
+        })
+        .optional(),
+});
+export type GitHubPrNode = z.infer<typeof GitHubPrNodeSchema>;
 
-interface GitHubGqlResponse {
-    errors?: unknown[];
-    data?: {
-        repository?: {
-            parent?: Record<
-                string,
-                {
-                    nodes?: GitHubPrNode[];
-                }
-            > | null;
-        } & Record<
-            string,
-            | {
-                  nodes?: GitHubPrNode[];
-              }
-            | Record<
-                  string,
-                  {
-                      nodes?: GitHubPrNode[];
-                  }
-              >
-            | null
-            | undefined
-        >;
-    };
-}
+export const GitHubGqlResponseSchema = z.object({
+    errors: z.array(z.unknown()).optional(),
+    data: z
+        .object({
+            repository: z
+                .record(z.string(), z.any())
+                .and(
+                    z.object({
+                        parent: z
+                            .record(
+                                z.string(),
+                                z.object({
+                                    nodes: z.array(GitHubPrNodeSchema).optional(),
+                                }),
+                            )
+                            .nullable()
+                            .optional(),
+                    }),
+                )
+                .optional(),
+        })
+        .optional(),
+});
+export type GitHubGqlResponse = z.infer<typeof GitHubGqlResponseSchema>;
 
 export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
@@ -334,7 +360,13 @@ export class GitHubProvider implements CodeForgeProvider {
             throw new Error(`GraphQL request failed with status: ${response.statusText}`);
         }
 
-        const json = (await response.json()) as GitHubGqlResponse;
+        const parsedJson = await response.json();
+        const validation = GitHubGqlResponseSchema.safeParse(parsedJson);
+        if (!validation.success) {
+            throw new Error(`Failed to validate GraphQL response: ${validation.error.message}`);
+        }
+
+        const json = validation.data;
         if (json.errors) {
             throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
         }
