@@ -56,9 +56,7 @@ test.describe('Workspace Management E2E', () => {
             await expect(repo2Pill).toBeVisible();
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -103,9 +101,7 @@ test.describe('Workspace Management E2E', () => {
             expect(workspaces).toContain(workspaceName);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -171,9 +167,7 @@ test.describe('Workspace Management E2E', () => {
             expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

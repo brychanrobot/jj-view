@@ -59,9 +59,7 @@ test.describe('JJ Log Pane E2E', () => {
             await waitForLogPill(page, 'main', 'bookmark');
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -135,9 +133,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -228,9 +224,7 @@ test.describe('JJ Log Pane E2E', () => {
             ]);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -286,9 +280,7 @@ test.describe('JJ Log Pane E2E', () => {
             }).toPass({ timeout: 10000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

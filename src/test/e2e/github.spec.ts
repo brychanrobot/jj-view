@@ -85,9 +85,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(uploadButton).not.toBeVisible();
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -153,9 +151,7 @@ test.describe('GitHub Integration E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -228,9 +224,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(uploadButton).toHaveAttribute('title', 'Local changes need upload (Click to push)');
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
             remoteRepo.dispose();
         }
@@ -267,9 +261,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(quickPick).not.toBeVisible();
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -349,9 +341,7 @@ test.describe('GitHub Integration E2E', () => {
             await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -399,9 +389,7 @@ test.describe('GitHub Integration E2E', () => {
             await expectBadgeLink(row, 'PR #99', 'https://github.com/mainline-owner/mainline-repo/pull/99');
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

@@ -71,9 +71,7 @@ test.describe('SCM Pane E2E', () => {
             await expectScmDescription(page, 'my working copy');
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -123,9 +121,7 @@ test.describe('SCM Pane E2E', () => {
             ]);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -169,9 +165,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(scmInput).not.toContainText('Commit via keyboard', { timeout: 10000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -233,9 +227,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -297,9 +289,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 10000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -356,9 +346,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 10000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -503,9 +491,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -578,9 +564,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -628,9 +612,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -681,9 +663,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -734,9 +714,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -782,9 +760,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 5000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -842,9 +818,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -902,9 +876,7 @@ test.describe('SCM Pane E2E', () => {
             await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -980,9 +952,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -1055,9 +1025,7 @@ test.describe('SCM Pane E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

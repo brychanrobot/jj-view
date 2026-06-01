@@ -72,9 +72,7 @@ test.describe('Commit Details E2E', () => {
             await app.close();
         }
         if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
         }
         if (repo) {
             repo.dispose();

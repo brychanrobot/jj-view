@@ -112,9 +112,7 @@ test.describe('Gerrit Integration E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -156,9 +154,7 @@ test.describe('Gerrit Integration E2E', () => {
             await expect(uploadButton).toBeVisible({ timeout: 20000 });
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

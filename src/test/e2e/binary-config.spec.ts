@@ -41,9 +41,7 @@ test.describe('JJ Binary Configuration E2E', () => {
             await expect(settingItem.locator('input')).toHaveValue(invalidPath);
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -91,9 +89,7 @@ test.describe('JJ Binary Configuration E2E', () => {
             await expect(settingItem.locator('input')).toHaveValue('');
         } finally {
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });

@@ -66,7 +66,11 @@ export async function launchVSCode(
             return pooledWindow;
         } else {
             // Configuration mismatch, close the pooled window and start a new one
-            await pooledWindow.app.close();
+            if (typeof (pooledWindow.app as any)._actualClose === 'function') {
+                await (pooledWindow.app as any)._actualClose();
+            } else {
+                await pooledWindow.app.close();
+            }
             try {
                 fs.rmSync(pooledWindow.userDataDir, { recursive: true, force: true });
             } catch {}
@@ -230,7 +234,25 @@ export async function launchVSCode(
         await page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
     }
 
-    const context = { app, page, userDataDir, extraSettingsHash };
+    // We override app.close() so that individual tests do not accidentally close the pooled window
+    // and we also preserve the original close method if we ever need it (e.g., when the config mismatches).
+    const pooledApp = new Proxy(app, {
+        get(target, prop, receiver) {
+            if (prop === 'close') {
+                return async () => {
+                    // No-op for the tests.
+                };
+            }
+            if (prop === '_actualClose') {
+                return async () => {
+                    return await target.close();
+                };
+            }
+            return Reflect.get(target, prop, receiver);
+        },
+    });
+
+    const context = { app: pooledApp, page, userDataDir, extraSettingsHash };
     windowPool.set(workerIndex, context);
 
     return context;

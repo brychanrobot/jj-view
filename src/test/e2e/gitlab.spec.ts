@@ -93,9 +93,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -168,9 +166,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -231,9 +227,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -315,9 +309,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -376,9 +368,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -425,9 +415,7 @@ test.describe('GitLab Integration E2E', () => {
             gitlab.statusOverride = undefined;
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
@@ -481,9 +469,7 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             maybePrintExtensionLogs(userDataDir);
             await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
+            // no-op userDataDir removal
             repo.dispose();
         }
     });
