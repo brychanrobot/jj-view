@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    canAbsorbCommit,
     canSquashCommit,
     convertJjChangeIdToHex,
     formatCommitTitle,
@@ -169,6 +170,54 @@ describe('JJ Utils', () => {
                 is_divergent: false,
             };
             expect(formatCommitTitle(commit, 8)).toBe('Commit: abcdef');
+        });
+    });
+
+    describe('canAbsorbCommit', () => {
+        describe('when there are no parents', () => {
+            it('should return false if parents array is missing', () => {
+                expect(canAbsorbCommit({})).toBe(false);
+            });
+
+            it('should return false if parents array is empty', () => {
+                expect(canAbsorbCommit({ parents: [] })).toBe(false);
+            });
+        });
+
+        describe('when there are parents', () => {
+            it('should correctly determine if the commit can be absorbed based on parents mutability', () => {
+                const cases = [
+                    {
+                        parents: [{ is_immutable: true }],
+                        expected: false,
+                        description: 'single immutable parent',
+                    },
+                    {
+                        parents: [{ is_immutable: true }, { is_immutable: true }],
+                        expected: false,
+                        description: 'all multiple parents are immutable',
+                    },
+                    {
+                        parents: [{}],
+                        expected: true,
+                        description: 'parent lacks explicit is_immutable flag (defaults to mutable)',
+                    },
+                    {
+                        parents: [{ is_immutable: false }],
+                        expected: true,
+                        description: 'single mutable parent',
+                    },
+                    {
+                        parents: [{ is_immutable: true }, { is_immutable: false }],
+                        expected: true,
+                        description: 'one of multiple parents is mutable',
+                    },
+                ];
+
+                for (const { parents, expected, description } of cases) {
+                    expect(canAbsorbCommit({ parents }), description).toBe(expected);
+                }
+            });
         });
     });
 
