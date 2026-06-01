@@ -9,6 +9,7 @@ import {
     formatDisplayChangeId,
     getChangeIdDisplayLength,
     shortenChangeId,
+    isMutableCommit,
 } from '../utils/jj-utils';
 
 describe('JJ Utils', () => {
@@ -126,6 +127,17 @@ describe('JJ Utils', () => {
                 is_divergent: false,
             };
             expect(formatCommitTitle(commit, 8)).toBe('Commit: abcdef');
+        });
+    });
+
+    describe('isMutableCommit', () => {
+        it('should return true if commit is not immutable', () => {
+            expect(isMutableCommit({ is_immutable: false })).toBe(true);
+            expect(isMutableCommit({})).toBe(true);
+        });
+
+        it('should return false if commit is immutable', () => {
+            expect(isMutableCommit({ is_immutable: true })).toBe(false);
         });
     });
 });
