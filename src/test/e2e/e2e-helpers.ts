@@ -17,7 +17,10 @@ export interface VSCodeContext {
     app: ElectronApplication;
     page: Page;
     userDataDir: string;
+    extraSettingsHash: string;
 }
+
+const windowPool = new Map<number, VSCodeContext>();
 
 /**
  * Standard setup for VS Code E2E tests.
@@ -30,6 +33,41 @@ export async function launchVSCode(
     extraEnv: Record<string, string | undefined> = {},
     showNotifications = false,
 ): Promise<VSCodeContext> {
+    const workerIndex = test.info().workerIndex;
+    const extraSettingsHash = JSON.stringify({ extraSettings, extraEnv, showNotifications });
+
+    const pooledWindow = windowPool.get(workerIndex);
+
+    if (pooledWindow) {
+        if (pooledWindow.extraSettingsHash === extraSettingsHash) {
+            // Write the new path to a file so the extension can read it
+            const nextWorkspaceFile = path.join(pooledWindow.userDataDir, 'next-workspace.txt');
+            fs.writeFileSync(nextWorkspaceFile, repo.path);
+
+            // Trigger the test command via the keyboard shortcut we added
+            await pooledWindow.page.keyboard.press('Control+Alt+O');
+
+            // Wait for the workspace folder to update in the explorer
+            await expect(pooledWindow.page.locator('.explorer-folders-view')).toContainText(path.basename(repo.path), {
+                timeout: 15000,
+            });
+
+            // Wait a moment for things to settle (extensions restarting etc)
+            await pooledWindow.page.waitForTimeout(500);
+
+            // Reset UI state: close all editors to get a clean slate for the next test
+            await pooledWindow.page.keyboard.press('Control+Alt+W');
+
+            return pooledWindow;
+        } else {
+            // Configuration mismatch, close the pooled window and start a new one
+            await pooledWindow.app.close();
+            try {
+                fs.rmSync(pooledWindow.userDataDir, { recursive: true, force: true });
+            } catch {}
+            windowPool.delete(workerIndex);
+        }
+    }
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-user-data-'));
     const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-extensions-'));
     const userSettingsDir = path.join(userDataDir, 'User');
@@ -89,6 +127,14 @@ export async function launchVSCode(
                     key: 'ctrl+alt+f',
                     command: 'jj-view.compareFileWith',
                 },
+                {
+                    key: 'ctrl+alt+o',
+                    command: 'jj-view.test.openFolder',
+                },
+                {
+                    key: 'ctrl+alt+w',
+                    command: 'workbench.action.closeAllEditors',
+                },
             ],
             null,
             2,
@@ -141,7 +187,9 @@ export async function launchVSCode(
         args.push('--disable-extensions'); // Only disable other extensions when running from source
     }
 
-    const env = { ...process.env } as { [key: string]: string };
+    const env = { ...process.env, JJ_TEST_WORKSPACE_FILE: path.join(userDataDir, 'next-workspace.txt') } as {
+        [key: string]: string;
+    };
     for (const key in extraEnv) {
         const val = extraEnv[key];
         if (val === undefined) {
@@ -177,7 +225,10 @@ export async function launchVSCode(
         await page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
     }
 
-    return { app, page, userDataDir };
+    const context = { app, page, userDataDir, extraSettingsHash };
+    windowPool.set(workerIndex, context);
+
+    return context;
 }
 
 /**

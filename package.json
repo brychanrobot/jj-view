@@ -226,6 +226,11 @@
                 "icon": "$(check)"
             },
             {
+                "command": "jj-view.test.openFolder",
+                "title": "Test Open Folder",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.compareWithWorkingCopy",
                 "title": "Compare All Files with Revision...",
                 "category": "JJ View"

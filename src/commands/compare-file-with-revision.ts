@@ -28,7 +28,7 @@ export async function compareFileWithRevisionCommand(
             fileUri = vscode.window.activeTextEditor?.document.uri;
         }
 
-        if (!fileUri || fileUri.scheme !== 'file') {
+        if (fileUri?.scheme !== 'file') {
             vscode.window.showErrorMessage('No workspace file selected for comparison.');
             return;
         }

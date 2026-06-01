@@ -574,6 +574,19 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.test.openFolder', async () => {
+            const fs = require('node:fs');
+            const nextWorkspaceFile = process.env.JJ_TEST_WORKSPACE_FILE;
+
+            if (nextWorkspaceFile && fs.existsSync(nextWorkspaceFile)) {
+                const nextWorkspace = fs.readFileSync(nextWorkspaceFile, 'utf8');
+                const uri = vscode.Uri.file(nextWorkspace);
+                vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length ?? 0, { uri });
+            }
+        }),
+    );
+
     // Fire and forget: check if we should warn about git colocation
     checkGitColocation(jj).catch((e) => outputChannel.appendLine(`[Extension] Colocation check failed: ${e}`));
 
