@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { FakeGitLabServer } from '../helpers/fake-gitlab-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
@@ -15,7 +14,6 @@ import {
     launchVSCode,
     locateQuickInputItem,
     locateQuickInputWidget,
-    maybePrintExtensionLogs,
     pickQuickPickItem,
     waitForLogCommitRow,
     waitForQuickInput,
@@ -64,7 +62,7 @@ test.describe('GitLab Integration E2E', () => {
             user_notes_count: 3,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -91,7 +89,7 @@ test.describe('GitLab Integration E2E', () => {
             const uploadButton = row.getByRole('button', { name: 'Upload changes to GitLab' });
             await expect(uploadButton).not.toBeVisible();
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -130,7 +128,7 @@ test.describe('GitLab Integration E2E', () => {
             sha: 'different-commit-sha',
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -164,7 +162,7 @@ test.describe('GitLab Integration E2E', () => {
                 expect(desc).toContain('uploaded_successfully');
             }).toPass({ timeout: 15000 });
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -196,7 +194,7 @@ test.describe('GitLab Integration E2E', () => {
             sha: commits['mr-commit'].commitId,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -225,7 +223,7 @@ test.describe('GitLab Integration E2E', () => {
             const quickPick = locateQuickInputWidget(page);
             await expect(quickPick).not.toBeVisible();
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -237,7 +235,7 @@ test.describe('GitLab Integration E2E', () => {
         repo.init();
         repo.addRemote('origin', 'https://gitlab.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -307,7 +305,7 @@ test.describe('GitLab Integration E2E', () => {
 
             await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -319,7 +317,7 @@ test.describe('GitLab Integration E2E', () => {
         repo.init();
         repo.addRemote('origin', 'https://gitlab.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -366,7 +364,7 @@ test.describe('GitLab Integration E2E', () => {
             const quickPick = locateQuickInputWidget(page).filter({ visible: true });
             await expect(quickPick).not.toBeVisible();
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -393,7 +391,7 @@ test.describe('GitLab Integration E2E', () => {
             body: 'Forbidden',
         };
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -413,7 +411,7 @@ test.describe('GitLab Integration E2E', () => {
             await expectNotificationToast(page, "requires 'Merge Request' read/write permissions or 'api' scope");
         } finally {
             gitlab.statusOverride = undefined;
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();
@@ -447,7 +445,7 @@ test.describe('GitLab Integration E2E', () => {
             source_project_id: 200, // Allowed fork source project ID
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'gitlab',
@@ -467,7 +465,7 @@ test.describe('GitLab Integration E2E', () => {
             // Verify MR badge is shown with correct ID (even though it's submitted from project ID 200, which is the fork)
             await expectBadgeLink(row, 'MR !99', 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/99');
         } finally {
-            maybePrintExtensionLogs(userDataDir);
+            // //
             await app.close();
             // no-op userDataDir removal
             repo.dispose();

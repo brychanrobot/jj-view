@@ -16,7 +16,7 @@ test.describe('JJ Binary Configuration E2E', () => {
         repo.init();
 
         const invalidPath = path.join(os.tmpdir(), 'non-existent-jj-binary');
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.binaryPath': invalidPath,
         });
 
@@ -60,7 +60,7 @@ test.describe('JJ Binary Configuration E2E', () => {
             .join(path.delimiter);
 
         // Launch with filtered PATH and empty HOME to avoid discovery
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             { 'jj-view.binaryPath': '' }, // Ensure not set
             { PATH: filteredPath, HOME: path.join(os.tmpdir(), 'jj-empty-home') },

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
@@ -40,7 +39,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);
@@ -80,7 +79,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);
@@ -154,7 +153,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);
@@ -248,7 +247,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);

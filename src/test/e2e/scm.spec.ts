@@ -51,7 +51,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -85,7 +85,7 @@ test.describe('SCM Pane E2E', () => {
         const initialId = commits.initial.changeId;
         const workspaceRootId = repo.getParents(initialId)[0];
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -134,7 +134,7 @@ test.describe('SCM Pane E2E', () => {
             { label: 'wc', parents: ['initial'], description: '', isCurrentWorkingCopy: true },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -178,7 +178,7 @@ test.describe('SCM Pane E2E', () => {
             { label: 'wc', parents: ['initial'], description: '', isCurrentWorkingCopy: true },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.commit.formatDescriptionOnSave': true,
         });
 
@@ -254,7 +254,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -310,7 +310,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -369,7 +369,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -517,7 +517,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -583,7 +583,7 @@ test.describe('SCM Pane E2E', () => {
             { label: 'wc', parents: ['ancestor'], isCurrentWorkingCopy: true },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -625,7 +625,7 @@ test.describe('SCM Pane E2E', () => {
             { label: 'wc', parents: ['initial'], isCurrentWorkingCopy: true },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -694,7 +694,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -742,7 +742,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -793,7 +793,7 @@ test.describe('SCM Pane E2E', () => {
         ]);
         fs.unlinkSync(path.join(repo.path, 'deleted.txt'));
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.openDiffOnClick': true,
         });
 
@@ -851,7 +851,7 @@ test.describe('SCM Pane E2E', () => {
         ]);
         fs.unlinkSync(path.join(repo.path, 'deleted.txt'));
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.openDiffOnClick': false,
         });
 
@@ -919,7 +919,7 @@ test.describe('SCM Pane E2E', () => {
         ]);
         repo.edit(ids.wc.changeId);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);
@@ -989,7 +989,7 @@ test.describe('SCM Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusSCM(page);

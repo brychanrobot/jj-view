@@ -66,7 +66,9 @@ export async function launchVSCode(
             return pooledWindow;
         } else {
             // Configuration mismatch, close the pooled window and start a new one
+            // biome-ignore lint/suspicious/noExplicitAny: Required to access the mocked close function correctly
             if (typeof (pooledWindow.app as any)._actualClose === 'function') {
+                // biome-ignore lint/suspicious/noExplicitAny: Required to access the mocked close function correctly
                 await (pooledWindow.app as any)._actualClose();
             } else {
                 await pooledWindow.app.close();

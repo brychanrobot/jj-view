@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { convertJjChangeIdToHex } from '../../utils/jj-utils';
 import { FakeGerritServer } from '../helpers/fake-gerrit-server';
@@ -62,7 +61,7 @@ test.describe('Gerrit Integration E2E', () => {
         gerrit.registerChangeByNumber(numMixed, idMixed);
         clNumbers['mixed-trailers'] = numMixed;
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.gerrit.host': gerrit.url,
             'jj-view.uploadCommand': 'describe -m uploaded_successfully',
         });
@@ -140,7 +139,7 @@ test.describe('Gerrit Integration E2E', () => {
         // Rebase child to base locally (skipping parent)
         repo.rebase({ source: commits.child.changeId, destination: commits.base.changeId });
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { app, page } = await launchVSCode(repo, {
             'jj-view.gerrit.host': gerrit.url,
         });
 

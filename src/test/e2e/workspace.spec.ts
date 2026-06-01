@@ -35,7 +35,7 @@ test.describe('Workspace Management E2E', () => {
         const workspaceName = 'repo2';
         repo.workspaceAdd(workspaceName, baseId);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);
@@ -69,7 +69,7 @@ test.describe('Workspace Management E2E', () => {
         const workspaceName = `ws-${Date.now()}`;
 
         // Enable notifications for this test so we can click "Open Workspace"
-        const { app, page, userDataDir } = await launchVSCode(repo, {}, {}, true);
+        const { app, page } = await launchVSCode(repo, {}, {}, true);
 
         try {
             await focusJJLog(page);
@@ -121,7 +121,7 @@ test.describe('Workspace Management E2E', () => {
         const forgetWsPath = path.resolve(repo.path, workspacesRelativeDir, forgetWs);
         const deleteWsPath = path.resolve(repo.path, workspacesRelativeDir, deleteWs);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { app, page } = await launchVSCode(repo);
 
         try {
             await focusJJLog(page);

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
@@ -58,7 +57,7 @@ test.describe('GitHub Integration E2E', () => {
             unresolvedComments: 3,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -117,7 +116,7 @@ test.describe('GitHub Integration E2E', () => {
             currentRevision: 'different-commit-sha',
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -194,7 +193,7 @@ test.describe('GitHub Integration E2E', () => {
             currentRevision: parentCommitId,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -235,7 +234,7 @@ test.describe('GitHub Integration E2E', () => {
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -271,7 +270,7 @@ test.describe('GitHub Integration E2E', () => {
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -369,7 +368,7 @@ test.describe('GitHub Integration E2E', () => {
             headOwner: 'fork-owner',
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { app, page } = await launchVSCode(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',

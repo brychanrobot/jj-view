@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import { type Page, test } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
