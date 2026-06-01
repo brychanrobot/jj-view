@@ -8,8 +8,8 @@ import {
     formatCommitTitle,
     formatDisplayChangeId,
     getChangeIdDisplayLength,
-    shortenChangeId,
     isMutableCommit,
+    shortenChangeId,
 } from '../utils/jj-utils';
 
 describe('JJ Utils', () => {
