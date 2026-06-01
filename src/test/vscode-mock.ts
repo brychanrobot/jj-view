@@ -5,6 +5,49 @@
 import { vi } from 'vitest';
 
 /**
+ * Helper to parse a URI string into components for MockUri.
+ * Example inputs:
+ * - "jj-edit:///foo/bar.txt?revision=@" -> scheme="jj-edit", path="/foo/bar.txt", query="revision=@"
+ * - "jj-edit://foo/bar.txt?revision=@" -> scheme="jj-edit", path="foo/bar.txt", query="revision=@"
+ * - "/foo/bar.txt" -> scheme="file", path="/foo/bar.txt", query=""
+ * - "file:///foo/bar.txt#frag" -> scheme="file", path="/foo/bar.txt", query=""
+ */
+function parseUriString(uriString: string): { scheme: string; path: string; query: string } {
+    let scheme = 'file';
+    let rest = uriString;
+
+    const schemeMatch = uriString.match(/^([a-zA-Z0-9.+-]+):\/\/(.*)$/);
+    if (schemeMatch) {
+        scheme = schemeMatch[1];
+        rest = schemeMatch[2];
+    }
+
+    // Strip fragment
+    const hashIndex = rest.indexOf('#');
+    if (hashIndex !== -1) {
+        rest = rest.substring(0, hashIndex);
+    }
+
+    // Parse query
+    const queryIndex = rest.indexOf('?');
+    let query = '';
+    let pathPart = rest;
+    if (queryIndex !== -1) {
+        pathPart = rest.substring(0, queryIndex);
+        query = rest.substring(queryIndex + 1);
+    }
+
+    let decodedPath = pathPart;
+    try {
+        decodedPath = decodeURIComponent(pathPart);
+    } catch {
+        // Fallback
+    }
+
+    return { scheme, path: decodedPath, query };
+}
+
+/**
  * Creates a base vscode mock with common properties. Override any property
  * by passing a partial object — properties are shallow-merged per namespace.
  *
@@ -80,6 +123,40 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         dispose = vi.fn();
     }
 
+    const onDidChangeTabsEmitter = new EventEmitter<unknown>();
+    const onDidChangeTabGroupsEmitter = new EventEmitter<unknown>();
+    const onDidChangeWindowStateEmitter = new EventEmitter<unknown>();
+    const onDidChangeConfigurationEmitter = new EventEmitter<unknown>();
+    const onDidSaveTextDocumentEmitter = new EventEmitter<unknown>();
+
+    class FileSystemError extends Error {
+        readonly code: string;
+        constructor(messageOrUri?: string | object, code: string = 'Unknown') {
+            const msg = messageOrUri && typeof messageOrUri !== 'string' ? String(messageOrUri) : messageOrUri || '';
+            super(msg);
+            this.code = code;
+            this.name = 'FileSystemError';
+        }
+        static Unavailable(message?: string | object) {
+            return new FileSystemError(message, 'Unavailable');
+        }
+        static FileNotFound(message?: string | object) {
+            return new FileSystemError(message, 'FileNotFound');
+        }
+        static NoPermissions(message?: string | object) {
+            return new FileSystemError(message, 'NoPermissions');
+        }
+        static FileExists(message?: string | object) {
+            return new FileSystemError(message, 'FileExists');
+        }
+        static FileNotADirectory(message?: string | object) {
+            return new FileSystemError(message, 'FileNotADirectory');
+        }
+        static FileIsADirectory(message?: string | object) {
+            return new FileSystemError(message, 'FileIsADirectory');
+        }
+    }
+
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
         Position,
@@ -87,13 +164,38 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         Selection,
         Disposable,
         EventEmitter,
+        FileChangeType: {
+            Changed: 1,
+            Created: 2,
+            Deleted: 3,
+        },
+        FileType: {
+            Unknown: 0,
+            File: 1,
+            Directory: 2,
+            SymbolicLink: 64,
+        },
+        FileSystemError,
+
         Uri: class MockUri {
             constructor(
                 public fsPath: string,
                 public scheme: string = 'file',
                 public query: string = '',
                 public path: string = fsPath,
-            ) {}
+            ) {
+                if (process.platform === 'win32') {
+                    this.fsPath = this.fsPath.replace(/\//g, '\\');
+                    // Strip leading backslash if it precedes a drive letter (e.g., \C:\... -> C:\...)
+                    if (/^\\[a-zA-Z]:\\/.test(this.fsPath)) {
+                        this.fsPath = this.fsPath.substring(1);
+                    }
+                    if (/^[a-zA-Z]:\\/.test(this.fsPath)) {
+                        this.fsPath = this.fsPath[0].toLowerCase() + this.fsPath.substring(1);
+                    }
+                    this.path = this.fsPath;
+                }
+            }
             static file(fsPath: string) {
                 return new MockUri(fsPath);
             }
@@ -101,7 +203,8 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 return new MockUri(components.path, components.scheme, components.query || '', components.path);
             }
             static parse(uriString: string) {
-                return { _isUriBaseCtorMock: true, value: uriString };
+                const parsed = parseUriString(uriString);
+                return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path);
             }
             static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
                 const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
@@ -140,15 +243,33 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             withProgress: vi.fn().mockImplementation(async (_: unknown, task: () => Promise<unknown>) => task()),
             setStatusBarMessage: vi.fn(),
             createOutputChannel: vi.fn().mockReturnValue({ appendLine: vi.fn() }),
+            tabGroups: {
+                activeTabGroup: { activeTab: undefined },
+                onDidChangeTabs: onDidChangeTabsEmitter.event,
+                onDidChangeTabGroups: onDidChangeTabGroupsEmitter.event,
+            },
+            visibleTextEditors: [],
+            onDidChangeWindowState: onDidChangeWindowStateEmitter.event,
+            state: { focused: true },
         },
         workspace: {
             workspaceFolders: [{ uri: { fsPath: '/root' } }],
             getConfiguration: vi.fn().mockReturnValue({
                 get: vi.fn().mockImplementation((_key: string, defaultValue: unknown) => defaultValue),
             }),
+            onDidChangeConfiguration: onDidChangeConfigurationEmitter.event,
+            onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,
+            findFiles: vi.fn().mockResolvedValue([]),
         },
         commands: {
             executeCommand: vi.fn(),
+        },
+        _emitters: {
+            onDidChangeTabs: onDidChangeTabsEmitter,
+            onDidChangeTabGroups: onDidChangeTabGroupsEmitter,
+            onDidChangeWindowState: onDidChangeWindowStateEmitter,
+            onDidChangeConfiguration: onDidChangeConfigurationEmitter,
+            onDidSaveTextDocument: onDidSaveTextDocumentEmitter,
         },
     };
 
