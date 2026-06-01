@@ -1054,6 +1054,31 @@ log = "none()"
         expect(repo.getFileContent(parentId, 'file2.txt')).toBe('new2');
     });
 
+    test('setFilesContent is performant when writing many files concurrently', async () => {
+        repo.describe('parent');
+        const parentId = repo.getChangeId('@');
+
+        const NUM_FILES = 200;
+        const files = new Map<string, string>();
+
+        for (let i = 0; i < NUM_FILES; i++) {
+            const fileName = `file_bench_${i}.txt`;
+            repo.writeFile(fileName, `old content ${i}`);
+            files.set(fileName, `new content ${i}`);
+        }
+
+        const start = performance.now();
+        await jjService.setFilesContent(parentId, files);
+        const end = performance.now();
+        const duration = end - start;
+
+        console.log(`Writing ${NUM_FILES} files took ${duration.toFixed(2)}ms`);
+
+        // Basic verification
+        expect(repo.getFileContent(parentId, 'file_bench_0.txt')).toBe('new content 0');
+        expect(repo.getFileContent(parentId, `file_bench_${NUM_FILES - 1}.txt`)).toBe(`new content ${NUM_FILES - 1}`);
+    });
+
     test('squashPartialToParent handles new files (not in parent)', async () => {
         const fileName = 'new-file.txt';
         const filePath = path.join(repo.path, fileName);

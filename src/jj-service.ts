@@ -654,13 +654,17 @@ export class JjService {
             const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-batch-edit-'));
             try {
                 const fileList: { relPath: string; tmpPath: string }[] = [];
+                const writePromises: Promise<void>[] = [];
+
                 for (const [filePath, content] of files.entries()) {
                     const relPath = this.toRelative(filePath);
                     const safeName = relPath.replace(/[\\/]/g, '_');
                     const tmpPath = path.join(tempDir, `src_${safeName}`);
-                    await fs.writeFile(tmpPath, content, 'utf8');
+                    writePromises.push(fs.writeFile(tmpPath, content, 'utf8'));
                     fileList.push({ relPath, tmpPath });
                 }
+
+                await Promise.all(writePromises);
 
                 const normalizedScriptPath = this.getScriptPath('batch-edit');
                 const toolName = 'vscode-batch-write';
