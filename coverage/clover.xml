@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage generated="1780336159878" clover="3.2.0">
+  <project timestamp="1780336159878" name="All files">
+    <metrics statements="25" coveredstatements="22" conditionals="20" coveredconditionals="14" methods="9" coveredmethods="5" elements="54" coveredelements="41" complexity="0" loc="25" ncloc="25" packages="1" files="1" classes="1"/>
+    <file name="jj-utils.ts" path="/app/src/utils/jj-utils.ts">
+      <metrics statements="25" coveredstatements="22" conditionals="20" coveredconditionals="14" methods="9" coveredmethods="5"/>
+      <line num="7" count="1" type="stmt"/>
+      <line num="8" count="1" type="stmt"/>
+      <line num="9" count="16" type="stmt"/>
+      <line num="17" count="9" type="stmt"/>
+      <line num="18" count="9" type="cond" truecount="2" falsecount="0"/>
+      <line num="19" count="9" type="stmt"/>
+      <line num="21" count="9" type="stmt"/>
+      <line num="22" count="33" type="stmt"/>
+      <line num="24" count="33" type="cond" truecount="4" falsecount="0"/>
+      <line num="25" count="32" type="stmt"/>
+      <line num="27" count="1" type="stmt"/>
+      <line num="30" count="8" type="stmt"/>
+      <line num="38" count="9" type="cond" truecount="2" falsecount="0"/>
+      <line num="39" count="1" type="stmt"/>
+      <line num="41" count="8" type="stmt"/>
+      <line num="49" count="8" type="cond" truecount="2" falsecount="0"/>
+      <line num="56" count="4" type="stmt"/>
+      <line num="57" count="4" type="stmt"/>
+      <line num="67" count="5" type="cond" truecount="2" falsecount="0"/>
+      <line num="68" count="5" type="stmt"/>
+      <line num="69" count="5" type="cond" truecount="2" falsecount="0"/>
+      <line num="70" count="5" type="stmt"/>
+      <line num="77" count="0" type="cond" truecount="0" falsecount="4"/>
+      <line num="84" count="0" type="stmt"/>
+      <line num="91" count="0" type="cond" truecount="0" falsecount="2"/>
+    </file>
+  </project>
+</coverage>

@@ -934,6 +934,7 @@
         "@types/react-dom": "^19.2.3",
         "@types/sinon": "^21.0.0",
         "@types/vscode": "^1.104.0",
+        "@vitest/coverage-v8": "^4.0.16",
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^3.9.1",
@@ -946,7 +947,6 @@
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
-
         "typescript": "^5.9.3",
         "vitest": "^4.0.16"
     },
