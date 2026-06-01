@@ -3,24 +3,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// Pre-compute map for character conversions from 107 ('k') to 122 ('z')
+const HEX_MAP: string[] = new Array(123);
+for (let i = 107; i <= 122; i++) {
+    HEX_MAP[i] = (122 - i).toString(16);
+}
+
 /**
  * Converts a JJ Change-Id (reverse hex, k-z) to standard Hex (0-f).
  * JJ uses 'z' for 0, 'y' for 1, ..., 'k' for 15.
  */
 export function convertJjChangeIdToHex(jjChangeId: string): string {
-    const baseId = jjChangeId.split('/')[0];
-    let result = '';
-    for (let i = 0; i < baseId.length; i++) {
-        const charCode = baseId.charCodeAt(i);
+    const slashIndex = jjChangeId.indexOf('/');
+    const len = slashIndex === -1 ? jjChangeId.length : slashIndex;
+    const result = new Array(len);
+
+    for (let i = 0; i < len; i++) {
+        const charCode = jjChangeId.charCodeAt(i);
         // Ensure char is within range k-z (107-122)
         if (charCode >= 107 && charCode <= 122) {
-            const val = 122 - charCode;
-            result += val.toString(16);
+            result[i] = HEX_MAP[charCode];
         } else {
-            throw new Error(`Invalid character '${baseId[i]}' in JJ Change-Id: ${jjChangeId}`);
+            throw new Error(`Invalid character '${jjChangeId[i]}' in JJ Change-Id: ${jjChangeId}`);
         }
     }
-    return result;
+    return result.join('');
 }
 
 /**
