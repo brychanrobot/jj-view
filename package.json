@@ -413,6 +413,12 @@
                 "icon": "$(bookmark)"
             },
             {
+                "command": "jj-view.deleteBookmark",
+                "title": "Delete Bookmark",
+                "category": "JJ View",
+                "icon": "$(trash)"
+            },
+            {
                 "command": "jj-view.absorb",
                 "title": "Absorb",
                 "category": "JJ View",
@@ -464,42 +470,42 @@
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.on",
-                "title": "● New Child",
+                "title": "\u25cf New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.off",
-                "title": "○ New Child",
+                "title": "\u25cb New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.on",
-                "title": "● Edit",
+                "title": "\u25cf Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.off",
-                "title": "○ Edit",
+                "title": "\u25cb Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.on",
-                "title": "● Squash",
+                "title": "\u25cf Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.off",
-                "title": "○ Squash",
+                "title": "\u25cb Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.on",
-                "title": "● Abandon",
+                "title": "\u25cf Abandon",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.off",
-                "title": "○ Abandon",
+                "title": "\u25cb Abandon",
                 "category": "JJ View"
             },
             {
@@ -711,6 +717,11 @@
                     "command": "jj-view.setBookmark",
                     "when": "webviewSection == 'commit'",
                     "group": "3_bookmark@1"
+                },
+                {
+                    "command": "jj-view.deleteBookmark",
+                    "when": "webviewSection == 'jj.bookmark' && !isRemoteBookmark",
+                    "group": "3_bookmark@2"
                 },
                 {
                     "command": "jj-view.hideCommitAction.newChild",
@@ -982,7 +993,6 @@
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
-
         "typescript": "^5.9.3",
         "vitest": "^4.0.16"
     },

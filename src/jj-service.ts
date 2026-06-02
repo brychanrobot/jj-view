@@ -320,6 +320,13 @@ export class JjService {
         });
     }
 
+    async deleteBookmark(name: string): Promise<string> {
+        return this.run('bookmark', ['delete', name], {
+            isMutation: true,
+            label: 'deleteBookmark',
+        });
+    }
+
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
         const { revision, limit, omitChanges, includeNearestVisibleAncestors } = options;
 
