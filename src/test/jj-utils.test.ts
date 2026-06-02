@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    canSquashCommit,
     convertJjChangeIdToHex,
     formatCommitTitle,
     formatDisplayChangeId,
@@ -83,6 +84,47 @@ describe('JJ Utils', () => {
 
         it('should handle short full ID', () => {
             expect(formatDisplayChangeId('abc', 'abc', 8)).toBe('abc');
+        });
+    });
+
+    describe('canSquashCommit', () => {
+        it('should return true for a mutable commit with exactly one mutable parent', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(true);
+        });
+
+        it('should return false if the commit is immutable', () => {
+            const commit = {
+                is_immutable: true,
+                parents: [{ is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
+        });
+
+        it('should return false if the commit has no parents', () => {
+            const commit1 = { is_immutable: false };
+            const commit2 = { is_immutable: false, parents: [] };
+            expect(canSquashCommit(commit1)).toBe(false);
+            expect(canSquashCommit(commit2)).toBe(false);
+        });
+
+        it('should return false if the commit has multiple parents', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: false }, { is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
+        });
+
+        it('should return false if the single parent is immutable', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: true }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
         });
     });
 

@@ -80,7 +80,7 @@ test.describe('Quick Diff E2E', () => {
         const page = await setupVSCode(repo);
 
         // 1. Open the file
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(page, fileName, repo);
 
         // 2. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -133,7 +133,7 @@ test.describe('Quick Diff E2E', () => {
         const page = await setupVSCode(repo);
 
         // 1. Open the file via the Explorer
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(page, fileName, repo);
 
         // 2 & 3. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -193,7 +193,7 @@ test.describe('Quick Diff E2E', () => {
         const page = await setupVSCode(repo);
 
         // 3. Open the renamed file
-        const editor = await openFileInEditor(page, newFileName);
+        const editor = await openFileInEditor(page, newFileName, repo);
 
         // 4. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -230,7 +230,7 @@ test.describe('Quick Diff E2E', () => {
         const page = await setupVSCode(repo);
 
         // 1. Open the file
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(page, fileName, repo);
 
         // 2. Open Gutter Peek View for the FIRST hunk
         const { peekView } = await openGutterPeekView(page, editor);

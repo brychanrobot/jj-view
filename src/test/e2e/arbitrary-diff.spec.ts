@@ -91,7 +91,7 @@ test.describe('Arbitrary Diff E2E', () => {
         await compareWithRevision(
             page,
             'Control+Alt+c',
-            'commit1',
+            commit1Id,
             new RegExp(`^Compare ${commit1Id.substring(0, 3)}`),
         );
         await expectModifiedFiles(page, ['f.txt']);
@@ -110,18 +110,18 @@ test.describe('Arbitrary Diff E2E', () => {
     });
 
     test('Compare File with Revision... (Ancestor)', async () => {
-        await openFileInEditor(page, 'f.txt');
+        await openFileInEditor(page, 'f.txt', repo);
         const commit1Id = nodes.commit1.changeId;
         await compareWithRevision(
             page,
             'Control+Alt+f',
-            'commit1',
+            commit1Id,
             new RegExp(`f\\.txt \\(${commit1Id.substring(0, 3)}`),
         );
     });
 
     test('Compare File with Revision... (Arbitrary)', async () => {
-        await openFileInEditor(page, 'f.txt');
+        await openFileInEditor(page, 'f.txt', repo);
         const branchC1Id = nodes.branchC1.changeId;
         await compareWithRevision(
             page,
