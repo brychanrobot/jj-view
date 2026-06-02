@@ -449,3 +449,29 @@ export function extractUriFromArgs(args: unknown[]): vscode.Uri | undefined {
     }
     return undefined;
 }
+
+interface BookmarkContextArg {
+    webviewSection: string;
+    bookmarkName?: string;
+}
+
+function isBookmarkContextArg(arg: unknown): arg is BookmarkContextArg {
+    return !!arg && typeof arg === 'object' && 'webviewSection' in arg && 'bookmarkName' in arg;
+}
+
+/**
+ * Extracts a bookmark name from command arguments.
+ */
+export function extractBookmarkName(args: unknown[]): string | undefined {
+    const firstArg = args?.[0];
+
+    if (
+        isBookmarkContextArg(firstArg) &&
+        firstArg.webviewSection === 'jj.bookmark' &&
+        typeof firstArg.bookmarkName === 'string'
+    ) {
+        return firstArg.bookmarkName;
+    }
+
+    return undefined;
+}
