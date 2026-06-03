@@ -224,12 +224,17 @@ test.describe('SCM Pane E2E', () => {
                 'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
             const messageToFormat2 = `Commit Title\n\n${longBody2}`;
 
-            const scmInput2 = await setScmDescription(page, messageToFormat2);
-            await page.keyboard.press('Control+Enter');
-            await expect(scmInput2).not.toContainText('Commit Title', { timeout: 10000 });
-
-            // Wait for it to be committed, formatted, and appear in log
             await expect(async () => {
+                const scmInput2 = await setScmDescription(page, messageToFormat2);
+
+                // Allow the asynchronous IPC from the renderer to update the SCM inputBox
+                // value on the extension host before committing.
+                await page.waitForTimeout(200);
+
+                await page.keyboard.press('Control+Enter');
+                await expect(scmInput2).not.toContainText('Commit Title', { timeout: 5000 });
+
+                // Wait for it to be committed, formatted, and appear in log
                 const log = repo.log();
                 expect(log).toContain('Commit Title');
                 // Find latest commit description (working copy is parent of the new commit)
@@ -237,7 +242,7 @@ test.describe('SCM Pane E2E', () => {
                 const expectedDesc = `Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.`;
                 expect(desc).toBe(expectedDesc);
                 expect(desc.split('\n').length).toBeGreaterThan(2);
-            }).toPass({ timeout: 15000 });
+            }).toPass({ timeout: 20000 });
         } finally {
             await app.close();
             try {

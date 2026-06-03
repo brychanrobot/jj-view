@@ -361,6 +361,11 @@ test.describe('Commit Details E2E', () => {
                 timeout: 15000,
             });
 
+            // Wait for the webview to load and render the content to ensure
+            // the custom editor is fully resolved and registered in the provider's panels map.
+            const details = await getDetailsWebview(page);
+            await expect(details.locator('textarea')).toHaveValue(/add feature/);
+
             // Abandon the commit externally
             repo.abandon(nodes.feature.changeId);
 

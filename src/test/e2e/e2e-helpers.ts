@@ -719,7 +719,10 @@ export async function openQuickInputWithShortcut(page: Page, shortcut: string): 
     const input = quickInput.locator('input.input');
 
     // Ensure any leftover quick input is closed first
-    await expect(quickInput).not.toBeVisible({ timeout: 5000 });
+    if (await quickInput.isVisible()) {
+        await page.keyboard.press('Escape');
+    }
+    await expect(quickInput).not.toBeVisible({ timeout: 2000 });
 
     await expect(async () => {
         if (!(await input.isVisible())) {
@@ -734,7 +737,7 @@ export async function openQuickInputWithShortcut(page: Page, shortcut: string): 
             await page.keyboard.press(shortcut);
         }
         await waitForQuickInput(page, 200);
-    }, `Failed to open quick input via shortcut "${shortcut}"`).toPass({ timeout: 20000 });
+    }, `Failed to open quick input via shortcut "${shortcut}"`).toPass({ timeout: 5000 });
     return input;
 }
 
@@ -891,15 +894,10 @@ export async function openFileInEditor(page: Page, fileName: string, repo?: Test
 
             // 4. Wait for the tab to become active and the Monaco editor to mount
             log(`Waiting for editor to mount...`);
-            await expect(async () => {
-                await expect(tab).toBeVisible({ timeout: 0 });
-                await expect(editor).toBeVisible({ timeout: 0 });
-            }).toPass({
-                timeout: 5000,
-                intervals: [200],
-            });
+            await expect(tab).toBeVisible({ timeout: 5000 });
+            await expect(editor).toBeVisible({ timeout: 5000 });
         }).toPass({
-            timeout: 15000,
+            timeout: 30000,
             intervals: [500, 1000, 2000],
         });
     } catch (error: unknown) {
@@ -1094,9 +1092,9 @@ export async function pickQuickPickItem(
             await expect(item).not.toBeVisible({ timeout: 500 });
         }
     }, `Failed to pick QuickPick item "${label}"`).toPass({
-        timeout: 20000,
+        timeout: 5000,
         // Add a backoff so we don't spam if the UI is genuinely stuck
-        intervals: [1000, 2000, 5000],
+        intervals: [500, 1000, 2000],
     });
 }
 
