@@ -507,11 +507,6 @@
                 "title": "Manage Code Forge Authentication",
                 "category": "JJ View",
                 "icon": "$(key)"
-            },
-            {
-                "command": "jj-view.gitlab.enterPat",
-                "title": "Enter GitLab Personal Access Token (PAT)",
-                "category": "JJ View"
             }
         ],
         "keybindings": [
