@@ -98,7 +98,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         return this._repo?.codeForge;
     }
 
-    public updateRepository(repo: JjRepository | undefined) {
+    public async updateRepository(repo: JjRepository | undefined) {
         if (this._repo?.rootUri.fsPath === repo?.rootUri.fsPath) {
             return;
         }
@@ -107,9 +107,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const cf = this._codeForge;
         if (cf) {
             this._codeForgeDisposable = cf.onDidUpdate(() => this.refreshCodeForge());
+            await cf.detectActiveProvider(true);
         }
         this._updateTitle();
-        this.refresh('repoChanged');
+        await this.refresh('repoChanged');
     }
 
     private _updateTitle() {

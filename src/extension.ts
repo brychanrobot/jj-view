@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CodeForgeAuthManager } from './code-forge-auth';
 import type { CodeForgeProvider } from './code-forge-provider';
+import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import { CodeForgeRegistry } from './code-forge-registry';
 import type { CodeForgeService } from './code-forge-service';
 import { abandonCommand } from './commands/abandon';
@@ -71,7 +72,7 @@ import { JjOutputChannel } from './utils/output-channel';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;
-    registerCodeForgeProvider(provider: CodeForgeProvider): vscode.Disposable;
+    registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<Api> {
@@ -134,13 +135,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
     const authManager = new CodeForgeAuthManager(context, outputChannel);
-    const gerritProvider = new GerritProvider(outputChannel);
-    const githubProvider = new GitHubProvider(authManager, outputChannel);
-    const gitlabProvider = new GitLabProvider(authManager, outputChannel);
 
-    context.subscriptions.push(codeForgeRegistry.register(gerritProvider));
-    context.subscriptions.push(codeForgeRegistry.register(githubProvider));
-    context.subscriptions.push(codeForgeRegistry.register(gitlabProvider));
+    context.subscriptions.push(
+        codeForgeRegistry.register({
+            id: 'gerrit',
+            create: (outputChannel) => new GerritProvider(outputChannel),
+        }),
+    );
+    context.subscriptions.push(
+        codeForgeRegistry.register({
+            id: 'github',
+            create: (outputChannel) => new GitHubProvider(authManager, outputChannel),
+        }),
+    );
+    context.subscriptions.push(
+        codeForgeRegistry.register({
+            id: 'gitlab',
+            create: (outputChannel) => new GitLabProvider(authManager, outputChannel),
+        }),
+    );
 
     const repositoryManager = new JjRepositoryManager(
         codeForgeRegistry,
@@ -186,12 +199,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             provider?.changeTerm?.toLowerCase() || 'change',
         );
     };
-    updateContextKeys(codeForgeRegistry.getActive());
-    context.subscriptions.push(codeForgeRegistry.onDidActiveProviderChange(updateContextKeys));
+    updateContextKeys(undefined);
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.manageAuth', async () => {
-            const activeProvider = codeForgeRegistry.getActive();
+            const focused = repositoryManager.focusedRepository;
+            const activeProvider = focused?.codeForge.activeProvider;
             if (!activeProvider) {
                 vscode.window.showErrorMessage('No active code forge provider detected.');
                 return;
@@ -257,12 +270,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             }
 
             await choice.execute();
-        }),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.gitlab.enterPat', async () => {
-            await gitlabProvider.promptForPat();
         }),
     );
 
@@ -366,7 +373,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         scmProviders.delete(repo.rootUri.fsPath);
     });
 
+    let focusedRepoActiveProviderSub: vscode.Disposable | undefined;
     repositoryManager.onDidChangeFocusedRepository((repo) => {
+        focusedRepoActiveProviderSub?.dispose();
         if (repo) {
             logWebviewProvider.updateRepository(repo);
             const scm = scmProviders.get(repo.rootUri.fsPath);
@@ -374,7 +383,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scm.parentMutable);
                 vscode.commands.executeCommand('setContext', JjContextKey.HasChild, scm.hasChild);
             }
-            repo.codeForge.detectActiveProvider(true);
+            focusedRepoActiveProviderSub = repo.codeForge.onDidActiveProviderChange((provider) => {
+                updateContextKeys(provider);
+            });
+            // Force active provider detection for the focused repo and then update context keys immediately
+            repo.codeForge.detectActiveProvider(true).then(() => {
+                if (repositoryManager.focusedRepository === repo) {
+                    updateContextKeys(repo.codeForge.activeProvider);
+                }
+            });
+        } else {
+            focusedRepoActiveProviderSub = undefined;
+            updateContextKeys(undefined);
         }
     });
 
@@ -606,7 +626,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     return {
         repositoryManager,
-        registerCodeForgeProvider: (provider: CodeForgeProvider) => codeForgeRegistry.register(provider),
+        registerCodeForgeProvider: (factory: CodeForgeProviderFactory) => codeForgeRegistry.register(factory),
     };
 }
 
