@@ -3,17 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as assert from 'node:assert';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjRepository } from '../jj-repository';
 import { JjScmProvider } from '../jj-scm-provider';
+import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', () => {
     let scmProvider: JjScmProvider;
+    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let outputChannel: vscode.OutputChannel;
     let repo: TestRepo;
 
@@ -37,18 +36,20 @@ suite('JJ SCM Visibility Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
+        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
             outputChannel,
+            contextHelper.repositoryManager,
         );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
     });
 
     teardown(async () => {
         scmProvider.dispose();
+        if (contextHelper) {
+            await contextHelper.repositoryManager.dispose();
+        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 

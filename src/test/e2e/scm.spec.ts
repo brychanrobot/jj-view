@@ -1073,4 +1073,59 @@ test.describe('SCM Pane E2E', () => {
             repo.dispose();
         }
     });
+
+    test('Closes diff editor automatically when the revision is squashed', async () => {
+        const repo = new TestRepo();
+        repo.init();
+
+        const fileName = 'squashed-diff-close-e2e.txt';
+        const commits = await buildGraph(repo, [
+            {
+                label: 'initial',
+                files: { [fileName]: 'initial content' },
+            },
+            {
+                label: 'target',
+                parents: ['initial'],
+                description: 'target commit message',
+                files: { [fileName]: 'modified content' },
+            },
+            {
+                label: 'wc',
+                parents: ['target'],
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusSCM(page);
+
+            // 1. Open Diff Editor for the target commit
+            await openScmDiff(page, fileName, /target commit message/);
+
+            // 2. Verify tab is open
+            const tab = page.getByRole('tab', { name: fileName });
+            await expect(tab).toBeVisible();
+
+            // 3. Squash target commit into parent using SCM action
+            await clickScmAction(page, /target commit message/, SCM_ACTIONS.SquashRevisionIntoParent);
+
+            // 4. Verify that the tab gets closed automatically
+            await expect(tab).not.toBeVisible({ timeout: 15000 });
+
+            // 5. Verify target is actually squashed (changeId no longer exists) in jj
+            await expect(async () => {
+                const log = repo.log();
+                expect(log).not.toContain(commits.target.changeId);
+            }).toPass({ timeout: 10000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
 });

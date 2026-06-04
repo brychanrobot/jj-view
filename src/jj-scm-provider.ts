@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { getErrorMessage } from './commands/command-utils';
 import { completeSquashRevisionCommand, isSquashInProgress } from './commands/squash-revision';
+import { DiffTabCleaner } from './diff-tab-cleaner';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import type { JjEditFileSystemProvider } from './jj-edit-fs-provider';
@@ -34,6 +35,7 @@ export class JjScmProvider implements vscode.Disposable {
     private _workingCopyStatuses = new Map<string, JjStatusEntry>();
     private _parentMutable = false;
     private _hasChild = false;
+    private _diffTabCleaner: DiffTabCleaner;
 
     get parentMutable(): boolean {
         return this._parentMutable;
@@ -56,6 +58,7 @@ export class JjScmProvider implements vscode.Disposable {
         public readonly context: vscode.ExtensionContext,
         public readonly repo: import('./jj-repository').JjRepository,
         public readonly outputChannel: vscode.OutputChannel,
+        public readonly repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
         public readonly viewFileSystemProvider?: JjViewFileSystemProvider,
         public readonly editProvider?: JjEditFileSystemProvider,
         public readonly isFocused: () => boolean = () => true,
@@ -68,6 +71,11 @@ export class JjScmProvider implements vscode.Disposable {
             repo.rootUri,
         );
         this.decorationProvider = new JjDecorationProvider(this.jj, workspaceRoot);
+
+        const belongsToRepo = (uri: vscode.Uri) => {
+            return this.repositoryManager.getRepositoryForUri(uri) === this.repo;
+        };
+        this._diffTabCleaner = new DiffTabCleaner(this.jj, belongsToRepo, this.outputChannel);
 
         // Create groups in order of display
         this._conflictGroup = this._sourceControl.createResourceGroup(ScmContextValue.ConflictGroup, 'Merge Conflicts');
@@ -505,6 +513,8 @@ export class JjScmProvider implements vscode.Disposable {
                         // Re-assigning quickDiffProvider is a known workaround to force
                         // VS Code to re-evaluate provideOriginalResource for all open editors.
                         this._sourceControl.quickDiffProvider = this;
+
+                        await this._diffTabCleaner.closeInvalidDiffEditors();
                     }
                 }
             })

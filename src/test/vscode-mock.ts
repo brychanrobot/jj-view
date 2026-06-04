@@ -223,6 +223,12 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 return new MockUri(this.fsPath, change.scheme ?? this.scheme, change.query ?? this.query, this.path);
             }
         },
+        TabInputTextDiff: class MockTabInputTextDiff {
+            constructor(
+                public original: unknown,
+                public modified: unknown,
+            ) {}
+        },
         env: {
             openExternal: vi.fn(),
         },
@@ -250,9 +256,11 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             setStatusBarMessage: vi.fn(),
             createOutputChannel: vi.fn().mockReturnValue({ appendLine: vi.fn() }),
             tabGroups: {
+                all: [],
                 activeTabGroup: { activeTab: undefined },
                 onDidChangeTabs: onDidChangeTabsEmitter.event,
                 onDidChangeTabGroups: onDidChangeTabGroupsEmitter.event,
+                close: vi.fn(),
             },
             visibleTextEditors: [],
             onDidChangeWindowState: onDidChangeWindowStateEmitter.event,

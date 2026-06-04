@@ -102,3 +102,10 @@ export function getRevisionFromUri(uri: vscode.Uri): string | undefined {
     const query = new URLSearchParams(uri.query);
     return query.get('jj-revision') || query.get('revision') || query.get('base') || undefined;
 }
+
+/**
+ * Checks if a URI uses a Jujutsu-specific scheme.
+ */
+export function isJjScheme(uri: vscode.Uri): boolean {
+    return uri.scheme === 'jj-view' || uri.scheme === 'jj-edit';
+}

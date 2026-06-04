@@ -3,11 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as assert from 'node:assert';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../../code-forge-registry';
 import { absorbCommand } from '../../commands/absorb';
-import { JjRepository } from '../../jj-repository';
 import { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
@@ -18,6 +15,7 @@ suite('Absorb Integration Test', function () {
     let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.OutputChannel;
+    let contextHelper: import('../integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
@@ -31,18 +29,21 @@ suite('Absorb Integration Test', function () {
             extensionUri: vscode.Uri.file(__dirname),
         } as unknown as vscode.ExtensionContext;
 
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
+        const { createTestRepositoryContext } = await import('../integration-test-utils');
+        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
             outputChannel,
+            contextHelper.repositoryManager,
         );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
     });
 
     teardown(async () => {
         scmProvider.dispose();
+        if (contextHelper) {
+            await contextHelper.repositoryManager.dispose();
+        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 

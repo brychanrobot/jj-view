@@ -88,7 +88,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         disposables.push(contextHelper.repositoryManager);
 
-        scm = new JjScmProvider(mockContext, contextHelper.repository, outputChannel);
+        scm = new JjScmProvider(mockContext, contextHelper.repository, outputChannel, contextHelper.repositoryManager);
         disposables.push(scm);
 
         const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);

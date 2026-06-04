@@ -3,18 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as assert from 'node:assert';
-import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepository } from '../jj-repository';
 import { JjScmProvider } from '../jj-scm-provider';
+import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('Button Visibility Integration Test', () => {
     let scmProvider: JjScmProvider;
     let executeCommandStub: sinon.SinonStub;
+    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let repo: TestRepo;
 
     setup(async () => {
@@ -38,14 +37,13 @@ suite('Button Visibility Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
+        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
             outputChannel,
+            contextHelper.repositoryManager,
         );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
 
         // Spy/Stub on vscode.commands.executeCommand to check for setContext
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
@@ -57,6 +55,9 @@ suite('Button Visibility Integration Test', () => {
         scmProvider.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
+        }
+        if (contextHelper) {
+            await contextHelper.repositoryManager.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

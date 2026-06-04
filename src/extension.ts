@@ -335,6 +335,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             context,
             repo,
             repoOutputChannel,
+            repositoryManager,
             viewFileSystemProvider,
             editFileSystemProvider,
             () => repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath,

@@ -7,23 +7,23 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
 import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
 import { squashFilesIntoParentCommand } from '../commands/squash-files';
 import { completeSquashRevisionCommand, squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
+import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
+    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     let repo: TestRepo;
 
@@ -55,19 +55,21 @@ suite('JJ SCM Provider Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
+        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
             outputChannel,
+            contextHelper.repositoryManager,
         );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
     });
 
     teardown(async () => {
         if (scmProvider) {
             scmProvider.dispose();
+        }
+        if (contextHelper) {
+            await contextHelper.repositoryManager.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
