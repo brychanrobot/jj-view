@@ -231,7 +231,8 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
 
         // Close the editor if it's still open
         const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-        const tab = tabs.find((t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath === msgPath);
+        const targetFsPath = vscode.Uri.file(msgPath).fsPath;
+        const tab = tabs.find((t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath === targetFsPath);
         if (tab) {
             await vscode.window.tabGroups.close(tab);
         }
