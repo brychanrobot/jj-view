@@ -12,7 +12,7 @@ export class TestRepo {
 
     constructor(tmpDir?: string) {
         const rawPath = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-'));
-        this.path = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
+        this.path = fs.realpathSync(rawPath);
     }
 
     dispose() {
