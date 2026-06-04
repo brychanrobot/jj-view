@@ -11,7 +11,8 @@ export class TestRepo {
     public readonly path: string;
 
     constructor(tmpDir?: string) {
-        this.path = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-'));
+        const rawPath = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-'));
+        this.path = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
     }
 
     dispose() {

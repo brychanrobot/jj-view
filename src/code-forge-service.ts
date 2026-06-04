@@ -4,6 +4,7 @@
  */
 import * as vscode from 'vscode';
 import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
+import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
@@ -18,10 +19,16 @@ export class CodeForgeService implements vscode.Disposable {
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
+    private _onDidActiveProviderChange = new vscode.EventEmitter<CodeForgeProvider | undefined>();
+    public readonly onDidActiveProviderChange = this._onDidActiveProviderChange.event;
+
     private _initPromise: Promise<void>;
     private lastRefreshTime: number = 0;
     private lastDetectionTime = 0;
     private detectPromise: Promise<void> | undefined;
+
+    private providers = new Map<string, CodeForgeProvider>();
+    private activeProviderInstance: CodeForgeProvider | undefined;
 
     constructor(
         private workspaceRoot: string,
@@ -29,17 +36,16 @@ export class CodeForgeService implements vscode.Disposable {
         private registry: CodeForgeRegistry,
         private outputChannel?: vscode.OutputChannel,
     ) {
+        for (const factory of this.registry.getFactories()) {
+            this.providers.set(factory.id, factory.create(this.outputChannel));
+        }
+
         this.disposables.push(
-            this.registry.onDidActiveProviderChange((provider) => {
-                this.activeProviderDisposable?.dispose();
-                if (provider) {
-                    this.activeProviderDisposable = provider.onDidUpdate(() => {
-                        this._onDidUpdate.fire();
-                    });
-                } else {
-                    this.activeProviderDisposable = undefined;
+            this.registry.onDidRegisterFactory((factory: CodeForgeProviderFactory) => {
+                if (!this.providers.has(factory.id)) {
+                    this.providers.set(factory.id, factory.create(this.outputChannel));
+                    this.detectActiveProvider(true);
                 }
-                this._onDidUpdate.fire();
             }),
         );
 
@@ -81,18 +87,24 @@ export class CodeForgeService implements vscode.Disposable {
         this.stopPolling();
         this.backoffTimers.dispose();
         this.activeProviderDisposable?.dispose();
+        this.activeProviderInstance?.deactivate();
         for (const disposable of this.disposables) {
             disposable?.dispose();
         }
+        this._onDidActiveProviderChange.dispose();
         this._onDidUpdate.dispose();
     }
 
     public get isEnabled(): boolean {
-        return !!this.registry.getActive();
+        return !!this.activeProviderInstance;
     }
 
     public get activeProvider(): CodeForgeProvider | undefined {
-        return this.registry.getActive();
+        return this.activeProviderInstance;
+    }
+
+    public getProvider(id: string): CodeForgeProvider | undefined {
+        return this.providers.get(id);
     }
 
     public startPolling() {
@@ -118,8 +130,7 @@ export class CodeForgeService implements vscode.Disposable {
         if (this.isDisposed) {
             return;
         }
-        const activeProvider = this.registry.getActive();
-        if (activeProvider) {
+        if (this.activeProviderInstance) {
             this.outputChannel?.appendLine(`[CodeForgeService] Force refresh triggered`);
             this.lastRefreshTime = Date.now();
             this._onDidUpdate.fire();
@@ -143,7 +154,7 @@ export class CodeForgeService implements vscode.Disposable {
     }
 
     public async detectActiveProvider(force = false): Promise<void> {
-        if (!force && this.registry.getActive()) {
+        if (!force && this.activeProviderInstance) {
             return;
         }
 
@@ -156,15 +167,8 @@ export class CodeForgeService implements vscode.Disposable {
             return this.detectPromise;
         }
 
-        this.detectPromise = (async () => {
-            this.lastDetectionTime = now;
-            try {
-                const remotes = await this.jjService.getGitRemotes();
-                await this.registry.autoDetect(this.workspaceRoot, remotes);
-            } catch (e) {
-                this.outputChannel?.appendLine(`[CodeForgeService] Failed to detect active provider: ${e}`);
-            }
-        })();
+        this.lastDetectionTime = now;
+        this.detectPromise = this.doDetectActiveProvider();
 
         try {
             await this.detectPromise;
@@ -173,12 +177,58 @@ export class CodeForgeService implements vscode.Disposable {
         }
     }
 
+    private async doDetectActiveProvider(): Promise<void> {
+        try {
+            const remotes = await this.jjService.getGitRemotes();
+            const preferredId = vscode.workspace.getConfiguration('jj-view').get<string>('codeForge.provider');
+
+            let detectedProvider: CodeForgeProvider | undefined;
+
+            if (preferredId) {
+                const provider = this.providers.get(preferredId);
+                if (provider && (await provider.detect(this.workspaceRoot, remotes))) {
+                    detectedProvider = provider;
+                }
+            }
+
+            if (!detectedProvider) {
+                for (const provider of this.providers.values()) {
+                    if (await provider.detect(this.workspaceRoot, remotes)) {
+                        detectedProvider = provider;
+                        break;
+                    }
+                }
+            }
+
+            const prevActive = this.activeProviderInstance;
+            if (prevActive?.id !== detectedProvider?.id) {
+                this.activeProviderDisposable?.dispose();
+                prevActive?.deactivate();
+
+                this.activeProviderInstance = detectedProvider;
+
+                if (detectedProvider) {
+                    detectedProvider.activate();
+                    this.activeProviderDisposable = detectedProvider.onDidUpdate(() => {
+                        this._onDidUpdate.fire();
+                    });
+                } else {
+                    this.activeProviderDisposable = undefined;
+                }
+
+                this._onDidActiveProviderChange.fire(detectedProvider);
+                this._onDidUpdate.fire();
+            }
+        } catch (e) {
+            this.outputChannel?.appendLine(`[CodeForgeService] Failed to detect active provider: ${e}`);
+        }
+    }
+
     public async ensureFreshStatuses(changes: ChangeStatusRequest[]): Promise<boolean> {
-        const activeProvider = this.registry.getActive();
-        if (!activeProvider) {
+        if (!this.activeProviderInstance) {
             return false;
         }
-        return activeProvider.fetchStatuses(changes);
+        return this.activeProviderInstance.fetchStatuses(changes, this.jjService);
     }
 
     private verifyStructureSync(
@@ -221,7 +271,7 @@ export class CodeForgeService implements vscode.Disposable {
     }
 
     public populateCodeForgeInfo(commits: JjLogEntry[]): void {
-        const activeProvider = this.registry.getActive();
+        const activeProvider = this.activeProviderInstance;
         if (!activeProvider) {
             return;
         }

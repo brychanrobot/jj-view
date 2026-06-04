@@ -316,7 +316,7 @@ export async function withDelayedProgress<T>(title: string, promise: Promise<T>)
 export async function showJjError(
     error: unknown,
     prefix: string,
-    jj: JjService,
+    jj?: JjService,
     outputChannel?: vscode.OutputChannel,
     extraActions: string[] = [],
 ): Promise<string | undefined> {
@@ -327,7 +327,7 @@ export async function showJjError(
     const DELETE_LOCK = 'Delete Lock File';
     let lockPath: string | undefined;
 
-    if (isLockError) {
+    if (isLockError && jj) {
         try {
             const repoRoot = await jj.getRepoRoot();
             lockPath = path.join(repoRoot, '.git', 'index.lock');
@@ -428,4 +428,50 @@ export async function pickAncestor(jj: JjService, revision: string): Promise<str
     });
 
     return selected?.detail;
+}
+
+/**
+ * Extracts a candidate Uri from command arguments.
+ * Checks for SourceControlResourceState (resourceUri) or SourceControl (rootUri) objects.
+ */
+export function extractUriFromArgs(args: unknown[]): vscode.Uri | undefined {
+    const firstArg = args[0];
+    if (firstArg instanceof vscode.Uri) {
+        return firstArg;
+    }
+    if (firstArg && typeof firstArg === 'object') {
+        if ('resourceUri' in firstArg && firstArg.resourceUri instanceof vscode.Uri) {
+            return firstArg.resourceUri;
+        }
+        if ('rootUri' in firstArg && firstArg.rootUri instanceof vscode.Uri) {
+            return firstArg.rootUri;
+        }
+    }
+    return undefined;
+}
+
+interface BookmarkContextArg {
+    webviewSection: string;
+    bookmarkName?: string;
+}
+
+function isBookmarkContextArg(arg: unknown): arg is BookmarkContextArg {
+    return !!arg && typeof arg === 'object' && 'webviewSection' in arg && 'bookmarkName' in arg;
+}
+
+/**
+ * Extracts a bookmark name from command arguments.
+ */
+export function extractBookmarkName(args: unknown[]): string | undefined {
+    const firstArg = args?.[0];
+
+    if (
+        isBookmarkContextArg(firstArg) &&
+        firstArg.webviewSection === 'jj.bookmark' &&
+        typeof firstArg.bookmarkName === 'string'
+    ) {
+        return firstArg.bookmarkName;
+    }
+
+    return undefined;
 }

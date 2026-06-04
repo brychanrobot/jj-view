@@ -97,8 +97,11 @@ describe('GerritService Detection', () => {
 
     function initService(): CodeForgeService {
         registry = new CodeForgeRegistry();
-        provider = new GerritProvider(jjService);
-        registry.register(provider);
+        provider = new GerritProvider();
+        registry.register({
+            id: 'gerrit',
+            create: () => provider,
+        });
         service = new CodeForgeService(repo.path, jjService, registry);
         return service;
     }
@@ -856,36 +859,36 @@ describe('GerritService Detection', () => {
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
 
-        // Spy on registry.autoDetect (never spy on JjService methods!)
-        const autoDetectSpy = vi.spyOn(registry, 'autoDetect');
+        // Spy on provider.detect (never spy on JjService methods!)
+        const detectSpy = vi.spyOn(provider, 'detect');
 
         // Advance timers by 31 seconds to bypass rate limit from constructor detection
         await vi.advanceTimersByTimeAsync(31000);
 
         // Call detectActiveProvider - should attempt detection because rate limit has passed
         await service.detectActiveProvider();
-        expect(autoDetectSpy).toHaveBeenCalledTimes(1);
+        expect(detectSpy).toHaveBeenCalledTimes(1);
 
         // Call detectActiveProvider again immediately - should NOT run due to 30s limit
         await service.detectActiveProvider();
-        expect(autoDetectSpy).toHaveBeenCalledTimes(1);
+        expect(detectSpy).toHaveBeenCalledTimes(1);
 
         // Call with force = true - should run regardless of time limit
         await service.detectActiveProvider(true);
-        expect(autoDetectSpy).toHaveBeenCalledTimes(2);
+        expect(detectSpy).toHaveBeenCalledTimes(2);
 
         // Advance timers by 31 seconds - should now run again
         await vi.advanceTimersByTimeAsync(31000);
         await service.detectActiveProvider();
-        expect(autoDetectSpy).toHaveBeenCalledTimes(3);
+        expect(detectSpy).toHaveBeenCalledTimes(3);
 
         // Test coalescing: call multiple times in parallel.
-        // We mock registry.autoDetect to return a promise that resolves slowly.
-        let resolveAutoDetect: () => void = () => {};
-        const slowAutoDetectPromise = new Promise<void>((resolve) => {
-            resolveAutoDetect = resolve;
+        // We mock provider.detect to return a promise that resolves slowly.
+        let resolveDetect: () => void = () => {};
+        const slowDetectPromise = new Promise<boolean>((resolve) => {
+            resolveDetect = () => resolve(true);
         });
-        autoDetectSpy.mockImplementation(() => slowAutoDetectPromise);
+        detectSpy.mockImplementation(() => slowDetectPromise);
 
         // Advance timers past rate limit first
         await vi.advanceTimersByTimeAsync(31000);
@@ -894,11 +897,11 @@ describe('GerritService Detection', () => {
         const p2 = service.detectActiveProvider();
         const p3 = service.detectActiveProvider(true); // force doesn't bypass active coalesced promise if already running
 
-        resolveAutoDetect();
+        resolveDetect();
         await Promise.all([p1, p2, p3]);
 
-        // autoDetect should only be called once for these parallel invocations
-        expect(autoDetectSpy).toHaveBeenCalledTimes(4);
+        // detect should only be called once for these parallel invocations
+        expect(detectSpy).toHaveBeenCalledTimes(4);
 
         vi.useRealTimers();
     });

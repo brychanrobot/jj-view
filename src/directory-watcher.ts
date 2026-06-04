@@ -49,7 +49,7 @@ export class DirectoryWatcher implements vscode.Disposable {
             }
 
             try {
-                this.log(`[${this.name}] Starting watcher on: ${this.path}`);
+                this.log(`[${this.name}] Starting (${await this._backend}) watcher on: ${this.path}`);
 
                 const sub = await subscribe(
                     this.path,

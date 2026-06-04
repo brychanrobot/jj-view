@@ -61,7 +61,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
     it('subscribes and logs on start', async () => {
         await watcher.start();
         await waitForLog('Started');
-        expect(outputChannel.appendLine).toHaveBeenCalledWith(expect.stringContaining('Starting watcher'));
+        expect(outputChannel.appendLine).toHaveBeenCalledWith(expect.stringMatching(/Starting.*watcher/));
     });
 
     it('does not double subscribe if start is called twice', async () => {
@@ -69,7 +69,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
         await watcher.start();
 
         const startCalls = (outputChannel.appendLine as Mock).mock.calls.filter((call) =>
-            call[0].includes('Starting watcher'),
+            /Starting.*watcher/.test(call[0]),
         );
         expect(startCalls).toHaveLength(1);
     });

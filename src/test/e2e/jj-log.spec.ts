@@ -13,7 +13,10 @@ import {
     focusJJLog,
     getLogWebview,
     launchVSCode,
+    openQuickInputWithShortcut,
+    pickQuickPickItem,
     ROOT_ID,
+    triggerRefresh,
     waitForLogCommitRow,
     waitForLogPill,
 } from './e2e-helpers';
@@ -284,6 +287,53 @@ test.describe('JJ Log Pane E2E', () => {
                 const parents = repo.getParents(nodes.source.changeId);
                 expect(parents).toContain(nodes.target.changeId);
             }).toPass({ timeout: 10000 });
+        } finally {
+            await app.close();
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch {}
+            repo.dispose();
+        }
+    });
+
+    test('Delete Bookmark (Command Palette/Quick Pick Flow)', async () => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
+            {
+                label: 'wc',
+                parents: ['initial'],
+                description: 'working tree',
+                files: { 'file.txt': 'mod' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        // 1. Create a local bookmark via CLI
+        repo.bookmark('local-to-delete', nodes.wc.changeId);
+
+        const { app, page, userDataDir } = await launchVSCode(repo);
+
+        try {
+            await focusJJLog(page);
+            await triggerRefresh(page);
+
+            // 2. Verify bookmark pill is visible
+            const bookmarkPill = await waitForLogPill(page, 'local-to-delete', 'bookmark');
+            await expect(bookmarkPill).toBeVisible();
+
+            // 3. Open Command Palette and run "Delete Bookmark"
+            const input = await openQuickInputWithShortcut(page, 'F1');
+            await input.focus();
+            await page.keyboard.type('JJ View: Delete Bookmark', { delay: 50 });
+            await page.keyboard.press('Enter');
+
+            // 4. Select the bookmark to delete in the Quick Pick
+            await pickQuickPickItem(page, 'local-to-delete');
+
+            // 5. Verify the bookmark pill disappears from the webview
+            await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
         } finally {
             await app.close();
             try {

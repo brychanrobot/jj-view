@@ -135,3 +135,9 @@ export const BOOKMARK_SCHEMA: Record<string, JjTemplateField> = {
     name: { type: 'string', expr: 'name' },
     remote: { type: 'nullable', expr: 'remote', valueExpr: 'remote' },
 };
+
+// Schema for JjWorkspace
+export const WORKSPACE_SCHEMA: Record<string, JjTemplateField> = {
+    name: { type: 'json', expr: 'name' },
+    path: { type: 'json', expr: 'root' },
+};

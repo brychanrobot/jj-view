@@ -6,8 +6,14 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BOOKMARK_SCHEMA, buildLogTemplate, CHANGE_ID_EXPR, LOG_ENTRY_SCHEMA } from './jj-template-builder';
-import type { JjBookmark, JjLogEntry, JjStatusEntry } from './jj-types';
+import {
+    BOOKMARK_SCHEMA,
+    buildLogTemplate,
+    CHANGE_ID_EXPR,
+    LOG_ENTRY_SCHEMA,
+    WORKSPACE_SCHEMA,
+} from './jj-template-builder';
+import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
 
@@ -311,6 +317,13 @@ export class JjService {
         return this.run('bookmark', ['set', name, '-r', toRevision, '--allow-backwards'], {
             isMutation: true,
             label: 'moveBookmark',
+        });
+    }
+
+    async deleteBookmark(name: string): Promise<string> {
+        return this.run('bookmark', ['delete', name], {
+            isMutation: true,
+            label: 'deleteBookmark',
         });
     }
 
@@ -868,15 +881,26 @@ export class JjService {
         await this.run('workspace', ['forget', workspaceName], { isMutation: true, label: 'workspaceForget' });
     }
 
-    async getWorkspaces(): Promise<string[]> {
-        const output = await this.run('workspace', ['list', '-T', 'name ++ "\\n"'], {
+    async getWorkspaces(): Promise<JjWorkspace[]> {
+        const template = buildLogTemplate(WORKSPACE_SCHEMA);
+        const output = await this.run('workspace', ['list', '-T', template], {
             useCachedSnapshot: true,
             label: 'getWorkspaces',
         });
-        return output
-            .split('\n')
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
+        const infos: JjWorkspace[] = [];
+        for (const line of output.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                continue;
+            }
+            try {
+                const info = JSON.parse(trimmed) as JjWorkspace;
+                infos.push(info);
+            } catch (e) {
+                console.error('Failed to parse workspace info line:', line, e);
+            }
+        }
+        return infos;
     }
 
     async getWorkspaceRoot(workspaceName?: string): Promise<string> {
