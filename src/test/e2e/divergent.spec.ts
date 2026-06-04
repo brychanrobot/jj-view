@@ -8,9 +8,9 @@ import { expect, type Page, test } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { TestRepo } from '../test-repo';
 import {
+    clickLogAction,
     focusJJLog,
     getDetailsWebview,
-    hoverAndClick,
     launchVSCode,
     triggerRefresh,
     waitForLogCommitRow,
@@ -115,10 +115,7 @@ test.describe('Divergent Commits E2E', () => {
         // 4. Abandon the "zombie" commit (A v1) to resolve divergence
         await focusJJLog(page);
 
-        // Re-get webview because focus might refresh it
-        const rowToAbandon = await waitForLogCommitRow(page, 'commit A v1');
-
-        await hoverAndClick(rowToAbandon, rowToAbandon.locator('.icon-button[title="Abandon"]'));
+        await clickLogAction(page, 'commit A v1', 'Abandon');
 
         // 5. Verify divergence is resolved
         await expect(async () => {

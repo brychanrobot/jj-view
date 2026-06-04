@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogTitleButton,
@@ -88,9 +88,23 @@ test.describe('Workspace Management E2E', () => {
             await waitForLogPill(page, workspaceName, 'workspace');
 
             // 4. Click "Open Workspace" in the notification and verify a new window opens
-            const nextWindowPromise = app.waitForEvent('window');
-            await clickNotificationButton(page, 'Open Workspace');
-            const newPage = await nextWindowPromise;
+            const openWorkspace = async (): Promise<Page> => {
+                let newPage: Page | undefined;
+                await expect(async () => {
+                    const [window] = await Promise.all([
+                        app.waitForEvent('window', { timeout: 8000 }),
+                        clickNotificationButton(page, 'Open Workspace'),
+                    ]);
+                    newPage = window;
+                }, 'Failed to open new workspace window').toPass({ timeout: 25000 });
+
+                if (!newPage) {
+                    throw new Error('New workspace window was not captured');
+                }
+                return newPage;
+            };
+
+            const newPage = await openWorkspace();
 
             // Wait for workbench to load in new window
             await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
