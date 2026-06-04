@@ -28,18 +28,13 @@ export async function resolveWorkspaceName(jj: JjService, args: unknown[]): Prom
     }
 
     if (workspaces.length === 1) {
-        return workspaces[0].name;
+        return workspaces[0];
     }
 
-    const items = workspaces.map((w) => ({
-        label: w.name,
-        description: w.path,
-    }));
-
-    const selection = await vscode.window.showQuickPick(items, {
+    const selection = await vscode.window.showQuickPick(workspaces, {
         placeHolder: 'Select a workspace to operate on',
         title: 'Workspace Action',
     });
 
-    return selection?.label;
+    return selection;
 }

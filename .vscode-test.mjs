@@ -4,25 +4,8 @@ import * as path from 'node:path';
 import { defineConfig } from '@vscode/test-cli';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-user-data-'));
-const testWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-workspace-'));
 const userDir = path.join(tmpDir, 'User');
 fs.mkdirSync(userDir, { recursive: true });
-
-const workspaceFile = path.join(tmpDir, 'test.code-workspace');
-fs.writeFileSync(
-    workspaceFile,
-    JSON.stringify(
-        {
-            folders: [
-                {
-                    path: testWorkspace,
-                },
-            ],
-        },
-        null,
-        4,
-    ),
-);
 
 // Write settings to disable git
 fs.writeFileSync(
@@ -44,5 +27,5 @@ export default defineConfig({
         timeout: 20000,
         require: ['./out/test/global-teardown.js'],
     },
-    launchArgs: [workspaceFile, '--disable-extensions', '--disable-extension', 'vscode.git', '--user-data-dir', tmpDir],
+    launchArgs: ['--disable-extensions', '--disable-extension', 'vscode.git', '--user-data-dir', tmpDir],
 });

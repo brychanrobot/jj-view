@@ -5,6 +5,7 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import type { CodeForgeService } from '../code-forge-service';
 import { abandonCommand } from '../commands/abandon';
 import { editCommand } from '../commands/edit';
 import { newCommand } from '../commands/new';
@@ -15,7 +16,6 @@ import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provi
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
@@ -27,8 +27,6 @@ suite('Webview Commands End-to-End Integration Test', () => {
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
     let executeCommandStub: sinon.SinonStub;
-    let outputChannel: vscode.OutputChannel;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     // Mock Webview
     const mockWebview = createMock<vscode.Webview>({
@@ -63,7 +61,8 @@ suite('Webview Commands End-to-End Integration Test', () => {
 
         // Services
         jj = new JjService(repo.path);
-        outputChannel = vscode.window.createOutputChannel('JJ View Test');
+        const outputChannel = vscode.window.createOutputChannel('JJ View Test');
+        disposables.push(outputChannel);
 
         // We need a context for the provider, but we can mock it
         const mockContext = createMock<vscode.ExtensionContext>({
@@ -84,17 +83,25 @@ suite('Webview Commands End-to-End Integration Test', () => {
             }),
         });
 
-        const extensionUri = vscode.Uri.file(__dirname);
-        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        disposables.push(contextHelper.repositoryManager);
-
-        scm = new JjScmProvider(mockContext, contextHelper.repository, outputChannel);
+        scm = new JjScmProvider(mockContext, jj, repo.path, outputChannel);
         disposables.push(scm);
 
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
+        const extensionUri = vscode.Uri.file(__dirname);
+        const codeForgeService = createMock<CodeForgeService>({
+            onDidUpdate: () => {
+                return { dispose: () => {} };
+            },
+            isEnabled: false,
+            startPolling: () => {},
+            stopPolling: () => {},
+            detectActiveProvider: () => Promise.resolve(),
+            dispose: () => {},
+        });
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
         provider = new JjLogWebviewProvider(
             extensionUri,
-            contextHelper.repository,
+            jj,
+            codeForgeService,
             commitDetailsProvider,
             () => {},
             mockContext,
@@ -140,16 +147,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
-        }
         disposables.forEach((d) => {
             d.dispose();
         });
         disposables = [];
-        if (outputChannel) {
-            outputChannel.dispose();
-        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 

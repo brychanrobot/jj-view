@@ -51,12 +51,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                 if (doc.uri.scheme !== 'file') {
                     return;
                 }
-                const fsPath = doc.uri.fsPath;
-                if (/[\\/]\.jj[\\/]/.test(fsPath)) {
-                    return;
-                }
-                const relative = path.relative(this.workspaceRoot, fsPath);
-                if (relative.startsWith('..') || path.isAbsolute(relative)) {
+                if (doc.uri.fsPath.includes('/.jj/')) {
                     return;
                 }
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file saved' });
@@ -211,17 +206,12 @@ export class ChangeDetectionManager implements vscode.Disposable {
             return;
         }
 
-        const [gitIgnores, gitModules, workspaceRoots] = await Promise.all([
-            this.getGitIgnorePatterns(),
-            this.getGitModulesPatterns(),
-            this.getSecondaryWorkspacePatterns(),
-        ]);
+        const [gitIgnores, gitModules] = await Promise.all([this.getGitIgnorePatterns(), this.getGitModulesPatterns()]);
         if (this._disposed) {
             return;
         }
 
-        const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules, ...workspaceRoots];
-        this.outputChannel.appendLine(`[ChangeDetectionManager] Watcher ignore list: ${JSON.stringify(ignore)}`);
+        const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules];
 
         this._workingCopyWatcher = new DirectoryWatcher(
             this.workspaceRoot,
@@ -241,31 +231,6 @@ export class ChangeDetectionManager implements vscode.Disposable {
         );
 
         await this._workingCopyWatcher.start(ignore);
-    }
-
-    private async getSecondaryWorkspacePatterns(): Promise<string[]> {
-        try {
-            const workspaceList = await this.jj.getWorkspaces();
-            this.outputChannel.appendLine(
-                `[ChangeDetectionManager] Workspaces retrieved: ${JSON.stringify(workspaceList)}`,
-            );
-            const patterns: string[] = [];
-            const rootReal = await fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
-
-            for (const ws of workspaceList) {
-                const wsReal = await fs.realpath(ws.path).catch(() => ws.path);
-                if (wsReal !== rootReal) {
-                    const relative = path.relative(rootReal, wsReal);
-                    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
-                        patterns.push(relative);
-                    }
-                }
-            }
-            return patterns;
-        } catch (err) {
-            this.outputChannel.appendLine(`[ChangeDetectionManager] getSecondaryWorkspacePatterns error: ${err}`);
-            return [];
-        }
     }
 
     private async getGitIgnorePatterns(): Promise<string[]> {

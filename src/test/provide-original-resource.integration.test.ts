@@ -5,13 +5,13 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepository } from '../jj-repository';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 suite('JjScmProvider provideOriginalResource Integration Test', () => {
+    let jj: JjService;
     let scmProvider: JjScmProvider;
     let repo: TestRepo;
 
@@ -23,6 +23,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
             subscriptions: [],
         });
 
+        jj = new JjService(repo.path);
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -33,14 +34,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
-            outputChannel,
-        );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
+        scmProvider = new JjScmProvider(context, jj, repo.path, outputChannel);
     });
 
     teardown(async () => {

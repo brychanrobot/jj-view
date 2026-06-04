@@ -210,10 +210,7 @@ export class GitLabProvider implements CodeForgeProvider {
         return undefined;
     }
 
-    public async fetchStatuses(
-        changes: ChangeStatusRequest[],
-        _jj: import('./jj-service').JjService,
-    ): Promise<boolean> {
+    public async fetchStatuses(changes: ChangeStatusRequest[]): Promise<boolean> {
         if (!this.gitlabHost || !this.projectPath || changes.length === 0) {
             return false;
         }

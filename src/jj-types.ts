@@ -8,11 +8,6 @@ export interface JjBookmark {
     remote?: string | null;
 }
 
-export interface JjWorkspace {
-    name: string;
-    path: string;
-}
-
 /**
  * Metadata retrieved from a code forge about a specific Change/PR.
  */

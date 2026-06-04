@@ -3,16 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as assert from 'node:assert';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjRepository } from '../jj-repository';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', () => {
+    let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.OutputChannel;
     let repo: TestRepo;
@@ -27,6 +26,7 @@ suite('JJ SCM Visibility Integration Test', () => {
             subscriptions: [],
         });
 
+        jj = new JjService(repo.path);
         outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -37,14 +37,7 @@ suite('JJ SCM Visibility Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
-            outputChannel,
-        );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
+        scmProvider = new JjScmProvider(context, jj, repo.path, outputChannel);
     });
 
     teardown(async () => {

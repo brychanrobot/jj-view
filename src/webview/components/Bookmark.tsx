@@ -46,35 +46,26 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
     const borderColor = `color-mix(in srgb, ${accentColor}, transparent 50%)`;
 
     return (
-        <span
-            data-vscode-context={JSON.stringify({
-                webviewSection: 'jj.bookmark',
-                bookmarkName: bookmark.name,
-                isRemoteBookmark: !!bookmark.remote,
-                preventDefaultContextMenuItems: true,
-            })}
+        <BasePill
+            title={displayName}
+            style={{
+                backgroundColor,
+                color: accentColor,
+                border: `1px solid ${borderColor}`,
+                ...style,
+            }}
         >
-            <BasePill
-                title={displayName}
+            <span className="codicon codicon-bookmark" style={{ fontSize: '11px', flexShrink: 0 }} />
+            <span
                 style={{
-                    backgroundColor,
-                    color: accentColor,
-                    border: `1px solid ${borderColor}`,
-                    ...style,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                 }}
             >
-                <span className="codicon codicon-bookmark" style={{ fontSize: '11px', flexShrink: 0 }} />
-                <span
-                    style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                    }}
-                >
-                    {displayName}
-                </span>
-            </BasePill>
-        </span>
+                {displayName}
+            </span>
+        </BasePill>
     );
 };
 

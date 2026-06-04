@@ -36,7 +36,7 @@ export interface CodeForgeProvider {
     getCachedChangeInfo(changeId?: string, description?: string, bookmarks?: string[]): CodeForgeChangeInfo | undefined;
 
     /** Batch fetches statuses from the network. Returns true if any cache state changed */
-    fetchStatuses(changes: ChangeStatusRequest[], jj: import('./jj-service').JjService): Promise<boolean>;
+    fetchStatuses(changes: ChangeStatusRequest[]): Promise<boolean>;
 
     /**
      * Resolves the jj upload subcommand and arguments for pushing code.
