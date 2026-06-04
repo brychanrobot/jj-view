@@ -11,7 +11,6 @@ import { squashHunkIntoParentCommand } from '../commands/squash-selection';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
-import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -22,7 +21,6 @@ suite('Quick Diff Commands Integration Test', () => {
     let scmProvider: JjScmProvider;
     let viewFileSystemProvider: JjViewFileSystemProvider;
     let jjViewProviderDisposable: vscode.Disposable | undefined;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
@@ -45,10 +43,8 @@ suite('Quick Diff Commands Integration Test', () => {
             dispose: () => {},
             name: 'mock',
         });
-        contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
-
-        viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(context, contextHelper.repository, outputChannel, viewFileSystemProvider);
+        viewFileSystemProvider = new JjViewFileSystemProvider(jj);
+        scmProvider = new JjScmProvider(context, jj, canonicalPath, outputChannel, viewFileSystemProvider);
 
         // Register a test-specific content provider to handle a unique scheme per test
         // This avoids conflict with the main extension's 'jj-view' provider and parallel tests
@@ -71,9 +67,6 @@ suite('Quick Diff Commands Integration Test', () => {
 
         if (scmProvider) {
             scmProvider.dispose();
-        }
-        if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
         }
         if (jjViewProviderDisposable) {
             jjViewProviderDisposable.dispose();

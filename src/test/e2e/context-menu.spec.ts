@@ -339,25 +339,6 @@ test.describe('JJ Log Context Menu E2E', () => {
         }).toPass();
     });
 
-    test('Delete Bookmark', async () => {
-        await getLogWebview(page);
-
-        // 1. Create a bookmark first via CLI so we have one to delete
-        repo.bookmark('to-be-deleted', nodes.commit1.changeId);
-        await triggerRefresh(page);
-
-        // 2. Wait for the bookmark pill to appear
-        const bookmarkPill = await waitForLogPill(page, 'to-be-deleted', 'bookmark');
-
-        // 3. Right-click the bookmark pill and select "Delete Bookmark"
-        await expect(async () => {
-            await rightClickAndSelect(page, bookmarkPill, 'Delete Bookmark');
-
-            // 4. Verification: the bookmark pill should disappear
-            await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
-        }).toPass({ timeout: 30000 });
-    });
-
     test('Set Bookmark', async () => {
         const webview = await getLogWebview(page);
         const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });

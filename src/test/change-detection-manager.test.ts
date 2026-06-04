@@ -372,50 +372,5 @@ describe('ChangeDetectionManager', () => {
                 { timeout: 10000, interval: 100 },
             );
         });
-
-        it('ignores secondary workspace directories', async () => {
-            // Setup config to return 'watch'
-            mockGetConfiguration.mockReturnValue({
-                get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') {
-                        return 'watch';
-                    }
-                    return defaultValue;
-                },
-            });
-
-            // Create a secondary workspace directory inside the main repo
-            const secondRepo = repo.workspaceAdd('second_workspace');
-
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-
-            // Wait for watchers to start and settle
-            await waitForLog('Working Copy Watcher] Started');
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            triggerRefreshSpy.mockClear();
-
-            // Write to the secondary workspace directory - should NOT trigger
-            const secondWorkspaceFile = path.join(secondRepo.path, 'somefile.txt');
-            await fs.writeFile(secondWorkspaceFile, 'change');
-
-            // Wait to confirm no event fires for secondary workspace file
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            const ignoredCalls = triggerRefreshSpy.mock.calls.filter((call) => call[0].reason === 'file watcher event');
-            expect(ignoredCalls, 'File in secondary workspace should not have triggered a refresh').toHaveLength(0);
-
-            // Write to a main workspace path - SHOULD trigger
-            await fs.writeFile(path.join(repo.path, 'visible.txt'), 'visible');
-
-            await vi.waitFor(
-                () => {
-                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'file watcher event');
-                    expect(found, 'Expected file watcher event for visible.txt').toBe(true);
-                },
-                { timeout: 10000, interval: 100 },
-            );
-
-            // Clean up the secondary workspace
-            secondRepo.dispose();
-        });
     });
 });

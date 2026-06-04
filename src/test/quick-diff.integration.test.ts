@@ -9,7 +9,6 @@ import * as vscode from 'vscode';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
-import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -20,7 +19,6 @@ suite('Quick Diff Integration Test', () => {
     let repo: TestRepo;
     let canonicalPath: string;
     let disposable: vscode.Disposable;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
@@ -40,10 +38,8 @@ suite('Quick Diff Integration Test', () => {
             name: 'mock',
         });
 
-        contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
-
-        viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(context, contextHelper.repository, outputChannel, viewFileSystemProvider);
+        viewFileSystemProvider = new JjViewFileSystemProvider(jj);
+        scmProvider = new JjScmProvider(context, jj, canonicalPath, outputChannel, viewFileSystemProvider);
 
         disposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
 
@@ -63,9 +59,6 @@ suite('Quick Diff Integration Test', () => {
 
         if (scmProvider) {
             scmProvider.dispose();
-        }
-        if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
         }
         if (disposable) {
             disposable.dispose();

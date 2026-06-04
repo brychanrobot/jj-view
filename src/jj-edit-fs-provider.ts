@@ -43,14 +43,9 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     private _knownUris = new Set<string>();
 
     constructor(
-        private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
-        public onDidWrite?: (repo: import('./jj-repository').JjRepository) => void,
+        private jj: JjService,
+        public onDidWrite?: () => void,
     ) {}
-
-    private getJjService(uri: vscode.Uri): JjService | undefined {
-        const repo = this._repositoryManager.getRepositoryForUri(uri);
-        return repo?.jj;
-    }
 
     watch(): vscode.Disposable {
         // No-op: we fire change events manually after writes or refresh
@@ -87,29 +82,18 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
-        const jj = this.getJjService(uri);
-        if (!jj) {
-            throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
-        }
-        const content = await jj.getFileContent(filePath, revision);
+        const content = await this.jj.getFileContent(filePath, revision);
         return Buffer.from(content, 'utf8');
     }
 
     async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
-        const jj = this.getJjService(uri);
-        if (!jj) {
-            throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
-        }
         const { revision, filePath } = parseEditUri(uri);
         const text = Buffer.from(content).toString('utf8');
-        const repo = this._repositoryManager.getRepositoryForUri(uri);
-        const repoRoot = repo ? repo.rootUri.fsPath : '';
-        const batchKey = `${repoRoot}\u0000${revision}`;
 
         return new Promise<void>((resolve, reject) => {
-            const pending = this._pendingWrites.get(batchKey) || [];
+            const pending = this._pendingWrites.get(revision) || [];
             pending.push({ revision, filePath, content: text, uri, resolve, reject });
-            this._pendingWrites.set(batchKey, pending);
+            this._pendingWrites.set(revision, pending);
 
             if (this._writeTimer) {
                 clearTimeout(this._writeTimer);
@@ -123,27 +107,14 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         const batches = Array.from(this._pendingWrites.entries());
         this._pendingWrites.clear();
 
-        for (const [batchKey, requests] of batches) {
-            const separatorIndex = batchKey.indexOf('\u0000');
-            const repoRoot = batchKey.substring(0, separatorIndex);
-            const revision = batchKey.substring(separatorIndex + 1);
-            const repo = repoRoot ? this._repositoryManager.getRepositoryForUri(vscode.Uri.file(repoRoot)) : undefined;
-            const jj = repo?.jj;
-            if (!jj) {
-                const err = new Error(`No Jujutsu repository found for root: ${repoRoot}`);
-                for (const req of requests) {
-                    req.reject(err);
-                }
-                continue;
-            }
-
+        for (const [revision, requests] of batches) {
             try {
                 const filesMap = new Map<string, string>();
                 for (const req of requests) {
                     filesMap.set(req.filePath, req.content);
                 }
 
-                await jj.setFilesContent(revision, filesMap);
+                await this.jj.setFilesContent(revision, filesMap);
 
                 // Notify VS Code and resolve all promises
                 const changeEvents: vscode.FileChangeEvent[] = [];
@@ -154,9 +125,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
                 this._onDidChangeFile.fire(changeEvents);
 
                 // Trigger SCM refresh once per batch
-                if (repo) {
-                    this.onDidWrite?.(repo);
-                }
+                this.onDidWrite?.();
             } catch (err) {
                 // Reject all promises in the batch if it fails
                 for (const req of requests) {

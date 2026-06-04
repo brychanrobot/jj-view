@@ -66,7 +66,7 @@ export function formatCommitTitle(
 /**
  * Checks if a commit can be squashed (i.e. is mutable, has exactly one parent, and that parent is mutable).
  */
-export function canSquashCommit(commit: { is_immutable?: boolean; parents?: { is_immutable?: boolean }[] }): boolean {
+export function canSquashCommit(commit: { is_immutable?: boolean; parents?: { is_immutable: boolean }[] }): boolean {
     return !commit.is_immutable && !!commit.parents && commit.parents.length === 1 && !commit.parents[0].is_immutable;
 }
 
@@ -80,6 +80,6 @@ export function isMutableCommit(commit: { is_immutable?: boolean }): boolean {
 /**
  * Checks if a commit has any mutable parent (allowing absorb).
  */
-export function canAbsorbCommit(commit: { parents?: { is_immutable?: boolean }[] }): boolean {
+export function canAbsorbCommit(commit: { parents?: { is_immutable: boolean }[] }): boolean {
     return !!commit.parents && commit.parents.some((p) => !p.is_immutable);
 }

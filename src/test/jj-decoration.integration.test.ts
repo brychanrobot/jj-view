@@ -5,14 +5,14 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepository } from '../jj-repository';
 import { JjScmProvider } from '../jj-scm-provider';
+import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
 suite('JJ Decoration Integration Test', () => {
     let scmProvider: JjScmProvider;
+    let jjService: JjService;
     let repo: TestRepo;
 
     // Helper to normalize paths for Windows using robust URI comparison
@@ -26,6 +26,7 @@ suite('JJ Decoration Integration Test', () => {
         repo.init();
 
         // Instantiate services manually for control
+        jjService = new JjService(repo.path);
         const context = createMock<vscode.ExtensionContext>({ subscriptions: [] });
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
@@ -38,14 +39,7 @@ suite('JJ Decoration Integration Test', () => {
             name: 'mock',
         });
 
-        const codeForgeRegistry = new CodeForgeRegistry();
-        const repository = new JjRepository(
-            vscode.Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            codeForgeRegistry,
-            outputChannel,
-        );
-        scmProvider = new JjScmProvider(context, repository, outputChannel);
+        scmProvider = new JjScmProvider(context, jjService, repo.path, outputChannel);
     });
 
     teardown(async () => {

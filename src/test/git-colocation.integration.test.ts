@@ -6,7 +6,7 @@ import * as assert from 'node:assert';
 import * as cp from 'node:child_process';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { checkGitColocation, resetGitColocationCheckForTesting } from '../git-colocation';
+import { checkGitColocation } from '../git-colocation';
 import { JjService } from '../jj-service';
 import { TestRepo } from './test-repo';
 
@@ -28,7 +28,6 @@ suite('Git Colocation Integration Test Suite', () => {
 
     setup(() => {
         sandbox = sinon.createSandbox();
-        resetGitColocationCheckForTesting();
     });
 
     teardown(() => {
@@ -100,45 +99,5 @@ suite('Git Colocation Integration Test Suite', () => {
         await checkGitColocation(jjService);
 
         assert.ok(showInformationMessageSpy.notCalled, 'Warning should not be shown when suppressed');
-    });
-
-    test('should only run at most once per session', async () => {
-        // We do not call resetGitColocationCheckForTesting() here, as setup() already did it for the first run.
-        const getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
-
-        getConfigurationStub.withArgs('git').returns({
-            get: (key: string) => (key === 'enabled' ? true : undefined),
-            has: () => true,
-            inspect: () => undefined,
-            update: async () => {},
-        } as vscode.WorkspaceConfiguration);
-
-        getConfigurationStub.withArgs('jj-view').returns({
-            get: (key: string) => (key === 'suppressGitColocationWarning' ? false : undefined),
-            has: () => true,
-            inspect: () => undefined,
-            update: async () => {},
-        } as vscode.WorkspaceConfiguration);
-
-        const getExtensionStub = sandbox.stub(vscode.extensions, 'getExtension');
-        getExtensionStub
-            .withArgs('vscode.git')
-            .returns({ id: 'vscode.git' } as vscode.Extension<vscode.ExtensionContext>);
-
-        const showInformationMessageSpy = sandbox.stub(vscode.window, 'showInformationMessage');
-        showInformationMessageSpy.resolves(undefined);
-
-        // First run
-        await checkGitColocation(jjService);
-        assert.ok(showInformationMessageSpy.calledOnce, 'First run should display warning');
-
-        // Reset spy count for showInformationMessage and getConfiguration
-        showInformationMessageSpy.resetHistory();
-        getConfigurationStub.resetHistory();
-
-        // Second run in the same session (hasRun should be true)
-        await checkGitColocation(jjService);
-        assert.ok(showInformationMessageSpy.notCalled, 'Second run should not show warning');
-        assert.ok(getConfigurationStub.notCalled, 'Second run should not read configuration');
     });
 });

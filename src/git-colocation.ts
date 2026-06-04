@@ -6,24 +6,12 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
 
-let hasRun = false;
-
-/** Resets the run state for tests. */
-export function resetGitColocationCheckForTesting(): void {
-    hasRun = false;
-}
-
 /** Checks if the repository is git-colocated and prompts the user to disable the Git extension if necessary. */
 export async function checkGitColocation(jj: JjService): Promise<void> {
     const gitRoot = await jj.getGitRoot();
     if (!gitRoot) {
         return; // Not git-backed
     }
-
-    if (hasRun) {
-        return;
-    }
-    hasRun = true;
 
     const repoRoot = await jj.getRepoRoot();
 
