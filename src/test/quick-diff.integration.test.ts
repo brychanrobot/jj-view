@@ -43,7 +43,13 @@ suite('Quick Diff Integration Test', () => {
         contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
 
         viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(context, contextHelper.repository, outputChannel, viewFileSystemProvider);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
+            outputChannel,
+            contextHelper.repositoryManager,
+            viewFileSystemProvider,
+        );
 
         disposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
 

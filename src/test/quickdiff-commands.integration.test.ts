@@ -48,7 +48,13 @@ suite('Quick Diff Commands Integration Test', () => {
         contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
 
         viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(context, contextHelper.repository, outputChannel, viewFileSystemProvider);
+        scmProvider = new JjScmProvider(
+            context,
+            contextHelper.repository,
+            outputChannel,
+            contextHelper.repositoryManager,
+            viewFileSystemProvider,
+        );
 
         // Register a test-specific content provider to handle a unique scheme per test
         // This avoids conflict with the main extension's 'jj-view' provider and parallel tests
