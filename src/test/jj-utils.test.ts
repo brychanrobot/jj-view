@@ -4,10 +4,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    canAbsorbCommit,
+    canSquashCommit,
     convertJjChangeIdToHex,
     formatCommitTitle,
     formatDisplayChangeId,
     getChangeIdDisplayLength,
+    isMutableCommit,
     shortenChangeId,
 } from '../utils/jj-utils';
 
@@ -86,6 +89,47 @@ describe('JJ Utils', () => {
         });
     });
 
+    describe('canSquashCommit', () => {
+        it('should return true for a mutable commit with exactly one mutable parent', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(true);
+        });
+
+        it('should return false if the commit is immutable', () => {
+            const commit = {
+                is_immutable: true,
+                parents: [{ is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
+        });
+
+        it('should return false if the commit has no parents', () => {
+            const commit1 = { is_immutable: false };
+            const commit2 = { is_immutable: false, parents: [] };
+            expect(canSquashCommit(commit1)).toBe(false);
+            expect(canSquashCommit(commit2)).toBe(false);
+        });
+
+        it('should return false if the commit has multiple parents', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: false }, { is_immutable: false }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
+        });
+
+        it('should return false if the single parent is immutable', () => {
+            const commit = {
+                is_immutable: false,
+                parents: [{ is_immutable: true }],
+            };
+            expect(canSquashCommit(commit)).toBe(false);
+        });
+    });
+
     describe('formatCommitTitle', () => {
         const fullId = 'abcdefghijklmnopqrstuvwxyz';
 
@@ -126,6 +170,65 @@ describe('JJ Utils', () => {
                 is_divergent: false,
             };
             expect(formatCommitTitle(commit, 8)).toBe('Commit: abcdef');
+        });
+    });
+
+    describe('canAbsorbCommit', () => {
+        describe('when there are no parents', () => {
+            it('should return false if parents array is missing', () => {
+                expect(canAbsorbCommit({})).toBe(false);
+            });
+
+            it('should return false if parents array is empty', () => {
+                expect(canAbsorbCommit({ parents: [] })).toBe(false);
+            });
+        });
+
+        describe('when there are parents', () => {
+            it('should correctly determine if the commit can be absorbed based on parents mutability', () => {
+                const cases = [
+                    {
+                        parents: [{ is_immutable: true }],
+                        expected: false,
+                        description: 'single immutable parent',
+                    },
+                    {
+                        parents: [{ is_immutable: true }, { is_immutable: true }],
+                        expected: false,
+                        description: 'all multiple parents are immutable',
+                    },
+                    {
+                        parents: [{}],
+                        expected: true,
+                        description: 'parent lacks explicit is_immutable flag (defaults to mutable)',
+                    },
+                    {
+                        parents: [{ is_immutable: false }],
+                        expected: true,
+                        description: 'single mutable parent',
+                    },
+                    {
+                        parents: [{ is_immutable: true }, { is_immutable: false }],
+                        expected: true,
+                        description: 'one of multiple parents is mutable',
+                    },
+                ];
+
+                for (const { parents, expected, description } of cases) {
+                    expect(canAbsorbCommit({ parents }), description).toBe(expected);
+                }
+            });
+        });
+    });
+
+    describe('isMutableCommit', () => {
+        it('should return true if commit is not immutable', () => {
+            expect(isMutableCommit({ is_immutable: false })).toBe(true);
+            expect(isMutableCommit({})).toBe(true);
+        });
+
+        it('should return false if commit is immutable', () => {
+            expect(isMutableCommit({ is_immutable: true })).toBe(false);
         });
     });
 });

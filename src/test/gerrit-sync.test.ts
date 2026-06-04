@@ -81,8 +81,11 @@ describe('Gerrit Sync Verification', () => {
 
     function initService(): CodeForgeService {
         registry = new CodeForgeRegistry();
-        provider = new GerritProvider(jjService);
-        registry.register(provider);
+        provider = new GerritProvider();
+        registry.register({
+            id: 'gerrit',
+            create: () => provider,
+        });
         service = new CodeForgeService(repo.path, jjService, registry);
         return service;
     }

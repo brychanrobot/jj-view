@@ -311,7 +311,8 @@ describe('GitLabProvider', () => {
             });
         }
 
-        const result = await provider.fetchStatuses(changes);
+        const mockJj = createMock<vscode.Disposable & import('../jj-service').JjService>({});
+        const result = await provider.fetchStatuses(changes, mockJj);
         expect(result).toBe(true);
 
         expect(fetchBatchSpy).toHaveBeenCalledTimes(3);

@@ -21,7 +21,12 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     // Track all URIs that have been served so we can fire onDidChangeFile for them
     private _knownUris = new Set<string>();
 
-    constructor(private jj: JjService) {}
+    constructor(private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager) {}
+
+    private getJjService(uri: vscode.Uri): JjService | undefined {
+        const repo = this._repositoryManager.getRepositoryForUri(uri);
+        return repo?.jj;
+    }
 
     watch(): vscode.Disposable {
         // No-op: we fire change events manually during refresh
@@ -58,13 +63,17 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
+        const jj = this.getJjService(uri);
+        if (!jj) {
+            throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
+        }
 
         try {
             const query = decodeJjViewQuery(uri.query);
 
             if (query.mode === 'revision') {
                 try {
-                    const content = await this.jj.getFileContent(uri.fsPath, query.revision);
+                    const content = await jj.getFileContent(uri.fsPath, query.revision);
                     return Buffer.from(content, 'utf8');
                 } catch {
                     return new Uint8Array();
@@ -76,7 +85,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
             let content = this._cache.get(cacheKey);
             if (!content) {
-                content = await this.jj.getDiffContent(query.base, filePath);
+                content = await jj.getDiffContent(query.base, filePath);
                 this._cache.set(cacheKey, content);
             }
 

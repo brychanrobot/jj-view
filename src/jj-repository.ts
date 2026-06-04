@@ -1,0 +1,89 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type { Disposable, OutputChannel, Uri } from 'vscode';
+import { ChangeDetectionManager } from './change-detection-manager';
+import type { CodeForgeRegistry } from './code-forge-registry';
+import { CodeForgeService } from './code-forge-service';
+import { JjService } from './jj-service';
+import { RefreshScheduler } from './refresh-scheduler';
+import { AsyncEventEmitter } from './utils/async-event-emitter';
+
+export class JjRepository implements Disposable {
+    private readonly _jj: JjService;
+    private readonly _watcher: ChangeDetectionManager;
+    private readonly _codeForge: CodeForgeService;
+    private readonly _refreshScheduler: RefreshScheduler;
+    private readonly _onDidStatusChange = new AsyncEventEmitter<{ reason: string }>();
+
+    readonly onDidStatusChange = this._onDidStatusChange.event;
+
+    constructor(
+        public readonly rootUri: Uri,
+        public readonly storePath: string,
+        registry: CodeForgeRegistry,
+        outputChannel: OutputChannel,
+    ) {
+        this._jj = new JjService(rootUri.fsPath, (msg) => {
+            try {
+                outputChannel.appendLine(msg);
+            } catch {
+                // OutputChannel might be disposed during teardown or shutdown
+            }
+        });
+        this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
+        this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
+        this._watcher = new ChangeDetectionManager(rootUri.fsPath, this._jj, outputChannel, async (options) => {
+            await this._refreshScheduler.trigger(options);
+        });
+    }
+
+    get jj(): JjService {
+        return this._jj;
+    }
+
+    get codeForge(): CodeForgeService {
+        return this._codeForge;
+    }
+
+    get watcher(): ChangeDetectionManager {
+        return this._watcher;
+    }
+
+    private _isValid: boolean | undefined;
+    async isValid(): Promise<boolean> {
+        if (this._isValid !== undefined) {
+            return this._isValid;
+        }
+        try {
+            await fs.access(path.join(this.rootUri.fsPath, '.jj', 'working_copy', 'type'));
+            this._isValid = true;
+        } catch {
+            this._isValid = false;
+        }
+        return this._isValid;
+    }
+
+    async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
+        const { forceSnapshot = false, reason = 'manual' } = options;
+        this._isValid = undefined;
+        await this._jj.clearCache();
+
+        if (forceSnapshot) {
+            await this._jj.status();
+        }
+        await this._jj.getRepoRoot(); // Warm the cache
+
+        await this._onDidStatusChange.fire({ reason });
+    }
+
+    async dispose() {
+        this._codeForge.dispose();
+        await this._watcher.dispose();
+        this._refreshScheduler.dispose();
+    }
+}

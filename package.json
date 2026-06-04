@@ -163,6 +163,36 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Controls whether the diff editor should be opened when clicking a change. Otherwise the regular editor will be opened."
+                },
+                "jj-view.autoRepositoryDetection": {
+                    "type": [
+                        "boolean",
+                        "string"
+                    ],
+                    "enum": [
+                        true,
+                        false,
+                        "subFolders",
+                        "openEditors"
+                    ],
+                    "default": true,
+                    "description": "Controls whether to automatically detect jj repositories. true: Scans workspace folders and all subfolders recursively; false: Only checks workspace roots; subFolders: Scans immediate subfolders; openEditors: Only registers on-demand when files are opened."
+                },
+                "jj-view.scanRepositories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "List of absolute or workspace-relative directory paths to explicitly scan for jj repositories."
+                },
+                "jj-view.ignoredRepositories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "List of absolute directory paths of jj repositories that should be explicitly ignored."
                 }
             }
         },
@@ -181,6 +211,12 @@
             {
                 "command": "jj-view.showCurrentChange",
                 "title": "Show Current Change",
+                "category": "JJ View",
+                "icon": "$(eye)"
+            },
+            {
+                "command": "jj-view.focusRepository",
+                "title": "Show Repository in JJ Log",
                 "category": "JJ View",
                 "icon": "$(eye)"
             },
@@ -377,6 +413,12 @@
                 "icon": "$(bookmark)"
             },
             {
+                "command": "jj-view.deleteBookmark",
+                "title": "Delete Bookmark",
+                "category": "JJ View",
+                "icon": "$(trash)"
+            },
+            {
                 "command": "jj-view.absorb",
                 "title": "Absorb",
                 "category": "JJ View",
@@ -428,42 +470,42 @@
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.on",
-                "title": "● New Child",
+                "title": "\u25cf New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.off",
-                "title": "○ New Child",
+                "title": "\u25cb New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.on",
-                "title": "● Edit",
+                "title": "\u25cf Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.off",
-                "title": "○ Edit",
+                "title": "\u25cb Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.on",
-                "title": "● Squash",
+                "title": "\u25cf Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.off",
-                "title": "○ Squash",
+                "title": "\u25cb Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.on",
-                "title": "● Abandon",
+                "title": "\u25cf Abandon",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.off",
-                "title": "○ Abandon",
+                "title": "\u25cb Abandon",
                 "category": "JJ View"
             },
             {
@@ -471,11 +513,6 @@
                 "title": "Manage Code Forge Authentication",
                 "category": "JJ View",
                 "icon": "$(key)"
-            },
-            {
-                "command": "jj-view.gitlab.enterPat",
-                "title": "Enter GitLab Personal Access Token (PAT)",
-                "category": "JJ View"
             }
         ],
         "keybindings": [
@@ -483,19 +520,19 @@
                 "command": "jj-view.setDescription",
                 "key": "ctrl+s",
                 "mac": "cmd+s",
-                "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
+                "when": "scmProvider =~ /^jj/ && editorLangId == 'scminput'"
             },
             {
                 "command": "jj-view.commit",
                 "key": "ctrl+enter",
                 "mac": "cmd+enter",
-                "when": "scmProvider == 'jj' && editorLangId == 'scminput'"
+                "when": "scmProvider =~ /^jj/ && editorLangId == 'scminput'"
             },
             {
                 "command": "jj-view.focusDescriptionInput",
                 "key": "ctrl+shift+g",
                 "mac": "cmd+shift+g",
-                "when": "scmProvider == 'jj'"
+                "when": "scmProvider =~ /^jj/"
             }
         ],
         "menus": {
@@ -682,6 +719,11 @@
                     "group": "3_bookmark@1"
                 },
                 {
+                    "command": "jj-view.deleteBookmark",
+                    "when": "webviewSection == 'jj.bookmark' && !isRemoteBookmark",
+                    "group": "3_bookmark@2"
+                },
+                {
                     "command": "jj-view.hideCommitAction.newChild",
                     "when": "webviewSection == 'commitAction' && jj.actionId == 'newChild' && jj.newChildVisible",
                     "group": "9_visibility_1_hide"
@@ -743,6 +785,11 @@
                 }
             ],
             "scm/title": [
+                {
+                    "command": "jj-view.focusRepository",
+                    "group": "navigation@0",
+                    "when": "scmProvider =~ /^jj/ && scm.providerCount > 1"
+                },
                 {
                     "command": "jj-view.new",
                     "group": "navigation@1"
@@ -946,7 +993,6 @@
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
-
         "typescript": "^5.9.3",
         "vitest": "^4.0.16"
     },

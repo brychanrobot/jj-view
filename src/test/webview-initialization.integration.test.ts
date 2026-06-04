@@ -4,10 +4,9 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import type { CodeForgeService } from '../code-forge-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
-import { JjService } from '../jj-service';
+import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
@@ -42,7 +41,6 @@ function createMockWebviewView() {
 }
 
 suite('Webview Initialization Integration Test', () => {
-    let jj: JjService;
     let provider: JjLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
@@ -51,25 +49,17 @@ suite('Webview Initialization Integration Test', () => {
         repo = new TestRepo();
         await repo.init();
 
-        jj = new JjService(repo.path);
-
-        const extensionUri = vscode.Uri.file(__dirname);
-        const codeForgeService = createMock<CodeForgeService>({
-            onDidUpdate: () => ({ dispose: () => {} }),
-            isEnabled: false,
-            startPolling: () => {},
-            stopPolling: () => {},
-            detectActiveProvider: () => Promise.resolve(),
-            dispose: () => {},
-        });
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
         });
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, jj);
+        const extensionUri = vscode.Uri.file(__dirname);
+        const context = await createTestRepositoryContext(repo.path, outputChannel);
+        disposables.push(context.repositoryManager);
+
+        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, context.repositoryManager);
         provider = new JjLogWebviewProvider(
             extensionUri,
-            jj,
-            codeForgeService,
+            context.repository,
             commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
