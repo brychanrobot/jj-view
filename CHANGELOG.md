@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0
+
+### Features
+
+- **Multi-Repository**: Support multi-repository workspaces and recursive repository discovery.
+- **Bookmarks**: Add delete bookmark functionality.
+- **SCM**:
+    - Support tracking PR/MR from forks targeting mainline repositories.
+    - Add focus SCM description input command.
+- **Diff Editor**: Automatically close diff editors for invalid or abandoned revisions.
+
+### Fixes
+
+- **Multi-Repository**: Use forge provider cache during active repository switches.
+- **SCM**: Show only the subject line of ancestor commit descriptions in SCM group headers.
+- **File Watcher**: Check for watchman availability on PATH to avoid flashing the terminal window on Windows.
+
+### Chores & Testing
+
+- **Testing**:
+    - Add test coverage for `JjEditFileSystemProvider`, `canAbsorbCommit`, `isMutableCommit`, and `canSquashCommit`.
+    - Stabilize E2E tests by refining timing, adding retries, and reducing flakiness in divergent, workspace, and arbitrary diff spec suites.
+
 ## 1.29.0
 
 ### Features
