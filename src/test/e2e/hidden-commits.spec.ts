@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { TestRepo } from '../test-repo';
-import { focusJJLog, getLogWebview, launchVSCode } from './e2e-helpers';
+import { focusJJLog, getLogWebview, test } from './e2e-helpers';
 
 test.describe('Hidden Commits', () => {
     let repo: TestRepo;
@@ -19,7 +19,7 @@ test.describe('Hidden Commits', () => {
         repo.dispose();
     });
 
-    test('renders a ghost shape for hidden commit nodes', async () => {
+    test('renders a ghost shape for hidden commit nodes', async ({ vscode }) => {
         // 1. Create a commit that we will hide
         repo.new([], 'ghost commit');
         const ghostCommitId = repo.getCommitId('@');
@@ -32,7 +32,7 @@ test.describe('Hidden Commits', () => {
         const revset = `commit_id(${ghostCommitId.substring(0, 8)}) | present(@) | ancestors(immutable_heads().., 2) | trunk()`;
         repo.config('revsets.log', revset);
 
-        const { page } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         await focusJJLog(page);
         const webview = await getLogWebview(page);

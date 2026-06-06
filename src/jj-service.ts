@@ -52,7 +52,7 @@ export class JjService {
         if (this._repoRoot) {
             return this._repoRoot;
         }
-        this._repoRoot = await this.run('root', [], { label: 'getRepoRoot' });
+        this._repoRoot = await this.run('root', [], { useCachedSnapshot: true, label: 'getRepoRoot' });
         return this._repoRoot;
     }
 

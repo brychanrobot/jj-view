@@ -45,6 +45,10 @@ export class JjScmProvider implements vscode.Disposable {
         return this._hasChild;
     }
 
+    public ownsGroup(group: vscode.SourceControlResourceGroup): boolean {
+        return group === this._workingCopyGroup || group === this._conflictGroup || this._parentGroups.includes(group);
+    }
+
     private _onDidChangeStatus = new vscode.EventEmitter<void>();
     readonly onDidChangeStatus: vscode.Event<void> = this._onDidChangeStatus.event;
 
@@ -492,10 +496,14 @@ export class JjScmProvider implements vscode.Disposable {
                         ((err.message.includes('Object') && err.message.includes('not found')) ||
                             err.message.includes('No such file or directory'))
                     ) {
-                        this.outputChannel.appendLine(`Ignored transient error during refresh: ${getErrorMessage(e)}`);
+                        this.outputChannel.appendLine(
+                            `[${this.repo.rootUri.fsPath}] Ignored transient error during refresh: ${getErrorMessage(e)}`,
+                        );
                     } else {
-                        this.outputChannel.appendLine(`Error refreshing JJ SCM: ${getErrorMessage(e)}`);
-                        console.error('Error refreshing JJ SCM:', e);
+                        this.outputChannel.appendLine(
+                            `[${this.repo.rootUri.fsPath}] Error refreshing JJ SCM: ${getErrorMessage(e)}`,
+                        );
+                        console.error(`Error refreshing JJ SCM for ${this.repo.rootUri.fsPath}:`, e);
                     }
                 } finally {
                     if (!this._disposed) {

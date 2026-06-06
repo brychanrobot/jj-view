@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
 import {
@@ -12,10 +11,10 @@ import {
     expectNotificationToast,
     focusJJLog,
     focusSCM,
-    launchVSCode,
     locateQuickInputItem,
     locateQuickInputWidget,
     pickQuickPickItem,
+    test,
     waitForLogCommitRow,
     waitForQuickInput,
 } from './e2e-helpers';
@@ -36,7 +35,7 @@ test.describe('GitHub Integration E2E', () => {
         github.clearRequests();
     });
 
-    test('Detects GitHub PR status via bookmark', async () => {
+    test('Detects GitHub PR status via bookmark', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
@@ -58,7 +57,7 @@ test.describe('GitHub Integration E2E', () => {
             unresolvedComments: 3,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -84,15 +83,11 @@ test.describe('GitHub Integration E2E', () => {
             const uploadButton = row.getByRole('button', { name: 'Upload changes to GitHub' });
             await expect(uploadButton).not.toBeVisible();
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Shows Upload button when content is out of sync and performs upload', async () => {
+    test('Shows Upload button when content is out of sync and performs upload', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
@@ -119,7 +114,7 @@ test.describe('GitHub Integration E2E', () => {
             currentRevision: 'different-commit-sha',
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -152,15 +147,13 @@ test.describe('GitHub Integration E2E', () => {
                 expect(desc).toContain('uploaded_successfully');
             }).toPass({ timeout: 15000 });
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('PR badge is only shown on local bookmark commits, and parent/structure sync indicators are correct', async () => {
+    test('PR badge is only shown on local bookmark commits, and parent/structure sync indicators are correct', async ({
+        vscode,
+    }) => {
         const remoteRepo = new TestRepo();
         remoteRepo.init();
 
@@ -198,7 +191,7 @@ test.describe('GitHub Integration E2E', () => {
             currentRevision: parentCommitId,
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -227,21 +220,17 @@ test.describe('GitHub Integration E2E', () => {
             await expect(uploadButton).toBeVisible();
             await expect(uploadButton).toHaveAttribute('title', 'Local changes need upload (Click to push)');
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
             remoteRepo.dispose();
         }
     });
 
-    test('Manages GitHub auth choices via Quick Pick', async () => {
+    test('Manages GitHub auth choices via Quick Pick', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -266,20 +255,16 @@ test.describe('GitHub Integration E2E', () => {
             const quickPick = locateQuickInputWidget(page);
             await expect(quickPick).not.toBeVisible();
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Manages GitHub PAT flow via Quick Pick', async () => {
+    test('Manages GitHub PAT flow via Quick Pick', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -348,15 +333,11 @@ test.describe('GitHub Integration E2E', () => {
 
             await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Detects PR from fork targeting mainline repo', async () => {
+    test('Detects PR from fork targeting mainline repo', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         repo.addRemote('origin', 'https://github.com/mainline-owner/mainline-repo.git');
@@ -379,7 +360,7 @@ test.describe('GitHub Integration E2E', () => {
             headOwner: 'fork-owner',
         });
 
-        const { app, page, userDataDir } = await launchVSCode(
+        const { page } = await vscode.openWorkspace(
             repo,
             {
                 'jj-view.codeForge.provider': 'github',
@@ -398,10 +379,6 @@ test.describe('GitHub Integration E2E', () => {
             // Verify PR badge is shown with correct number and URL (even though the headOwner is 'fork-owner')
             await expectBadgeLink(row, 'PR #99', 'https://github.com/mainline-owner/mainline-repo/pull/99');
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });

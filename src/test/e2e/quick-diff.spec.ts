@@ -5,30 +5,18 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type ElectronApplication, expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
-import { hoverAndClick, launchVSCode, openFileInEditor } from './e2e-helpers';
+import { hoverAndClick, openFileInEditor, test } from './e2e-helpers';
 
 test.describe('Quick Diff E2E', () => {
     let repo: TestRepo | undefined;
-    let app: ElectronApplication | undefined;
-    let userDataDir: string | undefined;
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (repo) {
             repo.dispose();
         }
         repo = undefined;
-        app = undefined;
-        userDataDir = undefined;
     });
 
     async function openGutterPeekView(page: Page, editor: Locator): Promise<{ peekView: Locator; gutter: Locator }> {
@@ -49,14 +37,7 @@ test.describe('Quick Diff E2E', () => {
         return { peekView, gutter };
     }
 
-    async function setupVSCode(testRepo: TestRepo): Promise<Page> {
-        const launch = await launchVSCode(testRepo);
-        app = launch.app;
-        userDataDir = launch.userDataDir;
-        return launch.page;
-    }
-
-    test('Gutter decorations and Diff Editor refresh after squash', async () => {
+    test('Gutter decorations and Diff Editor refresh after squash', async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
 
@@ -77,10 +58,10 @@ test.describe('Quick Diff E2E', () => {
             },
         ]);
 
-        const page = await setupVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         // 1. Open the file
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(vscode, page, fileName);
 
         // 2. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -109,7 +90,7 @@ test.describe('Quick Diff E2E', () => {
         await expect(peekView).not.toBeVisible({ timeout: 5000 });
     });
 
-    test('Discard middle-of-file deletion via gutter peek view', async () => {
+    test('Discard middle-of-file deletion via gutter peek view', async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
 
@@ -130,10 +111,10 @@ test.describe('Quick Diff E2E', () => {
             },
         ]);
 
-        const page = await setupVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         // 1. Open the file via the Explorer
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(vscode, page, fileName);
 
         // 2 & 3. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -165,7 +146,7 @@ test.describe('Quick Diff E2E', () => {
         await expect(peekView).not.toBeVisible({ timeout: 5000 });
     });
 
-    test('Gutter decorations for a moved file with edits', async () => {
+    test('Gutter decorations for a moved file with edits', async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
         repo.config('ui.diff.renames', 'true');
@@ -190,10 +171,10 @@ test.describe('Quick Diff E2E', () => {
         const modifiedContent = 'line 1\nline 1.5\nline 2 MODIFIED\nline 3\nline 4\nline 5\n';
         repo.writeFile(newFileName, modifiedContent);
 
-        const page = await setupVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         // 3. Open the renamed file
-        const editor = await openFileInEditor(page, newFileName);
+        const editor = await openFileInEditor(vscode, page, newFileName);
 
         // 4. Open Gutter Peek View
         const { peekView } = await openGutterPeekView(page, editor);
@@ -204,7 +185,7 @@ test.describe('Quick Diff E2E', () => {
         await expect(peekView.locator('.editor.modified')).toContainText('line 2 MODIFIED', { timeout: 5000 });
     });
 
-    test('Squash hunk into parent via gutter peek view', async () => {
+    test('Squash hunk into parent via gutter peek view', async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
 
@@ -227,10 +208,10 @@ test.describe('Quick Diff E2E', () => {
             },
         ]);
 
-        const page = await setupVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         // 1. Open the file
-        const editor = await openFileInEditor(page, fileName);
+        const editor = await openFileInEditor(vscode, page, fileName);
 
         // 2. Open Gutter Peek View for the FIRST hunk
         const { peekView } = await openGutterPeekView(page, editor);

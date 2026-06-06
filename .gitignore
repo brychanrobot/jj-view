@@ -6,7 +6,9 @@ dist
 .DS_Store
 codicons/
 test-results/
+test-artifacts/
 media/custom-icons/
 playwright-report/
 src/webview/themes.generated.ts
 media/themes.generated.css
+*.log

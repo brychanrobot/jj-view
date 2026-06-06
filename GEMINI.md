@@ -8,9 +8,10 @@ This document outlines the coding standards, testing strategies, and architectur
 
 - All code should be written in **TypeScript**.
 - Strict type checking is enabled (`"strict": true` in `tsconfig.json`).
-- **Forbidden**: `any` type usage. Use strict types or `unknown` if absolute necessary.
+- **Forbidden**: `any` type usage. Use strict types or `unknown` if absolutely necessary.
 - **Forbidden**: disabling the `any` type check for a line or block. `// @ts-ignore` or `// eslint-disable-line` are not allowed.
 - **Forbidden**: `as unknown as Type` double casting. Use `createMock` utility or proper type narrowing instead.
+- **Early Returns**: Always prefer early returns / guard clauses to avoid deeply nested blocks of conditional logic. Check error or mismatch conditions first, return early, and keep the primary execution path unindented.
 ### Target Environment
 
 - **Node.js**: The extension targets **Node.js 22** or later. Modern APIs like `Set.prototype.difference` are permitted and encouraged.

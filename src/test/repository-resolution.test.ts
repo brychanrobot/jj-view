@@ -5,7 +5,7 @@
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { resolveRepository } from '../extension';
+import { resolveRepository } from '../commands/command-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
@@ -52,7 +52,9 @@ describe('resolveRepository', () => {
         }
         resolvedRepo = registered;
 
-        mockScm = createMock<JjScmProvider>({});
+        mockScm = createMock<JjScmProvider>({
+            repo: resolvedRepo,
+        });
         scmProviders = new Map();
         scmProviders.set(resolvedRepo.rootUri.fsPath, mockScm);
     });
@@ -80,6 +82,22 @@ describe('resolveRepository', () => {
         expect(result).toBeDefined();
         expect(result?.repo).toBe(resolvedRepo);
         expect(result?.scm).toBe(mockScm);
+    });
+
+    it('resolves repository from SourceControlResourceGroup argument', () => {
+        const mockGroup = createMock<vscode.SourceControlResourceGroup>({
+            id: 'working-copy',
+            label: 'Working Copy',
+            resourceStates: [],
+        });
+        mockScm.ownsGroup = vi.fn().mockReturnValue(true);
+
+        const result = resolveRepository([mockGroup], repoManager, scmProviders);
+
+        expect(result).toBeDefined();
+        expect(result?.repo).toBe(resolvedRepo);
+        expect(result?.scm).toBe(mockScm);
+        expect(mockScm.ownsGroup).toHaveBeenCalledWith(mockGroup);
     });
 
     it('resolves repository from active text editor when no arguments provided', () => {

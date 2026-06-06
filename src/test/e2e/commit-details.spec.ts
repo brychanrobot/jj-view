@@ -3,18 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, type Page, test } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import { expect, type Page } from '@playwright/test';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     expectSettingsOpen,
     focusJJLog,
     getDetailsWebview,
     getLogWebview,
-    launchVSCode,
     redo,
     save,
+    test,
     undo,
     waitForLogCommitRow,
     waitForTab,
@@ -23,9 +21,7 @@ import {
 test.describe('Commit Details E2E', () => {
     let repo: TestRepo;
     let nodes: Record<string, CommitId>;
-    let app: ElectronApplication;
     let page: Page;
-    let userDataDir: string;
 
     test.beforeEach(async () => {
         repo = new TestRepo();
@@ -68,25 +64,15 @@ test.describe('Commit Details E2E', () => {
     });
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (repo) {
             repo.dispose();
         }
     });
 
     test.describe('Default Settings', () => {
-        test.beforeEach(async () => {
-            const setup = await launchVSCode(repo);
-            app = setup.app;
+        test.beforeEach(async ({ vscode }) => {
+            const setup = await vscode.openWorkspace(repo, {}, {}, true);
             page = setup.page;
-            userDataDir = setup.userDataDir;
 
             await focusJJLog(page);
         });
@@ -207,9 +193,6 @@ test.describe('Commit Details E2E', () => {
             // Create a new empty commit using the CLI directly
             repo.new([nodes.initial.changeId]);
             const newCommitId = repo.getChangeId('@');
-
-            // Wait for the file watcher to detect the change and refresh the graph.
-            await page.waitForTimeout(1000);
 
             // Refresh the webview by focusing it to pick up graph updates
             await focusJJLog(page);
@@ -408,9 +391,19 @@ test.describe('Commit Details E2E', () => {
             await featureRow.click();
             const details = await getDetailsWebview(page);
 
-            // Click the gear icon link
+            // Click the gear icon link, retrying if the Settings editor does not open
             const settingsLink = details.locator('a[title="Configure width rulers"]');
-            await settingsLink.click();
+            await expect(async () => {
+                const box = await settingsLink.boundingBox();
+                expect(box).not.toBeNull();
+                expect(box?.width).toBeGreaterThan(0);
+                expect(box?.height).toBeGreaterThan(0);
+            }).toPass({ timeout: 5000 });
+
+            await expect(async () => {
+                await settingsLink.click();
+                await expect(page.locator('.settings-editor')).toBeVisible({ timeout: 2000 });
+            }).toPass({ timeout: 10000 });
 
             // The VS Code Settings tab should open
             const titleItem = await expectSettingsOpen(page, 'Title Width Ruler');
@@ -420,9 +413,11 @@ test.describe('Commit Details E2E', () => {
             await expect(bodyItem.locator('input')).toHaveValue('72');
         });
 
-        test('Displays pills and person info correctly', async () => {
+        test('Displays pills and person info correctly', async ({ vscode }) => {
             // Configure 'initial' to be immutable using its exact commit ID
             repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
+
+            await vscode.executeCommand('jj-view.refresh');
 
             // Refresh the webview by focusing it to pick up graph updates
             await focusJJLog(page);
@@ -504,9 +499,10 @@ test.describe('Commit Details E2E', () => {
             await expect(updatedFeatureRow).toHaveAttribute('aria-selected', 'false', { timeout: 10000 });
         });
 
-        test('Hides buttons and disables editor for immutable commits', async () => {
+        test('Hides buttons and disables editor for immutable commits', async ({ vscode }) => {
             // Configure 'initial' to be immutable
             repo.config('revset-aliases."immutable_heads()"', `commit_id("${nodes.initial.commitId}")`);
+            await vscode.executeCommand('jj-view.refresh');
             await focusJJLog(page);
 
             const initialRow = await waitForLogCommitRow(page, 'initial setup');
@@ -547,13 +543,14 @@ test.describe('Commit Details E2E', () => {
             await textarea.focus();
             await page.keyboard.press('End');
             await page.keyboard.type(' first');
-            // Wait for debounce (200ms) plus buffer to ensure VS Code registers the edit.
+            // Wait for debounce (200ms) plus buffer to ensure VS Code registers the edit as a separate undo stack entry.
             await page.waitForTimeout(500);
             await expect(tabLocator).toHaveClass(/dirty/);
             await expect(textarea).toHaveValue('add feature first');
 
             // Stage 2: Second edit
             await page.keyboard.type(' second');
+            // Wait for debounce to ensure the second edit is also flushed as a separate undo entry.
             await page.waitForTimeout(500);
             await expect(textarea).toHaveValue('add feature first second');
 
@@ -603,13 +600,12 @@ test.describe('Commit Details E2E', () => {
     });
 
     test.describe('Format on Save', () => {
-        test.beforeEach(async () => {
-            const setup = await launchVSCode(repo, {
+        test.beforeEach(async ({ vscode }) => {
+            const extraSettings = {
                 'jj-view.commit.formatDescriptionOnSave': true,
-            });
-            app = setup.app;
+            };
+            const setup = await vscode.openWorkspace(repo, extraSettings);
             page = setup.page;
-            userDataDir = setup.userDataDir;
 
             await focusJJLog(page);
         });

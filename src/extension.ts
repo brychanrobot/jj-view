@@ -13,7 +13,7 @@ import { abandonCommand } from './commands/abandon';
 import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
 import { deleteBookmarkCommand } from './commands/bookmark-delete';
-import { extractUriFromArgs } from './commands/command-utils';
+import { resolveRepository } from './commands/command-utils';
 import { commitCommand } from './commands/commit';
 import { commitPromptCommand } from './commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from './commands/compare-all-files-with-revision';
@@ -60,7 +60,6 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
-import type { JjRepository } from './jj-repository';
 import { JjRepositoryManager } from './jj-repository-manager';
 import { JjScmProvider } from './jj-scm-provider';
 import type { JjService } from './jj-service';
@@ -184,6 +183,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 e.affectsConfiguration('jj-view.ignoredRepositories')
             ) {
                 await repositoryManager.scanForRepositories();
+            }
+            if (
+                e.affectsConfiguration('jj-view.commit') ||
+                e.affectsConfiguration('jj-view.minChangeIdLength') ||
+                e.affectsConfiguration('jj-view.logTheme')
+            ) {
+                await commitDetailsProvider.refresh('config change');
             }
         }),
     );
@@ -406,15 +412,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     // Command Wrap utility
     function registerWrappedCommand(
         commandId: string,
-        handler: (scm: JjScmProvider, jj: JjService, ...args: unknown[]) => Promise<void> | void,
+        handler: (scm: JjScmProvider, jj: JjService, ...args: unknown[]) => unknown,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const context = resolveRepositoryLocal(args);
             if (context) {
                 repositoryManager.setFocusedRepository(context.repo);
-                await handler(context.scm, context.repo.jj, ...args);
+                return await handler(context.scm, context.repo.jj, ...args);
             } else {
                 outputChannel.appendLine(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                return;
             }
         });
     }
@@ -475,7 +482,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             }
         }),
         registerWrappedCommand('jj-view.setDescription', async (scm, jj, ...args) => {
-            await setDescriptionCommand(scm, jj, args);
+            return await setDescriptionCommand(scm, jj, args);
         }),
         registerWrappedCommand('jj-view.squashSelectionIntoParent', async (scm, jj) => {
             const editor = vscode.window.activeTextEditor;
@@ -648,49 +655,6 @@ export function handleTerminalExecution(
         return true;
     }
     return false;
-}
-
-export function resolveRepository(
-    args: unknown[],
-    repositoryManager: JjRepositoryManager,
-    scmProviders: Map<string, JjScmProvider>,
-): { repo: JjRepository; scm: JjScmProvider } | undefined {
-    let uri: vscode.Uri | undefined;
-
-    // 1. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
-    uri = extractUriFromArgs(args);
-
-    // 2. Check active editor document URI (handles file tabs and jj-commit custom editor)
-    if (!uri) {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            const docUri = activeEditor.document.uri;
-            if (docUri.scheme === 'jj-commit') {
-                const query = new URLSearchParams(docUri.query);
-                const repoRoot = query.get('repoRoot');
-                if (repoRoot) {
-                    uri = vscode.Uri.file(decodeURIComponent(repoRoot));
-                }
-            } else {
-                uri = docUri;
-            }
-        }
-    }
-
-    // 3. Resolve repository and scm from candidate URI, or fallback to focused repository
-    let repo = uri ? repositoryManager.getRepositoryForUri(uri) : undefined;
-    if (!repo) {
-        repo = repositoryManager.focusedRepository;
-    }
-
-    if (repo) {
-        const scm = scmProviders.get(repo.rootUri.fsPath);
-        if (scm) {
-            return { repo, scm };
-        }
-    }
-
-    return undefined;
 }
 
 export function deactivate() {}

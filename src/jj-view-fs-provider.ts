@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { JjService } from './jj-service';
 import { decodeJjViewQuery } from './uri-utils';
 
 /**
@@ -22,11 +21,6 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     private _knownUris = new Set<string>();
 
     constructor(private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager) {}
-
-    private getJjService(uri: vscode.Uri): JjService | undefined {
-        const repo = this._repositoryManager.getRepositoryForUri(uri);
-        return repo?.jj;
-    }
 
     watch(): vscode.Disposable {
         // No-op: we fire change events manually during refresh
@@ -64,8 +58,11 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
-        const jj = this.getJjService(uri);
-        if (!jj) {
+        const repo = this._repositoryManager.getRepositoryForUri(uri);
+        if (!repo) {
+            this._repositoryManager.outputChannel.appendLine(
+                `[JjViewFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
+            );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
         }
 
@@ -74,7 +71,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
             if (query.mode === 'revision') {
                 try {
-                    const content = await jj.getFileContent(uri.fsPath, query.revision);
+                    const content = await repo.jj.getFileContent(uri.fsPath, query.revision);
                     return Buffer.from(content, 'utf8');
                 } catch {
                     return new Uint8Array();
@@ -86,7 +83,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
             let content = this._cache.get(cacheKey);
             if (!content) {
-                content = await jj.getDiffContent(query.base, filePath);
+                content = await repo.jj.getDiffContent(query.base, filePath);
                 this._cache.set(cacheKey, content);
             }
 

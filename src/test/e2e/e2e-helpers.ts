@@ -4,200 +4,34 @@
  */
 
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { expect, type Locator, test } from '@playwright/test';
-import { downloadAndUnzipVSCode, SilentReporter } from '@vscode/test-electron';
-import { type ElectronApplication, _electron as electron, type Frame, type Page } from 'playwright';
+import { expect, type Locator } from '@playwright/test';
+import type { Frame, Page } from 'playwright';
 import type { TestRepo } from '../test-repo';
+import { logPerf } from './perf-logger';
+import {
+    type VSCodeContext as FixtureVSCodeContext,
+    type VSCodeFixture as FixtureVSCodeFixture,
+    isMac as fixtureIsMac,
+    ROOT_ID as fixtureRootId,
+    test as fixtureTest,
+    launchNewVSCode,
+} from './vscode-fixture';
 
-export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
-
-export interface VSCodeContext {
-    app: ElectronApplication;
-    page: Page;
-    userDataDir: string;
-}
-
-/**
- * Standard setup for VS Code E2E tests.
- * Initializes a user data directory with common settings and launches VS Code.
- * Renamed to launchVSCode to avoid confusion with local setup functions in specs.
- */
-export async function launchVSCode(
-    repo: { path: string },
-    extraSettings: Record<string, unknown> = {},
-    extraEnv: Record<string, string | undefined> = {},
-    showNotifications = false,
-): Promise<VSCodeContext> {
-    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-user-data-'));
-    const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-extensions-'));
-    const userSettingsDir = path.join(userDataDir, 'User');
-    fs.mkdirSync(userSettingsDir, { recursive: true });
-
-    fs.writeFileSync(
-        path.join(userSettingsDir, 'settings.json'),
-        JSON.stringify(
-            {
-                'workbench.colorTheme': 'Default Dark Modern',
-                'git.enabled': false,
-                'workbench.startupEditor': 'none',
-                'workbench.sideBar.location': 'left',
-                'scm.alwaysShowProviders': true,
-                'scm.alwaysShowActions': true,
-                'workbench.tips.enabled': false,
-                'window.titleBarStyle': 'custom',
-                'window.dialogStyle': 'custom',
-                'security.workspace.trust.enabled': false,
-                'jj-view.fileWatcherMode': 'watch',
-                'jj-view.minChangeIdLength': 3,
-                'telemetry.telemetryLevel': 'off',
-                'workbench.notification.displayMode': showNotifications ? 'default' : 'hidden',
-                'notifications.showDoNotDisturb': !showNotifications,
-                'update.mode': 'none',
-                'extensions.autoCheckUpdates': false,
-                'extensions.autoUpdate': false,
-                'explorer.excludeGitIgnore': false,
-                ...extraSettings,
-            },
-            null,
-            2,
-        ),
-    );
-
-    fs.writeFileSync(
-        path.join(userSettingsDir, 'keybindings.json'),
-        JSON.stringify(
-            [
-                {
-                    key: 'ctrl+alt+l',
-                    command: 'jj-view.logView.focus',
-                },
-                {
-                    key: 'ctrl+alt+r',
-                    command: 'jj-view.refresh',
-                },
-                {
-                    key: 'ctrl+alt+e',
-                    command: 'workbench.files.action.refreshFilesExplorer',
-                },
-                {
-                    key: 'ctrl+alt+c',
-                    command: 'jj-view.compareWithWorkingCopy',
-                },
-                {
-                    key: 'ctrl+alt+f',
-                    command: 'jj-view.compareFileWith',
-                },
-            ],
-            null,
-            2,
-        ),
-    );
-
-    const extensionPath = path.resolve(__dirname, '../../../');
-    const vscodePath = await downloadAndUnzipVSCode({ reporter: new SilentReporter() });
-
-    const args = [
-        repo.path,
-        `--user-data-dir=${userDataDir}`,
-        `--extensions-dir=${extensionsDir}`,
-        '--disable-workspace-trust',
-        '--new-window',
-        '--skip-welcome',
-        '--skip-release-notes',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--disable-updates',
-        '--password-store=basic',
-        // --- THESE PREVENT WINDOW FOCUS AND WINDOW VISIBILITY ---
-        '--headless=new',
-        '--no-startup-window',
-    ];
-
-    if (process.env.VSIX_PATH) {
-        const vsixPath = path.resolve(process.env.VSIX_PATH);
-        if (!fs.existsSync(vsixPath)) {
-            throw new Error(`VSIX_PATH is set but file does not exist: ${vsixPath}`);
-        }
-        // Import utilities from @vscode/test-electron to find the CLI path
-        const { resolveCliPathFromVSCodeExecutablePath } = await import('@vscode/test-electron');
-        const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodePath);
-
-        // Install the extension via CLI
-        const { spawnSync } = await import('node:child_process');
-        console.log(`Installing VSIX from ${vsixPath} using CLI ${cliPath}...`);
-        const result = spawnSync(cliPath, ['--install-extension', vsixPath, '--extensions-dir', extensionsDir], {
-            encoding: 'utf-8',
-            stdio: 'inherit',
-        });
-
-        if (result.status !== 0) {
-            throw new Error(`Failed to install extension VSIX: ${result.stderr || result.error}`);
-        }
-    } else {
-        args.push(`--extensionDevelopmentPath=${extensionPath}`);
-        args.push('--disable-extensions'); // Only disable other extensions when running from source
-    }
-
-    const env = { ...process.env } as { [key: string]: string };
-    for (const key in extraEnv) {
-        const val = extraEnv[key];
-        if (val === undefined) {
-            delete env[key];
-        } else {
-            env[key] = val;
-        }
-    }
-
-    let launched: { app: ElectronApplication; page: Page } | undefined;
-    await expect(async () => {
-        const app = await electron.launch({
-            executablePath: vscodePath,
-            args,
-            env,
-        });
-
-        try {
-            const page = await app.firstWindow({ timeout: 2000 });
-            launched = { app, page };
-        } catch (err) {
-            await app.close();
-            throw err;
-        }
-    }).toPass({ timeout: 7000 });
-
-    if (!launched) {
-        throw new Error('Failed to launch VS Code app or obtain its first window');
-    }
-
-    // Capture page console logs for debugging if verbose mode is enabled
-    if (process.env.VERBOSE) {
-        launched.page.on('console', (msg) => {
-            console.log(`PAGE LOG: ${msg.text()}`);
-        });
-        launched.page.on('pageerror', (err) => console.error(`PAGE ERROR: ${err.message}`));
-    }
-
-    // Wait for the workbench to be ready
-    await expect(launched.page.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
-
-    // Hide notification toasts via CSS unless requested. Error-level toasts (e.g. "failed to load
-    // extension") bypass VS Code's Do Not Disturb / displayMode settings and can
-    // overlay buttons, causing click interception in tests.
-    if (!showNotifications) {
-        await launched.page.addStyleTag({ content: '.notifications-toasts { display: none !important; }' });
-    }
-
-    return { ...launched, userDataDir };
-}
+export const test = fixtureTest;
+export const ROOT_ID = fixtureRootId;
+export const isMac = fixtureIsMac;
+export type VSCodeContext = FixtureVSCodeContext;
+export type VSCodeFixture = FixtureVSCodeFixture;
+export const launchVSCode = launchNewVSCode;
 
 /**
  * Presses the keyboard shortcut to focus the SCM view / SCM description input.
  */
 export async function pressScmShortcut(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
+    logPerf('pressScmShortcut', start);
 }
 
 /**
@@ -210,6 +44,7 @@ export async function ensureViewVisible(
     shortcut: string,
     timeout = 20000,
 ): Promise<void> {
+    const start = Date.now();
     if (await paneLocator.isVisible()) {
         return;
     }
@@ -226,37 +61,116 @@ export async function ensureViewVisible(
         await page.keyboard.press(shortcut);
         await expect(paneLocator).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout });
+    logPerf(`ensureViewVisible ${shortcut}`, start);
+}
+
+/**
+ * Dynamically widens the primary sidebar until it is at least 500px wide.
+ * Uses expect().toPass() to wait dynamically for layout updates.
+ */
+export async function ensureSidebarWide(page: Page) {
+    try {
+        const sidebar = page.locator('.part.sidebar').first();
+        const sidebarBox = await sidebar.boundingBox();
+        if (sidebarBox && sidebarBox.width >= 500) {
+            return;
+        }
+
+        const sashes = page.locator('.monaco-sash.vertical');
+        const count = await sashes.count();
+        let targetSash: Locator | undefined;
+        let sashBox: { x: number; y: number; width: number; height: number } | null = null;
+
+        for (let i = 0; i < count; i++) {
+            const s = sashes.nth(i);
+            const box = await s.boundingBox();
+            if (box && box.x > 100 && box.x < 500) {
+                targetSash = s;
+                sashBox = box;
+                break;
+            }
+        }
+
+        if (targetSash && sashBox) {
+            const startX = sashBox.x + sashBox.width / 2;
+            const startY = sashBox.y + sashBox.height / 2;
+            await page.mouse.move(startX, startY);
+            await page.mouse.down();
+            await page.mouse.move(550, startY, { steps: 1 });
+            await page.mouse.up();
+
+            // Wait for the layout to update and sidebar to be >= 500
+            await expect(async () => {
+                const currentBox = await sidebar.boundingBox();
+                expect(currentBox).not.toBeNull();
+                expect(currentBox?.width).toBeGreaterThanOrEqual(500);
+            }).toPass({ timeout: 2000, intervals: [10, 20] });
+        }
+    } catch (_) {}
 }
 
 /**
  * Ensures the SCM view is open and focused.
  */
 export async function focusSCM(page: Page) {
+    const start = Date.now();
     const scmTitle = page.locator('.pane-header', { hasText: 'Source Control' }).first();
     const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
 
     await ensureViewVisible(page, scmTitle.or(scmInput), isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
 
+    // Expand SCM view if collapsed
+    if (await scmTitle.isVisible()) {
+        const isExpanded = await scmTitle.getAttribute('aria-expanded');
+        if (isExpanded === 'false') {
+            await scmTitle.click();
+        }
+    }
+
+    // Force focus on SCM view pane to ensure widening command applies to the sidebar
+    await page.keyboard.press(isMac ? 'Meta+Shift+G' : 'Control+Shift+G');
+
+    // Ensure the sidebar is wide enough
+    await ensureSidebarWide(page);
+
     await expect(async () => {
         // Click the SCM input row to ensure the provider context is active
         await scmInput.click();
     }).toPass({ timeout: 5000 });
+    logPerf('focusSCM', start);
 }
 
 /**
  * Ensures the JJ Log pane is open and focused.
  */
 export async function focusJJLog(page: Page) {
+    const start = Date.now();
     const paneLocator = page.locator('.pane-header', { hasText: 'JJ Log' }).first();
     await ensureViewVisible(page, paneLocator, 'Control+Alt+l');
+
+    // Expand the pane if it is collapsed
+    const isExpanded = await paneLocator.getAttribute('aria-expanded');
+    if (isExpanded === 'false') {
+        await paneLocator.click();
+    }
+
+    // Force focus on JJ Log view pane to ensure widening command applies to the sidebar
+    await page.keyboard.press('Control+Alt+l');
+
+    // Ensure the sidebar is wide enough
+    await ensureSidebarWide(page);
+
+    logPerf('focusJJLog', start);
 }
 
 /**
  * Waits for a specific tab to become visible and selected.
  */
 export async function waitForTab(page: Page, namePattern: RegExp | string): Promise<Locator> {
+    const start = Date.now();
     const tab = page.getByRole('tab', { name: namePattern });
     await expect(tab).toBeVisible({ timeout: 10000 });
+    logPerf(`waitForTab ${typeof namePattern === 'string' ? namePattern : 'regex'}`, start);
     return tab;
 }
 
@@ -264,6 +178,7 @@ export async function waitForTab(page: Page, namePattern: RegExp | string): Prom
  * Finds the webview frame containing the JJ Log commit rows.
  */
 export async function getLogWebview(page: Page, timeout: number = 30000): Promise<Frame> {
+    const start = Date.now();
     // The panel header
     await expect(page.locator('.pane-header', { hasText: 'JJ Log' })).toBeVisible({
         timeout: Math.min(timeout, 300),
@@ -301,6 +216,7 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
     if (!guestFrame) {
         throw new Error('Could not find JJ Log webview frame');
     }
+    logPerf('getLogWebview', start);
     return guestFrame;
 }
 
@@ -308,11 +224,14 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
  * Asserts that the repo log matches the expected structure.
  */
 export async function expectTree(repo: TestRepo, expected: unknown[]) {
+    const start = Date.now();
     let lastActual: string[] = [];
+    let iterations = 0;
     try {
         await expect
             .poll(
                 async () => {
+                    iterations++;
                     // Output format: [@] change_id [parent1,parent2] description
                     const log = repo.getLog(
                         'all()',
@@ -328,6 +247,7 @@ export async function expectTree(repo: TestRepo, expected: unknown[]) {
                 {
                     timeout: 10000,
                     message: 'Tree mismatch',
+                    intervals: [20, 50, 100, 250, 500],
                 },
             )
             .toEqual(
@@ -347,6 +267,7 @@ export async function expectTree(repo: TestRepo, expected: unknown[]) {
         }
         throw e;
     }
+    logPerf('expectTree', start, /* prefix= */ undefined, `(iterations: ${iterations})`);
 }
 
 /** Helper to format an entry for expectTree */
@@ -356,10 +277,35 @@ export function entry(changeId: string, description: string, parents?: string | 
 }
 
 /**
+ * Waits for the webview to update and show the given changeId as the current working copy.
+ */
+export async function waitForWebviewWorkingCopy(page: Page, changeId: string) {
+    const start = Date.now();
+    const webview = await getLogWebview(page);
+    await expect(webview.locator(`[data-change-id="${changeId}"].working-copy`)).toBeVisible({
+        timeout: 10000,
+    });
+    logPerf('waitForWebviewWorkingCopy', start);
+}
+
+/**
+ * Waits for the webview to update and remove the given changeId.
+ */
+export async function waitForWebviewCommitRemoved(page: Page, changeId: string) {
+    const start = Date.now();
+    const webview = await getLogWebview(page);
+    await expect(webview.locator(`[data-change-id="${changeId}"]`)).toBeHidden({
+        timeout: 10000,
+    });
+    logPerf('waitForWebviewCommitRemoved', start);
+}
+
+/**
  * Robustly selects one or more commit rows in the webview and verifies the selection took effect.
  * Uses aria-selected to verify the React state updated.
  */
 export async function selectCommits(rows: Locator[]) {
+    const start = Date.now();
     await expect(async () => {
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
@@ -378,6 +324,7 @@ export async function selectCommits(rows: Locator[]) {
             await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 500 });
         }
     }, 'Failed to select commits reliably').toPass({ timeout: 20000 });
+    logPerf('selectCommits', start);
 }
 
 /**
@@ -392,7 +339,10 @@ export async function selectCommits(rows: Locator[]) {
  * We use `:not([aria-hidden="true"])` so the locator only matches an open menu.
  */
 export async function rightClickAndSelect(page: Page, target: Locator, label: string) {
+    const start = Date.now();
+    let attempts = 0;
     await expect(async () => {
+        attempts++;
         // 1. Trigger the context menu natively
         await target.click({ button: 'right' });
 
@@ -413,13 +363,18 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
 
         // 3. Click it directly
         await item.click();
-    }, `Failed to execute "${label}" via context menu`).toPass({ timeout: 30000 });
+    }, `Failed to execute "${label}" via context menu`).toPass({
+        timeout: 30000,
+        intervals: [100, 250, 500],
+    });
+    logPerf(`rightClickAndSelect ${label}`, start, /* prefix= */ undefined, `(attempts: ${attempts})`);
 }
 
 /**
  * Triggers a manual refresh of the JJ Log view by clicking the refresh button in the view title.
  */
 export async function triggerRefresh(page: Page) {
+    const start = Date.now();
     // Clear focus from any active iframe/webview to allow top-level keybinding to work.
     await page
         .getByRole('tab', { name: /Explorer/i })
@@ -432,20 +387,20 @@ export async function triggerRefresh(page: Page) {
 
     // Give it a tiny moment to start the refresh process
     await page.waitForTimeout(100);
+    logPerf('triggerRefresh', start);
 }
 
-/**
- * Hovers over a row and clicks an inline action button.
- * VS Code inline actions only appear on hover, and sometimes the hover state
- * is transient or flakey, so we retry the hover+click sequence.
- */
 export async function hoverAndClick(row: Locator, button: Locator) {
+    const start = Date.now();
+    const page = row.page();
     await expect(async () => {
+        await page.mouse.move(0, 0);
         await row.hover();
         // Wait for the button to be visible because VS Code renders inline actions on hover
         await expect(button).toBeVisible({ timeout: 1000 });
         await button.click({ force: true });
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
+    logPerf('hoverAndClick', start);
 }
 
 export const SCM_ACTIONS = {
@@ -468,6 +423,7 @@ export const SCM_ACTIONS = {
  * Robustly clicks an inline action button on an SCM tree item (row or group) by its title.
  */
 export async function clickScmAction(page: Page, rowName: string | RegExp, actionTitle: string) {
+    const start = Date.now();
     const row = page.getByRole('treeitem', { name: rowName }).first();
     await expect(row).toBeVisible({ timeout: 5000 });
 
@@ -496,23 +452,28 @@ export async function clickScmAction(page: Page, rowName: string | RegExp, actio
     }
 
     await hoverAndClick(row, button);
+    logPerf(`clickScmAction ${actionTitle}`, start);
 }
-
-export const isMac = process.platform === 'darwin';
 
 /** Helper to trigger Undo across platforms (Meta+z on Mac, Control+z otherwise) */
 export async function undo(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z');
+    logPerf('undo', start);
 }
 
 /** Helper to trigger Redo across platforms (Meta+Shift+z on Mac, Control+Shift+z otherwise) */
 export async function redo(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+Shift+z' : 'Control+Shift+z');
+    logPerf('redo', start);
 }
 
 /** Helper to trigger Save across platforms (Meta+s on Mac, Control+s otherwise) */
 export async function save(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+    logPerf('save', start);
 }
 
 /**
@@ -521,6 +482,7 @@ export async function save(page: Page) {
  * Returns the locator for the specific setting item.
  */
 export async function expectSettingsOpen(page: Page, settingName: string | RegExp): Promise<Locator> {
+    const start = Date.now();
     let settingItem: Locator | undefined;
     await expect(async () => {
         // Look for the settings editor container which is common to both layouts
@@ -537,6 +499,7 @@ export async function expectSettingsOpen(page: Page, settingName: string | RegEx
         throw new Error(`Failed to find setting item: ${settingName}`);
     }
 
+    logPerf(`expectSettingsOpen ${typeof settingName === 'string' ? settingName : 'regex'}`, start);
     return settingItem.first();
 }
 
@@ -547,10 +510,13 @@ export async function expectSettingsOpen(page: Page, settingName: string | RegEx
  *
  * @returns The locator targeting the Source Control Input treeitem.
  */
-export async function setScmDescription(page: Page, description: string): Promise<Locator> {
+export async function setScmDescription(page: Page, description: string, vscode?: VSCodeFixture): Promise<Locator> {
+    const start = Date.now();
     const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
+    let attempts = 0;
 
     await expect(async () => {
+        attempts++;
         // 1. Ensure the SCM input is visible and focused
         await pressScmShortcut(page);
         await scmInputRow.click();
@@ -582,8 +548,31 @@ export async function setScmDescription(page: Page, description: string): Promis
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
         const exactRegex = new RegExp(`^\\s*${regexPattern}\\s*$`);
         await expect(scmInputRow.locator('.monaco-editor')).toHaveText(exactRegex, { timeout: 3000 });
-    }, `Failed to set SCM description to "${description}" reliably`).toPass({ timeout: 10000 });
 
+        if (vscode) {
+            // Also validate that the Extension Host has received the value.
+            // This replaces the need for blind page.waitForTimeout(200) after setScmDescription.
+            await expect(async () => {
+                const match = await vscode.evaluate(async (_vscode, api, expectedVal) => {
+                    const focused = api.repositoryManager.focusedRepository;
+                    if (!focused) {
+                        return false;
+                    }
+                    const scmProvider = api.scmProviders.get(focused.rootUri.fsPath);
+                    if (!scmProvider) {
+                        return false;
+                    }
+                    return scmProvider.sourceControl.inputBox.value.trim() === (expectedVal as string).trim();
+                }, description);
+                expect(match).toBe(true);
+            }).toPass({ timeout: 2000, intervals: [20, 50, 100] });
+        }
+    }, `Failed to set SCM description to "${description}" reliably`).toPass({
+        timeout: 10000,
+        intervals: [100, 250, 500],
+    });
+
+    logPerf(`setScmDescription`, start, /* prefix= */ undefined, `(attempts: ${attempts})`);
     return scmInputRow;
 }
 
@@ -592,6 +581,7 @@ export async function setScmDescription(page: Page, description: string): Promis
  * Handles VS Code's text wrapping/concatenation.
  */
 export async function expectScmDescription(page: Page, expected: string | RegExp) {
+    const start = Date.now();
     const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
     if (expected instanceof RegExp) {
         await expect(scmInputRow).toHaveText(expected);
@@ -600,6 +590,7 @@ export async function expectScmDescription(page: Page, expected: string | RegExp
         const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
         await expect(scmInputRow).toHaveText(new RegExp(regexPattern));
     }
+    logPerf('expectScmDescription', start);
 }
 
 /**
@@ -610,6 +601,8 @@ export async function getScmItemLocator(
     fileName: string | RegExp,
     groupName?: string | RegExp,
 ): Promise<Locator> {
+    const start = Date.now();
+    let result: Locator;
     if (groupName) {
         const allItems = await page.getByRole('treeitem').all();
         let groupIdx = -1;
@@ -628,22 +621,29 @@ export async function getScmItemLocator(
             throw new Error(`Group "${groupName}" not found`);
         }
 
+        let foundItem: Locator | undefined;
         for (let i = groupIdx + 1; i < allItems.length; i++) {
             const label = (await allItems[i].getAttribute('aria-label')) || '';
             const level = await allItems[i].getAttribute('aria-level');
 
             if (fileNamePattern.test(label)) {
-                return allItems[i];
+                foundItem = allItems[i];
+                break;
             }
 
             if (level === '1') {
                 throw new Error(`File "${fileName}" not found in group "${groupName}"`);
             }
         }
-        throw new Error(`File "${fileName}" not found in group "${groupName}"`);
+        if (!foundItem) {
+            throw new Error(`File "${fileName}" not found in group "${groupName}"`);
+        }
+        result = foundItem;
     } else {
-        return page.getByRole('treeitem', { name: fileName }).first();
+        result = page.getByRole('treeitem', { name: fileName }).first();
     }
+    logPerf('getScmItemLocator', start);
+    return result;
 }
 
 /**
@@ -654,38 +654,46 @@ export async function expectFileInScmGroup(
     groupNamePattern: RegExp | string,
     fileNamePattern: RegExp | string,
 ) {
+    const start = Date.now();
     const locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
     await expect(locator).toBeVisible();
+    logPerf('expectFileInScmGroup', start);
 }
 
 /**
  * Clicks a button in the JJ Log title bar by its name.
  */
 export async function clickLogTitleButton(page: Page, name: string) {
+    const start = Date.now();
     const header = page.locator('.pane-header', { hasText: 'JJ Log' }).first();
     const button = header.getByRole('button', { name });
     await expect(button).toBeVisible({ timeout: 10000 });
     await button.click();
+    logPerf(`clickLogTitleButton ${name}`, start);
 }
 
 /**
  * Clicks a button within a notification toast.
  */
 export async function clickNotificationButton(page: Page, actionLabel: string) {
+    const start = Date.now();
     await expect(async () => {
         const toast = page.locator('.notifications-toasts .notification-toast');
         const button = toast.getByRole('button', { name: actionLabel });
         await expect(button).toBeVisible({ timeout: 2000 });
         await button.click();
     }, `Failed to click notification button "${actionLabel}"`).toPass({ timeout: 15000 });
+    logPerf(`clickNotificationButton ${actionLabel}`, start);
 }
 
 /**
  * Waits for a notification toast containing the expected text to be visible.
  */
 export async function expectNotificationToast(page: Page, text: string | RegExp, timeout = 10000) {
+    const start = Date.now();
     const toast = page.locator('.notifications-toasts .notification-toast');
     await expect(toast.filter({ hasText: text }).first()).toBeVisible({ timeout });
+    logPerf('expectNotificationToast', start);
 }
 
 /**
@@ -706,9 +714,11 @@ export function locateQuickInputItem(page: Page, label: string | RegExp): Locato
  * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
  */
 export async function waitForQuickInput(page: Page, timeout: number = 10000): Promise<Locator> {
+    const start = Date.now();
     const quickInput = locateQuickInputWidget(page).filter({ visible: true });
     const input = quickInput.locator('input.input');
     await expect(input).toBeVisible({ timeout });
+    logPerf('waitForQuickInput', start);
     return input;
 }
 
@@ -716,6 +726,7 @@ export async function waitForQuickInput(page: Page, timeout: number = 10000): Pr
  * Robustly presses a shortcut key to open the QuickInput widget, retrying if VS Code ignores the keypress.
  */
 export async function openQuickInputWithShortcut(page: Page, shortcut: string): Promise<Locator> {
+    const start = Date.now();
     const quickInput = locateQuickInputWidget(page);
     const input = quickInput.locator('input.input');
 
@@ -739,6 +750,7 @@ export async function openQuickInputWithShortcut(page: Page, shortcut: string): 
         }
         await waitForQuickInput(page, 200);
     }, `Failed to open quick input via shortcut "${shortcut}"`).toPass({ timeout: 5000 });
+    logPerf(`openQuickInputWithShortcut ${shortcut}`, start);
     return input;
 }
 
@@ -749,6 +761,7 @@ export type LogPillKind = 'bookmark' | 'workspace' | 'tag' | 'remote-bookmark';
  * Handles webview reloads by re-fetching the frame on each retry.
  */
 export async function waitForLogPill(page: Page, label: string, kind?: LogPillKind): Promise<Locator> {
+    const start = Date.now();
     let pill: Locator | undefined;
     let attempts = 0;
     await expect(
@@ -773,11 +786,15 @@ export async function waitForLogPill(page: Page, label: string, kind?: LogPillKi
             await expect(pill).toBeVisible({ timeout: 500 });
         },
         `Failed to find log ${kind || 'pill'} with text "${label}"`,
-    ).toPass({ timeout: 20000 });
+    ).toPass({
+        timeout: 20000,
+        intervals: [50, 100, 250, 500],
+    });
 
     if (!pill) {
         throw new Error(`Failed to find log ${kind || 'pill'} with text "${label}"`);
     }
+    logPerf(`waitForLogPill ${label}`, start, /* prefix= */ undefined, `(attempts: ${attempts})`);
     return pill;
 }
 
@@ -788,10 +805,13 @@ export type LogRowCriteria = string | RegExp | { changeId?: string; text?: strin
  * Handles webview reloads by re-fetching the frame on retry.
  */
 export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, repo?: TestRepo): Promise<Locator> {
+    const start = Date.now();
     let row: Locator | undefined;
+    let attempts = 0;
     try {
         await expect(
             async () => {
+                attempts++;
                 const webview = await getLogWebview(page, 300);
                 if (typeof criteria === 'object' && !(criteria instanceof RegExp)) {
                     if (criteria.changeId) {
@@ -806,7 +826,10 @@ export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, 
                 await expect(row).toBeVisible({ timeout: 200 });
             },
             `Failed to find log row matching ${JSON.stringify(criteria)}`,
-        ).toPass({ timeout: 20000 });
+        ).toPass({
+            timeout: 20000,
+            intervals: [50, 100, 250, 500],
+        });
     } catch (e) {
         if (repo) {
             const logState = repo.getLog('all()', 'change_id ++ " " ++ description.first_line()');
@@ -827,33 +850,42 @@ export async function waitForLogCommitRow(page: Page, criteria: LogRowCriteria, 
     if (!row) {
         throw new Error(`Failed to find log row matching ${JSON.stringify(criteria)}`);
     }
+    logPerf(
+        `waitForLogCommitRow ${typeof criteria === 'string' ? criteria : 'object'}`,
+        start,
+        /* prefix= */ undefined,
+        `(attempts: ${attempts})`,
+    );
     return row;
 }
 
-/**
- * Robustly clicks an action button (like "Abandon", "Squash", etc.) on a commit row.
- * Re-fetches the frame and row on each retry to handle webview reloads.
- */
 export async function clickLogAction(page: Page, rowCriteria: LogRowCriteria, actionTitle: string, repo?: TestRepo) {
+    const start = Date.now();
+    let iterations = 0;
     await expect(
         async () => {
+            iterations++;
             const row = await waitForLogCommitRow(page, rowCriteria, repo);
+            await page.mouse.move(0, 0);
             await row.hover();
 
             const button = row.locator(`[title="${actionTitle}"]`);
-            await expect(button).toBeVisible({ timeout: 200 });
+            await expect(button).toBeVisible({ timeout: 1000 });
             await button.click({ force: true });
         },
         `Failed to click action "${actionTitle}" on row matching ${JSON.stringify(rowCriteria)}`,
     ).toPass({
         timeout: 20000,
+        intervals: [50, 100, 250, 500],
     });
+    logPerf(`clickLogAction ${actionTitle}`, start, /* prefix= */ undefined, `(iterations: ${iterations})`);
 }
 
 /**
  * Verifies that the multi-file diff view lists exactly the expected modified files.
  */
 export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
+    const start = Date.now();
     await expect
         .poll(async () => {
             return await page.evaluate(() => {
@@ -862,14 +894,20 @@ export async function expectModifiedFiles(page: Page, expectedFiles: string[]) {
             });
         }, 'Wait for exactly modified files list in multi-diff')
         .toEqual(expectedFiles);
+    logPerf('expectModifiedFiles', start);
 }
 
 /**
  * Robustly opens a file via the File Explorer tree view.
  * Pass the `repo` object to enable deep filesystem vs UI diagnostic dumping on failure.
  */
-export async function openFileInEditor(page: Page, fileName: string, repo?: TestRepo): Promise<Locator> {
-    void repo;
+export async function openFileInEditor(
+    vscode: FixtureVSCodeFixture,
+    page: Page,
+    fileName: string,
+    repo?: TestRepo,
+): Promise<Locator> {
+    const start = Date.now();
     const tab = page.getByRole('tab', { name: fileName, selected: true });
     const editor = page.locator('.editor-instance .monaco-editor').first();
 
@@ -888,10 +926,10 @@ export async function openFileInEditor(page: Page, fileName: string, repo?: Test
                 return;
             }
 
-            // 3. Use Quick Open to open the file
-            log(`Opening file "${fileName}" via Quick Open...`);
-            await openQuickInputWithShortcut(page, isMac ? 'Meta+P' : 'Control+P');
-            await pickQuickPickItem(page, fileName, { submitAsArbitraryText: true });
+            // 3. Use programmatic helper to open the file
+            log(`Opening file "${fileName}" programmatically...`);
+            const absolutePath = repo ? path.resolve(repo.path, fileName) : fileName;
+            await vscode.openFileInEditor(absolutePath);
 
             // 4. Wait for the tab to become active and the Monaco editor to mount
             log(`Waiting for editor to mount...`);
@@ -899,7 +937,7 @@ export async function openFileInEditor(page: Page, fileName: string, repo?: Test
             await expect(editor).toBeVisible({ timeout: 5000 });
         }).toPass({
             timeout: 30000,
-            intervals: [500, 1000, 2000],
+            intervals: [250, 500, 1000],
         });
     } catch (error: unknown) {
         // INJECT THE LOGS DIRECTLY INTO THE PLAYWRIGHT TIMEOUT ERROR
@@ -925,6 +963,7 @@ export async function openFileInEditor(page: Page, fileName: string, repo?: Test
         throw error;
     }
 
+    logPerf(`openFileInEditor ${fileName}`, start, /* prefix= */ undefined, `(attempts: ${attempt})`);
     return editor;
 }
 
@@ -936,7 +975,10 @@ export async function openScmDiff(
     fileName: string | RegExp,
     groupName?: string | RegExp,
 ): Promise<Locator> {
-    return await openScmItem(page, fileName, '.monaco-diff-editor', groupName);
+    const start = Date.now();
+    const result = await openScmItem(page, fileName, '.monaco-diff-editor', groupName);
+    logPerf(`openScmDiff ${typeof fileName === 'string' ? fileName : 'regex'}`, start);
+    return result;
 }
 
 /**
@@ -947,7 +989,10 @@ export async function openScmMerge(
     fileName: string | RegExp,
     groupName?: string | RegExp,
 ): Promise<Locator> {
-    return await openScmItem(page, fileName, '.merge-editor', groupName);
+    const start = Date.now();
+    const result = await openScmItem(page, fileName, '.merge-editor', groupName);
+    logPerf(`openScmMerge ${typeof fileName === 'string' ? fileName : 'regex'}`, start);
+    return result;
 }
 
 /**
@@ -958,7 +1003,10 @@ export async function openScmFile(
     fileName: string | RegExp,
     groupName?: string | RegExp,
 ): Promise<Locator> {
-    return await openScmItem(page, fileName, '.editor-instance .monaco-editor', groupName);
+    const start = Date.now();
+    const result = await openScmItem(page, fileName, '.editor-instance .monaco-editor', groupName);
+    logPerf(`openScmFile ${typeof fileName === 'string' ? fileName : 'regex'}`, start);
+    return result;
 }
 
 /**
@@ -970,6 +1018,7 @@ async function openScmItem(
     editorSelector: string,
     groupName?: string | RegExp,
 ): Promise<Locator> {
+    const start = Date.now();
     let row: Locator | undefined;
     await expect(
         async () => {
@@ -997,6 +1046,7 @@ async function openScmItem(
     if (!row) {
         throw new Error('Row not found after toPass completion');
     }
+    logPerf(`openScmItem ${typeof fileName === 'string' ? fileName : 'regex'}`, start);
     return row;
 }
 
@@ -1005,6 +1055,7 @@ async function openScmItem(
  * Re-fetches frames on poll to handle detached frames.
  */
 export async function getDetailsWebview(page: Page): Promise<Frame> {
+    const start = Date.now();
     const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
         for (const f of frames) {
             try {
@@ -1043,6 +1094,7 @@ export async function getDetailsWebview(page: Page): Promise<Frame> {
 
     // Ensure the iframe is fully "ready" before returning
     await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
+    logPerf('getDetailsWebview', start);
     return guestFrame;
 }
 
@@ -1051,6 +1103,7 @@ export async function pickQuickPickItem(
     label: string | RegExp,
     options?: { submitAsArbitraryText?: boolean },
 ) {
+    const start = Date.now();
     await expect(async () => {
         const quickInput = locateQuickInputWidget(page).filter({ visible: true });
         const input = quickInput.locator('input.input');
@@ -1065,7 +1118,7 @@ export async function pickQuickPickItem(
             await page.keyboard.press('Backspace');
 
             // Type exactly like a human to ensure VS Code's internal state catches the text
-            await input.pressSequentially(label, { delay: 15 });
+            await input.pressSequentially(label, { delay: 1 });
 
             await expect(input).toHaveValue(label, { timeout: 2000 });
         }
@@ -1095,14 +1148,16 @@ export async function pickQuickPickItem(
     }, `Failed to pick QuickPick item "${label}"`).toPass({
         timeout: 5000,
         // Add a backoff so we don't spam if the UI is genuinely stuck
-        intervals: [500, 1000, 2000],
+        intervals: [100, 250, 500, 1000, 2000],
     });
+    logPerf(`pickQuickPickItem ${typeof label === 'string' ? label : 'regex'}`, start);
 }
 
 /**
  * Selects an entire line of text in an editor by its content.
  */
 export async function selectLine(page: Page, editor: Locator, text: string | RegExp): Promise<Locator> {
+    const start = Date.now();
     const line = editor.getByText(text).first();
     await line.click();
 
@@ -1111,6 +1166,7 @@ export async function selectLine(page: Page, editor: Locator, text: string | Reg
     await page.keyboard.press('l');
     await page.keyboard.up(cmdKey);
 
+    logPerf('selectLine', start);
     return line;
 }
 
@@ -1118,6 +1174,7 @@ export async function selectLine(page: Page, editor: Locator, text: string | Reg
  * Clicks an item in an open context menu.
  */
 export async function clickContextMenuItem(page: Page, label: string | RegExp) {
+    const start = Date.now();
     await expect(async () => {
         const menu = page.locator('.monaco-menu-container');
         await expect(menu).toBeVisible({ timeout: 2000 });
@@ -1132,38 +1189,48 @@ export async function clickContextMenuItem(page: Page, label: string | RegExp) {
         // Wait for menu to disappear
         await expect(menu).not.toBeVisible({ timeout: 2000 });
     }, `Failed to click context menu item "${label}"`).toPass({ timeout: 5000 });
+    logPerf(`clickContextMenuItem ${typeof label === 'string' ? label : 'regex'}`, start);
 }
+
 /**
  * Saves the active editor using the platform-specific shortcut.
  */
 export async function saveActiveEditor(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+    logPerf('saveActiveEditor', start);
 }
 
 /**
  * Clears all text in the active editor.
  */
 export async function clearActiveEditor(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+a' : 'Control+a');
     await page.keyboard.press('Backspace');
+    logPerf('clearActiveEditor', start);
 }
 
 /**
  * Closes the active editor using the platform-specific shortcut.
  */
 export async function closeActiveEditor(page: Page) {
+    const start = Date.now();
     await page.keyboard.press(isMac ? 'Meta+w' : 'Control+w');
+    logPerf('closeActiveEditor', start);
 }
 
 /**
  * Asserts that a badge link exists inside a commit row and points to the correct URL.
  */
 export async function expectBadgeLink(row: Locator, hasText: string, expectedUrl: string) {
+    const start = Date.now();
     const badgeLink = row.locator('a', { hasText });
     await expect(badgeLink).toBeVisible({
         timeout: 20000,
     });
     await expect(badgeLink).toHaveAttribute('href', expectedUrl);
+    logPerf('expectBadgeLink', start);
 }
 
 /**

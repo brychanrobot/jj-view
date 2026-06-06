@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogAction,
@@ -12,17 +11,18 @@ import {
     expectTree,
     focusJJLog,
     getLogWebview,
-    launchVSCode,
-    openQuickInputWithShortcut,
     pickQuickPickItem,
     ROOT_ID,
+    test,
     triggerRefresh,
     waitForLogCommitRow,
     waitForLogPill,
+    waitForWebviewCommitRemoved,
+    waitForWebviewWorkingCopy,
 } from './e2e-helpers';
 
 test.describe('JJ Log Pane E2E', () => {
-    test('Webview Initialization & Rendering', async () => {
+    test('Webview Initialization & Rendering', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         await buildGraph(repo, [
@@ -43,7 +43,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
@@ -61,15 +61,11 @@ test.describe('JJ Log Pane E2E', () => {
             // Assert Bookmark pill is present inside the working copy row
             await waitForLogPill(page, 'main', 'bookmark');
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Pane Header Actions: Undo and New Merge Change', async () => {
+    test('Pane Header Actions: Undo and New Merge Change', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         const dummyId = repo.getChangeId('@');
@@ -85,7 +81,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
@@ -137,15 +133,11 @@ test.describe('JJ Log Pane E2E', () => {
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Hover Actions: New Child, Squash, Abandon', async () => {
+    test('Hover Actions: New Child, Squash, Abandon', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         const dummyId = repo.getChangeId('@');
@@ -161,7 +153,7 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
@@ -194,6 +186,7 @@ test.describe('JJ Log Pane E2E', () => {
                     entry(dummyId, '(empty)', ROOT_ID),
                 ]);
             }).toPass();
+            await waitForWebviewWorkingCopy(page, childId);
 
             // 2. Prepare for squash: move working copy away from the new child
             const initialId = nodes.initial.changeId;
@@ -207,6 +200,7 @@ test.describe('JJ Log Pane E2E', () => {
                 `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
+            await waitForWebviewWorkingCopy(page, initialId);
 
             // 3. Squash the child into branch
             await clickLogAction(page, { changeId: childId }, 'Squash');
@@ -218,6 +212,7 @@ test.describe('JJ Log Pane E2E', () => {
                 `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
+            await waitForWebviewCommitRemoved(page, childId);
 
             // 4. Abandon the branch commit
             await clickLogAction(page, { changeId: branchId }, 'Abandon');
@@ -229,16 +224,13 @@ test.describe('JJ Log Pane E2E', () => {
                 `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
+            await waitForWebviewCommitRemoved(page, branchId);
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Multi-select and Drag & Drop (Rebase)', async () => {
+    test('Multi-select and Drag & Drop (Rebase)', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         const nodes = await buildGraph(repo, [
@@ -257,14 +249,16 @@ test.describe('JJ Log Pane E2E', () => {
             },
         ]);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
-            const webview = await getLogWebview(page);
 
-            const sourceRow = webview.locator(`[data-change-id="${nodes.source.changeId}"]`);
-            const targetRow = webview.locator(`[data-change-id="${nodes.target.changeId}"]`);
+            const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
+            const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
+
+            await sourceRow.scrollIntoViewIfNeeded();
+            await targetRow.scrollIntoViewIfNeeded();
 
             const sourceBox = await sourceRow.boundingBox();
             const targetBox = await targetRow.boundingBox();
@@ -288,15 +282,11 @@ test.describe('JJ Log Pane E2E', () => {
                 expect(parents).toContain(nodes.target.changeId);
             }).toPass({ timeout: 10000 });
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Delete Bookmark (Command Palette/Quick Pick Flow)', async () => {
+    test('Delete Bookmark (Command Palette/Quick Pick Flow)', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
         const nodes = await buildGraph(repo, [
@@ -313,7 +303,7 @@ test.describe('JJ Log Pane E2E', () => {
         // 1. Create a local bookmark via CLI
         repo.bookmark('local-to-delete', nodes.wc.changeId);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
@@ -323,11 +313,8 @@ test.describe('JJ Log Pane E2E', () => {
             const bookmarkPill = await waitForLogPill(page, 'local-to-delete', 'bookmark');
             await expect(bookmarkPill).toBeVisible();
 
-            // 3. Open Command Palette and run "Delete Bookmark"
-            const input = await openQuickInputWithShortcut(page, 'F1');
-            await input.focus();
-            await page.keyboard.type('JJ View: Delete Bookmark', { delay: 50 });
-            await page.keyboard.press('Enter');
+            // 3. Trigger Delete Bookmark via keyboard shortcut
+            await page.keyboard.press('Control+Alt+D');
 
             // 4. Select the bookmark to delete in the Quick Pick
             await pickQuickPickItem(page, 'local-to-delete');
@@ -335,10 +322,6 @@ test.describe('JJ Log Pane E2E', () => {
             // 5. Verify the bookmark pill disappears from the webview
             await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });

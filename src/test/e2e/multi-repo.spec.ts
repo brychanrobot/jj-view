@@ -5,16 +5,15 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from 'playwright';
+import { expect, type Page } from '@playwright/test';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     clickScmAction,
     focusJJLog,
     focusSCM,
-    launchVSCode,
     openFileInEditor,
     SCM_ACTIONS,
+    test,
     waitForLogCommitRow,
     waitForTab,
 } from './e2e-helpers';
@@ -23,11 +22,9 @@ test.describe('Multi-Repo Switching E2E', () => {
     let mainRepo: TestRepo;
     let secondRepo: TestRepo;
     let mainCommits: Record<string, CommitId>;
-    let app: ElectronApplication;
     let page: Page;
-    let userDataDir: string;
 
-    test.beforeEach(async () => {
+    test.beforeEach(async ({ vscode }) => {
         mainRepo = new TestRepo();
         mainRepo.init();
 
@@ -77,23 +74,13 @@ test.describe('Multi-Repo Switching E2E', () => {
             path: workspaceConfigPath,
         };
 
-        const setup = await launchVSCode(fakeRepo, {
+        const setup = await vscode.openWorkspace(fakeRepo, {
             'workbench.editor.enablePreview': false,
         });
-        app = setup.app;
         page = setup.page;
-        userDataDir = setup.userDataDir;
     });
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (secondRepo) {
             secondRepo.dispose();
         }
@@ -102,7 +89,7 @@ test.describe('Multi-Repo Switching E2E', () => {
         }
     });
 
-    test('automatic repository switching when focusing different editor types', async () => {
+    test('automatic repository switching when focusing different editor types', async ({ vscode }) => {
         const mainRepoFolderName = path.basename(mainRepo.path);
         const secondRepoFolderName = path.basename(secondRepo.path);
 
@@ -114,7 +101,7 @@ test.describe('Multi-Repo Switching E2E', () => {
         await waitForLogCommitRow(page, 'main base commit');
 
         // Open second_file.txt from Explorer to trigger switch
-        await openFileInEditor(page, 'second_file.txt');
+        await openFileInEditor(vscode, page, 'second_file.txt');
 
         // Verify repository manager automatically switched focus to the second repo
         await focusJJLog(page);
@@ -124,7 +111,7 @@ test.describe('Multi-Repo Switching E2E', () => {
         await waitForLogCommitRow(page, 'second base commit');
 
         // Now open main_file.txt from Explorer to switch back
-        await openFileInEditor(page, 'main_file.txt');
+        await openFileInEditor(vscode, page, 'main_file.txt');
 
         // Verify focus switched back to main repo
         await focusJJLog(page);

@@ -3,25 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { type Page, test } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import type { Page } from '@playwright/test';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import {
     expectModifiedFiles,
     focusJJLog,
-    launchVSCode,
     openFileInEditor,
     openQuickInputWithShortcut,
     pickQuickPickItem,
+    test,
     waitForTab,
 } from './e2e-helpers';
 
 test.describe('Arbitrary Diff E2E', () => {
     let repo: TestRepo;
-    let app: ElectronApplication;
     let page: Page;
-    let userDataDir: string;
     let nodes: Record<string, CommitId>;
 
     async function compareWithRevision(
@@ -36,7 +32,7 @@ test.describe('Arbitrary Diff E2E', () => {
         await waitForTab(page, tabNamePattern);
     }
 
-    test.beforeEach(async () => {
+    test.beforeEach(async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
         repo.writeFile('f.txt', 'base content\n');
@@ -64,23 +60,13 @@ test.describe('Arbitrary Diff E2E', () => {
             },
         ]);
 
-        const setup = await launchVSCode(repo);
-        app = setup.app;
+        const setup = await vscode.openWorkspace(repo);
         page = setup.page;
-        userDataDir = setup.userDataDir;
 
         await focusJJLog(page);
     });
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (repo) {
             repo.dispose();
         }
@@ -109,8 +95,8 @@ test.describe('Arbitrary Diff E2E', () => {
         await expectModifiedFiles(page, ['f.txt', 'g.txt']);
     });
 
-    test('Compare File with Revision... (Ancestor)', async () => {
-        await openFileInEditor(page, 'f.txt');
+    test('Compare File with Revision... (Ancestor)', async ({ vscode }) => {
+        await openFileInEditor(vscode, page, 'f.txt');
         const commit1Id = nodes.commit1.changeId;
         await compareWithRevision(
             page,
@@ -120,8 +106,8 @@ test.describe('Arbitrary Diff E2E', () => {
         );
     });
 
-    test('Compare File with Revision... (Arbitrary)', async () => {
-        await openFileInEditor(page, 'f.txt');
+    test('Compare File with Revision... (Arbitrary)', async ({ vscode }) => {
+        await openFileInEditor(vscode, page, 'f.txt');
         const branchC1Id = nodes.branchC1.changeId;
         await compareWithRevision(
             page,
