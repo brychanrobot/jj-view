@@ -6,19 +6,18 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { TestRepo } from '../test-repo';
-import { expectSettingsOpen, launchVSCode } from './e2e-helpers';
+import { clickNotificationButton, expectNotificationToast, expectSettingsOpen, test } from './e2e-helpers';
 
 test.describe('JJ Binary Configuration E2E', () => {
-    test('Shows error and opens settings for invalid binary path', async () => {
+    test('Shows error and opens settings for invalid binary path', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
         const invalidPath = path.join(os.tmpdir(), 'non-existent-jj-binary');
-        const { app, page, userDataDir } = await launchVSCode(repo, {
-            'jj-view.binaryPath': invalidPath,
-        });
+        // Open the workspace with default/valid settings first
+        const { page } = await vscode.openWorkspace(repo, {}, {}, true);
 
         try {
             // Un-hide notifications toast locally
@@ -26,29 +25,29 @@ test.describe('JJ Binary Configuration E2E', () => {
                 content: '.notifications-toasts { display: block !important; visibility: visible !important; }',
             });
 
-            // Wait for notification to appear. VS Code uses a button role for notification messages sometimes,
-            // or just text nodes. Let's look for the text directly.
-            const notification = page.locator('.notification-toast-container', {
-                hasText: `Invalid 'jj' binary configuration`,
-            });
-            await expect(notification).toBeVisible({ timeout: 15000 });
+            // Clear any startup notifications (such as the disabled extensions warning)
+            await vscode.executeCommand('notifications.clearAll');
 
-            const configureButton = notification.getByRole('button', { name: 'Configure Path' });
-            await configureButton.click();
+            // Dynamically set the invalid binary path to trigger the toast configuration change listener
+            await vscode.evaluate(async (vscode, _api, pathVal) => {
+                await vscode.workspace
+                    .getConfiguration('jj-view')
+                    .update('binaryPath', pathVal, vscode.ConfigurationTarget.Global);
+            }, invalidPath);
+
+            // Wait for notification to appear and click 'Configure Path'
+            await expectNotificationToast(page, `Invalid 'jj' binary configuration`);
+            await clickNotificationButton(page, 'Configure Path');
 
             // Verify settings editor is open and find the Binary Path setting
             const settingItem = await expectSettingsOpen(page, 'Binary Path');
             await expect(settingItem.locator('input')).toHaveValue(invalidPath);
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Shows error when jj binary is not found', async () => {
+    test('Shows error when jj binary is not found', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -61,11 +60,13 @@ test.describe('JJ Binary Configuration E2E', () => {
             .filter((p) => !fs.existsSync(path.join(p, jjBinaryName)))
             .join(path.delimiter);
 
-        // Launch with filtered PATH and empty HOME to avoid discovery
-        const { app, page, userDataDir } = await launchVSCode(
+        // Launch with filtered PATH and empty HOME, setting binaryPath to 'dummy' initially to avoid discovery
+        const { page } = await vscode.openWorkspace(
             repo,
-            { 'jj-view.binaryPath': '' }, // Ensure not set
+            { 'jj-view.binaryPath': 'dummy' },
             { PATH: filteredPath, HOME: path.join(os.tmpdir(), 'jj-empty-home') },
+            true,
+            true,
         );
 
         try {
@@ -74,26 +75,26 @@ test.describe('JJ Binary Configuration E2E', () => {
                 content: '.notifications-toasts { display: block !important; visibility: visible !important; }',
             });
 
-            // Wait for notification
-            const notification = page.locator('.notification-toast-container', {
-                hasText: `Could not find 'jj' binary`,
-            });
-            await expect(notification).toBeVisible({ timeout: 15000 });
+            // Clear any startup notifications (including the dummy path warning toast)
+            await vscode.executeCommand('notifications.clearAll');
 
-            // Click Configure Path
-            const configureButton = notification.getByRole('button', { name: 'Configure Path' });
-            await configureButton.click();
+            // Trigger configuration listener by resetting binaryPath to empty string
+            await vscode.evaluate(async (vscode) => {
+                await vscode.workspace
+                    .getConfiguration('jj-view')
+                    .update('binaryPath', '', vscode.ConfigurationTarget.Global);
+            });
+
+            // Wait for notification and click 'Configure Path'
+            await expectNotificationToast(page, `Could not find 'jj' binary`);
+            await clickNotificationButton(page, 'Configure Path');
 
             // Verify settings
             const settingItem = await expectSettingsOpen(page, 'Binary Path');
 
-            // Since we set it to empty string in the setup, the UI should show an empty input
+            // Since we set it to empty string, the UI should show an empty input
             await expect(settingItem.locator('input')).toHaveValue('');
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });

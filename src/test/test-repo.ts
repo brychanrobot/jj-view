@@ -7,6 +7,39 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+const tempDirs = new Set<string>();
+const testXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-xdg-'));
+tempDirs.add(testXdgConfigHome);
+process.env.XDG_CONFIG_HOME = testXdgConfigHome;
+
+function writeDefaultConfig(xdgDir: string) {
+    const configDir = path.join(xdgDir, 'jj');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+        path.join(configDir, 'config.toml'),
+        `[user]
+name = "Test User"
+email = "test@example.com"
+
+[signing]
+backend = "none"
+
+[ui]
+merge-editor = "builtin"
+`,
+    );
+}
+
+writeDefaultConfig(testXdgConfigHome);
+
+process.on('exit', () => {
+    for (const dir of tempDirs) {
+        try {
+            fs.rmSync(dir, { recursive: true, force: true });
+        } catch {}
+    }
+});
+
 export class TestRepo {
     public readonly path: string;
 
@@ -16,14 +49,11 @@ export class TestRepo {
             fs.mkdirSync(rawPath, { recursive: true });
         }
         this.path = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
+        tempDirs.add(this.path);
     }
 
     dispose() {
-        try {
-            fs.rmSync(this.path, { recursive: true, force: true });
-        } catch (_e) {
-            // Ignore clean up errors
-        }
+        // Defer actual directory deletion to process exit to avoid blocking file watchers
     }
 
     // POLICY: This method is intentionally private. Do not expose it publicly.
@@ -93,23 +123,82 @@ export class TestRepo {
         this.exec(['config', 'set', '--repo', name, value], { suppressStderr });
     }
 
+    configBatch(configs: Record<string, string>) {
+        if (process.platform !== 'win32') {
+            const commands: string[] = [];
+
+            for (const [key, val] of Object.entries(configs)) {
+                commands.push(`jj --quiet config set --repo ${key} "${val}"`);
+            }
+
+            if (commands.length > 0) {
+                const cmd = commands.join(' && ');
+                const env = { ...process.env, JJ_CONFIG: '' };
+                cp.execSync(cmd, { cwd: this.path, env, stdio: 'ignore' });
+            }
+        } else {
+            for (const [key, val] of Object.entries(configs)) {
+                this.config(key, val, true);
+            }
+        }
+    }
+
+    metaedit(options: { updateAuthor?: boolean; revision?: string } = {}) {
+        const args = ['metaedit'];
+        if (options.updateAuthor) {
+            args.push('--update-author');
+        }
+        if (options.revision) {
+            args.push('-r', options.revision);
+        }
+        this.exec(args);
+    }
+
     init() {
-        this.exec(['git', 'init']);
+        const env = { ...process.env, JJ_CONFIG: '' };
+        const jjBinary = 'jj';
+        cp.execFileSync(jjBinary, ['--quiet', 'git', 'init'], {
+            cwd: this.path,
+            encoding: 'utf-8',
+            env,
+        });
 
-        // Configure repo-local settings using CLI to ensure compatibility
-        // with modern jj (0.38+) which stores repo config externally.
-        // Use suppressStderr to the user settings to hide "future commits" warnings.
-        this.config('user.name', 'Test User', /*suppressStderr=*/ true);
-        this.config('user.email', 'test@example.com', /*suppressStderr=*/ true);
+        if (process.platform !== 'win32') {
+            const commands = [
+                `jj --quiet config set --repo user.name "Test User"`,
+                `jj --quiet config set --repo user.email "test@example.com"`,
+                `jj --quiet config set --repo signing.backend "none"`,
+                `jj --quiet config set --repo ui.merge-editor "builtin"`,
+            ];
+            cp.execSync(commands.join(' && '), { cwd: this.path, env, stdio: 'ignore' });
+        } else {
+            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'user.name', 'Test User'], {
+                cwd: this.path,
+                env,
+                stdio: 'ignore',
+            });
+            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'user.email', 'test@example.com'], {
+                cwd: this.path,
+                env,
+                stdio: 'ignore',
+            });
+            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'signing.backend', 'none'], {
+                cwd: this.path,
+                env,
+                stdio: 'ignore',
+            });
+            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'ui.merge-editor', 'builtin'], {
+                cwd: this.path,
+                env,
+                stdio: 'ignore',
+            });
+        }
 
-        // Ensure that tests don't fail if the user has configured signing globally (e.g.
-        // signing.sign-all = true). Background processes in tests can't prompt for passphrases.
-        this.config('signing.backend', 'none');
-
-        // Metaedit to update author after signing is disabled
-        this.exec(['metaedit', '--update-author']);
-
-        this.config('ui.merge-editor', 'builtin');
+        cp.execFileSync(jjBinary, ['--quiet', 'metaedit', '--update-author'], {
+            cwd: this.path,
+            encoding: 'utf-8',
+            env,
+        });
     }
 
     new(parents?: string[], message?: string) {
@@ -217,6 +306,17 @@ export class TestRepo {
         const fullPath = path.join(this.path, relativePath);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
         fs.writeFileSync(fullPath, content);
+        this.snapshot();
+    }
+
+    async writeFiles(files: Record<string, string>): Promise<void> {
+        await Promise.all(
+            Object.entries(files).map(async ([file, content]) => {
+                const fullPath = path.join(this.path, file);
+                await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+                await fs.promises.writeFile(fullPath, content);
+            }),
+        );
         this.snapshot();
     }
 
@@ -433,9 +533,7 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
 
         // Apply file changes
         if (commit.files) {
-            for (const [file, content] of Object.entries(commit.files)) {
-                repo.writeFile(file, content);
-            }
+            await repo.writeFiles(commit.files);
         }
 
         // Capture ID

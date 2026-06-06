@@ -11,8 +11,11 @@ export default defineConfig({
     expect: {
         timeout: 10000,
     },
-    reporter: 'list',
+    reporter: [['list'], ['html', { open: 'never' }]],
+    outputDir: 'test-results',
     use: {
         trace: 'on-first-retry',
+        screenshot: 'only-on-failure',
+        video: 'retain-on-failure',
     },
 });

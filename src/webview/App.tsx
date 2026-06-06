@@ -386,7 +386,6 @@ const App: React.FC = () => {
                 tags={detailsCommit.tags}
                 titleWidthRuler={detailsCommit.titleWidthRuler}
                 bodyWidthRuler={detailsCommit.bodyWidthRuler}
-                formatDescriptionOnSave={detailsCommit.formatDescriptionOnSave}
                 minChangeIdLength={detailsCommit.minChangeIdLength}
                 onSave={handleSaveDescription}
                 onOpenDiff={handleOpenDiff}

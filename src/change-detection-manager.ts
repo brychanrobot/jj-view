@@ -17,12 +17,22 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
     private _workingCopyWatcher: DirectoryWatcher | undefined;
     private _opHeadsWatcher: DirectoryWatcher | undefined;
-    private _opHeadsWatcherPromise: Promise<void> | undefined;
-    private _workingCopyWatcherPromise: Promise<void> | undefined;
+    private _lifecyclePromise: Promise<void> = Promise.resolve();
     private _poller: Poller;
     private _fileWatcherMode: 'polling' | 'watch' = 'polling';
     private _isFocused = true;
     private lastExternalOpTime = 0;
+    private _deferredRefreshTimeout: NodeJS.Timeout | undefined;
+    private _watchersWarmedUp = false;
+
+    private async _runLifecycleTask(task: () => Promise<void>): Promise<void> {
+        this._lifecyclePromise = this._lifecyclePromise
+            .catch(() => {})
+            .then(async () => {
+                await task();
+            });
+        return this._lifecyclePromise;
+    }
 
     private get hasActiveOrRecentWrites(): boolean {
         return (
@@ -30,6 +40,22 @@ export class ChangeDetectionManager implements vscode.Disposable {
             Date.now() - this.jj.lastWriteTime < 500 ||
             Date.now() - this.lastExternalOpTime < 500
         );
+    }
+
+    private _scheduleDeferredRefresh() {
+        if (this._deferredRefreshTimeout) {
+            return;
+        }
+        this._deferredRefreshTimeout = setTimeout(() => {
+            this._deferredRefreshTimeout = undefined;
+            const writes = this.hasActiveOrRecentWrites;
+            if (writes) {
+                this._scheduleDeferredRefresh();
+            } else {
+                this.lastExternalOpTime = Date.now();
+                this.triggerRefresh({ forceSnapshot: false, reason: 'deferred watcher event' });
+            }
+        }, 500);
     }
 
     constructor(
@@ -85,14 +111,33 @@ export class ChangeDetectionManager implements vscode.Disposable {
             }),
         );
 
-        // Initialize watchers
-        this._opHeadsWatcherPromise = this.startOpHeadsWatcher();
-        this.updateFileWatcherMode().catch((err) => {
-            this.outputChannel.appendLine(`[ChangeDetectionManager] Error during initialization: ${err}`);
-        });
+        // Initialize watchers synchronously
+        this._lifecyclePromise = Promise.all([this.startOpHeadsWatcher(), this.updateFileWatcherModeInternal()])
+            .then(() => {})
+            .catch((err) => {
+                this.outputChannel.appendLine(`[ChangeDetectionManager] Error during initialization: ${err}`);
+            });
+    }
+
+    public async awaitWatchersReady(): Promise<void> {
+        await this._lifecyclePromise.catch(() => {});
+        if (this._fileWatcherMode === 'watch' && !this._watchersWarmedUp) {
+            // Give the OS/file system a brief moment to fully register and warm up the new watches
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            this._watchersWarmedUp = true;
+        }
     }
 
     private async updateFileWatcherMode() {
+        return this._runLifecycleTask(async () => {
+            await this.updateFileWatcherModeInternal();
+        });
+    }
+
+    private async updateFileWatcherModeInternal() {
+        if (this._disposed) {
+            return;
+        }
         const config = vscode.workspace.getConfiguration('jj-view');
         const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
         this.outputChannel.appendLine(`[ChangeDetectionManager] File watcher mode: ${mode}`);
@@ -101,8 +146,8 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._fileWatcherMode = mode;
 
         if (modeChanged) {
-            await this.stopWorkingCopyWatching();
-            this._workingCopyWatcherPromise = this.startWorkingCopyWatching();
+            await this.stopWorkingCopyWatchingInternal();
+            await this.startWorkingCopyWatchingInternal();
         }
 
         // Always ensure polling state is correct
@@ -138,56 +183,72 @@ export class ChangeDetectionManager implements vscode.Disposable {
     }
 
     private async startOpHeadsWatcher() {
+        if (this._disposed) {
+            return;
+        }
         if (this._opHeadsWatcher) {
             return;
         }
 
-        try {
-            await this.jj.getRepoRoot();
+        let retries = 0;
+        const maxRetries = 25; // 5 seconds total (25 * 200ms)
+        let lastErr: unknown;
 
-            // Handle non-default workspaces where .jj/repo might be a file containing a path
-            const repoStorePath = await this.jj.getRepoStorePath();
-            if (this._disposed) {
-                return;
-            }
-
-            const opHeadsPath = path.join(repoStorePath, 'op_heads');
-
-            // Final check that the directory exists and we have a real path
-            let realOpHeadsPath: string;
+        while (retries < maxRetries && !this._disposed) {
             try {
-                realOpHeadsPath = await fs.realpath(opHeadsPath);
-            } catch {
-                return;
+                await this.jj.getRepoRoot();
+
+                // Handle non-default workspaces where .jj/repo might be a file containing a path
+                const repoStorePath = await this.jj.getRepoStorePath();
+                if (this._disposed) {
+                    return;
+                }
+
+                const opHeadsPath = path.join(repoStorePath, 'op_heads');
+
+                // Final check that the directory exists and we have a real path
+                const realOpHeadsPath = await fs.realpath(opHeadsPath);
+
+                if (this._disposed) {
+                    return;
+                }
+
+                this._opHeadsWatcher = new DirectoryWatcher(
+                    realOpHeadsPath,
+                    () => {
+                        const writes = this.hasActiveOrRecentWrites;
+                        if (writes) {
+                            this._scheduleDeferredRefresh();
+                            return;
+                        }
+                        this.lastExternalOpTime = Date.now();
+                        this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
+                    },
+                    this.outputChannel,
+                    'OpHeads Watcher',
+                    this.watcherBackend,
+                );
+                await this._opHeadsWatcher.start();
+                return; // Success
+            } catch (err) {
+                this.outputChannel.appendLine(
+                    `[Error] [ChangeDetectionManager] startOpHeadsWatcher retry ${retries} failed for path ${this.workspaceRoot}: ${err instanceof Error ? err.stack : err}`,
+                );
+                lastErr = err;
+                retries++;
+                if (retries < maxRetries) {
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                }
             }
-
-            if (this._disposed) {
-                return;
-            }
-
-            this._opHeadsWatcher = new DirectoryWatcher(
-                realOpHeadsPath,
-                () => {
-                    if (this.hasActiveOrRecentWrites) {
-                        return;
-                    }
-                    this.lastExternalOpTime = Date.now();
-                    this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
-                },
-                this.outputChannel,
-                'OpHeads Watcher',
-                this.watcherBackend,
-            );
-
-            await this._opHeadsWatcher.start().catch((err) => {
-                this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
-            });
-        } catch (err) {
-            this.outputChannel.appendLine(`Failed to setup op_heads watcher: ${err}`);
         }
+
+        this.outputChannel.appendLine(`Failed to setup op_heads watcher after ${maxRetries} retries: ${lastErr}`);
     }
 
-    private async startWorkingCopyWatching() {
+    private async startWorkingCopyWatchingInternal() {
+        if (this._disposed) {
+            return;
+        }
         if (this._fileWatcherMode === 'watch') {
             await this.startWorkingCopyWatcherInternal().catch((err) => {
                 this.outputChannel.appendLine(`Failed to start working copy watcher: ${err}`);
@@ -200,14 +261,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
     }
 
-    private async stopWorkingCopyWatching() {
+    private async stopWorkingCopyWatchingInternal() {
         // Also stop polling if it was active
         this._poller.stop();
-
-        if (this._workingCopyWatcherPromise) {
-            await this._workingCopyWatcherPromise.catch(() => {});
-            this._workingCopyWatcherPromise = undefined;
-        }
 
         if (this._workingCopyWatcher) {
             await this._workingCopyWatcher.stop();
@@ -216,6 +272,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
     }
 
     private async startWorkingCopyWatcherInternal() {
+        if (this._disposed) {
+            return;
+        }
         if (this._workingCopyWatcher) {
             return;
         }
@@ -235,7 +294,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._workingCopyWatcher = new DirectoryWatcher(
             this.workspaceRoot,
             () => {
-                if (this.hasActiveOrRecentWrites) {
+                const writes = this.hasActiveOrRecentWrites;
+                if (writes) {
+                    this._scheduleDeferredRefresh();
                     return;
                 }
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event' });
@@ -327,19 +388,27 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
         this._disposed = true;
 
-        await this.stopWorkingCopyWatching();
-
-        this._poller.dispose();
-
-        if (this._opHeadsWatcherPromise) {
-            await this._opHeadsWatcherPromise.catch(() => {});
-            this._opHeadsWatcherPromise = undefined;
+        if (this._deferredRefreshTimeout) {
+            clearTimeout(this._deferredRefreshTimeout);
+            this._deferredRefreshTimeout = undefined;
         }
 
-        if (this._opHeadsWatcher) {
-            await this._opHeadsWatcher.dispose();
-            this._opHeadsWatcher = undefined;
-        }
+        // Run the teardown in the lifecycle queue to serialize after active watcher transitions
+        await this._runLifecycleTask(async () => {
+            this._poller.stop();
+
+            if (this._workingCopyWatcher) {
+                await this._workingCopyWatcher.stop();
+                this._workingCopyWatcher = undefined;
+            }
+
+            this._poller.dispose();
+
+            if (this._opHeadsWatcher) {
+                await this._opHeadsWatcher.dispose();
+                this._opHeadsWatcher = undefined;
+            }
+        });
 
         this.disposables.forEach((d) => {
             d.dispose();

@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { convertJjChangeIdToHex } from '../../utils/jj-utils';
 import { FakeGerritServer } from '../helpers/fake-gerrit-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
-import { expectBadgeLink, focusJJLog, launchVSCode, waitForLogCommitRow } from './e2e-helpers';
+import { expectBadgeLink, focusJJLog, test, waitForLogCommitRow } from './e2e-helpers';
 
 test.describe('Gerrit Integration E2E', () => {
     let gerrit: FakeGerritServer;
@@ -22,7 +21,7 @@ test.describe('Gerrit Integration E2E', () => {
         await gerrit.stop();
     });
 
-    test('Detects Gerrit status via various methods (Change-Id, Link, Mixed, and Fallback)', async () => {
+    test('Detects Gerrit status via various methods (Change-Id, Link, Mixed, and Fallback)', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -62,7 +61,7 @@ test.describe('Gerrit Integration E2E', () => {
         gerrit.registerChangeByNumber(numMixed, idMixed);
         clNumbers['mixed-trailers'] = numMixed;
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { page } = await vscode.openWorkspace(repo, {
             'jj-view.gerrit.host': gerrit.url,
             'jj-view.uploadCommand': 'describe -m uploaded_successfully',
         });
@@ -111,15 +110,11 @@ test.describe('Gerrit Integration E2E', () => {
                 expect(desc).toContain('uploaded_successfully');
             }).toPass({ timeout: 15000 });
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test("Detects 'Needs Upload' after rebase (rebase hole)", async () => {
+    test("Detects 'Needs Upload' after rebase (rebase hole)", async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -142,7 +137,7 @@ test.describe('Gerrit Integration E2E', () => {
         // Rebase child to base locally (skipping parent)
         repo.rebase({ source: commits.child.changeId, destination: commits.base.changeId });
 
-        const { app, page, userDataDir } = await launchVSCode(repo, {
+        const { page } = await vscode.openWorkspace(repo, {
             'jj-view.gerrit.host': gerrit.url,
         });
 
@@ -155,10 +150,6 @@ test.describe('Gerrit Integration E2E', () => {
             const uploadButton = rowChild.getByRole('button', { name: 'Upload changes to Gerrit' });
             await expect(uploadButton).toBeVisible({ timeout: 20000 });
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });

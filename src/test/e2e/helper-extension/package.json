@@ -1,0 +1,11 @@
+{
+    "name": "jj-view-test-helper",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "activationEvents": [
+        "*"
+    ],
+    "main": "../../../../out/test/e2e/helper-extension/index.js"
+}

@@ -6,6 +6,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
+import type { JjRepository } from '../jj-repository';
+import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
@@ -370,7 +372,7 @@ export async function maybeFormatDescriptionOnSave(
     scmProvider: JjScmProvider,
     revision: string = '@',
 ): Promise<string> {
-    const config = vscode.workspace.getConfiguration('jj-view');
+    const config = vscode.workspace.getConfiguration('jj-view', scmProvider.repo?.rootUri);
     const formatOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
     if (!formatOnSave) {
         return description;
@@ -471,6 +473,90 @@ export function extractBookmarkName(args: unknown[]): string | undefined {
         typeof firstArg.bookmarkName === 'string'
     ) {
         return firstArg.bookmarkName;
+    }
+
+    return undefined;
+}
+
+export function resolveRepository(
+    args: unknown[],
+    repositoryManager: JjRepositoryManager,
+    scmProviders: Map<string, JjScmProvider>,
+): { repo: JjRepository; scm: JjScmProvider } | undefined {
+    // 1. Check if first arg is a VS Code SourceControlResourceGroup
+    const firstArg = args[0];
+    if (firstArg && isSourceControlResourceGroup(firstArg)) {
+        for (const scmProvider of scmProviders.values()) {
+            if (scmProvider.ownsGroup(firstArg)) {
+                return { repo: scmProvider.repo, scm: scmProvider };
+            }
+        }
+    }
+
+    let uri: vscode.Uri | undefined;
+
+    // 2. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
+    uri = extractUriFromArgs(args);
+    if (uri) {
+        repositoryManager.outputChannel.appendLine(
+            `[resolveRepository] Extracted candidate URI from arguments: ${uri.toString()}`,
+        );
+    }
+
+    // 2. Check active editor document URI (handles file tabs and jj-commit custom editor)
+    if (!uri) {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const docUri = activeEditor.document.uri;
+            if (docUri.scheme === 'jj-commit') {
+                const query = new URLSearchParams(docUri.query);
+                const repoRoot = query.get('repoRoot');
+                if (repoRoot) {
+                    uri = vscode.Uri.file(decodeURIComponent(repoRoot));
+                    repositoryManager.outputChannel.appendLine(
+                        `[resolveRepository] Resolved candidate URI from active jj-commit editor repoRoot: ${uri.toString()}`,
+                    );
+                }
+            } else {
+                uri = docUri;
+                repositoryManager.outputChannel.appendLine(
+                    `[resolveRepository] Resolved candidate URI from active text editor: ${uri.toString()}`,
+                );
+            }
+        }
+    }
+
+    // 3. Resolve repository and scm from candidate URI, or fallback to focused repository
+    let repo = uri ? repositoryManager.getRepositoryForUri(uri) : undefined;
+    if (repo) {
+        repositoryManager.outputChannel.appendLine(
+            `[resolveRepository] Successfully resolved repository for URI: ${repo.rootUri.fsPath}`,
+        );
+    } else {
+        if (uri) {
+            repositoryManager.outputChannel.appendLine(
+                `[resolveRepository] No repository matched candidate URI: ${uri.toString()}`,
+            );
+        }
+        repo = repositoryManager.focusedRepository;
+        if (repo) {
+            repositoryManager.outputChannel.appendLine(
+                `[resolveRepository] Falling back to focused repository: ${repo.rootUri.fsPath}`,
+            );
+        } else {
+            repositoryManager.outputChannel.appendLine(`[resolveRepository] No focused repository fallback available.`);
+        }
+    }
+
+    if (repo) {
+        const scm = scmProviders.get(repo.rootUri.fsPath);
+        if (scm) {
+            return { repo, scm };
+        } else {
+            repositoryManager.outputChannel.appendLine(
+                `[resolveRepository] Resolved repository ${repo.rootUri.fsPath} but no matching SCM provider found.`,
+            );
+        }
     }
 
     return undefined;

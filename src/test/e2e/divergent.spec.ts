@@ -3,15 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, type Page, test } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import { expect, type Page } from '@playwright/test';
 import { TestRepo } from '../test-repo';
 import {
     clickLogAction,
     focusJJLog,
     getDetailsWebview,
-    launchVSCode,
+    test,
     triggerRefresh,
     waitForLogCommitRow,
     waitForTab,
@@ -19,11 +17,9 @@ import {
 
 test.describe('Divergent Commits E2E', () => {
     let repo: TestRepo;
-    let app: ElectronApplication;
     let page: Page;
-    let userDataDir: string;
 
-    test.beforeEach(async () => {
+    test.beforeEach(async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
 
@@ -38,23 +34,13 @@ test.describe('Divergent Commits E2E', () => {
         // 3. Bookmark the old version to make it visible, creating divergence
         repo.bookmark('zombie', commitIdV1);
 
-        const setup = await launchVSCode(repo);
-        app = setup.app;
+        const setup = await vscode.openWorkspace(repo);
         page = setup.page;
-        userDataDir = setup.userDataDir;
 
         await focusJJLog(page);
     });
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (repo) {
             repo.dispose();
         }

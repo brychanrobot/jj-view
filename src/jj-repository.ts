@@ -12,6 +12,7 @@ import { CodeForgeService } from './code-forge-service';
 import { JjService } from './jj-service';
 import { RefreshScheduler } from './refresh-scheduler';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
+import { CoalescingQueue } from './utils/coalescing-queue';
 
 export class JjRepository implements Disposable {
     private readonly _jj: JjService;
@@ -19,6 +20,8 @@ export class JjRepository implements Disposable {
     private readonly _codeForge: CodeForgeService;
     private readonly _refreshScheduler: RefreshScheduler;
     private readonly _onDidStatusChange = new AsyncEventEmitter<{ reason: string }>();
+    private _nextRefreshOptions = { forceSnapshot: false, reasons: new Set<string>() };
+    private readonly _refreshQueue: CoalescingQueue;
 
     readonly onDidStatusChange = this._onDidStatusChange.event;
 
@@ -27,18 +30,47 @@ export class JjRepository implements Disposable {
         public readonly storePath: string,
         registry: CodeForgeRegistry,
         outputChannel: OutputChannel,
+        binaryPath?: string,
     ) {
-        this._jj = new JjService(rootUri.fsPath, (msg) => {
-            try {
-                outputChannel.appendLine(msg);
-            } catch {
-                // OutputChannel might be disposed during teardown or shutdown
-            }
-        });
+        this._jj = new JjService(
+            rootUri.fsPath,
+            (msg) => {
+                try {
+                    outputChannel.appendLine(msg);
+                } catch {
+                    // OutputChannel might be disposed during teardown or shutdown
+                }
+            },
+            binaryPath,
+        );
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
         this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
         this._watcher = new ChangeDetectionManager(rootUri.fsPath, this._jj, outputChannel, async (options) => {
             await this._refreshScheduler.trigger(options);
+        });
+
+        this._refreshQueue = new CoalescingQueue(async () => {
+            const options = { ...this._nextRefreshOptions };
+            this._nextRefreshOptions = { forceSnapshot: false, reasons: new Set<string>() };
+
+            const reason = Array.from(options.reasons).join(', ') || 'manual';
+
+            this._isValid = undefined;
+            try {
+                await this._jj.clearCache();
+                if (options.forceSnapshot) {
+                    await this._jj.status();
+                }
+                await this._jj.getRepoRoot(); // Warm the cache
+
+                if (!this._disposed) {
+                    await this._onDidStatusChange.fire({ reason });
+                }
+            } catch (err) {
+                if (!this._disposed) {
+                    throw err;
+                }
+            }
         });
     }
 
@@ -73,23 +105,17 @@ export class JjRepository implements Disposable {
         if (this._disposed) {
             return;
         }
-        const { forceSnapshot = false, reason = 'manual' } = options;
-        this._isValid = undefined;
-        try {
-            await this._jj.clearCache();
-            if (forceSnapshot) {
-                await this._jj.status();
-            }
-            await this._jj.getRepoRoot(); // Warm the cache
-
-            if (!this._disposed) {
-                await this._onDidStatusChange.fire({ reason });
-            }
-        } catch (err) {
-            if (!this._disposed) {
-                throw err;
-            }
+        if (options.forceSnapshot) {
+            this._nextRefreshOptions.forceSnapshot = true;
         }
+        if (options.reason) {
+            this._nextRefreshOptions.reasons.add(options.reason);
+        }
+        return this._refreshQueue.run();
+    }
+
+    async awaitWatchersReady(): Promise<void> {
+        await this._watcher.awaitWatchersReady();
     }
 
     async dispose() {
@@ -100,5 +126,14 @@ export class JjRepository implements Disposable {
         this._codeForge.dispose();
         await this._watcher.dispose();
         this._refreshScheduler.dispose();
+
+        // Wait for any active background refreshes to complete
+        if (this._refreshQueue.currentRun) {
+            try {
+                await this._refreshQueue.currentRun;
+            } catch {
+                // Ignore any error during dispose
+            }
+        }
     }
 }

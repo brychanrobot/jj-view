@@ -5,21 +5,21 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogTitleButton,
     clickNotificationButton,
     focusJJLog,
     getLogWebview,
-    launchVSCode,
     rightClickAndSelect,
+    test,
     waitForLogPill,
     waitForQuickInput,
 } from './e2e-helpers';
 
 test.describe('Workspace Management E2E', () => {
-    test('Shows workspace labels for multiple workspaces', async () => {
+    test('Shows workspace labels for multiple workspaces', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -35,7 +35,7 @@ test.describe('Workspace Management E2E', () => {
         const workspaceName = 'repo2';
         repo.workspaceAdd(workspaceName, baseId);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo);
 
         try {
             await focusJJLog(page);
@@ -55,15 +55,11 @@ test.describe('Workspace Management E2E', () => {
             const repo2Pill = webview.locator('.bookmark-pill', { hasText: new RegExp(`${workspaceName}.*@`) });
             await expect(repo2Pill).toBeVisible();
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Add Workspace via title bar action', async () => {
+    test('Add Workspace via title bar action', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -71,7 +67,7 @@ test.describe('Workspace Management E2E', () => {
         const workspaceName = `ws-${Date.now()}`;
 
         // Enable notifications for this test so we can click "Open Workspace"
-        const { app, page, userDataDir } = await launchVSCode(repo, {}, {}, true);
+        const { app, page } = await vscode.openWorkspace(repo, {}, {}, true);
 
         try {
             await focusJJLog(page);
@@ -116,15 +112,11 @@ test.describe('Workspace Management E2E', () => {
             const workspaces = repo.getLog('all()', 'working_copies.map(|w| w.name()).join("\\n")');
             expect(workspaces).toContain(workspaceName);
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });
 
-    test('Forget and Delete Workspace via context menu', async () => {
+    test('Forget and Delete Workspace via context menu', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
 
@@ -139,7 +131,7 @@ test.describe('Workspace Management E2E', () => {
         const forgetWsPath = path.resolve(repo.path, workspacesRelativeDir, forgetWs);
         const deleteWsPath = path.resolve(repo.path, workspacesRelativeDir, deleteWs);
 
-        const { app, page, userDataDir } = await launchVSCode(repo);
+        const { page } = await vscode.openWorkspace(repo, {}, {}, true);
 
         try {
             await focusJJLog(page);
@@ -184,10 +176,6 @@ test.describe('Workspace Management E2E', () => {
             const gone = !fs.existsSync(deleteWsPath);
             expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
         } finally {
-            await app.close();
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
             repo.dispose();
         }
     });

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { JjService } from './jj-service';
 import { createJjResourceState } from './scm-resource-state';
 import { formatCommitTitle } from './utils/jj-utils';
 
@@ -56,24 +55,13 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
     ) {}
 
-    private getJjService(document: JjCommitDocument): JjService | undefined {
-        if (document.repoRoot) {
-            const repo = this._repositoryManager.getRepositoryForUri(document.repoRoot);
-            if (repo) {
-                return repo.jj;
-            }
-        }
-        return this._repositoryManager.focusedRepository?.jj;
+    private getRepositoryForRoot(repoRoot?: vscode.Uri) {
+        return repoRoot
+            ? this._repositoryManager.getRepositoryForUri(repoRoot)
+            : this._repositoryManager.focusedRepository;
     }
 
     public async refresh(_reason?: string): Promise<void> {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const logTheme = config.get<string>('logTheme', 'default');
-        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
-        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
-        const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
-
         for (const [changeId, panels] of this._panels.entries()) {
             if (panels.size === 0) {
                 continue;
@@ -81,11 +69,22 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
             try {
                 const state = this._documentStates.get(changeId);
-                const jj = state ? this.getJjService(state.document) : this._repositoryManager.focusedRepository?.jj;
-                if (!jj) {
+                const repo = this.getRepositoryForRoot(state?.document.repoRoot);
+                if (!repo) {
+                    this._repositoryManager.outputChannel.appendLine(
+                        `[JjCommitDetailsEditorProvider.refresh] No Jujutsu repository resolved for changeId ${changeId}`,
+                    );
                     continue;
                 }
-                const logs = await jj.getLog({ revision: changeId });
+
+                const config = vscode.workspace.getConfiguration('jj-view', state?.document.repoRoot);
+                const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+                const logTheme = config.get<string>('logTheme', 'default');
+                const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
+                const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
+                const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
+
+                const logs = await repo.jj.getLog({ revision: changeId });
                 if (logs.length === 0) {
                     panels.forEach((p) => {
                         p.dispose();
@@ -94,7 +93,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 }
 
                 const log = logs[0];
-                const filesWithStats = await jj.getChanges(changeId).catch(() => log.changes || []);
+                const filesWithStats = await repo.jj.getChanges(changeId).catch(() => log.changes || []);
 
                 for (const panel of panels) {
                     panel.webview.postMessage({
@@ -147,14 +146,19 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             const isSoftSave = document.draftDescription === document.persistedDescription;
 
             if (!isSoftSave) {
-                await vscode.commands.executeCommand(
+                const formattedDescription = await vscode.commands.executeCommand<string | boolean>(
                     'jj-view.setDescription',
                     document.draftDescription,
                     document.changeId,
                 );
 
                 // Update persisted state after successful real save
-                document.persistedDescription = document.draftDescription;
+                if (typeof formattedDescription === 'string') {
+                    document.draftDescription = formattedDescription;
+                    document.persistedDescription = formattedDescription;
+                } else {
+                    document.persistedDescription = document.draftDescription;
+                }
             }
 
             // Sync all panels for this changeId to mark them as clean
@@ -205,14 +209,11 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         _token: vscode.CancellationToken,
     ): Promise<JjCommitDocument> {
         // URI format: jj-commit://commit/Commit:%20<shortId>?changeId=<changeId>&repoRoot=<repoRoot>
-        const query = new URLSearchParams(uri.query);
-        const changeId = query.get('changeId') || uri.path.split('/').pop() || uri.path;
-        const repoRoot = query.get('repoRoot');
-        return new JjCommitDocument(
-            uri,
-            changeId,
-            repoRoot ? vscode.Uri.file(decodeURIComponent(repoRoot)) : undefined,
-        );
+        const urlParams = new URLSearchParams(uri.query);
+        const changeId = urlParams.get('changeId') || '';
+        const repoRootPath = urlParams.get('repoRoot');
+        const repoRoot = repoRootPath ? vscode.Uri.file(repoRootPath) : undefined;
+        return new JjCommitDocument(uri, changeId, repoRoot);
     }
 
     public async resolveCustomEditor(
@@ -241,27 +242,30 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             enableCommandUris: true,
         };
 
-        const config = vscode.workspace.getConfiguration('jj-view');
+        const config = vscode.workspace.getConfiguration('jj-view', document.repoRoot);
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
         const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
         const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
         const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
-
-        const jj = this.getJjService(document);
-        if (!jj) {
+        const repo = this.getRepositoryForRoot(document.repoRoot);
+        if (!repo) {
+            this._repositoryManager.outputChannel.appendLine(
+                `[JjCommitDetailsEditorProvider.resolveCustomEditor] No Jujutsu repository resolved for document: ${document.uri.toString()} (repoRoot: ${document.repoRoot?.fsPath})`,
+            );
             panel.dispose();
             return;
         }
+
         try {
-            const logs = await jj.getLog({ revision: document.changeId });
+            const logs = await repo.jj.getLog({ revision: document.changeId });
             if (logs.length === 0) {
                 panel.dispose();
                 return;
             }
 
             const log = logs[0];
-            const filesWithStats = await jj.getChanges(document.changeId).catch(() => log.changes || []);
+            const filesWithStats = await repo.jj.getChanges(document.changeId).catch(() => log.changes || []);
 
             const initialDescription = (log.description || '').trim();
             const initialData = {
@@ -345,7 +349,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                     case 'openDiff': {
                         const { file, changeId, isImmutable } = message.payload;
 
-                        const state = createJjResourceState(file, changeId, jj.workspaceRoot, {
+                        const state = createJjResourceState(file, changeId, repo.jj.workspaceRoot, {
                             editable: !isImmutable,
                             openDiffOnClick: true,
                         });

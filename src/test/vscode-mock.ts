@@ -128,6 +128,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
     const onDidChangeWindowStateEmitter = new EventEmitter<unknown>();
     const onDidChangeConfigurationEmitter = new EventEmitter<unknown>();
     const onDidSaveTextDocumentEmitter = new EventEmitter<unknown>();
+    const onDidChangeWorkspaceFoldersEmitter = new EventEmitter<unknown>();
 
     class FileSystemError extends Error {
         readonly code: string;
@@ -211,7 +212,6 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             index: 0,
         },
     ];
-    const onDidChangeWorkspaceFoldersEmitter = new EventEmitter<unknown>();
 
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
@@ -326,6 +326,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             }),
             onDidChangeConfiguration: onDidChangeConfigurationEmitter.event,
             onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,
+
             findFiles: vi.fn().mockResolvedValue([]),
         },
         commands: {
@@ -337,6 +338,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             onDidChangeWindowState: onDidChangeWindowStateEmitter,
             onDidChangeConfiguration: onDidChangeConfigurationEmitter,
             onDidSaveTextDocument: onDidSaveTextDocumentEmitter,
+            onDidChangeWorkspaceFolders: onDidChangeWorkspaceFoldersEmitter,
         },
     };
 

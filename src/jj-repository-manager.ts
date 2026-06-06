@@ -94,12 +94,16 @@ export class JjRepositoryManager implements vscode.Disposable {
                 return;
             }
 
-            if (!this.shouldDetectFromOpenEditors()) {
+            const uri = this.getUriFromTab(currentTab);
+            if (!uri) {
                 return;
             }
 
-            const uri = this.getUriFromTab(currentTab);
-            if (!uri) {
+            if (this.tryAutoSwitch(uri)) {
+                return;
+            }
+
+            if (!this.shouldDetectFromOpenEditors()) {
                 return;
             }
 
@@ -142,6 +146,10 @@ export class JjRepositoryManager implements vscode.Disposable {
 
     get workspaceState(): vscode.Memento {
         return this._workspaceState;
+    }
+
+    get outputChannel(): vscode.OutputChannel {
+        return this._outputChannel;
     }
 
     /**
@@ -294,10 +302,14 @@ export class JjRepositoryManager implements vscode.Disposable {
         };
 
         // Pre-populate candidates with valid cached/discovered repositories
+        // but only if they are still part of the workspace folders
         await Promise.all(
             this._repositories.map(async (repo) => {
                 const rootPath = repo.rootUri.fsPath;
                 try {
+                    if (!(await this.isPathInOrAncestorOfWorkspace(rootPath))) {
+                        return;
+                    }
                     const stats = await fs.stat(rootPath);
                     if (stats.isDirectory() && (await repo.isValid())) {
                         await addCandidate(rootPath);
@@ -698,16 +710,13 @@ export class JjRepositoryManager implements vscode.Disposable {
         const resolvedStorePath = storePath ?? (await this.resolveStorePath(path.join(rootPath, '.jj', 'repo')));
         const repoPrefix = path.basename(rootPath);
         const repoOutputChannel = new JjOutputChannel(this._outputChannel, repoPrefix);
-        const repo = new JjRepository(
+        return new JjRepository(
             vscode.Uri.file(rootPath),
             resolvedStorePath,
             this._codeForgeRegistry,
             repoOutputChannel,
+            this._binaryPath,
         );
-        if (this._binaryPath) {
-            repo.jj.binaryPath = this._binaryPath;
-        }
-        return repo;
     }
 
     /**
@@ -975,12 +984,11 @@ export class JjRepositoryManager implements vscode.Disposable {
                 normalizedFsPath.startsWith(normalizedRepoRoot) &&
                 (normalizedFsPath.length === normalizedRepoRoot.length ||
                     normalizedFsPath[normalizedRepoRoot.length] === '/' ||
-                    normalizedFsPath[normalizedRepoRoot.length] === path.sep)
+                    normalizedFsPath[normalizedRepoRoot.length] === path.sep) &&
+                normalizedRepoRoot.length > bestLength
             ) {
-                if (normalizedRepoRoot.length > bestLength) {
-                    bestMatch = repo;
-                    bestLength = normalizedRepoRoot.length;
-                }
+                bestMatch = repo;
+                bestLength = normalizedRepoRoot.length;
             }
         }
 

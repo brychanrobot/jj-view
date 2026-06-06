@@ -75,6 +75,15 @@
                     ],
                     "description": "Controls how the extension detects external file changes."
                 },
+                "jj-view.codeForge.provider": {
+                    "type": "string",
+                    "enum": [
+                        "github",
+                        "gitlab",
+                        "gerrit"
+                    ],
+                    "description": "Force the active Code Forge provider to a specific service. If not set, it is auto-detected from git remotes."
+                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."

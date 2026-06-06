@@ -40,7 +40,7 @@ describe('setDescriptionCommand', () => {
 
     test('updates description from string argument', async () => {
         const result = await setDescriptionCommand(scmProvider, jj, ['new description']);
-        expect(result).toBe(true);
+        expect(result).toBe('new description');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('new description');
     });
@@ -48,7 +48,7 @@ describe('setDescriptionCommand', () => {
     test('updates description from input box when message is omitted', async () => {
         scmProvider.sourceControl.inputBox.value = 'from input box';
         const result = await setDescriptionCommand(scmProvider, jj, []);
-        expect(result).toBe(true);
+        expect(result).toBe('from input box');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('from input box');
     });
@@ -57,7 +57,7 @@ describe('setDescriptionCommand', () => {
         // input box is empty, and args is empty
         scmProvider.sourceControl.inputBox.value = '   ';
         const result = await setDescriptionCommand(scmProvider, jj, []);
-        expect(result).toBe(true);
+        expect(result).toBe('');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('');
     });
@@ -65,7 +65,7 @@ describe('setDescriptionCommand', () => {
     test('updates description for specific revision', async () => {
         repo.new([], 'child');
         const result = await setDescriptionCommand(scmProvider, jj, ['updated parent', '@-']);
-        expect(result).toBe(true);
+        expect(result).toBe('updated parent');
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('updated parent');
     });
@@ -78,7 +78,7 @@ describe('setDescriptionCommand', () => {
 
         // Explicitly clear the parent's description
         const result = await setDescriptionCommand(scmProvider, jj, ['   ', '@-']);
-        expect(result).toBe(true);
+        expect(result).toBe('');
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('');
 

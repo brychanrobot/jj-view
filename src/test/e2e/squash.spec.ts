@@ -3,28 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
-import { expect, type Page, test } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import { expect, type Page } from '@playwright/test';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
-import {
-    clearActiveEditor,
-    clickScmAction,
-    closeActiveEditor,
-    focusSCM,
-    launchVSCode,
-    SCM_ACTIONS,
-    waitForTab,
-} from './e2e-helpers';
+import { clearActiveEditor, clickScmAction, focusSCM, SCM_ACTIONS, test, waitForTab } from './e2e-helpers';
 
 test.describe('Squash E2E', () => {
     let repo: TestRepo;
-    let app: ElectronApplication;
     let page: Page;
-    let userDataDir: string;
     let ids: Record<string, CommitId>;
 
-    test.beforeEach(async () => {
+    test.beforeEach(async ({ vscode }) => {
         repo = new TestRepo();
         repo.init();
         ids = await buildGraph(repo, [
@@ -33,27 +21,17 @@ test.describe('Squash E2E', () => {
             { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
         ]);
 
-        const setup = await launchVSCode(repo);
-        app = setup.app;
+        const setup = await vscode.openWorkspace(repo, {}, {}, true);
         page = setup.page;
-        userDataDir = setup.userDataDir;
     });
 
     test.afterEach(async () => {
-        if (app) {
-            await app.close();
-        }
-        if (userDataDir) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch {}
-        }
         if (repo) {
             repo.dispose();
         }
     });
 
-    test('Squash: Save and Close', async () => {
+    test('Squash: Save and Close', async ({ vscode }) => {
         await focusSCM(page);
 
         // Trigger squash. Since both have descriptions, it should open the editor.
@@ -68,13 +46,11 @@ test.describe('Squash E2E', () => {
         await clearActiveEditor(page);
         await page.keyboard.insertText('Combined Description');
 
-        // Close the tab to complete the squash
-        await closeActiveEditor(page);
+        // Clear any active notifications first
+        await vscode.executeCommand('notifications.clearAll');
 
-        // Handle VS Code's "Save changes?" dialog by clicking Save
-        const saveDialog = page.locator('.monaco-dialog-box').filter({ hasText: /Do you want to save the changes/ });
-        await expect(saveDialog).toBeVisible();
-        await saveDialog.getByRole('button', { name: 'Save', exact: true }).click();
+        // Close the tab and handle the "Save changes?" dialog
+        await vscode.executeCommandWithSaveDialog('workbench.action.closeActiveEditor', 'Save');
 
         // Verify the squash is completed in jj
         await expect(async () => {
@@ -121,7 +97,7 @@ test.describe('Squash E2E', () => {
         await expect(tab).not.toBeVisible({ timeout: 5000 });
     });
 
-    test('Squash: Close without saving (unmodified)', async () => {
+    test('Squash: Close without saving (unmodified)', async ({ vscode }) => {
         await focusSCM(page);
 
         // Trigger squash
@@ -130,9 +106,11 @@ test.describe('Squash E2E', () => {
         // Wait for SQUASH_MSG tab to open
         await waitForTab(page, 'SQUASH_MSG');
 
-        // Close the tab without modifying it. No VS Code save prompt should appear.
-        // This simulates the user just hitting Cmd+W to finish the squash immediately.
-        await closeActiveEditor(page);
+        // Clear notifications
+        await vscode.executeCommand('notifications.clearAll');
+
+        // Close the tab without modifying it via VS Code command
+        await vscode.executeCommand('workbench.action.closeActiveEditor');
 
         // Verify the squash is completed with the original combined description
         await expect(async () => {
@@ -147,7 +125,7 @@ test.describe('Squash E2E', () => {
         await expect(tab).not.toBeVisible();
     });
 
-    test("Squash: Close without saving (modified, click Don't Save)", async () => {
+    test("Squash: Close without saving (modified, click Don't Save)", async ({ vscode }) => {
         await focusSCM(page);
 
         // Trigger squash
@@ -162,13 +140,11 @@ test.describe('Squash E2E', () => {
         await clearActiveEditor(page);
         await page.keyboard.insertText('Description via Dialog');
 
-        // Close the tab without saving
-        await closeActiveEditor(page);
+        // Clear notifications
+        await vscode.executeCommand('notifications.clearAll');
 
-        // Handle VS Code's "Save changes?" dialog
-        const saveDialog = page.locator('.monaco-dialog-box').filter({ hasText: /Do you want to save the changes/ });
-        await expect(saveDialog).toBeVisible();
-        await saveDialog.getByRole('button', { name: "Don't Save" }).click();
+        // Close the tab and handle the "Save changes?" dialog
+        await vscode.executeCommandWithSaveDialog('workbench.action.closeActiveEditor', "Don't Save");
 
         // Verify the squash is completed in jj, but since we didn't save, it uses the original disk contents
         await expect(async () => {
@@ -183,7 +159,7 @@ test.describe('Squash E2E', () => {
         await expect(tab).not.toBeVisible();
     });
 
-    test('Squash: Close without saving (modified, click Cancel)', async () => {
+    test('Squash: Close without saving (modified, click Cancel)', async ({ vscode }) => {
         await focusSCM(page);
 
         // Trigger squash
@@ -198,15 +174,11 @@ test.describe('Squash E2E', () => {
         await clearActiveEditor(page);
         await page.keyboard.insertText('Some text');
 
-        // Close the tab without saving
-        await closeActiveEditor(page);
+        // Clear notifications
+        await vscode.executeCommand('notifications.clearAll');
 
-        // Handle VS Code's "Save changes?" dialog
-        const saveDialog = page.locator('.monaco-dialog-box').filter({ hasText: /Do you want to save the changes/ });
-        await expect(saveDialog).toBeVisible();
-
-        // Click Cancel (or press Escape)
-        await page.keyboard.press('Escape');
+        // Close the tab and handle the "Save changes?" dialog
+        await vscode.executeCommandWithSaveDialog('workbench.action.closeActiveEditor', 'Cancel');
 
         // Verify the squash was NOT completed, since the tab is still open
         await expect(async () => {

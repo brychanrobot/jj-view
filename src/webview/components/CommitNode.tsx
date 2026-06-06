@@ -505,9 +505,12 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
+                                        justifyContent: 'center',
                                         marginLeft: '4px',
                                         color: 'var(--vscode-descriptionForeground)',
                                         cursor: 'default',
+                                        width: '14px',
+                                        height: '14px',
                                     }}
                                 >
                                     <span className="codicon codicon-cloud" style={{ fontSize: '14px' }} />
@@ -530,11 +533,14 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
+                                        justifyContent: 'center',
                                         marginLeft: '4px',
                                         color: 'var(--vscode-charts-yellow)',
                                         background: 'none',
                                         border: 'none',
                                         padding: 0,
+                                        width: '14px',
+                                        height: '14px',
                                     }}
                                 >
                                     <span className="codicon codicon-cloud-upload" style={{ fontSize: '14px' }} />
@@ -564,8 +570,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
                                     color: 'var(--vscode-testing-iconPassed)',
                                     marginLeft: '4px',
+                                    width: '12px',
+                                    height: '12px',
                                 }}
                             >
                                 <span className="codicon codicon-check" style={{ fontSize: '12px' }} />

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { JjService } from './jj-service';
 
 /**
  * Parse a jj-edit URI to extract revision and file path.
@@ -47,11 +46,6 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         public onDidWrite?: (repo: import('./jj-repository').JjRepository) => void,
     ) {}
 
-    private getJjService(uri: vscode.Uri): JjService | undefined {
-        const repo = this._repositoryManager.getRepositoryForUri(uri);
-        return repo?.jj;
-    }
-
     watch(): vscode.Disposable {
         // No-op: we fire change events manually after writes or refresh
         return new vscode.Disposable(() => {});
@@ -90,23 +84,28 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
-        const jj = this.getJjService(uri);
-        if (!jj) {
+        const repo = this._repositoryManager.getRepositoryForUri(uri);
+        if (!repo) {
+            this._repositoryManager.outputChannel.appendLine(
+                `[JjEditFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
+            );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
         }
-        const content = await jj.getFileContent(filePath, revision);
+        const content = await repo.jj.getFileContent(filePath, revision);
         return Buffer.from(content, 'utf8');
     }
 
     async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
-        const jj = this.getJjService(uri);
-        if (!jj) {
+        const repo = this._repositoryManager.getRepositoryForUri(uri);
+        if (!repo) {
+            this._repositoryManager.outputChannel.appendLine(
+                `[JjEditFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
+            );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
         }
         const { revision, filePath } = parseEditUri(uri);
         const text = Buffer.from(content).toString('utf8');
-        const repo = this._repositoryManager.getRepositoryForUri(uri);
-        const repoRoot = repo ? repo.rootUri.fsPath : '';
+        const repoRoot = repo.rootUri.fsPath;
         const batchKey = `${repoRoot}\u0000${revision}`;
 
         return new Promise<void>((resolve, reject) => {
@@ -131,8 +130,10 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
             const repoRoot = batchKey.substring(0, separatorIndex);
             const revision = batchKey.substring(separatorIndex + 1);
             const repo = repoRoot ? this._repositoryManager.getRepositoryForUri(vscode.Uri.file(repoRoot)) : undefined;
-            const jj = repo?.jj;
-            if (!jj) {
+            if (!repo) {
+                this._repositoryManager.outputChannel.appendLine(
+                    `[JjEditFileSystemProvider.flushWrites] No Jujutsu repository resolved for root: ${repoRoot}`,
+                );
                 const err = new Error(`No Jujutsu repository found for root: ${repoRoot}`);
                 for (const req of requests) {
                     req.reject(err);
@@ -146,7 +147,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
                     filesMap.set(req.filePath, req.content);
                 }
 
-                await jj.setFilesContent(revision, filesMap);
+                await repo.jj.setFilesContent(revision, filesMap);
 
                 // Notify VS Code and resolve all promises
                 const changeEvents: vscode.FileChangeEvent[] = [];

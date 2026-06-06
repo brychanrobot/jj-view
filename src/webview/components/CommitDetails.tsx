@@ -24,7 +24,6 @@ interface CommitDetailsProps {
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
-    formatDescriptionOnSave?: boolean;
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
@@ -70,7 +69,6 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
-    formatDescriptionOnSave = false,
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
@@ -147,19 +145,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     const handleSave = async () => {
         setIsSaving(true);
 
-        let finalDescription = textareaRef.current?.value || draftDescription;
-
-        if (formatDescriptionOnSave) {
-            const formatted = await formatCommitDescription(finalDescription, bodyWidthRuler);
-            if (formatted !== finalDescription) {
-                finalDescription = formatted;
-                if (textareaRef.current) {
-                    textareaRef.current.value = finalDescription;
-                }
-                setDraftDescription(finalDescription);
-            }
-        }
-
+        const finalDescription = textareaRef.current?.value || draftDescription;
         onSave(finalDescription);
 
         // Fallback to clear the saving state after 15s in case of silent failure
@@ -321,6 +307,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 color: 'var(--vscode-icon-foreground)',
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '18px',
+                                height: '18px',
                             }}
                         >
                             <span className="codicon codicon-copy" style={{ fontSize: '14px' }}></span>
@@ -346,6 +335,9 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 color: 'var(--vscode-icon-foreground)',
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '18px',
+                                height: '18px',
                             }}
                         >
                             <span className="codicon codicon-copy" style={{ fontSize: '14px' }}></span>
@@ -373,7 +365,10 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 textDecoration: 'none',
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifyContent: 'center',
                                 gap: '4px',
+                                width: '14px',
+                                height: '14px',
                             }}
                         >
                             <span className="codicon codicon-settings-gear"></span>
