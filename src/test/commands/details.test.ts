@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
-import type { JjLogWebviewProvider } from '../../jj-log-webview-provider';
+import { JjService } from '../../jj-service';
 import type { JjResourceState } from '../../scm-resource-state';
+import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
@@ -15,36 +16,68 @@ vi.mock('vscode', async () => {
 });
 
 describe('showDetailsCommand', () => {
-    let mockProvider: JjLogWebviewProvider;
+    let repo: TestRepo;
+    let jj: JjService;
+    let mockOutputChannel: vscode.OutputChannel;
 
     beforeEach(() => {
-        mockProvider = createMock<JjLogWebviewProvider>({
-            createCommitDetailsPanel: vi.fn(),
-        });
+        repo = new TestRepo();
+        repo.init();
+        jj = new JjService(repo.path);
+        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn(), show: vi.fn() });
     });
 
     afterEach(() => {
+        repo.dispose();
         vi.clearAllMocks();
     });
 
-    test('calls createCommitDetailsPanel with revision string', async () => {
-        await showDetailsCommand(mockProvider, ['somerev']);
-        expect(mockProvider.createCommitDetailsPanel).toHaveBeenCalledWith('somerev');
+    test('calls vscode.openWith for the extracted revision', async () => {
+        const changeId = repo.getChangeId('@');
+        await showDetailsCommand(jj, mockOutputChannel, [changeId]);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.openWith',
+            expect.objectContaining({
+                scheme: 'jj-commit',
+                query: expect.stringContaining(`changeId=${changeId}`),
+            }),
+            'jj-view.commitDetailsEditor',
+        );
     });
 
-    test('calls createCommitDetailsPanel with resource group', async () => {
-        const mockState = createMock<JjResourceState>({ revision: 'somerev' });
+    test('calls vscode.openWith with resource state revision', async () => {
+        const changeId = repo.getChangeId('@');
+        const mockState = createMock<JjResourceState>({ revision: changeId });
         const mockGroup = createMock<vscode.SourceControlResourceGroup>({
             id: 'ancestor-0',
             label: 'Parent',
             resourceStates: [mockState],
         });
-        await showDetailsCommand(mockProvider, [mockGroup]);
-        expect(mockProvider.createCommitDetailsPanel).toHaveBeenCalledWith('somerev');
+
+        await showDetailsCommand(jj, mockOutputChannel, [mockGroup]);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.openWith',
+            expect.objectContaining({
+                scheme: 'jj-commit',
+                query: expect.stringContaining(`changeId=${changeId}`),
+            }),
+            'jj-view.commitDetailsEditor',
+        );
     });
 
-    test('does nothing if no revision extracted', async () => {
-        await showDetailsCommand(mockProvider, [{}]);
-        expect(mockProvider.createCommitDetailsPanel).not.toHaveBeenCalled();
+    test('defaults to @ if no revision extracted', async () => {
+        const changeId = repo.getChangeId('@');
+        await showDetailsCommand(jj, mockOutputChannel, [{}]);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.openWith',
+            expect.objectContaining({
+                scheme: 'jj-commit',
+                query: expect.stringContaining(`changeId=${changeId}`),
+            }),
+            'jj-view.commitDetailsEditor',
+        );
     });
 });

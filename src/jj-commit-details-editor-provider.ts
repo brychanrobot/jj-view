@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
 import { createJjResourceState } from './scm-resource-state';
+import { formatCommitTitle } from './utils/jj-utils';
 
 export class JjCommitDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
@@ -474,4 +475,61 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             </body>
             </html>`;
     }
+}
+
+/**
+ * Shared utility to open the commit details editor tab and manage active tabs.
+ */
+export async function openCommitDetails(
+    workspaceRoot: string,
+    changeId: string,
+    changeIdShortest?: string,
+    isDivergent?: boolean,
+    changeIdOffset?: number,
+): Promise<void> {
+    const config = vscode.workspace.getConfiguration('jj-view');
+    const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+    const title = formatCommitTitle(
+        {
+            change_id: changeId,
+            change_id_shortest: changeIdShortest,
+            is_divergent: isDivergent,
+            change_id_offset: changeIdOffset,
+        },
+        minChangeIdLength,
+    );
+
+    const uri = vscode.Uri.from({
+        scheme: 'jj-commit',
+        authority: 'commit',
+        path: `/${title}`,
+        query: `changeId=${changeId}&repoRoot=${encodeURIComponent(workspaceRoot)}`,
+    });
+
+    const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+    const tabsToClose = allTabs.filter((tab) => {
+        if (!(tab.input instanceof vscode.TabInputCustom)) {
+            return false;
+        }
+        if (tab.input.viewType !== JjCommitDetailsEditorProvider.viewType) {
+            return false;
+        }
+        if (tab.input.uri.toString() === uri.toString()) {
+            return false;
+        }
+
+        try {
+            const query = new URLSearchParams(tab.input.uri.query);
+            const repoRoot = query.get('repoRoot');
+            return !repoRoot || repoRoot === workspaceRoot;
+        } catch {
+            return true; // Default to closing if parsing fails
+        }
+    });
+
+    if (tabsToClose.length > 0) {
+        await vscode.window.tabGroups.close(tabsToClose);
+    }
+
+    await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
 }

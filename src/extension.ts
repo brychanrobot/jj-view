@@ -36,7 +36,6 @@ import { type CommitMenuContext, rebaseOntoSelectedCommand } from './commands/re
 import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
 import { restoreCommand } from './commands/restore';
-import { showCurrentChangeCommand } from './commands/show';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -424,9 +423,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         registerWrappedCommand('jj-view.focusRepository', () => {
             // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
         }),
-        registerWrappedCommand('jj-view.showCurrentChange', async (_scm, jj) => {
-            await showCurrentChangeCommand(jj, outputChannel);
-        }),
         registerWrappedCommand('jj-view.new', async (scm, jj, ...args) => {
             await newCommand(scm, jj, args);
         }),
@@ -529,8 +525,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         registerWrappedCommand('jj-view.deleteBookmark', async (scm, jj, ...args) => {
             await deleteBookmarkCommand(scm, jj, args);
         }),
-        registerWrappedCommand('jj-view.showDetails', async (_scm, _jj, ...args) => {
-            await showDetailsCommand(logWebviewProvider, args);
+        registerWrappedCommand('jj-view.showDetails', async (_scm, jj, ...args) => {
+            await showDetailsCommand(jj, outputChannel, args);
         }),
         registerWrappedCommand('jj-view.openMergeEditor', async (scm, _jj, ...args) => {
             const rest = args.slice(1);
