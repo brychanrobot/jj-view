@@ -209,12 +209,6 @@
                 "icon": "$(cloud-upload)"
             },
             {
-                "command": "jj-view.showCurrentChange",
-                "title": "Show Current Change",
-                "category": "JJ View",
-                "icon": "$(eye)"
-            },
-            {
                 "command": "jj-view.focusRepository",
                 "title": "Show Repository in JJ Log",
                 "category": "JJ View",

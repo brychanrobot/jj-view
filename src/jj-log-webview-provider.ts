@@ -6,12 +6,12 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from './code-forge-service';
 import { showJjError, withDelayedProgress } from './commands/command-utils';
-import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
+import { JjCommitDetailsEditorProvider, openCommitDetails } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
-import { canAbsorbCommit, formatCommitTitle } from './utils/jj-utils';
+import { canAbsorbCommit } from './utils/jj-utils';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
@@ -491,53 +491,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         if (!this._repo) {
             return;
         }
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const title = formatCommitTitle(
-            {
-                change_id: changeId,
-                change_id_shortest: changeIdShortest,
-                is_divergent: isDivergent,
-                change_id_offset: changeIdOffset,
-            },
-            minChangeIdLength,
-        );
-
-        const uri = vscode.Uri.from({
-            scheme: 'jj-commit',
-            authority: 'commit',
-            path: `/${title}`,
-            query: `changeId=${changeId}&repoRoot=${encodeURIComponent(this._repo.rootUri.fsPath)}`,
-        });
-
-        const tabsToClose: vscode.Tab[] = [];
-        for (const tabGroup of vscode.window.tabGroups.all) {
-            for (const tab of tabGroup.tabs) {
-                if (
-                    tab.input instanceof vscode.TabInputCustom &&
-                    tab.input.viewType === JjCommitDetailsEditorProvider.viewType
-                ) {
-                    let isForCurrentRepo = true;
-                    if (this._repo) {
-                        try {
-                            const query = new URLSearchParams(tab.input.uri.query);
-                            const repoRoot = query.get('repoRoot');
-                            if (repoRoot && repoRoot !== this._repo.rootUri.fsPath) {
-                                isForCurrentRepo = false;
-                            }
-                        } catch {}
-                    }
-                    if (isForCurrentRepo && tab.input.uri.toString() !== uri.toString()) {
-                        tabsToClose.push(tab);
-                    }
-                }
-            }
-        }
-        if (tabsToClose.length > 0) {
-            await vscode.window.tabGroups.close(tabsToClose);
-        }
-
-        await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
+        await openCommitDetails(this._repo.rootUri.fsPath, changeId, changeIdShortest, isDivergent, changeIdOffset);
     }
 
     private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
