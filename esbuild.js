@@ -4,7 +4,7 @@
  */
 
 const esbuild = require('esbuild');
-const { execSync } = require('node:child_process');
+const { execSync, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -32,9 +32,14 @@ const esbuildProblemMatcherPlugin = {
     },
 };
 
-function formatFile(filePath) {
+function formatFile(filePath, { ignoreUnmatched = false } = {}) {
     try {
-        execSync(`pnpm biome format --write "${filePath}"`, { stdio: 'inherit' });
+        const pnpmCmd = os.platform() === 'win32' ? 'pnpm.cmd' : 'pnpm';
+        const args = ['biome', 'format', '--write', filePath];
+        if (ignoreUnmatched) {
+            args.push('--no-errors-on-unmatched');
+        }
+        execFileSync(pnpmCmd, args, { stdio: 'inherit' });
         console.log(`[build] Formatted ${filePath}`);
     } catch (e) {
         console.error(`[build] Failed to format ${filePath}: ${e.message}`);
@@ -111,7 +116,7 @@ async function copyAssets() {
         console.log(`[build] Copied ${asset.src} to ${asset.dest}`);
 
         if (destPath.endsWith('.css') || destPath.endsWith('.ts') || destPath.endsWith('.js')) {
-            formatFile(destPath);
+            formatFile(destPath, { ignoreUnmatched: true });
         }
     }
 }
