@@ -12,6 +12,7 @@ export class DirectoryWatcher implements vscode.Disposable {
     private _subscription: AsyncSubscription | undefined;
     private _startPromise: Promise<void> | undefined;
     private _disposed = false;
+    private _stopped = false;
     private _backend: Promise<BackendType | undefined>;
 
     constructor(
@@ -39,17 +40,22 @@ export class DirectoryWatcher implements vscode.Disposable {
     }
 
     async start(ignores: string[] = []) {
+        this._stopped = false;
         if (this._startPromise) {
             return this._startPromise;
         }
 
         this._startPromise = (async () => {
-            if (this._subscription || this._disposed) {
+            if (this._subscription || this._disposed || this._stopped) {
                 return;
             }
 
             try {
-                this.log(`[${this.name}] Starting (${await this._backend}) watcher on: ${this.path}`);
+                const backend = await this._backend;
+                if (this._disposed || this._stopped) {
+                    return;
+                }
+                this.log(`[${this.name}] Starting (${backend}) watcher on: ${this.path}`);
 
                 const sub = await subscribe(
                     this.path,
@@ -63,10 +69,10 @@ export class DirectoryWatcher implements vscode.Disposable {
                             this.callback(events);
                         }
                     },
-                    { ignore: ignores, backend: await this._backend },
+                    { ignore: ignores, backend: backend },
                 );
 
-                if (this._disposed) {
+                if (this._disposed || this._stopped) {
                     await sub.unsubscribe();
                     return;
                 }
@@ -102,6 +108,7 @@ export class DirectoryWatcher implements vscode.Disposable {
     }
 
     async stop() {
+        this._stopped = true;
         if (this._startPromise) {
             await this._startPromise.catch(() => {});
             this._startPromise = undefined;

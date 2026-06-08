@@ -54,6 +54,7 @@ export class JjRepository implements Disposable {
         return this._watcher;
     }
 
+    private _disposed = false;
     private _isValid: boolean | undefined;
     async isValid(): Promise<boolean> {
         if (this._isValid !== undefined) {
@@ -69,19 +70,30 @@ export class JjRepository implements Disposable {
     }
 
     async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
+        if (this._disposed) {
+            return;
+        }
         const { forceSnapshot = false, reason = 'manual' } = options;
         this._isValid = undefined;
-        await this._jj.clearCache();
+        try {
+            await this._jj.clearCache();
+            if (forceSnapshot) {
+                await this._jj.status();
+            }
+            await this._jj.getRepoRoot(); // Warm the cache
 
-        if (forceSnapshot) {
-            await this._jj.status();
+            if (!this._disposed) {
+                await this._onDidStatusChange.fire({ reason });
+            }
+        } catch (err) {
+            if (!this._disposed) {
+                throw err;
+            }
         }
-        await this._jj.getRepoRoot(); // Warm the cache
-
-        await this._onDidStatusChange.fire({ reason });
     }
 
     async dispose() {
+        this._disposed = true;
         this._codeForge.dispose();
         await this._watcher.dispose();
         this._refreshScheduler.dispose();

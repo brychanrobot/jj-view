@@ -140,13 +140,13 @@ suite('Webview Commands End-to-End Integration Test', () => {
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
-        if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+        for (const d of disposables) {
+            await d.dispose();
         }
-        disposables.forEach((d) => {
-            d.dispose();
-        });
         disposables = [];
+        if (repo) {
+            repo.dispose();
+        }
         if (outputChannel) {
             outputChannel.dispose();
         }

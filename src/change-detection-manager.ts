@@ -17,6 +17,8 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
     private _workingCopyWatcher: DirectoryWatcher | undefined;
     private _opHeadsWatcher: DirectoryWatcher | undefined;
+    private _opHeadsWatcherPromise: Promise<void> | undefined;
+    private _workingCopyWatcherPromise: Promise<void> | undefined;
     private _poller: Poller;
     private _fileWatcherMode: 'polling' | 'watch' = 'polling';
     private _isFocused = true;
@@ -76,19 +78,21 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         // Listen for configuration changes
         this.disposables.push(
-            vscode.workspace.onDidChangeConfiguration((e) => {
+            vscode.workspace.onDidChangeConfiguration(async (e) => {
                 if (e.affectsConfiguration('jj-view.fileWatcherMode')) {
-                    this.updateFileWatcherMode();
+                    await this.updateFileWatcherMode();
                 }
             }),
         );
 
         // Initialize watchers
-        this.startOpHeadsWatcher();
-        this.updateFileWatcherMode();
+        this._opHeadsWatcherPromise = this.startOpHeadsWatcher();
+        this.updateFileWatcherMode().catch((err) => {
+            this.outputChannel.appendLine(`[ChangeDetectionManager] Error during initialization: ${err}`);
+        });
     }
 
-    private updateFileWatcherMode() {
+    private async updateFileWatcherMode() {
         const config = vscode.workspace.getConfiguration('jj-view');
         const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
         this.outputChannel.appendLine(`[ChangeDetectionManager] File watcher mode: ${mode}`);
@@ -97,8 +101,8 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._fileWatcherMode = mode;
 
         if (modeChanged) {
-            this.stopWorkingCopyWatching();
-            this.startWorkingCopyWatching();
+            await this.stopWorkingCopyWatching();
+            this._workingCopyWatcherPromise = this.startWorkingCopyWatching();
         }
 
         // Always ensure polling state is correct
@@ -140,47 +144,47 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         try {
             await this.jj.getRepoRoot();
-        } catch {
-            return;
+
+            // Handle non-default workspaces where .jj/repo might be a file containing a path
+            const repoStorePath = await this.jj.getRepoStorePath();
+            if (this._disposed) {
+                return;
+            }
+
+            const opHeadsPath = path.join(repoStorePath, 'op_heads');
+
+            // Final check that the directory exists and we have a real path
+            let realOpHeadsPath: string;
+            try {
+                realOpHeadsPath = await fs.realpath(opHeadsPath);
+            } catch {
+                return;
+            }
+
+            if (this._disposed) {
+                return;
+            }
+
+            this._opHeadsWatcher = new DirectoryWatcher(
+                realOpHeadsPath,
+                () => {
+                    if (this.hasActiveOrRecentWrites) {
+                        return;
+                    }
+                    this.lastExternalOpTime = Date.now();
+                    this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
+                },
+                this.outputChannel,
+                'OpHeads Watcher',
+                this.watcherBackend,
+            );
+
+            await this._opHeadsWatcher.start().catch((err) => {
+                this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
+            });
+        } catch (err) {
+            this.outputChannel.appendLine(`Failed to setup op_heads watcher: ${err}`);
         }
-
-        // Handle non-default workspaces where .jj/repo might be a file containing a path
-        const repoStorePath = await this.jj.getRepoStorePath();
-        if (this._disposed) {
-            return;
-        }
-
-        const opHeadsPath = path.join(repoStorePath, 'op_heads');
-
-        // Final check that the directory exists and we have a real path
-        let realOpHeadsPath: string;
-        try {
-            realOpHeadsPath = await fs.realpath(opHeadsPath);
-        } catch {
-            return;
-        }
-
-        if (this._disposed) {
-            return;
-        }
-
-        this._opHeadsWatcher = new DirectoryWatcher(
-            realOpHeadsPath,
-            () => {
-                if (this.hasActiveOrRecentWrites) {
-                    return;
-                }
-                this.lastExternalOpTime = Date.now();
-                this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
-            },
-            this.outputChannel,
-            'OpHeads Watcher',
-            this.watcherBackend,
-        );
-
-        this._opHeadsWatcher.start().catch((err) => {
-            this.outputChannel.appendLine(`Failed to start op_heads watcher: ${err}`);
-        });
     }
 
     private async startWorkingCopyWatching() {
@@ -200,6 +204,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
         // Also stop polling if it was active
         this._poller.stop();
 
+        if (this._workingCopyWatcherPromise) {
+            await this._workingCopyWatcherPromise.catch(() => {});
+            this._workingCopyWatcherPromise = undefined;
+        }
+
         if (this._workingCopyWatcher) {
             await this._workingCopyWatcher.stop();
             this._workingCopyWatcher = undefined;
@@ -216,7 +225,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             this.getGitModulesPatterns(),
             this.getSecondaryWorkspacePatterns(),
         ]);
-        if (this._disposed) {
+        if (this._disposed || this._fileWatcherMode !== 'watch') {
             return;
         }
 
@@ -320,6 +329,11 @@ export class ChangeDetectionManager implements vscode.Disposable {
 
         await this.stopWorkingCopyWatching();
         this._poller.dispose();
+
+        if (this._opHeadsWatcherPromise) {
+            await this._opHeadsWatcherPromise.catch(() => {});
+            this._opHeadsWatcherPromise = undefined;
+        }
 
         if (this._opHeadsWatcher) {
             await this._opHeadsWatcher.dispose();

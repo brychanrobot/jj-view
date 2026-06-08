@@ -157,6 +157,62 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         }
     }
 
+    class MockUri {
+        constructor(
+            public fsPath: string,
+            public scheme: string = 'file',
+            public query: string = '',
+            public path: string = fsPath,
+        ) {
+            if (process.platform === 'win32') {
+                this.fsPath = this.fsPath.replace(/\//g, '\\');
+                // Strip leading backslash if it precedes a drive letter (e.g., \C:\... -> C:\...)
+                if (/^\\[a-zA-Z]:\\/.test(this.fsPath)) {
+                    this.fsPath = this.fsPath.substring(1);
+                }
+                if (/^[a-zA-Z]:\\/.test(this.fsPath)) {
+                    this.fsPath = this.fsPath[0].toLowerCase() + this.fsPath.substring(1);
+                }
+                // For VS Code URIs on Windows, path should always use forward slashes.
+                // If it has a drive letter, it starts with a slash (e.g. /c:/...).
+                let normalizedPath = this.fsPath.replace(/\\/g, '/');
+                if (/^[a-zA-Z]:\//.test(normalizedPath)) {
+                    normalizedPath = `/${normalizedPath}`;
+                }
+                this.path = normalizedPath;
+            }
+        }
+        static file(fsPath: string) {
+            return new MockUri(fsPath);
+        }
+        static from(components: { scheme: string; path: string; query?: string }) {
+            return new MockUri(components.path, components.scheme, components.query || '', components.path);
+        }
+        static parse(uriString: string) {
+            const parsed = parseUriString(uriString);
+            return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path);
+        }
+        static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
+            const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
+            return new MockUri(combined, base.scheme, '', combined);
+        }
+        toString() {
+            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}`;
+        }
+        with(change: { scheme?: string; query?: string }) {
+            return new MockUri(this.fsPath, change.scheme ?? this.scheme, change.query ?? this.query, this.path);
+        }
+    }
+
+    let mockWorkspaceFolders: { uri: MockUri; name: string; index: number }[] = [
+        {
+            uri: new MockUri('/root'),
+            name: 'mock-folder',
+            index: 0,
+        },
+    ];
+    const onDidChangeWorkspaceFoldersEmitter = new EventEmitter<unknown>();
+
     const base: Record<string, unknown> = {
         ProgressLocation: { Notification: 15 },
         Position,
@@ -177,52 +233,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         },
         FileSystemError,
 
-        Uri: class MockUri {
-            constructor(
-                public fsPath: string,
-                public scheme: string = 'file',
-                public query: string = '',
-                public path: string = fsPath,
-            ) {
-                if (process.platform === 'win32') {
-                    this.fsPath = this.fsPath.replace(/\//g, '\\');
-                    // Strip leading backslash if it precedes a drive letter (e.g., \C:\... -> C:\...)
-                    if (/^\\[a-zA-Z]:\\/.test(this.fsPath)) {
-                        this.fsPath = this.fsPath.substring(1);
-                    }
-                    if (/^[a-zA-Z]:\\/.test(this.fsPath)) {
-                        this.fsPath = this.fsPath[0].toLowerCase() + this.fsPath.substring(1);
-                    }
-                    // For VS Code URIs on Windows, path should always use forward slashes.
-                    // If it has a drive letter, it starts with a slash (e.g. /c:/...).
-                    let normalizedPath = this.fsPath.replace(/\\/g, '/');
-                    if (/^[a-zA-Z]:\//.test(normalizedPath)) {
-                        normalizedPath = `/${normalizedPath}`;
-                    }
-                    this.path = normalizedPath;
-                }
-            }
-            static file(fsPath: string) {
-                return new MockUri(fsPath);
-            }
-            static from(components: { scheme: string; path: string; query?: string }) {
-                return new MockUri(components.path, components.scheme, components.query || '', components.path);
-            }
-            static parse(uriString: string) {
-                const parsed = parseUriString(uriString);
-                return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path);
-            }
-            static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
-                const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
-                return new MockUri(combined, base.scheme, '', combined);
-            }
-            toString() {
-                return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}`;
-            }
-            with(change: { scheme?: string; query?: string }) {
-                return new MockUri(this.fsPath, change.scheme ?? this.scheme, change.query ?? this.query, this.path);
-            }
-        },
+        Uri: MockUri,
         TabInputTextDiff: class MockTabInputTextDiff {
             constructor(
                 public original: unknown,
@@ -267,7 +278,49 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             state: { focused: true },
         },
         workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/root' } }],
+            get workspaceFolders() {
+                return mockWorkspaceFolders;
+            },
+            set workspaceFolders(val) {
+                mockWorkspaceFolders = val;
+            },
+            updateWorkspaceFolders: vi
+                .fn()
+                .mockImplementation(
+                    (
+                        start: number,
+                        deleteCount: number | undefined | null,
+                        ...workspaceFoldersToAdd: { uri: MockUri; name?: string }[]
+                    ) => {
+                        const added = workspaceFoldersToAdd.map((f, i) => ({
+                            uri: f.uri,
+                            name: f.name || `folder-${start + i}`,
+                            index: start + i,
+                        }));
+                        const removed = mockWorkspaceFolders.slice(start, start + (deleteCount ?? 0));
+
+                        const newFolders = [...mockWorkspaceFolders];
+                        newFolders.splice(start, deleteCount ?? 0, ...added);
+                        newFolders.forEach((f, i) => {
+                            f.index = i;
+                        });
+                        mockWorkspaceFolders = newFolders;
+
+                        onDidChangeWorkspaceFoldersEmitter.fire({
+                            added,
+                            removed,
+                        });
+                        return true;
+                    },
+                ),
+            onDidChangeWorkspaceFolders: onDidChangeWorkspaceFoldersEmitter.event,
+            getWorkspaceFolder: vi.fn().mockImplementation((uri: { fsPath: string }) => {
+                return mockWorkspaceFolders.find((f) => {
+                    const folderPath = f.uri.fsPath.replace(/\\/g, '/').toLowerCase();
+                    const filePath = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+                    return filePath === folderPath || filePath.startsWith(`${folderPath}/`);
+                });
+            }),
             getConfiguration: vi.fn().mockReturnValue({
                 get: vi.fn().mockImplementation((_key: string, defaultValue: unknown) => defaultValue),
             }),

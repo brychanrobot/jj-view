@@ -42,7 +42,10 @@ describe('resolveRepository', () => {
         });
 
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
-        const registered = await repoManager.checkAndRegisterUri(vscode.Uri.file(repo.path));
+        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
+            uri: vscode.Uri.file(repo.path),
+        });
+        const registered = await repoManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(repo.path));
         if (!registered) {
             throw new Error('Failed to register repository');
         }
