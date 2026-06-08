@@ -55,9 +55,9 @@ describe('Diff Tab Cleaner', () => {
         privateCleaner = exposePrivate<PrivateDiffTabCleaner>(cleaner);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         if (contextHelper?.repositoryManager) {
-            contextHelper.repositoryManager.dispose();
+            await contextHelper.repositoryManager.dispose();
         }
         if (repo) {
             repo.dispose();

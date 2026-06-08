@@ -245,7 +245,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                 const oldStatus = this.trackedStatusCache.get(item.path)?.isTracked;
                 this.trackedStatusCache.set(item.path, { isTracked, uri: item.uri });
 
-                const resolve = item.resolve;
+                const { resolve } = item;
                 if (resolve) {
                     if (isTracked) {
                         resolve(undefined);

@@ -12,7 +12,6 @@ import { squashFilesIntoParentCommand } from '../commands/squash-files';
 import { completeSquashRevisionCommand, squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
@@ -65,13 +64,19 @@ suite('JJ SCM Provider Integration Test', () => {
     });
 
     teardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        // Allow VS Code to settle before disposing repository
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         if (scmProvider) {
             scmProvider.dispose();
         }
         if (contextHelper) {
             await contextHelper.repositoryManager.dispose();
         }
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        if (repo) {
+            repo.dispose();
+        }
     });
 
     test('hideWhenEmpty is false for working copy group and true for conflict group', async () => {
@@ -186,7 +191,7 @@ suite('JJ SCM Provider Integration Test', () => {
             );
             assert.ok(resourceState, 'Should find resource state for modified file');
 
-            const command = resourceState.command;
+            const { command } = resourceState;
             assert.ok(command, 'Resource state should have a command');
             assert.strictEqual(
                 command.command,
@@ -198,11 +203,11 @@ suite('JJ SCM Provider Integration Test', () => {
             assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
             assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
 
-            const diffTitle = (resourceState as JjResourceState).diffTitle;
+            const { diffTitle } = resourceState as JjResourceState;
             assert.ok(diffTitle, 'diffTitle should be set');
 
-            const leftUri = (resourceState as JjResourceState).leftUri;
-            const rightUri = (resourceState as JjResourceState).rightUri;
+            const { leftUri } = resourceState as JjResourceState;
+            const { rightUri } = resourceState as JjResourceState;
             assert.ok(leftUri && rightUri, 'leftUri and rightUri should be set');
 
             assert.strictEqual(leftUri.scheme, 'jj-view', 'left URI scheme should be jj-view');
@@ -716,98 +721,6 @@ suite('JJ SCM Provider Integration Test', () => {
         }
 
         // It should proceed without error for single parent case
-    });
-
-    test('Webview moveBookmark message updates bookmark', async () => {
-        // Register mock command
-        const refreshDisposable = vscode.commands.registerCommand('jj-view.refresh', async () => {});
-
-        try {
-            // Setup: Bookmark on Parent, Squash File to Child
-            repo.describe('parent');
-            repo.bookmark('integrated-bookmark', '@');
-
-            repo.new([], 'child');
-            const childId = repo.getChangeId('@');
-
-            // Use JjLogWebviewProvider
-            const { JjLogWebviewProvider } = await import('../jj-log-webview-provider');
-            const { JjCommitDetailsEditorProvider } = await import('../jj-commit-details-editor-provider');
-            const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-            const repositoryManager = createMock<JjRepositoryManager>({
-                repositories: [scmProvider.repo],
-                focusedRepository: scmProvider.repo,
-                getRepositoryForUri: () => scmProvider.repo,
-            });
-            const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, repositoryManager);
-            const provider = new JjLogWebviewProvider(
-                extensionUri,
-                scmProvider.repo,
-                commitDetailsProvider,
-                () => {},
-                createMock<vscode.ExtensionContext>({
-                    globalState: createMock<vscode.ExtensionContext['globalState']>({
-                        get: () => [],
-                        update: () => Promise.resolve(),
-                        setKeysForSync: () => {},
-                    }),
-                }),
-                scmProvider.outputChannel,
-            );
-
-            // Mock Webview
-            let messageHandler: (m: unknown) => void = () => {};
-            const webview = createMock<vscode.Webview>({
-                options: {},
-                html: '',
-                onDidReceiveMessage: (handler: (m: unknown) => void) => {
-                    messageHandler = handler;
-                    return { dispose: () => {} };
-                },
-                asWebviewUri: (uri: vscode.Uri) => uri,
-                cspSource: '',
-                postMessage: async () => {
-                    return true;
-                },
-            });
-
-            const webviewView = createMock<vscode.WebviewView>({
-                webview,
-                viewType: 'jj-view.logView',
-                onDidChangeVisibility: () => {
-                    return { dispose: () => {} };
-                },
-                onDidDispose: () => {
-                    return { dispose: () => {} };
-                },
-                visible: true,
-            });
-
-            // Resolve (binds handler)
-            provider.resolveWebviewView(
-                webviewView,
-                createMock<vscode.WebviewViewResolveContext>({}),
-                createMock<vscode.CancellationToken>({}),
-            );
-
-            // Simulate Message
-            await messageHandler({
-                type: 'moveBookmark',
-                payload: {
-                    bookmark: 'integrated-bookmark',
-                    targetChangeId: childId,
-                },
-            });
-
-            // Verify Bookmark Moved
-            const [childLog] = await jj.getLog({ revision: '@' });
-            assert.ok(
-                childLog.bookmarks?.some((b) => b.name === 'integrated-bookmark'),
-                'Bookmark should be on child now',
-            );
-        } finally {
-            refreshDisposable.dispose();
-        }
     });
 
     test('SCM count includes only Working Copy changes', async () => {

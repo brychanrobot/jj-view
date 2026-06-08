@@ -42,7 +42,10 @@ describe('JjEditFileSystemProvider', () => {
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
 
         // Register the real repository
-        await repoManager.checkAndRegisterUri(vscode.Uri.file(repo.path));
+        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
+            uri: vscode.Uri.file(repo.path),
+        });
+        await repoManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(repo.path));
 
         provider = new JjEditFileSystemProvider(repoManager);
         provider.onDidChangeFile((events) => {

@@ -46,8 +46,6 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         }
         this._knownUris.clear();
         if (events.length > 0) {
-            const msg = `[JjViewFS] Invalidation firing for ${events.length} URIs: ${events.map((e) => e.uri.toString()).join(', ')}`;
-            console.log(msg); // Direct stdout for CI logs
             this._onDidChangeFile.fire(events);
         }
     }

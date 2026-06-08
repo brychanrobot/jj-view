@@ -66,10 +66,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         return this._repositoryManager.focusedRepository?.jj;
     }
 
-    public async refresh(reason?: string): Promise<void> {
-        const reasonStr = reason ? ` (reason: ${reason})` : '';
-        console.log(`[JjCommitDetailsEditorProvider] Refreshing${reasonStr}...`);
-
+    public async refresh(_reason?: string): Promise<void> {
         const config = vscode.workspace.getConfiguration('jj-view');
         const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
         const logTheme = config.get<string>('logTheme', 'default');
@@ -346,9 +343,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         break;
                     }
                     case 'openDiff': {
-                        const file = message.payload.file;
-                        const changeId = message.payload.changeId;
-                        const isImmutable = message.payload.isImmutable;
+                        const { file, changeId, isImmutable } = message.payload;
 
                         const state = createJjResourceState(file, changeId, jj.workspaceRoot, {
                             editable: !isImmutable,
@@ -394,7 +389,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const oldText = state.lastPushedText;
         const oldSelection = state.lastPushedSelection;
 
-        const document = state.document;
+        const { document } = state;
 
         this._onDidChangeCustomDocument.fire({
             document,

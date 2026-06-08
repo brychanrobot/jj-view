@@ -167,7 +167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('jj-view.binaryPath')) {
                 await updateBinaryPath();
-                await repositoryManager.scan();
+                await repositoryManager.scanForRepositories();
             }
             if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
                 setOpenDiffOnClickContext();
@@ -182,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 e.affectsConfiguration('jj-view.scanRepositories') ||
                 e.affectsConfiguration('jj-view.ignoredRepositories')
             ) {
-                await repositoryManager.scan();
+                await repositoryManager.scanForRepositories();
             }
         }),
     );
@@ -616,13 +616,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     // Load cached repositories immediately
-    await repositoryManager.initializeFromCache();
+    await repositoryManager.restoreCachedRepositories();
 
     // Trigger initial scan (non-blocking)
     if (!resolvedBinaryPath) {
-        updateBinaryPath().then(() => repositoryManager.scan());
+        updateBinaryPath().then(() => repositoryManager.scanForRepositories());
     } else {
-        repositoryManager.scan();
+        repositoryManager.scanForRepositories();
     }
 
     return {

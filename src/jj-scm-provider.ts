@@ -206,7 +206,6 @@ export class JjScmProvider implements vscode.Disposable {
                 const reasonStr = event.reason ? ` (reason: ${event.reason})` : '';
                 const msg = `Updating JJ Scm${reasonStr}...`;
                 this.outputChannel.appendLine(msg);
-                console.log(`[Extension Host] ${msg}`);
                 const start = performance.now();
                 try {
                     // 1. Fetch data in parallel for performance

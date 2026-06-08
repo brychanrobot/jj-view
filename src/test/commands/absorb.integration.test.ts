@@ -40,11 +40,14 @@ suite('Absorb Integration Test', function () {
     });
 
     teardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        // Allow VS Code to settle before disposing repository
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         scmProvider.dispose();
         if (contextHelper) {
             await contextHelper.repositoryManager.dispose();
         }
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('absorb working copy changes into parent', async () => {

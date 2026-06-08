@@ -94,10 +94,6 @@ suite('Quick Diff Integration Test', () => {
             }, timeout);
             const handle = event((e) => {
                 const matched = predicate(e);
-                console.log(`[Test Log] Received ${e.length} file changes. Matched: ${matched}`);
-                for (const change of e) {
-                    console.log(`[Test Log]   - URI: ${change.uri.toString()} (Scheme: ${change.uri.scheme})`);
-                }
                 if (matched) {
                     clearTimeout(timer);
                     handle.dispose();
@@ -193,7 +189,6 @@ suite('Quick Diff Integration Test', () => {
         const fileUri = vscode.Uri.file(path.join(canonicalPath, fileName));
         const originalUri = (await scmProvider.provideOriginalResource(fileUri)) as vscode.Uri;
         assert.ok(originalUri, `provideOriginalResource should return a URI for ${fileUri.fsPath}`);
-        console.log(`[Test Log] Registered original resource: ${originalUri.toString()}`);
 
         // Register URI by reading once
         await viewFileSystemProvider.readFile(originalUri);

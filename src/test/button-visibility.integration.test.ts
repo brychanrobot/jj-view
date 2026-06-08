@@ -52,6 +52,10 @@ suite('Button Visibility Integration Test', () => {
 
     teardown(async () => {
         // Cleanup
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        // Allow VS Code to settle before disposing repository
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         scmProvider.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
@@ -59,7 +63,6 @@ suite('Button Visibility Integration Test', () => {
         if (contextHelper) {
             await contextHelper.repositoryManager.dispose();
         }
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
     test('Sets jj.parentMutable to true when parent is mutable', async () => {

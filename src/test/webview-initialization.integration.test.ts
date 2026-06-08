@@ -74,10 +74,13 @@ suite('Webview Initialization Integration Test', () => {
     });
 
     teardown(async () => {
-        disposables.forEach((d) => {
-            d.dispose();
-        });
+        for (const d of disposables) {
+            await d.dispose();
+        }
         disposables = [];
+        if (repo) {
+            repo.dispose();
+        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 

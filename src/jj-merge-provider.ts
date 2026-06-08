@@ -33,8 +33,7 @@ export class JjMergeContentProvider implements vscode.TextDocumentContentProvide
             let parts = this.cache.get(fsPath);
             if (!parts) {
                 // Get conflict parts from jj resolve
-                const relativePath = vscode.workspace.asRelativePath(fsPath);
-                parts = await this.jjService.getConflictParts(relativePath);
+                parts = await this.jjService.getConflictParts(fsPath);
                 this.cache.set(fsPath, parts);
 
                 // Clear cache after a short delay (file may change)
