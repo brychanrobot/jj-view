@@ -13,6 +13,7 @@ vi.mock('vscode', async () => {
 });
 
 // Import after mock
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import type { JjRepository } from '../jj-repository';
@@ -145,5 +146,46 @@ describe('resolveRepository', () => {
         const result = resolveRepository([], repoManager, scmProviders);
 
         expect(result).toBeUndefined();
+    });
+
+    it('resolves repository from SourceControlResourceState with nested symlinked directory (issue 348)', () => {
+        // Test layout:
+        // repo.path ($root)
+        // ├── .jj/ (real directory)
+        // ├── bazel-core -> targetDir (symlink to directory)
+        // └── targetDir (real directory created by mkdtempSync)
+        //     └── .jj -> repo.path/.jj (symlink to directory)
+
+        // Create a target directory inside the repository
+        const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(repo.path, 'jj-view-nested-')));
+        const symlinkPath = path.join(repo.path, 'bazel-core');
+        const jjSymlinkPath = path.join(targetDir, '.jj');
+
+        try {
+            // Create symlink: bazel-core -> targetDir
+            fs.symlinkSync(targetDir, symlinkPath, 'dir');
+
+            // Create symlink: targetDir/.jj -> repo.path/.jj
+            fs.symlinkSync(path.join(repo.path, '.jj'), jjSymlinkPath, 'dir');
+
+            // Resource URI is inside the symlink path
+            const mockState = { resourceUri: vscode.Uri.file(path.join(symlinkPath, 'file.txt')) };
+
+            const result = resolveRepository([mockState], repoManager, scmProviders);
+
+            expect(result).toBeDefined();
+            expect(result?.repo).toBe(resolvedRepo);
+            expect(result?.scm).toBe(mockScm);
+        } finally {
+            try {
+                fs.unlinkSync(symlinkPath);
+            } catch {}
+            try {
+                fs.unlinkSync(jjSymlinkPath);
+            } catch {}
+            try {
+                fs.rmdirSync(targetDir);
+            } catch {}
+        }
     });
 });

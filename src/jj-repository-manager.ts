@@ -784,6 +784,17 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @returns True if the workspace is the main workspace, false otherwise.
      */
     private async isMainWorkspace(rootPath: string, storePath: string): Promise<boolean> {
+        try {
+            const jjPath = path.join(rootPath, '.jj');
+            const realJjPath = await fs.realpath(jjPath);
+            const realJjParent = path.dirname(realJjPath);
+            if (!this.isSamePath(realJjParent, rootPath)) {
+                return false;
+            }
+        } catch {
+            return false;
+        }
+
         const expectedMainStore = path.join(rootPath, '.jj', 'repo');
         const realExpected = await fs.realpath(expectedMainStore).catch(() => expectedMainStore);
         return this.isSamePath(realExpected, storePath) || this.isSamePath(expectedMainStore, storePath);

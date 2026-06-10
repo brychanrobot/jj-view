@@ -420,6 +420,13 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
  * Triggers a manual refresh of the JJ Log view by clicking the refresh button in the view title.
  */
 export async function triggerRefresh(page: Page) {
+    // Clear focus from any active iframe/webview to allow top-level keybinding to work.
+    await page
+        .getByRole('tab', { name: /Explorer/i })
+        .first()
+        .focus()
+        .catch(() => {});
+
     // Use the custom keybinding registered in launchVSCode
     await page.keyboard.press('Control+Alt+R');
 
