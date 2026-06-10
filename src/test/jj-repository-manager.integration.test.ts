@@ -342,6 +342,58 @@ suite('JjRepositoryManager Integration Test', () => {
         }
     });
 
+    test('getRepositoryForUri matches files in nested symlinked directory layout (issue 348)', async () => {
+        // Test layout:
+        // mainRepo.path ($root)
+        // ├── .jj/ (real directory)
+        // ├── bazel-core -> targetDir (symlink to directory)
+        // └── targetDir (real directory created by mkdtempSync)
+        //     └── .jj -> mainRepo.path/.jj (symlink to directory)
+
+        // Create a target directory inside the repository
+        const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(mainRepo.path, 'jj-view-nested-')));
+
+        const symlinkPath = path.join(mainRepo.path, 'bazel-core');
+        const jjSymlinkPath = path.join(targetDir, '.jj');
+
+        try {
+            // Create symlink: bazel-core -> targetDir
+            fs.symlinkSync(targetDir, symlinkPath, 'dir');
+
+            // Create symlink: targetDir/.jj -> mainRepo.path/.jj
+            fs.symlinkSync(path.join(mainRepo.path, '.jj'), jjSymlinkPath, 'dir');
+
+            // Scan to discover repositories
+            await manager.scanForRepositories();
+
+            // Verify that we only have the main repository registered, not the nested one
+            assert.strictEqual(manager.repositories.length, 1);
+            assert.strictEqual(manager.repositories[0].rootUri.fsPath, mainRepo.path);
+
+            // A file URI inside the symlink path should match the repository
+            const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
+            const matched = manager.getRepositoryForUri(symlinkFileUri);
+            assert.ok(matched, 'Should match repository through nested symlink path');
+            assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
+        } finally {
+            try {
+                fs.unlinkSync(symlinkPath);
+            } catch {
+                // Ignore
+            }
+            try {
+                fs.unlinkSync(jjSymlinkPath);
+            } catch {
+                // Ignore
+            }
+            try {
+                fs.rmdirSync(targetDir);
+            } catch {
+                // Ignore
+            }
+        }
+    });
+
     test('scan ignores repositories listed in ignoredRepositories config', async () => {
         const otherRepo = new TestRepo();
         extraRepos.push(otherRepo);
