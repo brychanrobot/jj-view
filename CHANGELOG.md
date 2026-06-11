@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.1.0
+
+### Features
+
+- **Commands**:
+    - Update `jj-view.showDetails` to default to `@` (active working copy) when invoked without arguments.
+    - Retire the obsolete `jj-view.showCurrentChange` command.
+
+### Fixes
+
+- **Repository Discovery**:
+    - Resolve repository resolution under nested symlinked directories by verifying the real path of the `.jj` directory.
+    - Restrict repository registration to paths residing within or ancestral to active workspace folders to prevent unrelated repository registrations.
+    - Standardize repository path comparisons case-insensitively to prevent duplicate repository instances.
+    - Ensure repository detection for open editors respects the auto-detection configuration.
+    - Optimize repository scanning by verifying directory paths on disk before instantiating repository classes.
+- **Tooling**:
+    - Silence Biome formatting errors on ignored assets in esbuild by adding `--no-errors-on-unmatched` flag.
+
+### Chores & Testing
+
+- **Testing**:
+    - Refactor unit tests to utilize `TestRepo` and a real `JjService` instead of mock methods.
+
 ## 2.0.0
 
 ### Features
