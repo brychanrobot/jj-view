@@ -90,7 +90,7 @@ suite('Webview Visibility Integration Test', () => {
         });
         disposables = [];
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         repo.dispose();

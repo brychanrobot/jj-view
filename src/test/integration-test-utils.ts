@@ -2,18 +2,23 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
+import type { CodeForgeRegistry } from '../code-forge-registry';
+import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { createMock } from './test-utils';
+import type { JjRepositoryManager } from '../jj-repository-manager';
+import type { JjScmProvider } from '../jj-scm-provider';
 
 export interface TestRepositoryContext {
     codeForgeRegistry: CodeForgeRegistry;
     repository: JjRepository;
     repositoryManager: JjRepositoryManager;
     workspaceState: vscode.Memento;
+    scmProvider: JjScmProvider;
+    dispose(): Promise<void>;
 }
 
 async function updateWorkspaceFoldersWithRetry(
@@ -50,6 +55,7 @@ export async function createTestRepositoryContext(
     repoPath: string,
     outputChannel: vscode.OutputChannel,
 ): Promise<TestRepositoryContext> {
+    void outputChannel;
     const originalFolders = vscode.workspace.workspaceFolders || [];
     const uri = vscode.Uri.file(repoPath);
 
@@ -72,45 +78,108 @@ export async function createTestRepositoryContext(
         }
     }
 
-    const codeForgeRegistry = new CodeForgeRegistry();
-    const store = new Map<string, unknown>();
-    const workspaceState = createMock<vscode.Memento>({
-        get: (key: string) => store.get(key),
-        update: (key: string, value: unknown) => {
-            store.set(key, value);
-            return Promise.resolve();
-        },
-        keys: () => Array.from(store.keys()),
-    });
-    const repositoryManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
-    const repository = await repositoryManager.maybeRegisterRepositoryContainingUri(
-        vscode.Uri.file(path.join(repoPath, 'placeholder.txt')),
-    );
+    // Get the global extension API
+    const extension = vscode.extensions.getExtension<Api>('jj-view.jj-view');
+    if (!extension) {
+        throw new Error('Extension jj-view.jj-view not found');
+    }
+    const api = await extension.activate();
+    const repositoryManager = api.repositoryManager;
+
+    // Wait for the repository to be registered by the global manager's scan
+    const realRoot = await fs.realpath(repoPath);
+
+    let repository = repositoryManager.getRepositoryForUri(vscode.Uri.file(realRoot));
     if (!repository) {
-        throw new Error(`Failed to dynamically register repository at ${repoPath}`);
+        await new Promise<void>((resolve, reject) => {
+            const disposable = repositoryManager.onDidChangeRepositories(() => {
+                repository = repositoryManager.getRepositoryForUri(vscode.Uri.file(realRoot));
+                if (repository) {
+                    disposable.dispose();
+                    resolve();
+                }
+            });
+            repositoryManager.scanForRepositories();
+            setTimeout(() => {
+                disposable.dispose();
+                reject(new Error(`Timed out waiting for repository registration: ${realRoot}`));
+            }, 10000);
+        });
+    }
+    if (!repository) {
+        throw new Error(`Repository not found at path: ${realRoot}`);
+    }
+    const finalRepo = repository;
+
+    const scmProvider = api.scmProviders.get(finalRepo.rootUri.fsPath);
+    if (!scmProvider) {
+        throw new Error(`SCM provider not found for registered repository: ${finalRepo.rootUri.fsPath}`);
     }
 
-    // Intercept dispose to remove the workspace folder and release locks
-    const originalDispose = repositoryManager.dispose.bind(repositoryManager);
-    repositoryManager.dispose = async () => {
-        await originalDispose();
-        if (!isPresent) {
-            const currentFolders = vscode.workspace.workspaceFolders || [];
-            const index = currentFolders.findIndex((f) => f.uri.fsPath === uri.fsPath);
-            if (index !== -1) {
-                if ('onDidChangeWorkspaceFolders' in vscode.workspace) {
-                    await updateWorkspaceFoldersWithRetry(index, 1);
-                } else if ('updateWorkspaceFolders' in vscode.workspace) {
-                    vscode.workspace.updateWorkspaceFolders(index, 1);
+    const testContext: TestRepositoryContext = {
+        codeForgeRegistry: repositoryManager.codeForgeRegistry,
+        repository: finalRepo,
+        repositoryManager,
+        workspaceState: repositoryManager.workspaceState,
+        scmProvider,
+        dispose: async () => {
+            await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+            await waitUntil(
+                () => {
+                    return vscode.window.tabGroups.all.every((group) => group.tabs.length === 0);
+                },
+                /*timeoutMs=*/ 2000,
+                /*intervalMs=*/ 50,
+            );
+            const normalizedTarget = path.normalize(realRoot).toLowerCase();
+            // Wait for the repository to be closed by the manager after removing the workspace folder
+            const closePromise = new Promise<void>((resolve) => {
+                const disposable = repositoryManager.onDidCloseRepository((r) => {
+                    if (path.normalize(r.rootUri.fsPath).toLowerCase() === normalizedTarget) {
+                        disposable.dispose();
+                        resolve();
+                    }
+                });
+                // Safety timeout
+                setTimeout(() => {
+                    disposable.dispose();
+                    resolve();
+                }, 10000);
+            });
+
+            if (!isPresent) {
+                const currentFolders = vscode.workspace.workspaceFolders || [];
+                const index = currentFolders.findIndex((f) => f.uri.fsPath === uri.fsPath);
+                if (index !== -1) {
+                    if ('onDidChangeWorkspaceFolders' in vscode.workspace) {
+                        await updateWorkspaceFoldersWithRetry(index, 1);
+                    } else if ('updateWorkspaceFolders' in vscode.workspace) {
+                        vscode.workspace.updateWorkspaceFolders(index, 1);
+                    }
                 }
+                await closePromise;
             }
-        }
+        },
     };
 
-    return {
-        codeForgeRegistry,
-        repository,
-        repositoryManager,
-        workspaceState,
-    };
+    return testContext;
+}
+
+/**
+ * Polls the given condition until it returns true or the timeout is reached.
+ * Returns true if the condition was met, false if it timed out.
+ */
+export async function waitUntil(
+    condition: () => boolean | Promise<boolean>,
+    timeoutMs = 2000,
+    intervalMs = 50,
+): Promise<boolean> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+        if (await condition()) {
+            return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return await condition();
 }

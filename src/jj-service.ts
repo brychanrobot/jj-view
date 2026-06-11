@@ -281,11 +281,9 @@ export class JjService {
             const result = typeof stdout === 'string' ? stdout : stdout.toString();
             return shouldTrim ? result.trim() : result;
         } finally {
-            if (isMutation) {
-                if (timeout) {
-                    clearTimeout(timeout);
-                    this._operationTimeouts.delete(opId);
-                }
+            if (isMutation && timeout) {
+                clearTimeout(timeout);
+                this._operationTimeouts.delete(opId);
             }
         }
     }
@@ -819,7 +817,8 @@ export class JjService {
      * directories, it returns the tracked files contained within them.
      */
     async checkTrackedPaths(paths: string[]): Promise<string[]> {
-        if (paths.length === 0) {
+        const nonEmptyPaths = paths.filter((p) => p.length > 0);
+        if (nonEmptyPaths.length === 0) {
             return [];
         }
 
@@ -827,7 +826,7 @@ export class JjService {
         // Paths are passed as positional arguments (filesets).
         // Since paths is just an array of workspace-relative strings, they act as implicit fileset matches.
         // E.g., jj file list path/to/a path/to/b
-        const args = ['list', '-T', 'path.display() ++ "\\n"', ...paths];
+        const args = ['list', '-T', 'path.display() ++ "\\n"', ...nonEmptyPaths];
         try {
             const output = await this.run('file', args, { useCachedSnapshot: true, label: 'checkTrackedPaths' });
             return output
@@ -835,7 +834,7 @@ export class JjService {
                 .map((line) => line.trim())
                 .filter((line) => line.length > 0);
         } catch {
-            return paths;
+            return nonEmptyPaths;
         }
     }
 

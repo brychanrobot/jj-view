@@ -95,7 +95,7 @@ suite('Webview Selection Integration Test', () => {
             executeCommandStub.restore();
         }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

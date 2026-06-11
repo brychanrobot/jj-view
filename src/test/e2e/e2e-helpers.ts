@@ -468,40 +468,34 @@ export const SCM_ACTIONS = {
  * Robustly clicks an inline action button on an SCM tree item (row or group) by its title.
  */
 export async function clickScmAction(page: Page, rowName: string | RegExp, actionTitle: string) {
-    await expect(async () => {
-        const row = page.getByRole('treeitem', { name: rowName }).first();
-        await expect(row).toBeVisible({ timeout: 5000 });
-        await row.hover();
-        await page.waitForTimeout(500); // Give it more time to settle
+    const row = page.getByRole('treeitem', { name: rowName }).first();
+    await expect(row).toBeVisible({ timeout: 5000 });
 
-        const iconMap: Record<string, string> = {
-            [SCM_ACTIONS.Abandon]: '.codicon-trash',
-            [SCM_ACTIONS.SquashRevisionIntoParent]: '.codicon-arrow-down',
-            [SCM_ACTIONS.SquashRevisionIntoAncestor]: '.codicon-jj-icon-squash-into',
-            [SCM_ACTIONS.SquashFilesIntoParent]: '.codicon-arrow-down',
-            [SCM_ACTIONS.SquashFilesIntoAncestor]: '.codicon-jj-icon-squash-into',
-            [SCM_ACTIONS.SquashFilesIntoChild]: '.codicon-arrow-up',
-            [SCM_ACTIONS.Absorb]: '.codicon-magnet',
-            [SCM_ACTIONS.DiscardChanges]: '.codicon-discard',
-            [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
-            [SCM_ACTIONS.Edit]: '.codicon-edit',
-            [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
-            [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
-            [SCM_ACTIONS.FocusRepository]: '.codicon-eye',
-        };
+    const iconMap: Record<string, string> = {
+        [SCM_ACTIONS.Abandon]: '.codicon-trash',
+        [SCM_ACTIONS.SquashRevisionIntoParent]: '.codicon-arrow-down',
+        [SCM_ACTIONS.SquashRevisionIntoAncestor]: '.codicon-jj-icon-squash-into',
+        [SCM_ACTIONS.SquashFilesIntoParent]: '.codicon-arrow-down',
+        [SCM_ACTIONS.SquashFilesIntoAncestor]: '.codicon-jj-icon-squash-into',
+        [SCM_ACTIONS.SquashFilesIntoChild]: '.codicon-arrow-up',
+        [SCM_ACTIONS.Absorb]: '.codicon-magnet',
+        [SCM_ACTIONS.DiscardChanges]: '.codicon-discard',
+        [SCM_ACTIONS.ShowDetails]: '.codicon-list-selection',
+        [SCM_ACTIONS.Edit]: '.codicon-edit',
+        [SCM_ACTIONS.MultiFileDiff]: '.codicon-diff-multiple',
+        [SCM_ACTIONS.CompleteSquashRevision]: '.codicon-check',
+        [SCM_ACTIONS.FocusRepository]: '.codicon-eye',
+    };
 
-        const cls = iconMap[actionTitle];
-        let button: Locator;
+    const cls = iconMap[actionTitle];
+    let button: Locator;
+    if (cls) {
+        button = row.locator('.action-item', { has: page.locator(cls) }).first();
+    } else {
+        button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
+    }
 
-        if (cls) {
-            button = row.locator('.action-item', { has: page.locator(cls) }).first();
-        } else {
-            button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
-        }
-
-        await expect(button).toBeVisible({ timeout: 1000 });
-        await button.click({ force: true });
-    }, `Failed to click SCM action "${actionTitle}" on row "${rowName}"`).toPass({ timeout: 10000 });
+    await hoverAndClick(row, button);
 }
 
 export const isMac = process.platform === 'darwin';

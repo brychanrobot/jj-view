@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
@@ -19,10 +19,6 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-        });
-
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -34,20 +30,12 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
             name: 'mock',
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
     });
 
     teardown(async () => {
-        if (scmProvider) {
-            scmProvider.dispose();
-        }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

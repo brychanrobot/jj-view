@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { DiffTabCleaner } from '../diff-tab-cleaner';
 import { JjService } from '../jj-service';
-import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
 
@@ -35,30 +34,22 @@ describe('Diff Tab Cleaner', () => {
     let jj: JjService;
     let cleaner: DiffTabCleaner;
     let privateCleaner: PrivateDiffTabCleaner;
-    let contextHelper: TestRepositoryContext | undefined;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path);
 
-        const outputChannel = vscode.window.createOutputChannel('Jujutsu Test');
-        contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-
         const belongsToRepo = (uri: vscode.Uri) => {
-            if (!contextHelper) {
-                return false;
-            }
-            return contextHelper.repositoryManager.getRepositoryForUri(uri) === contextHelper.repository;
+            const normalizedUri = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+            const normalizedRepo = repo.path.replace(/\\/g, '/').toLowerCase();
+            return normalizedUri.startsWith(normalizedRepo);
         };
         cleaner = new DiffTabCleaner(jj, belongsToRepo);
         privateCleaner = exposePrivate<PrivateDiffTabCleaner>(cleaner);
     });
 
     afterEach(async () => {
-        if (contextHelper?.repositoryManager) {
-            await contextHelper.repositoryManager.dispose();
-        }
         if (repo) {
             repo.dispose();
         }

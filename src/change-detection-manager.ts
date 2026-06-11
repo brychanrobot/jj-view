@@ -328,6 +328,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._disposed = true;
 
         await this.stopWorkingCopyWatching();
+
         this._poller.dispose();
 
         if (this._opHeadsWatcherPromise) {

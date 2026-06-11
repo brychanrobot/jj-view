@@ -12,10 +12,10 @@ import { squashFilesIntoParentCommand } from '../commands/squash-files';
 import { completeSquashRevisionCommand, squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
-import { createTestRepositoryContext } from './integration-test-utils';
+import { createTestRepositoryContext, waitUntil } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
@@ -36,13 +36,6 @@ suite('JJ SCM Provider Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        // Initialize Service and Provider
-        // Mock context
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-            storageUri: vscode.Uri.file(path.join(repo.path, '.vscode-storage')),
-        });
-
         jj = new JjService(repo.path);
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
@@ -55,12 +48,7 @@ suite('JJ SCM Provider Integration Test', () => {
             name: 'mock',
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
     });
 
     teardown(async () => {
@@ -68,11 +56,8 @@ suite('JJ SCM Provider Integration Test', () => {
         // Allow VS Code to settle before disposing repository
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        if (scmProvider) {
-            scmProvider.dispose();
-        }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         if (repo) {
             repo.dispose();
@@ -710,7 +695,7 @@ suite('JJ SCM Provider Integration Test', () => {
         // This validates the fix for "Cannot use 'in' operator to search for 'resourceUri' in string"
         // Setup: Ensure we have a clean state with a parent
         repo.describe('parent');
-        repo.new([], 'child');
+        repo.new([]);
         const revision = repo.getChangeId('@');
 
         // Call squash with just the revision string
@@ -889,6 +874,16 @@ suite('JJ SCM Provider Integration Test', () => {
 
         try {
             await compareAllFilesWithRevisionCommand(jj, scmProvider.outputChannel, ids.v1.changeId);
+            // Wait for the comparison editor to be open before finishing the test
+            await waitUntil(
+                () => {
+                    return vscode.window.tabGroups.all.some((group) => {
+                        return group.tabs.some((tab) => tab.label.includes('Compare'));
+                    });
+                },
+                /*timeoutMs=*/ 2000,
+                /*intervalMs=*/ 50,
+            );
         } catch (e: unknown) {
             assert.fail(`compareAllFilesWithRevisionCommand failed: ${(e as Error).message}`);
         }

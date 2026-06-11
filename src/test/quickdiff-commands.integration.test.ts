@@ -8,9 +8,9 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashHunkIntoParentCommand } from '../commands/squash-selection';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
+import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
@@ -47,14 +47,11 @@ suite('Quick Diff Commands Integration Test', () => {
         });
         contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
 
-        viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-            viewFileSystemProvider,
-        );
+        scmProvider = contextHelper.scmProvider;
+        if (!scmProvider.viewFileSystemProvider) {
+            throw new Error('viewFileSystemProvider is not defined on scmProvider');
+        }
+        viewFileSystemProvider = scmProvider.viewFileSystemProvider;
 
         // Register a test-specific content provider to handle a unique scheme per test
         // This avoids conflict with the main extension's 'jj-view' provider and parallel tests
@@ -75,11 +72,8 @@ suite('Quick Diff Commands Integration Test', () => {
         // Small delay to allow VS Code to settle before disposing providers
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        if (scmProvider) {
-            scmProvider.dispose();
-        }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         if (jjViewProviderDisposable) {
             jjViewProviderDisposable.dispose();

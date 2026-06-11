@@ -6,9 +6,9 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
-import { JjViewFileSystemProvider } from '../jj-view-fs-provider';
+import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
@@ -20,6 +20,8 @@ suite('Quick Diff Integration Test', () => {
     let repo: TestRepo;
     let canonicalPath: string;
     let disposable: vscode.Disposable;
+    let originalProvideOriginalResource: typeof scmProvider.provideOriginalResource | undefined;
+    let originalReadFile: typeof viewFileSystemProvider.readFile | undefined;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
@@ -27,10 +29,6 @@ suite('Quick Diff Integration Test', () => {
         repo.init();
         // Canonicalize path to resolve RUNNER~1 short names on Windows
         canonicalPath = fs.realpathSync(repo.path);
-
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-        });
 
         jj = new JjService(canonicalPath);
         const outputChannel = createMock<vscode.OutputChannel>({
@@ -42,16 +40,16 @@ suite('Quick Diff Integration Test', () => {
 
         contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
 
-        viewFileSystemProvider = new JjViewFileSystemProvider(contextHelper.repositoryManager);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-            viewFileSystemProvider,
-        );
+        scmProvider = contextHelper.scmProvider;
+        if (!scmProvider.viewFileSystemProvider) {
+            throw new Error('viewFileSystemProvider is not defined on scmProvider');
+        }
+        viewFileSystemProvider = scmProvider.viewFileSystemProvider;
 
         disposable = vscode.workspace.registerFileSystemProvider('jj-view-test', viewFileSystemProvider);
+
+        originalProvideOriginalResource = scmProvider.provideOriginalResource;
+        originalReadFile = viewFileSystemProvider.readFile;
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
@@ -67,11 +65,15 @@ suite('Quick Diff Integration Test', () => {
         // Small delay to allow VS Code to settle before disposing providers
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        if (scmProvider) {
-            scmProvider.dispose();
+        if (originalProvideOriginalResource && scmProvider) {
+            scmProvider.provideOriginalResource = originalProvideOriginalResource;
         }
+        if (originalReadFile && viewFileSystemProvider) {
+            viewFileSystemProvider.readFile = originalReadFile;
+        }
+
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         if (disposable) {
             disposable.dispose();

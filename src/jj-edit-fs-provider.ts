@@ -64,7 +64,10 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     invalidateCache() {
         const events: vscode.FileChangeEvent[] = [];
         for (const uriStr of this._knownUris) {
-            events.push({ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(uriStr) });
+            const uri = vscode.Uri.parse(uriStr);
+            if (this._repositoryManager.getRepositoryForUri(uri)) {
+                events.push({ type: vscode.FileChangeType.Changed, uri });
+            }
         }
         this._knownUris.clear();
         if (events.length > 0) {

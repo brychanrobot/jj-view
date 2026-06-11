@@ -13,7 +13,7 @@ import { squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { undoCommand } from '../commands/undo';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
@@ -86,10 +86,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
 
         const extensionUri = vscode.Uri.file(__dirname);
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        disposables.push(contextHelper.repositoryManager);
-
-        scm = new JjScmProvider(mockContext, contextHelper.repository, outputChannel, contextHelper.repositoryManager);
-        disposables.push(scm);
+        scm = contextHelper.scmProvider;
 
         const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
         provider = new JjLogWebviewProvider(
@@ -144,6 +141,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
             await d.dispose();
         }
         disposables = [];
+        if (contextHelper) {
+            await contextHelper.dispose();
+        }
         if (repo) {
             repo.dispose();
         }

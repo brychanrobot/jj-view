@@ -72,6 +72,7 @@ import { JjOutputChannel } from './utils/output-channel';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;
+    scmProviders: Map<string, JjScmProvider>;
     registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
 }
 
@@ -627,6 +628,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     return {
         repositoryManager,
+        scmProviders,
         registerCodeForgeProvider: (factory: CodeForgeProviderFactory) => codeForgeRegistry.register(factory),
     };
 }

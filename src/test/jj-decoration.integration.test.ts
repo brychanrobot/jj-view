@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
@@ -25,8 +25,6 @@ suite('JJ Decoration Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        // Instantiate services manually for control
-        const context = createMock<vscode.ExtensionContext>({ subscriptions: [] });
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -39,20 +37,12 @@ suite('JJ Decoration Integration Test', () => {
         });
 
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
     });
 
     teardown(async () => {
-        if (scmProvider) {
-            scmProvider.dispose();
-        }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

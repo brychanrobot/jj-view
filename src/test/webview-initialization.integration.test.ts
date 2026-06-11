@@ -54,7 +54,7 @@ suite('Webview Initialization Integration Test', () => {
         });
         const extensionUri = vscode.Uri.file(__dirname);
         const context = await createTestRepositoryContext(repo.path, outputChannel);
-        disposables.push(context.repositoryManager);
+        disposables.push(context);
 
         const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, context.repositoryManager);
         provider = new JjLogWebviewProvider(
