@@ -22,17 +22,15 @@ Use this skill when the user wants to cut a new release of the extension. It req
     - Update the `version` field in `package.json` with the new version.
 5.  **Fetch Commits (If No Match):** If they _do not match_, assume the version in `package.json` was already bumped manually and is correct. Fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
 6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores) from the commits. **CRITICAL:** Adopt the canonical style for changelog entries by starting each bullet with a bolded component or feature name:
-    - If there is only a single change for a component, use a single line:
-      `- **[Component/Feature Name]**: [Description]`
-    - If there are multiple changes for the same component, group them as nested bullets under that component:
+    - **User-Centric Organization:** Focus on presenting changes in a way that is most helpful to users. Do not group or combine different logical improvements or bug fixes together just because they happened to be committed in the same change. Instead, split them into separate logical bullet points under their respective component/feature headings.
+    - Always group changes as nested bullets under the component/feature name, even if there is only a single change for that component:
       ```markdown
       - **[Component/Feature Name]**:
-          - [Description of first change]
-          - [Description of second change]
+          - [Description of change]
       ```
 7.  **Update Changelog:** Update `CHANGELOG.md` by prepending the new version and the drafted release notes.
 8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md` and `package.json`) to the user. **Wait for their approval before proceeding.**
-9.  **Commit Changes:** After user approval, commit the changes using `jj commit -m "chore: bump version to <new_version>"`.
+9.  **Describe Changes:** After user approval, describe the working copy commit using `jj describe -m "chore: bump version to <new_version>"` (or the `jj_describe` MCP tool).
 10. **Encode Notes:** Use the encoding script to encode the release notes for a URL: `pnpm release:encode -- "<release_notes>"`. The script is located at `.agents/scripts/encode-release-notes.ts`.
 11. **Generate Release Link:** Craft a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
 12. **Final Output:** Present the finalized Release Notes and the one-click Release Link directly to the user.
