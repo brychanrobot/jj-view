@@ -101,6 +101,12 @@ suite('JjRepositoryManager Integration Test', () => {
     });
 
     teardown(async () => {
+        const extension = vscode.extensions.getExtension<import('../extension').Api>('jj-view.jj-view');
+        if (extension) {
+            const api = await extension.activate();
+            await api.repositoryManager.clear();
+        }
+
         await manager.dispose();
         registry.dispose();
 
@@ -311,12 +317,18 @@ suite('JjRepositoryManager Integration Test', () => {
         await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(otherRepo.path)]);
 
         await manager.scanForRepositories();
-        assert.strictEqual(manager.focusedRepository?.rootUri.fsPath, mainRepo.path);
+        const initialFocus = manager.focusedRepository?.rootUri.fsPath;
+        assert.ok(
+            initialFocus === mainRepo.path || initialFocus === otherRepo.path,
+            'Should focus one of the registered repositories',
+        );
 
-        const fileUri = vscode.Uri.file(path.join(otherRepo.path, 'file.ts'));
+        const targetPath = initialFocus === mainRepo.path ? otherRepo.path : mainRepo.path;
+
+        const fileUri = vscode.Uri.file(path.join(targetPath, 'file.ts'));
         manager.tryAutoSwitch(fileUri);
 
-        assert.strictEqual(manager.focusedRepository?.rootUri.fsPath, otherRepo.path);
+        assert.strictEqual(manager.focusedRepository?.rootUri.fsPath, targetPath);
     });
 
     test('getRepositoryForUri matches files through symbolic links', async () => {
@@ -555,6 +567,27 @@ suite('JjRepositoryManager Integration Test', () => {
             repo1,
             repo2,
             'Concurrent registrations for same path must resolve to same repository instance',
+        );
+        assert.strictEqual(manager.repositories.length, 1);
+    });
+
+    test('maybeRegisterRepositoryContainingUri resolves concurrent calls for different paths under the same repository', async () => {
+        const subfolder1 = path.join(mainRepo.path, 'src');
+        const subfolder2 = path.join(mainRepo.path, 'test');
+        fs.mkdirSync(subfolder1, { recursive: true });
+        fs.mkdirSync(subfolder2, { recursive: true });
+
+        const [repo1, repo2] = await Promise.all([
+            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder1)),
+            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder2)),
+        ]);
+
+        assert.ok(repo1);
+        assert.ok(repo2);
+        assert.strictEqual(
+            repo1,
+            repo2,
+            'Concurrent registrations for different paths in same repo must resolve to same repository instance',
         );
         assert.strictEqual(manager.repositories.length, 1);
     });

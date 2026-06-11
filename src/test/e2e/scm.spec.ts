@@ -846,10 +846,8 @@ test.describe('SCM Pane E2E', () => {
             await openScmMerge(page, /conflict\.txt/i);
 
             // 4. Open File via inline button -> should open regular editor
-            await modifiedRow.hover();
             const openFileIcon = modifiedRow.getByRole('button', { name: 'Open File', exact: true }).first();
-            await expect(openFileIcon).toBeVisible();
-            await openFileIcon.click();
+            await hoverAndClick(modifiedRow, openFileIcon);
             await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
             await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
         } finally {
@@ -907,10 +905,8 @@ test.describe('SCM Pane E2E', () => {
             await openScmMerge(page, /conflict\.txt/i);
 
             // 4. Open Changes via inline button (for modified file) -> should open diff editor
-            await modifiedRow.hover();
             const openChangesIcon = modifiedRow.getByRole('button', { name: 'Open Changes', exact: true }).first();
-            await expect(openChangesIcon).toBeVisible();
-            await openChangesIcon.click();
+            await hoverAndClick(modifiedRow, openChangesIcon);
             await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
         } finally {
             await app.close();

@@ -85,7 +85,7 @@ describe('ChangeDetectionManager', () => {
     const waitForLog = async (pattern: string) => {
         await vi.waitFor(
             () => {
-                const calls = (outputChannel.appendLine as Mock).mock.calls;
+                const { calls } = (outputChannel.appendLine as Mock).mock;
                 const found = calls.some((call) => call[0].includes(pattern));
                 if (!found) {
                     throw new Error(`Log pattern "${pattern}" not found`);

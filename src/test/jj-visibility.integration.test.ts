@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
@@ -21,11 +21,6 @@ suite('JJ SCM Visibility Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        // Initialize Service and Provider
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-        });
-
         outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
             append: () => {},
@@ -37,18 +32,12 @@ suite('JJ SCM Visibility Integration Test', () => {
             name: 'mock',
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
     });
 
     teardown(async () => {
-        scmProvider.dispose();
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

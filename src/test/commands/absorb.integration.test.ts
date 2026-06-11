@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
-import { JjScmProvider } from '../../jj-scm-provider';
+import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 
@@ -23,20 +23,9 @@ suite('Absorb Integration Test', function () {
         jj = new JjService(repo.path);
 
         outputChannel = vscode.window.createOutputChannel('JJ Test');
-
-        const context = {
-            subscriptions: [],
-            extensionUri: vscode.Uri.file(__dirname),
-        } as unknown as vscode.ExtensionContext;
-
         const { createTestRepositoryContext } = await import('../integration-test-utils');
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
     });
 
     teardown(async () => {
@@ -44,9 +33,8 @@ suite('Absorb Integration Test', function () {
         // Allow VS Code to settle before disposing repository
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        scmProvider.dispose();
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
     });
 

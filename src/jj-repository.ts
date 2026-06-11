@@ -93,6 +93,9 @@ export class JjRepository implements Disposable {
     }
 
     async dispose() {
+        if (this._disposed) {
+            return;
+        }
         this._disposed = true;
         this._codeForge.dispose();
         await this._watcher.dispose();

@@ -184,6 +184,18 @@ describe('JjEditFileSystemProvider', () => {
         expect(disposable).toHaveProperty('dispose');
     });
 
+    it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
+        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt?revision=@');
+        await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
+    });
+
+    it('writeFile throws FileSystemError.Unavailable when no repository is found', async () => {
+        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt?revision=@');
+        await expect(provider.writeFile(outsideUri, Buffer.from('content'))).rejects.toThrowError(
+            'No Jujutsu repository found',
+        );
+    });
+
     it('unsupported operations throw', () => {
         expect(() => provider.readDirectory()).toThrow('jj-edit is file-only');
         expect(() => provider.createDirectory()).toThrow('jj-edit is file-only');

@@ -337,4 +337,51 @@ describe('JjDecorationProvider', () => {
         // If it's considered tracked, it returns undefined instead of the 'Ignored' decoration
         expect(resDir).toBeUndefined();
     });
+
+    it('should coalesce concurrent calls for the same path and clear pendingPromises afterwards', async () => {
+        const mockJjService = createMock<JjService>({
+            checkTrackedPaths: vi.fn().mockResolvedValue([]),
+        });
+        provider = new JjDecorationProvider(mockJjService, '/ws');
+        const uri = (await import('vscode')).Uri.file('/ws/coalesce.txt');
+        const mockToken = createMock<vscode.CancellationToken>({});
+
+        // 1. Call twice in quick succession
+        const p1 = provider.provideFileDecoration(uri, mockToken);
+        const p2 = provider.provideFileDecoration(uri, mockToken);
+
+        // They should return the exact same promise (coalesced)
+        expect(p1).toBe(p2);
+
+        // 2. Wait for flush
+        await new Promise((r) => setTimeout(r, 60));
+
+        const res1 = await p1;
+        const res2 = await p2;
+
+        expect(res1?.tooltip).toBe('Ignored');
+        expect(res2?.tooltip).toBe('Ignored');
+
+        // checkTrackedPaths should only have been called once
+        expect(mockJjService.checkTrackedPaths).toHaveBeenCalledTimes(1);
+        expect(mockJjService.checkTrackedPaths).toHaveBeenCalledWith(['coalesce.txt']);
+
+        // Clear mock calls and manually delete from cache to force a re-check
+        vi.mocked(mockJjService.checkTrackedPaths).mockClear();
+        const cache = accessPrivate<Map<string, unknown>>(provider, 'trackedStatusCache');
+        cache.delete('coalesce.txt');
+
+        // Verify pendingPromises map is empty for this path
+        const pendingPromises = accessPrivate<Map<string, unknown>>(provider, 'pendingPromises');
+        expect(pendingPromises.has('coalesce.txt')).toBe(false);
+
+        // 3. A later call should issue a new query because the pending promise has been cleared
+        const p3 = provider.provideFileDecoration(uri, mockToken);
+
+        // Wait for flush
+        await new Promise((r) => setTimeout(r, 60));
+        await p3;
+
+        expect(mockJjService.checkTrackedPaths).toHaveBeenCalledTimes(1);
+    });
 });

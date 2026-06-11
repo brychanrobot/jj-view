@@ -5,7 +5,7 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { JjScmProvider } from '../jj-scm-provider';
+import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock } from './test-utils';
@@ -22,10 +22,6 @@ suite('Button Visibility Integration Test', () => {
         repo.init();
 
         // Initialize Service and Provider
-        // Mock context
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-        });
 
         const outputChannel = createMock<vscode.OutputChannel>({
             appendLine: () => {},
@@ -38,12 +34,7 @@ suite('Button Visibility Integration Test', () => {
             name: 'mock',
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
-        scmProvider = new JjScmProvider(
-            context,
-            contextHelper.repository,
-            outputChannel,
-            contextHelper.repositoryManager,
-        );
+        scmProvider = contextHelper.scmProvider;
 
         // Spy/Stub on vscode.commands.executeCommand to check for setContext
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
@@ -56,12 +47,11 @@ suite('Button Visibility Integration Test', () => {
         // Allow VS Code to settle before disposing repository
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        scmProvider.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
         if (contextHelper) {
-            await contextHelper.repositoryManager.dispose();
+            await contextHelper.dispose();
         }
     });
 

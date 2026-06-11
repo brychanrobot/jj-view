@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { JjRepository } from './jj-repository';
 import { JjService } from './jj-service';
+import { CoalescingQueue } from './utils/coalescing-queue';
 import { JjOutputChannel } from './utils/output-channel';
 
 interface DetectedRepoInfo {
@@ -27,10 +28,11 @@ export class JjRepositoryManager implements vscode.Disposable {
     private _disposables: vscode.Disposable[] = [];
     private readonly _dirToRepoRoot = new Map<string, string | null>();
     private readonly _ignoredAbsolutePaths = new Set<string>();
+    private readonly _closingPaths = new Set<string>();
     private readonly _pendingRegistrations = new Map<string, Promise<JjRepository | undefined>>();
+    private readonly _pendingRepoRoots = new Map<string, Promise<string | undefined>>();
     private _lastActiveTab?: vscode.Tab;
-    private _activeScan: Promise<void> | undefined;
-    private _scanPending = false;
+    private readonly _scanQueue = new CoalescingQueue(() => this.doScan());
     private _disposed = false;
     private _normalizedWorkspaceFolders: string[] | undefined;
     private readonly _realNormalizedPathCache = new Map<string, Promise<string>>();
@@ -119,6 +121,9 @@ export class JjRepositoryManager implements vscode.Disposable {
             vscode.workspace.onDidChangeWorkspaceFolders(() => {
                 this._normalizedWorkspaceFolders = undefined;
                 this._realNormalizedPathCache.clear();
+                this.scanForRepositories().catch((err) => {
+                    this._outputChannel.appendLine(`[RepositoryManager] Error scanning on workspace change: ${err}`);
+                });
             }),
         );
     }
@@ -131,13 +136,23 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this._focusedRepository;
     }
 
+    get codeForgeRegistry(): CodeForgeRegistry {
+        return this._codeForgeRegistry;
+    }
+
+    get workspaceState(): vscode.Memento {
+        return this._workspaceState;
+    }
+
     /**
-     * Updates the Jujutsu binary path for all managed repositories and stores it
+     * Set the binary path configuration, updating all managed repositories.
+     * Keeps cached roots, but clears verified repo path mappings to ensure we re-probe
      * for future discovered repositories.
      */
     setBinaryPath(binPath: string): void {
         this._binaryPath = binPath;
         this._dirToRepoRoot.clear();
+        this._pendingRepoRoots.clear();
         for (const repo of this._repositories) {
             repo.jj.binaryPath = binPath;
             repo.refresh({ reason: 'binary path set' }).catch((err) => {
@@ -152,6 +167,9 @@ export class JjRepositoryManager implements vscode.Disposable {
      * Set the focused repository. Fires `onDidChangeFocusedRepository` if changed.
      */
     setFocusedRepository(repo: JjRepository | undefined): void {
+        if (this._disposed) {
+            return;
+        }
         const currentPath = this._focusedRepository?.rootUri.fsPath;
         const newPath = repo?.rootUri.fsPath;
         if (this.isSamePath(currentPath, newPath)) {
@@ -160,7 +178,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
         this._focusedRepository = repo;
         this._outputChannel.appendLine(`[RepositoryManager] Focused repository: ${repo?.rootUri.fsPath ?? 'none'}`);
-        this._onDidChangeFocusedRepository.fire(repo);
+        this.fireEvent(this._onDidChangeFocusedRepository, repo);
 
         if (repo) {
             this._workspaceState.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, repo.rootUri.fsPath);
@@ -225,35 +243,20 @@ export class JjRepositoryManager implements vscode.Disposable {
     /**
      * Scans the workspace folders, explicit configuration paths, and open editor tabs
      * to discover and update the list of registered Jujutsu repositories.
+     * Concurrent calls are coalesced: if a scan is already in progress,
+     * the returned promise resolves when that scan completes.
      */
     async scanForRepositories(): Promise<void> {
         if (this._disposed) {
             return;
         }
-        if (this._activeScan) {
-            this._scanPending = true;
-            return this._activeScan;
-        }
-
-        this._scanPending = true;
-        const scanPromise = (async () => {
-            while (this._scanPending && !this._disposed) {
-                this._scanPending = false;
-                await this.doScan();
-            }
-        })();
-
-        this._activeScan = scanPromise;
-        try {
-            await scanPromise;
-        } finally {
-            if (this._activeScan === scanPromise) {
-                this._activeScan = undefined;
-            }
-        }
+        return this._scanQueue.run();
     }
 
     private async doScan(): Promise<void> {
+        if (this._disposed) {
+            return;
+        }
         const autoDetect = this.getAutoRepositoryDetectionConfig();
         const scanPaths = this.getScanRepositoriesConfig();
 
@@ -263,75 +266,104 @@ export class JjRepositoryManager implements vscode.Disposable {
         // 1. Resolve ignore list absolute paths
         this.updateIgnoredPaths();
 
+        // Clean up _closingPaths for folders that are no longer in the workspace
+        const folders = vscode.workspace.workspaceFolders || [];
+        const normalizedFolders = await Promise.all(
+            folders.map((folder) => this.getRealNormalizedPath(folder.uri.fsPath)),
+        );
+        for (const closedPath of this._closingPaths) {
+            if (!normalizedFolders.some((f) => f === closedPath || f.startsWith(`${closedPath}/`))) {
+                this._closingPaths.delete(closedPath);
+            }
+        }
+
         const addCandidate = async (rootDir: string) => {
-            const info = await this.probeRepository(rootDir);
+            const realRoot = await fs.realpath(rootDir).catch(() => rootDir);
+            const normalizedRoot = this.normalizePath(realRoot);
+            if (seenRoots.has(normalizedRoot)) {
+                return;
+            }
+            seenRoots.add(normalizedRoot);
+
+            const info = await this.probeRepository(realRoot);
             if (info) {
-                const normalizedRoot = this.normalizePath(info.rootPath);
-                if (!seenRoots.has(normalizedRoot)) {
-                    candidates.push(info);
-                    seenRoots.add(normalizedRoot);
-                }
+                candidates.push(info);
+            } else {
+                seenRoots.delete(normalizedRoot);
             }
         };
 
         // Pre-populate candidates with valid cached/discovered repositories
-        for (const repo of this._repositories) {
-            const rootPath = repo.rootUri.fsPath;
-            try {
-                const stats = await fs.stat(rootPath);
-                if (stats.isDirectory() && (await repo.isValid())) {
-                    await addCandidate(rootPath);
+        await Promise.all(
+            this._repositories.map(async (repo) => {
+                const rootPath = repo.rootUri.fsPath;
+                try {
+                    const stats = await fs.stat(rootPath);
+                    if (stats.isDirectory() && (await repo.isValid())) {
+                        await addCandidate(rootPath);
+                    }
+                } catch {
+                    // Directory doesn't exist anymore, let it be cleaned up
                 }
-            } catch {
-                // Directory doesn't exist anymore, let it be cleaned up
-            }
-        }
+            }),
+        );
 
-        // discover via auto-detection setting
-        const folders = vscode.workspace.workspaceFolders || [];
-        for (const folder of folders) {
-            const rootPath = folder.uri.fsPath;
-            const rootReal = await fs.realpath(rootPath).catch(() => rootPath);
-
-            if (this.shouldScanWorkspaceRoots()) {
-                const rootDir = await this.findRepoRoot(rootReal);
-                if (rootDir) {
-                    await addCandidate(rootDir);
+        // Discover via auto-detection setting
+        await Promise.all(
+            folders.map(async (folder) => {
+                if (this._disposed) {
+                    return;
                 }
-            }
+                const rootPath = folder.uri.fsPath;
+                const rootReal = await fs.realpath(rootPath).catch(() => rootPath);
 
-            if (autoDetect === true || autoDetect === 'subFolders') {
-                const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
-                const pattern = new vscode.RelativePattern(folder, glob);
-                const files = await vscode.workspace.findFiles(pattern, null, 1000);
-                for (const file of files) {
-                    const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
-                    await addCandidate(rootDir);
+                if (this.shouldScanWorkspaceRoots()) {
+                    const rootDir = await this.findRepoRoot(rootReal);
+                    if (rootDir) {
+                        await addCandidate(rootDir);
+                    }
                 }
-            }
-        }
+
+                if (autoDetect === true || autoDetect === 'subFolders') {
+                    const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
+                    const pattern = new vscode.RelativePattern(folder, glob);
+                    const files = await vscode.workspace.findFiles(pattern, null, 1000);
+                    await Promise.all(
+                        files.map((file) => {
+                            if (this._disposed) {
+                                return Promise.resolve();
+                            }
+                            const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
+                            return addCandidate(rootDir);
+                        }),
+                    );
+                }
+            }),
+        );
 
         // 3. Scan explicit paths
-        for (const p of scanPaths) {
-            let absPath = p;
-            if (!path.isAbsolute(p) && folders.length > 0) {
-                absPath = path.resolve(folders[0].uri.fsPath, p);
-            }
-            if (!(await this.isPathInOrAncestorOfWorkspace(absPath))) {
-                this._outputChannel.appendLine(
-                    `[RepositoryManager] Warning: Skipping configured scan path outside workspace folders: ${p}`,
-                );
-                continue;
-            }
-            try {
-                const realAbs = await fs.realpath(absPath);
-                const selfCheck = path.join(realAbs, '.jj', 'working_copy', 'type');
-                await fs.access(selfCheck);
-                await addCandidate(realAbs);
-            } catch {
-                // Path not accessible or not a repo
-            }
-        }
+        await Promise.all(
+            scanPaths.map(async (p) => {
+                let absPath = p;
+                if (!path.isAbsolute(p) && folders.length > 0) {
+                    absPath = path.resolve(folders[0].uri.fsPath, p);
+                }
+                if (!(await this.isPathInOrAncestorOfWorkspace(absPath))) {
+                    this._outputChannel.appendLine(
+                        `[RepositoryManager] Warning: Skipping configured scan path outside workspace folders: ${p}`,
+                    );
+                    return;
+                }
+                try {
+                    const realAbs = await fs.realpath(absPath);
+                    const selfCheck = path.join(realAbs, '.jj', 'working_copy', 'type');
+                    await fs.access(selfCheck);
+                    await addCandidate(realAbs);
+                } catch {
+                    // Path not accessible or not a repo
+                }
+            }),
+        );
 
         // 3.5. Also include repositories of currently open editors (so they aren't closed)
         if (this.shouldDetectFromOpenEditors()) {
@@ -344,11 +376,11 @@ export class JjRepositoryManager implements vscode.Disposable {
             );
             const validUris = uriChecks.filter((check) => check.valid).map((check) => check.uri);
             const editorRoots = await Promise.all(validUris.map((uri) => this.findRepoRoot(this.getPathForUri(uri))));
-            for (const rootDir of editorRoots) {
-                if (rootDir) {
-                    await addCandidate(rootDir);
-                }
-            }
+            await Promise.all(
+                editorRoots
+                    .filter((rootDir): rootDir is string => rootDir !== undefined)
+                    .map((rootDir) => addCandidate(rootDir)),
+            );
         }
 
         // 4. Reconcile repositories
@@ -390,14 +422,19 @@ export class JjRepositoryManager implements vscode.Disposable {
         }
 
         this._repositories = newRepos;
+        this.sortRepositories();
         this.persistRepositories();
 
         // Any repository in oldRepos that is not in newRepos must be disposed
         for (const oldRepo of oldRepos) {
             if (!newRepos.some((r) => this.isSamePath(r.rootUri.fsPath, oldRepo.rootUri.fsPath))) {
-                this._onDidCloseRepository.fire(oldRepo);
                 await oldRepo.dispose();
+                this.fireEvent(this._onDidCloseRepository, oldRepo);
             }
+        }
+
+        if (this._disposed) {
+            return;
         }
 
         // Find opened (present in newRepos but not in oldRepos)
@@ -405,10 +442,10 @@ export class JjRepositoryManager implements vscode.Disposable {
             (newRepo) => !oldRepos.some((oldRepo) => this.isSamePath(oldRepo.rootUri.fsPath, newRepo.rootUri.fsPath)),
         );
         for (const repo of opened) {
-            this._onDidOpenRepository.fire(repo);
+            this.fireEvent(this._onDidOpenRepository, repo);
         }
 
-        this._onDidChangeRepositories.fire(this._repositories);
+        this.fireEvent(this._onDidChangeRepositories, this._repositories);
         this._outputChannel.appendLine(
             `[RepositoryManager] Total registered repositories: ${this._repositories.length}`,
         );
@@ -511,33 +548,47 @@ export class JjRepositoryManager implements vscode.Disposable {
             return cached === null ? undefined : cached;
         }
 
-        // Find the closest existing parent directory
-        let existingDir = dir;
-        while (existingDir) {
-            try {
-                await fs.access(existingDir);
-                break;
-            } catch {
-                const parent = path.dirname(existingDir);
-                // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
-                if (parent === existingDir) {
-                    break;
-                }
-                existingDir = parent;
-            }
+        const pending = this._pendingRepoRoots.get(normalizedDir);
+        if (pending) {
+            return pending;
         }
 
-        const realDir = await fs.realpath(existingDir).catch(() => existingDir);
+        const promise = (async () => {
+            // Find the closest existing parent directory
+            let existingDir = dir;
+            while (existingDir) {
+                try {
+                    await fs.access(existingDir);
+                    break;
+                } catch {
+                    const parent = path.dirname(existingDir);
+                    // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
+                    if (parent === existingDir) {
+                        break;
+                    }
+                    existingDir = parent;
+                }
+            }
 
-        const jj = new JjService(realDir, () => {}, this._binaryPath || 'jj');
+            const realDir = await fs.realpath(existingDir).catch(() => existingDir);
+
+            const jj = new JjService(realDir, () => {}, this._binaryPath || 'jj');
+            try {
+                const resolvedRoot = await jj.getRepoRoot();
+                const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
+                this._dirToRepoRoot.set(normalizedDir, realRoot);
+                return realRoot;
+            } catch {
+                this._dirToRepoRoot.set(normalizedDir, null);
+                return undefined;
+            }
+        })();
+
+        this._pendingRepoRoots.set(normalizedDir, promise);
         try {
-            const resolvedRoot = await jj.getRepoRoot();
-            const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
-            this._dirToRepoRoot.set(normalizedDir, realRoot);
-            return realRoot;
-        } catch {
-            this._dirToRepoRoot.set(normalizedDir, null);
-            return undefined;
+            return await promise;
+        } finally {
+            this._pendingRepoRoots.delete(normalizedDir);
         }
     }
 
@@ -726,7 +777,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                 return undefined;
             }
             const normalizedRoot = this.normalizePath(realRoot);
-            if (this._ignoredAbsolutePaths.has(normalizedRoot)) {
+            if (this._ignoredAbsolutePaths.has(normalizedRoot) || this._closingPaths.has(normalizedRoot)) {
                 return undefined;
             }
 
@@ -757,22 +808,41 @@ export class JjRepositoryManager implements vscode.Disposable {
         }
     }
 
-    /**
-     * Registers one or more repositories with the manager, appending them to the
-     * active repositories list, persisting them, and firing SCM change events.
-     *
-     * @param repos The array of JjRepository instances to register.
-     */
     private registerRepositories(repos: JjRepository[]): void {
-        if (repos.length === 0) {
+        if (this._disposed || repos.length === 0) {
             return;
         }
         this._repositories.push(...repos);
+        this.sortRepositories();
         this.persistRepositories();
         for (const repo of repos) {
-            this._onDidOpenRepository.fire(repo);
+            this.fireEvent(this._onDidOpenRepository, repo);
         }
-        this._onDidChangeRepositories.fire(this._repositories);
+        this.fireEvent(this._onDidChangeRepositories, this._repositories);
+    }
+
+    private sortRepositories(): void {
+        const workspaceFolders = vscode.workspace.workspaceFolders || [];
+        const folderPaths = workspaceFolders.map((f) => this.normalizePath(f.uri.fsPath));
+
+        this._repositories.sort((a, b) => {
+            const aPath = this.normalizePath(a.rootUri.fsPath);
+            const bPath = this.normalizePath(b.rootUri.fsPath);
+
+            const aIdx = folderPaths.findIndex((f) => aPath === f || aPath.startsWith(`${f}/`));
+            const bIdx = folderPaths.findIndex((f) => bPath === f || bPath.startsWith(`${f}/`));
+
+            if (aIdx !== -1 && bIdx !== -1) {
+                if (aIdx !== bIdx) {
+                    return aIdx - bIdx;
+                }
+            } else if (aIdx !== -1) {
+                return -1;
+            } else if (bIdx !== -1) {
+                return 1;
+            }
+            return aPath.localeCompare(bPath);
+        });
     }
 
     /**
@@ -997,6 +1067,12 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this.normalizePath(pathA) === this.normalizePath(pathB);
     }
 
+    private fireEvent<T>(emitter: vscode.EventEmitter<T>, value: T): void {
+        if (!this._disposed) {
+            emitter.fire(value);
+        }
+    }
+
     /**
      * Retrieves the current configuration for automatic repository detection.
      *
@@ -1054,16 +1130,50 @@ export class JjRepositoryManager implements vscode.Disposable {
     }
 
     /**
+     * Closes and disposes a specific repository by its root URI.
+     * Fires didClose events and removes it from the managed list.
+     */
+    async closeRepository(uri: vscode.Uri): Promise<void> {
+        const targetPath = uri.fsPath;
+        const normalizedTarget = this.normalizePath(targetPath);
+        this._closingPaths.add(normalizedTarget);
+
+        const index = this._repositories.findIndex((r) => this.isSamePath(r.rootUri.fsPath, normalizedTarget));
+        if (index !== -1) {
+            const repo = this._repositories[index];
+            this._repositories.splice(index, 1);
+            this.persistRepositories();
+
+            this._outputChannel.appendLine(
+                `[RepositoryManager] Closing and disposing repository explicitly: ${repo.rootUri.fsPath}`,
+            );
+            await repo.dispose();
+            this.fireEvent(this._onDidCloseRepository, repo);
+            this.fireEvent(this._onDidChangeRepositories, this._repositories);
+
+            // Re-evaluate focus if we closed the focused repository
+            if (this._focusedRepository && this.isSamePath(this._focusedRepository.rootUri.fsPath, normalizedTarget)) {
+                if (this._repositories.length > 0) {
+                    this.setFocusedRepository(this._repositories[0]);
+                } else {
+                    this.setFocusedRepository(undefined);
+                }
+            }
+        }
+    }
+
+    /**
      * Clears all registered repositories, firing didClose events and disposing of them.
      * Keeps the manager itself active for subsequent use.
      */
     async clear(): Promise<void> {
         this._outputChannel.appendLine(`[RepositoryManager] Clearing ${this._repositories.length} repositories`);
 
-        // 1. Await any active scan
-        if (this._activeScan) {
-            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active scan before clearing...`);
-            await this._activeScan.catch(() => {});
+        // 1. Await any active or queued scan
+        const currentScan = this._scanQueue.currentRun;
+        if (currentScan) {
+            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active/queued scan before clearing...`);
+            await currentScan.catch(() => {});
         }
 
         // 2. Await any pending registrations
@@ -1071,19 +1181,26 @@ export class JjRepositoryManager implements vscode.Disposable {
         this._pendingRegistrations.clear();
         const pendingRepos = await Promise.all(pendingPromises);
 
-        // 3. Clear and dispose registered repositories
+        // 3. Clear caches
+        this._dirToRepoRoot.clear();
+        this._realNormalizedPathCache.clear();
+        this._pendingRepoRoots.clear();
+
+        // 4. Clear and dispose registered repositories
         const repos = [...this._repositories];
         this._repositories = [];
+
         this.setFocusedRepository(undefined);
+
         for (const repo of repos) {
             this._outputChannel.appendLine(
                 `[RepositoryManager] Closing and disposing repository: ${repo.rootUri.fsPath}`,
             );
-            this._onDidCloseRepository.fire(repo);
             await repo.dispose();
+            this.fireEvent(this._onDidCloseRepository, repo);
         }
 
-        // 4. Dispose pending repositories
+        // 5. Dispose pending repositories
         for (const repo of pendingRepos) {
             if (repo) {
                 this._outputChannel.appendLine(
@@ -1095,10 +1212,11 @@ export class JjRepositoryManager implements vscode.Disposable {
 
         await this._workspaceState.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, undefined);
         await this._workspaceState.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, undefined);
-        this._onDidChangeRepositories.fire([]);
+
+        this.fireEvent(this._onDidChangeRepositories, []);
+
         this._outputChannel.appendLine(`[RepositoryManager] Clear complete`);
     }
-
     async dispose(): Promise<void> {
         if (this._disposed) {
             return;
@@ -1111,10 +1229,11 @@ export class JjRepositoryManager implements vscode.Disposable {
         this._onDidChangeFocusedRepository.dispose();
         this._onDidChangeRepositories.dispose();
 
-        // 1. Await any active scan
-        if (this._activeScan) {
-            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active scan before disposing...`);
-            await this._activeScan.catch(() => {});
+        // 1. Await any active or queued scan
+        const currentScan = this._scanQueue.currentRun;
+        if (currentScan) {
+            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active/queued scan before disposing...`);
+            await currentScan.catch(() => {});
         }
 
         // 2. Await any pending registrations
@@ -1128,6 +1247,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             await repo.dispose();
         }
         this._repositories = [];
+        this._pendingRepoRoots.clear();
 
         // 4. Dispose pending repositories
         for (const repo of pendingRepos) {

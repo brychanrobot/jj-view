@@ -21,6 +21,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
     // Cache to prevent re-evaluating the same file status repeatedly
     private trackedStatusCache = new Map<string, { isTracked: boolean; uri: vscode.Uri }>();
     private resolveCallbacks = new Map<string, (decoration: vscode.FileDecoration | undefined) => void>();
+    private pendingPromises = new Map<string, Promise<vscode.FileDecoration | undefined>>();
 
     constructor(
         private jjService: JjService,
@@ -34,6 +35,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
             callback(undefined);
         }
         this.resolveCallbacks.clear();
+        this.pendingPromises.clear();
         this._onDidChangeFileDecorations.fire(undefined);
     }
 
@@ -130,9 +132,9 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
             return undefined;
         }
 
-        // 3. Ignore paths outside our workspace entirely
+        // 3. Ignore paths outside our workspace entirely or the workspace root itself
         const relativePath = this.getWorkspaceRelativePath(uri);
-        if (relativePath === undefined) {
+        if (relativePath === undefined || relativePath === '') {
             return undefined;
         }
 
@@ -164,11 +166,19 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                   );
         }
 
-        // 5. Not in cache, schedule a batched check
-        return new Promise<vscode.FileDecoration | undefined>((resolve) => {
+        // 5. Check if there's already a pending promise for this path
+        const pending = this.pendingPromises.get(relativePath);
+        if (pending) {
+            return pending;
+        }
+
+        // 6. Not in cache and no pending promise, create a new promise and schedule a batched check
+        const promise = new Promise<vscode.FileDecoration | undefined>((resolve) => {
             this.resolveCallbacks.set(relativePath, resolve);
             this.queueCheck(uri, relativePath);
         });
+        this.pendingPromises.set(relativePath, promise);
+        return promise;
     }
 
     private queueCheck(uri: vscode.Uri, relativePath: string) {
@@ -207,6 +217,9 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
 
         this.pendingChecks.clear();
         this.resolveCallbacks.clear();
+        for (const p of pathsToCheck) {
+            this.pendingPromises.delete(p);
+        }
 
         try {
             // Ask JJ which of these paths are tracked
