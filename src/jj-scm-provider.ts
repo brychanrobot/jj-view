@@ -380,7 +380,10 @@ export class JjScmProvider implements vscode.Disposable {
                     // 4. Update Conflict Group (conflictedPaths fetched above)
                     this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
                         const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
-                        const state = this.toResourceState(entry, currentEntry?.change_id || '@', { openDiffOnClick });
+                        const state = this.toResourceState(entry, currentEntry?.change_id || '@', {
+                            openDiffOnClick,
+                            inConflictGroup: true,
+                        });
                         decorationMap.set(state.resourceUri.toString(), entry);
                         return state;
                     });

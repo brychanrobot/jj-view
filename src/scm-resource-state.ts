@@ -25,6 +25,7 @@ export function createJjResourceState(
         multipleAncestors?: boolean;
         openDiffOnClick?: boolean;
         hasChild?: boolean;
+        inConflictGroup?: boolean;
     } = {},
 ): JjResourceState {
     const isCurrentWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
@@ -41,25 +42,26 @@ export function createJjResourceState(
         arguments: [leftUri, rightUri, diffTitle],
     };
 
-    const command: vscode.Command = entry.conflicted
-        ? {
-              command: 'jj-view.openMergeEditor',
-              title: 'Open 3-Way Merge',
-              arguments: [{ resourceUri }],
-          }
-        : openDiffOnClick || isDeleted
-          ? diffCommand
-          : {
-                command: 'vscode.open',
-                title: 'Open File',
-                arguments: [resourceUri.with({ query: '' })],
-            };
+    const command: vscode.Command =
+        entry.conflicted && options.inConflictGroup
+            ? {
+                  command: 'jj-view.openMergeEditor',
+                  title: 'Open 3-Way Merge',
+                  arguments: [{ resourceUri }],
+              }
+            : openDiffOnClick || isDeleted
+              ? diffCommand
+              : {
+                    command: 'vscode.open',
+                    title: 'Open File',
+                    arguments: [resourceUri.with({ query: '' })],
+                };
 
     const flags: string[] = [];
 
     flags.push(ScmContextValue.ResourceAllowRestore);
 
-    if (entry.conflicted) {
+    if (entry.conflicted && options.inConflictGroup) {
         flags.push(ScmContextValue.ResourceAllowOpenMergeEditor);
     } else {
         flags.push(ScmContextValue.ResourceAllowOpen);

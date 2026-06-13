@@ -863,6 +863,11 @@ suite('JJ SCM Provider Integration Test', () => {
             (conflictState.contextValue as string).includes(ScmContextValue.ResourceAllowOpenMergeEditor),
             'Conflict Resource State mismatch',
         );
+        assert.strictEqual(
+            conflictState.command?.command,
+            'jj-view.openMergeEditor',
+            'Conflicted file in conflict group should default to openMergeEditor',
+        );
 
         // 5. Assert Parent Resource Group
         assert.ok(parentGroups.length > 0, 'Should have parent group');
