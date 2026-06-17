@@ -31,6 +31,7 @@ import { commitPromptCommand } from './commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from './commands/compare-all-files-with-revision';
 import { compareFileWithRevisionCommand } from './commands/compare-file-with-revision';
 import { setDescriptionCommand } from './commands/describe';
+import { describeDialogCommand } from './commands/describe-dialog';
 import { describePromptCommand } from './commands/describe-prompt';
 import { showDetailsCommand } from './commands/details';
 import { discardChangeCommand } from './commands/discard-change';
@@ -465,6 +466,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
         registerWrappedCommand('jj-view.describePrompt', async (scm, jj) => {
             await describePromptCommand(scm, jj);
+        }),
+        registerWrappedCommand('jj-view.describe', async (scm, jj, ...args) => {
+            await describeDialogCommand(scm, jj, ...args);
         }),
     );
 

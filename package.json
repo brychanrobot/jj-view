@@ -248,6 +248,12 @@
                 "icon": "$(save)"
             },
             {
+                "command": "jj-view.describe",
+                "title": "Describe",
+                "category": "JJ View",
+                "icon": "$(edit)"
+            },
+            {
                 "command": "jj-view.focusDescriptionInput",
                 "title": "Focus SCM Description Input",
                 "category": "JJ View"
@@ -801,6 +807,11 @@
                     "group": "2_edit@4"
                 },
                 {
+                    "command": "jj-view.describe",
+                    "when": "webviewSection == 'commit'",
+                    "group": "2_edit@5"
+                },
+                {
                     "command": "jj-view.duplicate",
                     "when": "webviewSection == 'commit' && jj.canDuplicate",
                     "group": "4_changes@1"
@@ -974,6 +985,11 @@
                     "command": "jj-view.edit",
                     "group": "inline@6",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowEdit\\b/"
+                },
+                {
+                    "command": "jj-view.describe",
+                    "group": "inline@7",
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowShowDetails\\b/"
                 }
             ],
             "scm/resourceState/context": [
