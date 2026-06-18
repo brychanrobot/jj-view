@@ -248,6 +248,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             'jj.editVisible': visibleActions.edit,
                             'jj.squashVisible': visibleActions.squash,
                             'jj.abandonVisible': visibleActions.abandon,
+                            'jj.describeVisible': visibleActions.describe,
                             preventDefaultContextMenuItems: true,
                         })}
                         style={{
@@ -270,6 +271,38 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             paddingLeft: '0',
                         }}
                     >
+                        {visibleActions.describe && (
+                            <IconButton
+                                title="Describe"
+                                icon="codicon-edit"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('describe', { changeId: commit.change_id });
+                                }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'describe',
+                                    actionTitle: 'Describe',
+                                }}
+                            />
+                        )}
+
+                        {visibleActions.edit && (
+                            <IconButton
+                                title="Edit Commit"
+                                icon="codicon-sign-in"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('edit', { changeId: commit.change_id });
+                                }}
+                                contextData={{
+                                    webviewSection: 'commitAction',
+                                    'jj.actionId': 'edit',
+                                    actionTitle: 'Edit',
+                                }}
+                            />
+                        )}
+
                         {visibleActions.newChild && (
                             <IconButton
                                 title="New Child"
@@ -282,22 +315,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                     webviewSection: 'commitAction',
                                     'jj.actionId': 'newChild',
                                     actionTitle: 'New Child',
-                                }}
-                            />
-                        )}
-
-                        {visibleActions.edit && (
-                            <IconButton
-                                title="Edit Commit"
-                                icon="codicon-edit"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onAction('edit', { changeId: commit.change_id });
-                                }}
-                                contextData={{
-                                    webviewSection: 'commitAction',
-                                    'jj.actionId': 'edit',
-                                    actionTitle: 'Edit',
                                 }}
                             />
                         )}

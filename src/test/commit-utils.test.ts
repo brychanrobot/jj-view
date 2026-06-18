@@ -42,6 +42,7 @@ describe('computeCommitActions', () => {
             edit: true,
             squash: true,
             abandon: true,
+            describe: true,
         });
         expect(result.vscodeContext['jj.canEdit']).toBe(true);
         expect(result.vscodeContext['jj.canAbandon']).toBe(true);
@@ -55,6 +56,7 @@ describe('computeCommitActions', () => {
 
         expect(result.visibleActions.edit).toBe(false);
         expect(result.visibleActions.abandon).toBe(false);
+        expect(result.visibleActions.describe).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
         expect(result.vscodeContext['jj.canAbandon']).toBe(false);
     });

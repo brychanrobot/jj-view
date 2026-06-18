@@ -502,6 +502,11 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.hideCommitAction.describe",
+                "title": "Hide 'Describe'",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.toggleCommitAction.newChild.on",
                 "title": "\u25cf New Child",
                 "category": "JJ View"
@@ -539,6 +544,16 @@
             {
                 "command": "jj-view.toggleCommitAction.abandon.off",
                 "title": "\u25cb Abandon",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.describe.on",
+                "title": "\u25cf Describe",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.toggleCommitAction.describe.off",
+                "title": "\u25cb Describe",
                 "category": "JJ View"
             },
             {
@@ -716,6 +731,18 @@
                 {
                     "command": "jj-view.toggleCommitAction.abandon.off",
                     "when": "false"
+                },
+                {
+                    "command": "jj-view.hideCommitAction.describe",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.describe.on",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.describe.off",
+                    "when": "false"
                 }
             ],
             "view/title": [
@@ -882,6 +909,11 @@
                     "group": "9_visibility_1_hide"
                 },
                 {
+                    "command": "jj-view.hideCommitAction.describe",
+                    "when": "webviewSection == 'commitAction' && jj.actionId == 'describe' && jj.describeVisible",
+                    "group": "9_visibility_1_hide"
+                },
+                {
                     "command": "jj-view.toggleCommitAction.newChild.on",
                     "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.newChild",
                     "group": "9_visibility_2_toggle@1"
@@ -920,6 +952,16 @@
                     "command": "jj-view.toggleCommitAction.abandon.off",
                     "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.abandon",
                     "group": "9_visibility_2_toggle@4"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.describe.on",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.describe",
+                    "group": "9_visibility_2_toggle@5"
+                },
+                {
+                    "command": "jj-view.toggleCommitAction.describe.off",
+                    "when": "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.describe",
+                    "group": "9_visibility_2_toggle@5"
                 }
             ],
             "scm/title": [

@@ -14,9 +14,9 @@ import type {
 
 export type { CodeForgeChangeInfo, CommitParent, JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace };
 
-export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload';
+export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload' | 'describe';
 
-export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
+export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon', 'describe'] as const;
 export type ToggleableCommitAction = (typeof TOGGLEABLE_COMMIT_ACTIONS)[number];
 
 export interface ActionPayload {

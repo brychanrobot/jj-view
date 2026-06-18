@@ -198,6 +198,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'edit':
                     await vscode.commands.executeCommand('jj-view.edit', data.payload);
                     break;
+                case 'describe':
+                    await vscode.commands.executeCommand('jj-view.describe', data.payload);
+                    break;
                 case 'select': {
                     if (!this.jj) {
                         break;

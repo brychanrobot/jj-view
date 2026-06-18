@@ -10,6 +10,7 @@ export interface CommitActionStates {
     edit: boolean;
     squash: boolean;
     abandon: boolean;
+    describe: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ export function computeCommitActions(
         edit: isMutableCommit(commit) && !commit.is_current_working_copy && !hiddenActions.has('edit'),
         squash: !hiddenActions.has('squash') && canSquashCommit(commit),
         abandon: isMutableCommit(commit) && !hiddenActions.has('abandon'),
+        describe: isMutableCommit(commit) && !hiddenActions.has('describe'),
     };
 
     const vscodeContext = {
@@ -39,6 +41,7 @@ export function computeCommitActions(
         'jj.editVisible': visibleActions.edit,
         'jj.squashVisible': visibleActions.squash,
         'jj.abandonVisible': visibleActions.abandon,
+        'jj.describeVisible': visibleActions.describe,
         viewItem: isSelected ? 'jj-commit-selected' : 'jj-commit',
         commitId: commit.commit_id,
         changeId: commit.change_id,
