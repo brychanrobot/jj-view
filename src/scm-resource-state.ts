@@ -85,7 +85,6 @@ export function createJjResourceState(
         rightUri,
         diffTitle,
         decorations: {
-            tooltip: entry.conflicted ? 'Conflicted' : entry.status,
             faded: false,
             strikeThrough: entry.status === 'removed',
         },

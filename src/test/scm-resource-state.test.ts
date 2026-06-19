@@ -164,18 +164,6 @@ describe('createJjResourceState', () => {
     });
 
     describe('Decorations', () => {
-        it('sets Conflicted tooltip for conflicted entries', () => {
-            const entry: JjStatusEntry = { path: 'file.txt', status: 'modified', conflicted: true };
-            const state = createJjResourceState(entry, 'rev123', root);
-            expect(state.decorations?.tooltip).toBe('Conflicted');
-        });
-
-        it('sets status as tooltip for non-conflicted entries', () => {
-            const entry: JjStatusEntry = { path: 'file.txt', status: 'added' };
-            const state = createJjResourceState(entry, 'rev123', root);
-            expect(state.decorations?.tooltip).toBe('added');
-        });
-
         it('sets strikeThrough for removed entries', () => {
             const entry: JjStatusEntry = { path: 'file.txt', status: 'removed' };
             const state = createJjResourceState(entry, 'rev123', root);

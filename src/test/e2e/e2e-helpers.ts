@@ -750,11 +750,18 @@ export async function expectFileInScmGroup(
     page: Page,
     groupNamePattern: RegExp | string,
     fileNamePattern: RegExp | string,
-) {
+): Promise<Locator> {
     const start = Date.now();
-    const locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
-    await expect(locator).toBeVisible();
+    let locator: Locator | undefined;
+    await expect(async () => {
+        locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
+        await expect(locator).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 15000 });
     logPerf('expectFileInScmGroup', start);
+    if (!locator) {
+        throw new Error(`File "${fileNamePattern}" not found in group "${groupNamePattern}"`);
+    }
+    return locator;
 }
 
 /**
