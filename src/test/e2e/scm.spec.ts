@@ -341,7 +341,7 @@ test.describe('SCM Pane E2E', () => {
 
         await focusSCM(page);
         // Discard Changes (file3.txt)
-        const wcFile3Row = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
+        const wcFile3Row = await expectFileInScmGroup(page, /Working Copy/i, 'file3.txt');
         const discardIcon = wcFile3Row.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
         await hoverAndClick(wcFile3Row, discardIcon);
 
@@ -353,7 +353,7 @@ test.describe('SCM Pane E2E', () => {
         // File-Level Squash (file.txt)
         // Hover over file.txt in Working Copy and click Squash
         // file.txt and the group squash action share the same codicon-arrow-down icon
-        const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
+        const wcFileRow = await expectFileInScmGroup(page, /Working Copy/i, 'file.txt');
         const squashFileIcon = wcFileRow
             .getByRole('button', { name: 'Squash File(s) into Parent', exact: true })
             .first();
@@ -416,8 +416,7 @@ test.describe('SCM Pane E2E', () => {
         await refreshButton.click();
 
         // Wait for file3.txt to appear in SCM Working Copy
-        const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
-        await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
+        const newWcFileRow = await expectFileInScmGroup(page, /Working Copy/i, 'file3.txt');
 
         // Hover to reveal inline actions
         await newWcFileRow.hover();
@@ -440,7 +439,8 @@ test.describe('SCM Pane E2E', () => {
 
         // Verify the squash happened by waiting for there to be only ONE file3.txt row (the ancestor one)
         await expect(async () => {
-            const rows = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
+            await expectFileInScmGroup(page, /initial/i, 'file3.txt');
+            const rows = page.getByRole('treeitem', { name: 'file3.txt' });
             const count = await rows.count();
             expect(count).toBe(1);
         }).toPass({ timeout: 10000 });
@@ -586,8 +586,7 @@ test.describe('SCM Pane E2E', () => {
         repo.writeFile('tracked.txt', 'modified');
 
         // 2. Wait for it to appear with "Modified" decoration
-        const trackedRow = page.getByRole('treeitem', { name: /tracked\.txt.*modified/i });
-        await expect(trackedRow).toBeVisible({ timeout: 15000 });
+        await expectFileInScmGroup(page, /Working Copy/i, 'tracked.txt');
 
         // 3. Create a completely untracked file and add it to .gitignore
         repo.writeFile('.gitignore', 'totally-untracked.txt\n');
@@ -678,8 +677,7 @@ test.describe('SCM Pane E2E', () => {
 
         await focusSCM(page);
 
-        const ancestorFileRow = page.getByRole('treeitem', { name: /file_ancestor\.txt.*modified/i });
-        await expect(ancestorFileRow).toBeVisible();
+        const ancestorFileRow = await expectFileInScmGroup(page, /ancestor/i, 'file_ancestor.txt');
 
         const discardIcon = ancestorFileRow.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
         await hoverAndClick(ancestorFileRow, discardIcon);

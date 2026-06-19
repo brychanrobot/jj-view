@@ -113,8 +113,16 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     const textOpacity = isDragging ? 0.5 : 1;
     const fontStyle = isImmutable ? 'italic' : 'normal';
 
-    const description = commit.description.split('\n')[0] || '(no description)';
-    const displayDescription = isEmpty ? `(empty) ${description}` : description;
+    const MAX_TOOLTIP_LENGTH = 500;
+    let descriptionFull = commit.description.trim() || '(no description)';
+    if (isEmpty) {
+        descriptionFull = `(empty) ${descriptionFull}`;
+    }
+    const descriptionFirstLine = descriptionFull.split('\n')[0];
+    const descriptionTooltip =
+        descriptionFull.length <= MAX_TOOLTIP_LENGTH
+            ? descriptionFull
+            : `${descriptionFull.slice(0, MAX_TOOLTIP_LENGTH)}…`;
 
     // Merge refs for draggable and droppable
     // We need both on the same element
@@ -351,6 +359,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                 >
                     <span
                         className="commit-desc"
+                        title={descriptionTooltip}
                         style={{
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
@@ -374,7 +383,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 (divergent)
                             </span>
                         )}
-                        {displayDescription}
+                        {descriptionFirstLine}
                     </span>
 
                     {/* Right-aligned Bookmarks */}

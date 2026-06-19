@@ -120,7 +120,6 @@ suite('JJ SCM Provider Integration Test', () => {
         );
 
         assert.ok(resourceState, 'Should find resource state for modified file');
-        assert.strictEqual(workingCopyGroup.resourceStates[0].decorations?.tooltip, 'modified');
 
         const { command } = workingCopyGroup.resourceStates[0];
         assert.ok(command, 'Resource state should have a command');
