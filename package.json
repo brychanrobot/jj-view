@@ -357,6 +357,12 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.squashSelectionIntoAncestor",
+                "title": "Squash Selection into Ancestor...",
+                "category": "JJ View",
+                "icon": "$(jj-icon-squash-into)"
+            },
+            {
                 "command": "jj-view.openMergeEditor",
                 "title": "Open Merge Editor",
                 "category": "JJ View"
@@ -1015,6 +1021,11 @@
             "editor/context": [
                 {
                     "command": "jj-view.squashSelectionIntoParent",
+                    "group": "jj-view",
+                    "when": "isInDiffEditor && jj.parentMutable"
+                },
+                {
+                    "command": "jj-view.squashSelectionIntoAncestor",
                     "group": "jj-view",
                     "when": "isInDiffEditor && jj.parentMutable"
                 },

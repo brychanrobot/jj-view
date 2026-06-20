@@ -1146,24 +1146,29 @@ export class JjService {
     }
 
     /**
-     * Squash specific line ranges (selection) from a file to its parent revision.
+     * Squash specific line ranges (selection) from a file into an ancestor revision.
+     *
+     * If `intoRevision` is omitted, the selection is squashed into the direct
+     * parent of `revision`.
      *
      * @param fileRelPath Path relative to the workspace root.
      * @param ranges 0-indexed line ranges in the 'revision' to move.
      * @param revision The revision to move changes from (default: @).
+     * @param intoRevision The ancestor revision to squash into (default: parent).
      */
-    async squashSelectionIntoParent(
+    async squashSelectionIntoAncestor(
         fileRelPath: string,
         ranges: SelectionRange[],
         revision: string = '@',
+        intoRevision?: string,
     ): Promise<void> {
-        const parentRev = `${revision}-`;
+        const targetRevision = intoRevision ?? `${revision}-`;
         const { left: baseContent } = await this.getDiffContent(revision, fileRelPath);
         const diffOutput = await this.getDiff(revision, fileRelPath);
 
         const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges);
 
-        await this.runPartialSquash(revision, parentRev, fileRelPath, wantedContent);
+        await this.runPartialSquash(revision, targetRevision, fileRelPath, wantedContent);
     }
 
     private async runPartialSquash(

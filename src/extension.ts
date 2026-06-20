@@ -58,7 +58,11 @@ import {
     squashRevisionIntoAncestorCommand,
     squashRevisionIntoParentCommand,
 } from './commands/squash-revision';
-import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from './commands/squash-selection';
+import {
+    squashHunkIntoParentCommand,
+    squashSelectionIntoAncestorCommand,
+    squashSelectionIntoParentCommand,
+} from './commands/squash-selection';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
@@ -539,6 +543,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
                 await squashSelectionIntoParentCommand(scm, jj, editor);
+            }
+        }),
+        registerWrappedCommand('jj-view.squashSelectionIntoAncestor', async (scm, jj) => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                await squashSelectionIntoAncestorCommand(scm, jj, editor);
             }
         }),
         registerWrappedCommand('jj-view.refresh', async (scm) => {
