@@ -645,6 +645,12 @@ test.describe('Commit Details E2E', () => {
                 expect(desc).toBe(expectedDesc);
                 expect(desc.split('\n').length).toBeGreaterThan(2);
             }).toPass({ timeout: 15000 });
+
+            // Verify the textarea content has been updated to the formatted description in the UI
+            await expect(textarea).toHaveValue(
+                `Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.`,
+                { timeout: 10000 },
+            );
         });
     });
 });

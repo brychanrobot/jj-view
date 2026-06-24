@@ -60,7 +60,6 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             ? this._repositoryManager.getRepositoryForUri(repoRoot)
             : this._repositoryManager.focusedRepository;
     }
-
     public async refresh(_reason?: string): Promise<void> {
         for (const [changeId, panels] of this._panels.entries()) {
             if (panels.size === 0) {
@@ -84,7 +83,10 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
                 const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
 
-                const logs = await repo.jj.getLog({ revision: changeId });
+                const logPromise = repo.jj.getLog({ revision: changeId });
+                const changesPromise = repo.jj.getChanges(changeId).catch(() => null);
+
+                const logs = await logPromise;
                 if (logs.length === 0) {
                     panels.forEach((p) => {
                         p.dispose();
@@ -93,7 +95,8 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 }
 
                 const log = logs[0];
-                const filesWithStats = await repo.jj.getChanges(changeId).catch(() => log.changes || []);
+                const rawFilesWithStats = await changesPromise;
+                const filesWithStats = rawFilesWithStats || log.changes || [];
 
                 for (const panel of panels) {
                     panel.webview.postMessage({
@@ -258,14 +261,18 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         }
 
         try {
-            const logs = await repo.jj.getLog({ revision: document.changeId });
+            const logPromise = repo.jj.getLog({ revision: document.changeId });
+            const changesPromise = repo.jj.getChanges(document.changeId).catch(() => null);
+
+            const logs = await logPromise;
             if (logs.length === 0) {
                 panel.dispose();
                 return;
             }
 
             const log = logs[0];
-            const filesWithStats = await repo.jj.getChanges(document.changeId).catch(() => log.changes || []);
+            const rawFilesWithStats = await changesPromise;
+            const filesWithStats = rawFilesWithStats || log.changes || [];
 
             const initialDescription = (log.description || '').trim();
             const initialData = {
@@ -505,6 +512,15 @@ export async function openCommitDetails(
         query: `changeId=${changeId}&repoRoot=${encodeURIComponent(workspaceRoot)}`,
     });
 
+    await closeOtherCommitDetailsTabs(uri, workspaceRoot);
+
+    await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
+}
+
+export async function closeOtherCommitDetailsTabs(
+    currentUri: vscode.Uri,
+    workspaceRoot: string | undefined,
+): Promise<void> {
     const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
     const tabsToClose = allTabs.filter((tab) => {
         if (!(tab.input instanceof vscode.TabInputCustom)) {
@@ -513,14 +529,14 @@ export async function openCommitDetails(
         if (tab.input.viewType !== JjCommitDetailsEditorProvider.viewType) {
             return false;
         }
-        if (tab.input.uri.toString() === uri.toString()) {
+        if (tab.input.uri.toString() === currentUri.toString()) {
             return false;
         }
 
         try {
             const query = new URLSearchParams(tab.input.uri.query);
-            const repoRoot = query.get('repoRoot');
-            return !repoRoot || repoRoot === workspaceRoot;
+            const tabRepoRoot = query.get('repoRoot');
+            return !tabRepoRoot || tabRepoRoot === workspaceRoot;
         } catch {
             return true; // Default to closing if parsing fails
         }
@@ -529,6 +545,4 @@ export async function openCommitDetails(
     if (tabsToClose.length > 0) {
         await vscode.window.tabGroups.close(tabsToClose);
     }
-
-    await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
 }
