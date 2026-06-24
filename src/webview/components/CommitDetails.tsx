@@ -34,6 +34,13 @@ interface SaveFailedMessage {
     type: 'saveFailed';
 }
 
+interface SaveCompleteMessage {
+    type: 'saveComplete';
+    payload: {
+        description: string;
+    };
+}
+
 interface UpdateDescriptionMessage {
     type: 'updateDescription';
     payload: {
@@ -43,15 +50,15 @@ interface UpdateDescriptionMessage {
     };
 }
 
-type WebviewMessage = SaveFailedMessage | UpdateDescriptionMessage;
+type WebviewMessage = SaveFailedMessage | SaveCompleteMessage | UpdateDescriptionMessage;
 
 function isWebviewMessage(data: unknown): data is WebviewMessage {
-    return (
-        typeof data === 'object' &&
-        data !== null &&
-        'type' in data &&
-        typeof (data as Record<string, unknown>).type === 'string'
-    );
+    if (typeof data !== 'object' || data === null) {
+        return false;
+    }
+
+    const { type } = data as { type?: unknown };
+    return typeof type === 'string' && ['saveFailed', 'saveComplete', 'updateDescription'].includes(type);
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -104,11 +111,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 textareaRef.current.value = description;
             }
         }
-        setIsSaving(false);
         prevDescriptionRef.current = description;
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
     }, [description]);
 
     React.useEffect(() => {
@@ -123,6 +126,17 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 if (saveTimeoutRef.current) {
                     clearTimeout(saveTimeoutRef.current);
                 }
+            } else if (data.type === 'saveComplete') {
+                setIsSaving(false);
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                }
+                const savedDescription = data.payload.description;
+                setDraftDescription(savedDescription);
+                if (textareaRef.current) {
+                    textareaRef.current.value = savedDescription;
+                }
+                prevDescriptionRef.current = savedDescription;
             } else if (data.type === 'updateDescription') {
                 const { description: newDesc, selectionStart, selectionEnd } = data.payload;
                 isApplyingExtensionEdit.current = true;

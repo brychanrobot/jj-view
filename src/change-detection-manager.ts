@@ -79,7 +79,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                 if (doc.uri.scheme !== 'file') {
                     return;
                 }
-                const fsPath = doc.uri.fsPath;
+                const { fsPath } = doc.uri;
                 if (/[\\/]\.jj[\\/]/.test(fsPath)) {
                     return;
                 }
