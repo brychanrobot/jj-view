@@ -74,6 +74,10 @@ export class JjRepository implements Disposable {
         });
     }
 
+    get activeRefresh(): Promise<void> | undefined {
+        return this._refreshQueue.currentRun;
+    }
+
     get jj(): JjService {
         return this._jj;
     }

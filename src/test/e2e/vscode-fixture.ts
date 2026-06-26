@@ -968,7 +968,11 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                                 focusedFoundStart = Date.now();
                             }
                             const refreshStart = Date.now();
-                            await focused.refresh({ forceSnapshot: true, reason: 'e2e-sync' });
+                            if (focused.activeRefresh) {
+                                await focused.activeRefresh;
+                            } else {
+                                await focused.refresh({ forceSnapshot: false, reason: 'e2e-sync' });
+                            }
                             const refreshDuration = Date.now() - refreshStart;
 
                             const watchersStart = Date.now();
