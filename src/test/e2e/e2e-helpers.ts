@@ -174,15 +174,28 @@ export async function waitForTab(page: Page, namePattern: RegExp | string): Prom
     return tab;
 }
 
+const logWebviewCache = new WeakMap<Page, Frame>();
+
 /**
  * Finds the webview frame containing the JJ Log commit rows.
  */
 export async function getLogWebview(page: Page, timeout: number = 30000): Promise<Frame> {
+    const cached = logWebviewCache.get(page);
+    if (cached && !cached.isDetached()) {
+        return cached;
+    }
+
     const start = Date.now();
-    // The panel header
+
+    // 1. Time pane header check
+    const headerStart = Date.now();
     await expect(page.locator('.pane-header', { hasText: 'JJ Log' })).toBeVisible({
         timeout: Math.min(timeout, 300),
     });
+    const headerTime = Date.now() - headerStart;
+
+    let framesCount = 0;
+    let findTime = 0;
 
     async function findFrameWithSelector(frames: ReadonlyArray<Frame>, selector: string): Promise<Frame | undefined> {
         for (const f of frames) {
@@ -200,10 +213,15 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
     }
 
     let guestFrame: Frame | undefined;
+    const pollStart = Date.now();
     await expect
         .poll(
             async () => {
-                guestFrame = await findFrameWithSelector(page.frames(), '.commit-row');
+                const frames = page.frames();
+                framesCount = frames.length;
+                const searchStart = Date.now();
+                guestFrame = await findFrameWithSelector(frames, '.commit-row');
+                findTime += Date.now() - searchStart;
                 return guestFrame;
             },
             {
@@ -213,10 +231,18 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
         )
         .toBeDefined();
 
+    const pollTime = Date.now() - pollStart;
+
     if (!guestFrame) {
         throw new Error('Could not find JJ Log webview frame');
     }
-    logPerf('getLogWebview', start);
+    logWebviewCache.set(page, guestFrame);
+    logPerf(
+        'getLogWebview',
+        start,
+        undefined,
+        `(headerCheck: ${headerTime}ms, framesCount: ${framesCount}, findTime: ${findTime}ms, pollTime: ${pollTime}ms)`,
+    );
     return guestFrame;
 }
 
@@ -1050,11 +1076,22 @@ async function openScmItem(
     return row;
 }
 
+const detailsWebviewCache = new WeakMap<Page, Frame>();
+
 /**
  * Finds the webview frame containing the Commit Details panel.
  * Re-fetches frames on poll to handle detached frames.
  */
 export async function getDetailsWebview(page: Page): Promise<Frame> {
+    const cached = detailsWebviewCache.get(page);
+    if (cached && !cached.isDetached()) {
+        try {
+            if (await cached.locator('textarea').isVisible({ timeout: 50 })) {
+                return cached;
+            }
+        } catch {}
+    }
+
     const start = Date.now();
     const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
         for (const f of frames) {
@@ -1094,6 +1131,7 @@ export async function getDetailsWebview(page: Page): Promise<Frame> {
 
     // Ensure the iframe is fully "ready" before returning
     await expect(guestFrame.locator('textarea')).toBeVisible({ timeout: 10000 });
+    detailsWebviewCache.set(page, guestFrame);
     logPerf('getDetailsWebview', start);
     return guestFrame;
 }
