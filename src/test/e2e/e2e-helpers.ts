@@ -174,14 +174,71 @@ export async function waitForTab(page: Page, namePattern: RegExp | string): Prom
     return tab;
 }
 
+/**
+ * Helper to retrieve a cached webview frame, verifying it is attached and ready.
+ */
+async function getCachedWebviewFrame(
+    page: Page,
+    cache: WeakMap<Page, Frame>,
+    predicate: (frame: Frame) => Promise<boolean>,
+): Promise<Frame | undefined> {
+    const cached = cache.get(page);
+    if (!cached) {
+        return undefined;
+    }
+    if (cached.isDetached()) {
+        return undefined;
+    }
+    try {
+        if (await predicate(cached)) {
+            return cached;
+        }
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const name = err instanceof Error ? err.name : '';
+        const isPlaywrightError =
+            name === 'TimeoutError' ||
+            msg.includes('timeout') ||
+            msg.includes('Playwright') ||
+            msg.includes('Target closed') ||
+            msg.includes('Frame was detached');
+        if (!isPlaywrightError) {
+            console.warn(`[webview-cache] Unexpected error checking cached frame readiness:`, err);
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Helper to recursively search for an active/visible frame that satisfies the predicate.
+ */
+async function findFrameWithPredicate(
+    frames: ReadonlyArray<Frame>,
+    predicate: (frame: Frame) => Promise<boolean>,
+): Promise<Frame | undefined> {
+    for (const f of frames) {
+        try {
+            if (await predicate(f)) {
+                return f;
+            }
+            const nested = await findFrameWithPredicate(f.childFrames(), predicate);
+            if (nested) {
+                return nested;
+            }
+        } catch {}
+    }
+    return undefined;
+}
+
 const logWebviewCache = new WeakMap<Page, Frame>();
 
 /**
  * Finds the webview frame containing the JJ Log commit rows.
  */
 export async function getLogWebview(page: Page, timeout: number = 30000): Promise<Frame> {
-    const cached = logWebviewCache.get(page);
-    if (cached && !cached.isDetached()) {
+    const hasCommitRow = async (f: Frame) => (await f.locator('.commit-row').count()) > 0;
+    const cached = await getCachedWebviewFrame(page, logWebviewCache, hasCommitRow);
+    if (cached) {
         return cached;
     }
 
@@ -197,21 +254,6 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
     let framesCount = 0;
     let findTime = 0;
 
-    async function findFrameWithSelector(frames: ReadonlyArray<Frame>, selector: string): Promise<Frame | undefined> {
-        for (const f of frames) {
-            try {
-                if ((await f.locator(selector).count()) > 0) {
-                    return f;
-                }
-                const nested = await findFrameWithSelector(f.childFrames(), selector);
-                if (nested) {
-                    return nested;
-                }
-            } catch (_) {}
-        }
-        return undefined;
-    }
-
     let guestFrame: Frame | undefined;
     const pollStart = Date.now();
     await expect
@@ -220,7 +262,7 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
                 const frames = page.frames();
                 framesCount = frames.length;
                 const searchStart = Date.now();
-                guestFrame = await findFrameWithSelector(frames, '.commit-row');
+                guestFrame = await findFrameWithPredicate(frames, hasCommitRow);
                 findTime += Date.now() - searchStart;
                 return guestFrame;
             },
@@ -236,6 +278,9 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
     if (!guestFrame) {
         throw new Error('Could not find JJ Log webview frame');
     }
+
+    // Ensure the iframe is fully "ready" before returning
+    await expect(guestFrame.locator('.commit-row').first()).toBeVisible({ timeout: 10000 });
     logWebviewCache.set(page, guestFrame);
     logPerf(
         'getLogWebview',
@@ -1083,39 +1128,19 @@ const detailsWebviewCache = new WeakMap<Page, Frame>();
  * Re-fetches frames on poll to handle detached frames.
  */
 export async function getDetailsWebview(page: Page): Promise<Frame> {
-    const cached = detailsWebviewCache.get(page);
-    if (cached && !cached.isDetached()) {
-        try {
-            if (await cached.locator('textarea').isVisible({ timeout: 50 })) {
-                return cached;
-            }
-        } catch {}
+    const isTextareaVisible = async (f: Frame) => await f.locator('textarea').isVisible({ timeout: 50 });
+    const cached = await getCachedWebviewFrame(page, detailsWebviewCache, isTextareaVisible);
+    if (cached) {
+        return cached;
     }
 
     const start = Date.now();
-    const findFrame = async (frames: ReadonlyArray<Frame>): Promise<Frame | undefined> => {
-        for (const f of frames) {
-            try {
-                // Return the first iframe that is actually visible (not hidden by VS Code's tab switching)
-                // We consider it the active webview if its textarea is visible, meaning it's the actively displayed tab
-                if (await f.locator('textarea').isVisible({ timeout: 50 })) {
-                    return f;
-                }
-
-                const nested = await findFrame(f.childFrames());
-                if (nested) {
-                    return nested;
-                }
-            } catch (_e) {}
-        }
-        return undefined;
-    };
 
     let guestFrame: Frame | undefined;
     await expect
         .poll(
             async () => {
-                guestFrame = await findFrame(page.frames());
+                guestFrame = await findFrameWithPredicate(page.frames(), isTextareaVisible);
                 return guestFrame;
             },
             {
