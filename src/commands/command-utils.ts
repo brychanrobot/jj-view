@@ -12,6 +12,7 @@ import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
 import { formatCommitDescription } from '../utils/format-utils';
+import type { JjLoggerChannel } from '../utils/output-channel';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -85,8 +86,7 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
         unique.set(state.resourceUri.fsPath, state);
     }
 
-    const result = Array.from(unique.values());
-    return result;
+    return Array.from(unique.values());
 }
 
 function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
@@ -351,7 +351,7 @@ export async function showJjError(
     error: unknown,
     prefix: string,
     jj?: JjService,
-    outputChannel?: vscode.OutputChannel,
+    outputChannel?: JjLoggerChannel,
     extraActions: string[] = [],
 ): Promise<string | undefined> {
     const message = getErrorMessage(error);
@@ -377,7 +377,7 @@ export async function showJjError(
     if (!process.env.VITEST) {
         console.error(fullMessage, error);
     }
-    outputChannel?.appendLine(`[Error] ${fullMessage}`);
+    outputChannel?.error(`[Error] ${fullMessage}`);
 
     const SHOW_LOG = 'Show Log';
     const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);
@@ -387,9 +387,9 @@ export async function showJjError(
     } else if (selection === DELETE_LOCK && lockPath) {
         try {
             await fs.unlink(lockPath);
-            outputChannel?.appendLine(`[Info] Deleted lock file at ${lockPath}`);
+            outputChannel?.info(`[Info] Deleted lock file at ${lockPath}`);
         } catch (e) {
-            outputChannel?.appendLine(`[Error] Failed to delete lock file: ${getErrorMessage(e)}`);
+            outputChannel?.error(`[Error] Failed to delete lock file: ${getErrorMessage(e)}`);
             vscode.window.showErrorMessage(`Failed to delete lock file: ${getErrorMessage(e)}`);
         }
     }
@@ -485,7 +485,7 @@ export function resolveRepository(
     // 2. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
     uri = extractUriFromArgs(args);
     if (uri) {
-        repositoryManager.outputChannel.appendLine(
+        repositoryManager.outputChannel.info(
             `[resolveRepository] Extracted candidate URI from arguments: ${uri.toString()}`,
         );
     }
@@ -500,13 +500,13 @@ export function resolveRepository(
                 const repoRoot = query.get('repoRoot');
                 if (repoRoot) {
                     uri = vscode.Uri.file(decodeURIComponent(repoRoot));
-                    repositoryManager.outputChannel.appendLine(
+                    repositoryManager.outputChannel.info(
                         `[resolveRepository] Resolved candidate URI from active jj-commit editor repoRoot: ${uri.toString()}`,
                     );
                 }
             } else {
                 uri = docUri;
-                repositoryManager.outputChannel.appendLine(
+                repositoryManager.outputChannel.info(
                     `[resolveRepository] Resolved candidate URI from active text editor: ${uri.toString()}`,
                 );
             }
@@ -516,22 +516,22 @@ export function resolveRepository(
     // 3. Resolve repository and scm from candidate URI, or fallback to focused repository
     let repo = uri ? repositoryManager.getRepositoryForUri(uri) : undefined;
     if (repo) {
-        repositoryManager.outputChannel.appendLine(
+        repositoryManager.outputChannel.info(
             `[resolveRepository] Successfully resolved repository for URI: ${repo.rootUri.fsPath}`,
         );
     } else {
         if (uri) {
-            repositoryManager.outputChannel.appendLine(
+            repositoryManager.outputChannel.info(
                 `[resolveRepository] No repository matched candidate URI: ${uri.toString()}`,
             );
         }
         repo = repositoryManager.focusedRepository;
         if (repo) {
-            repositoryManager.outputChannel.appendLine(
+            repositoryManager.outputChannel.info(
                 `[resolveRepository] Falling back to focused repository: ${repo.rootUri.fsPath}`,
             );
         } else {
-            repositoryManager.outputChannel.appendLine(`[resolveRepository] No focused repository fallback available.`);
+            repositoryManager.outputChannel.info(`[resolveRepository] No focused repository fallback available.`);
         }
     }
 
@@ -540,7 +540,7 @@ export function resolveRepository(
         if (scm) {
             return { repo, scm };
         } else {
-            repositoryManager.outputChannel.appendLine(
+            repositoryManager.outputChannel.info(
                 `[resolveRepository] Resolved repository ${repo.rootUri.fsPath} but no matching SCM provider found.`,
             );
         }

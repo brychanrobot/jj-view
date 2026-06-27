@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('JjService Unit Tests', () => {
@@ -17,7 +18,7 @@ describe('JjService Unit Tests', () => {
         repo = new TestRepo();
         repo.init();
 
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
     afterEach(() => {
@@ -77,7 +78,12 @@ describe('JjService Unit Tests', () => {
 
     test('repository discovery in secondary workspace', async () => {
         const secondRepo = repo.workspaceAdd('second_ws');
-        const secondJj = new JjService(secondRepo.path);
+        const secondJj = new JjService(secondRepo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
 
         const storePath = await secondJj.getRepoStorePath();
         const mainRoot = await secondJj.getMainWorkspaceRoot();
@@ -987,7 +993,7 @@ log = "none()"
     }, 30000);
 
     test('describe with revision updates specific commit', async () => {
-        const jj = new JjService(repo.path);
+        const jj = new JjService(repo.path, NO_OP_LOGGER);
         repo.new([], 'parent');
         const parentId = repo.getChangeId('@');
         repo.new([], 'child');

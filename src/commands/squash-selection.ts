@@ -104,7 +104,7 @@ export async function squashSelectionIntoParentCommand(
     const relPath = path.relative(jj.workspaceRoot, fsPath);
 
     const revision = getRevisionFromUri(docUri) || '@';
-    scmProvider.outputChannel.appendLine(`Squashing selection from ${revision} into parent.`);
+    scmProvider.outputChannel.info(`Squashing selection from ${revision} into parent.`);
 
     const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
 

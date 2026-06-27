@@ -11,11 +11,11 @@ import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { TestRepo } from './test-repo';
-import { createMock, exposePrivate } from './test-utils';
+import { createMock, createMockLogOutputChannel, exposePrivate } from './test-utils';
 
 suite('JjRepositoryManager Integration Test', () => {
     let registry: CodeForgeRegistry;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let workspaceState: vscode.Memento;
     let manager: JjRepositoryManager;
     let mainRepo: TestRepo;
@@ -69,7 +69,7 @@ suite('JjRepositoryManager Integration Test', () => {
         extraDirs = [];
         sandbox = sinon.createSandbox();
         registry = new CodeForgeRegistry();
-        outputChannel = createMock<vscode.OutputChannel>({
+        outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
         const store = new Map<string, unknown>();

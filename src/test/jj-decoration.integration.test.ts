@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock } from './test-utils';
+import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ Decoration Integration Test', () => {
     let scmProvider: JjScmProvider;
@@ -25,7 +25,7 @@ suite('JJ Decoration Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             replace: () => {},

@@ -9,7 +9,7 @@ import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provi
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
-import { asSinonStub, createMock } from './test-utils';
+import { asSinonStub, createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('Webview Selection Integration Test', () => {
     let provider: JjLogWebviewProvider;
@@ -50,7 +50,7 @@ suite('Webview Selection Integration Test', () => {
         repo.init();
 
         const extensionUri = vscode.Uri.file(__dirname); // Mock URI
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);

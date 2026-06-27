@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('JjService Diff Tests', () => {
@@ -15,7 +16,7 @@ describe('JjService Diff Tests', () => {
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
     afterEach(() => {

@@ -33,6 +33,20 @@ const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 const IS_WINDOWS = process.platform === 'win32';
 const NO_OP_EDITOR = IS_WINDOWS ? 'cmd.exe /c exit 0' : 'true';
 
+export type JjServiceLogger = {
+    info(message: string): void;
+    warn(message: string): void;
+    error(message: string): void;
+    debug(message: string): void;
+};
+
+export const NO_OP_LOGGER: JjServiceLogger = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+};
+
 export class JjService {
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
@@ -44,7 +58,7 @@ export class JjService {
 
     constructor(
         public readonly workspaceRoot: string,
-        public readonly logger: (message: string) => void = () => {},
+        public readonly logger: JjServiceLogger,
         public binaryPath: string = 'jj',
     ) {}
 
@@ -141,8 +155,7 @@ export class JjService {
     private getScriptPath(scriptBaseName: string): string {
         const isWin = process.platform === 'win32';
         const scriptName = isWin ? `${scriptBaseName}.bat` : `${scriptBaseName}.sh`;
-        const scriptPath = path.join(__dirname, '..', 'scripts', scriptName);
-        return scriptPath;
+        return path.join(__dirname, '..', 'scripts', scriptName);
     }
 
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
@@ -252,7 +265,7 @@ export class JjService {
                 cp.execFile(this.binaryPath, allArgs, finalOptions, (err, stdout, stderr) => {
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
-                    this.logger(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
+                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
 
                     if (err) {
                         const combined: string[] = [];
@@ -275,7 +288,7 @@ export class JjService {
             });
 
             if (isMutation) {
-                await this.clearCache().catch((err) => this.logger(`Warning: failed to clear cache: ${err}`));
+                await this.clearCache().catch((err) => this.logger.warn(`Warning: failed to clear cache: ${err}`));
             }
 
             const shouldTrim = options.trim !== false;
@@ -308,12 +321,14 @@ export class JjService {
             const parsed = JSON.parse(jsonListString);
             const validation = JjBookmarkSchema.array().safeParse(parsed);
             if (!validation.success) {
-                this.logger(`Failed to validate bookmarks JSON: ${validation.error.message}. Raw output: ${output}`);
+                this.logger.error(
+                    `Failed to validate bookmarks JSON: ${validation.error.message}. Raw output: ${output}`,
+                );
                 return [];
             }
             return validation.data;
         } catch (e) {
-            this.logger(`Failed to parse bookmarks JSON: ${e}. Raw output: ${output}`);
+            this.logger.error(`Failed to parse bookmarks JSON: ${e}. Raw output: ${output}`);
             return [];
         }
     }
@@ -446,7 +461,7 @@ export class JjService {
                             .map((l) => l.trim())
                             .filter(Boolean);
                     } catch (e) {
-                        this.logger(`Warning: failed to fetch nearest ancestors for ${entry.change_id}: ${e}`);
+                        this.logger.warn(`Warning: failed to fetch nearest ancestors for ${entry.change_id}: ${e}`);
                         entry.nearest_visible_ancestors = [];
                     }
                 })(),
@@ -565,7 +580,7 @@ export class JjService {
         // relative to the parent(s). Fallback to fetching file content directly.
         // This handles "Quick Diff" on unchanged files where we need the base content.
         try {
-            this.logger(`getDiffContent fallback ${filePath} ${revision}`);
+            this.logger.debug(`getDiffContent fallback ${filePath} ${revision}`);
             const content = await this.getFileContent(filePath, revision);
             return { left: content, right: content };
         } catch {
@@ -1219,7 +1234,7 @@ export class JjService {
                     if (err) {
                         // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
                         // This is expected fallback behavior
-                        this.logger(`getGitBlobHashes failed: ${err.message}`);
+                        this.logger.warn(`getGitBlobHashes failed: ${err.message}`);
                         resolve(new Map());
                         return;
                     }

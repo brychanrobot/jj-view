@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { DiffTabCleaner } from '../diff-tab-cleaner';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
 
@@ -38,7 +39,7 @@ describe('Diff Tab Cleaner', () => {
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
 
         const belongsToRepo = (uri: vscode.Uri) => {
             const normalizedUri = uri.fsPath.replace(/\\/g, '/').toLowerCase();

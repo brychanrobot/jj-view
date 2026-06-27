@@ -15,18 +15,18 @@ vi.mock('vscode', async () => {
 // Import after mock
 import type { CodeForgeService } from '../code-forge-service';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('handleTerminalExecution', () => {
     let codeForgeService: CodeForgeService;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let scmProvider: JjScmProvider;
 
     beforeEach(() => {
         codeForgeService = createMock<CodeForgeService>({
             requestRefreshWithBackoffs: vi.fn(),
         });
-        outputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
+        outputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn().mockResolvedValue(undefined),
         });
@@ -78,6 +78,6 @@ describe('handleTerminalExecution', () => {
     it('logs detected upload command', () => {
         handleTerminalExecution('jj upload', codeForgeService, outputChannel, scmProvider);
 
-        expect(outputChannel.appendLine).toHaveBeenCalledWith('[Extension] Detected terminal upload/push: "jj upload"');
+        expect(outputChannel.info).toHaveBeenCalledWith('[Extension] Detected terminal upload/push: "jj upload"');
     });
 });

@@ -40,6 +40,6 @@ export async function workspaceForgetCommand(scmProvider: JjScmProvider, jj: JjS
     } catch (e) {
         const message = getErrorMessage(e);
         vscode.window.showErrorMessage(`Failed to forget workspace: ${message}`);
-        scmProvider.outputChannel.appendLine(`[Error] Workspace forget failed: ${message}`);
+        scmProvider.outputChannel.error(`[Error] Workspace forget failed: ${message}`);
     }
 }

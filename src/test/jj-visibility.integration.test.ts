@@ -8,12 +8,12 @@ import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock } from './test-utils';
+import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', () => {
     let scmProvider: JjScmProvider;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let repo: TestRepo;
 
     setup(async () => {
@@ -21,7 +21,7 @@ suite('JJ SCM Visibility Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        outputChannel = createMock<vscode.OutputChannel>({
+        outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             replace: () => {},

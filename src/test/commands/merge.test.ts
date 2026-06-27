@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { newMergeChangeCommand } from '../../commands/merge';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 import { asMock, resetMockQuickPick } from '../vitest-utils';
@@ -25,7 +26,7 @@ describe('newMergeChangeCommand', () => {
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
             getSelectedCommitIds: vi.fn().mockReturnValue([]),

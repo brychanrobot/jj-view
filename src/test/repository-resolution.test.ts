@@ -20,7 +20,7 @@ import type { JjRepository } from '../jj-repository';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('resolveRepository', () => {
     let repo: TestRepo;
@@ -34,7 +34,7 @@ describe('resolveRepository', () => {
         repo.init();
 
         const codeForgeRegistry = new CodeForgeRegistry();
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
         const workspaceState = createMock<vscode.Memento>({

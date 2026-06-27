@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { showJjError } from '../../commands/command-utils';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
+import { createMockLogOutputChannel } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -34,7 +35,7 @@ describe('Index Lock Error Handling', () => {
             repo = new TestRepo();
             repo.init();
 
-            const mockLogger = vi.fn();
+            const mockLogger = createMockLogOutputChannel();
             jjService = new JjService(repo.path, mockLogger);
 
             // Create a fake lock file
@@ -54,13 +55,13 @@ describe('Index Lock Error Handling', () => {
                 // Verify the error is recognized
                 expect(JjService.isIndexLockError(e)).toBe(true);
 
-                const mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+                const mockOutputChannel = createMockLogOutputChannel();
                 const result = await showJjError(e, 'Prefix', jjService, mockOutputChannel, []);
 
                 // Verify recovery
                 expect(result).toBe('Delete Lock File');
                 expect(fs.existsSync(lockPath)).toBe(false);
-                expect(mockOutputChannel.appendLine).toHaveBeenCalledWith(expect.stringContaining('Deleted lock file'));
+                expect(mockOutputChannel.info).toHaveBeenCalledWith(expect.stringContaining('Deleted lock file'));
 
                 // Verify that another commit will now succeed
                 await expect(jjService.commit('test commit 2')).resolves.not.toThrow();
@@ -98,7 +99,7 @@ describe('Index Lock Error Handling', () => {
             testRepo = new TestRepo();
             testRepo.init();
 
-            const mockLogger = vi.fn();
+            const mockLogger = createMockLogOutputChannel();
             jjService = new JjService(testRepo.path, mockLogger);
         });
 
@@ -110,7 +111,7 @@ describe('Index Lock Error Handling', () => {
 
         test('adds Delete Lock File action for lock errors with repository root', async () => {
             const error = new Error('Could not acquire lock for index file');
-            const mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+            const mockOutputChannel = createMockLogOutputChannel();
 
             // Re-mock to return standard selection
             const showErrorMessage = vscode.window.showErrorMessage as Mock;
@@ -127,7 +128,7 @@ describe('Index Lock Error Handling', () => {
 
         test('deletes lock file when action is selected', async () => {
             const error = new Error('Could not acquire lock for index file');
-            const mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+            const mockOutputChannel = createMockLogOutputChannel();
 
             const lockPath = path.join(testRepo.path, '.git', 'index.lock');
             fs.mkdirSync(path.dirname(lockPath), { recursive: true });
@@ -141,16 +142,16 @@ describe('Index Lock Error Handling', () => {
 
             expect(result).toBe('Delete Lock File');
             expect(fs.existsSync(lockPath)).toBe(false);
-            expect(mockOutputChannel.appendLine).toHaveBeenCalledWith(expect.stringContaining('Deleted lock file'));
+            expect(mockOutputChannel.info).toHaveBeenCalledWith(expect.stringContaining('Deleted lock file'));
         });
 
         test('does not add action if repo root is missing', async () => {
             const error = new Error('Could not acquire lock for index file');
-            const mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+            const mockOutputChannel = createMockLogOutputChannel();
 
             // Create a separate service pointing to an empty non-jj directory
             const emptyDirRepo = new TestRepo(); // not calling init()
-            const emptyJjService = new JjService(emptyDirRepo.path, vi.fn());
+            const emptyJjService = new JjService(emptyDirRepo.path, createMockLogOutputChannel());
 
             const showErrorMessage = vscode.window.showErrorMessage as Mock;
             showErrorMessage.mockResolvedValueOnce(undefined);
@@ -170,7 +171,7 @@ describe('Index Lock Error Handling', () => {
 
         test('does not duplicate Delete Lock File action if already present', async () => {
             const error = new Error('Could not acquire lock for index file');
-            const mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+            const mockOutputChannel = createMockLogOutputChannel();
 
             const showErrorMessage = vscode.window.showErrorMessage as Mock;
             showErrorMessage.mockResolvedValueOnce(undefined);

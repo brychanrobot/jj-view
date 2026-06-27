@@ -70,7 +70,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 const state = this._documentStates.get(changeId);
                 const repo = this.getRepositoryForRoot(state?.document.repoRoot);
                 if (!repo) {
-                    this._repositoryManager.outputChannel.appendLine(
+                    this._repositoryManager.outputChannel.info(
                         `[JjCommitDetailsEditorProvider.refresh] No Jujutsu repository resolved for changeId ${changeId}`,
                     );
                     continue;
@@ -253,7 +253,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
         const repo = this.getRepositoryForRoot(document.repoRoot);
         if (!repo) {
-            this._repositoryManager.outputChannel.appendLine(
+            this._repositoryManager.outputChannel.info(
                 `[JjCommitDetailsEditorProvider.resolveCustomEditor] No Jujutsu repository resolved for document: ${document.uri.toString()} (repoRoot: ${document.repoRoot?.fsPath})`,
             );
             panel.dispose();

@@ -2,8 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
 import { computeGraphLayout } from '../webview/graph-compute';
 import { type GraphLayout, type GraphNode, isElisionRow } from '../webview/graph-model';
@@ -417,7 +418,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         repo = new TestRepo();
         repo.init();
 
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
     afterEach(() => {
@@ -724,7 +725,12 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
             { label: 'uoym', description: 'uoym', parents: ['zonk'], isCurrentWorkingCopy: true },
         ]);
 
-        const jjService = new JjService(repo.path);
+        const jjService = new JjService(repo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
         const logs = await jjService.getLog({ includeNearestVisibleAncestors: true });
         const layout = computeGraphLayout(logs);
 

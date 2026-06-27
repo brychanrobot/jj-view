@@ -10,7 +10,7 @@ import { GitHubProvider } from '../github-provider';
 import { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
+import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
 vi.mock('vscode', () => ({
@@ -42,11 +42,11 @@ vi.mock('vscode', () => ({
 
 describe('GitHubProvider', () => {
     let provider: GitHubProvider;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
 
     beforeEach(() => {
-        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         mockAuthManager = createMock<CodeForgeAuthManager>({
             isAuthSkipped: vi.fn().mockReturnValue(false),
             hasPromptedThisSession: vi.fn().mockReturnValue(false),
@@ -316,7 +316,12 @@ describe('GitHubProvider', () => {
         const testRepo = new TestRepo();
         try {
             testRepo.init();
-            const jj = new JjService(testRepo.path, () => {});
+            const jj = new JjService(testRepo.path, {
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+                debug: () => {},
+            });
             const result = await provider.fetchStatuses(changes, jj);
             expect(result).toBe(true);
         } finally {
@@ -364,7 +369,12 @@ describe('GitHubProvider', () => {
         const testRepo = new TestRepo();
         try {
             testRepo.init();
-            const jj = new JjService(testRepo.path, () => {});
+            const jj = new JjService(testRepo.path, {
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+                debug: () => {},
+            });
             const result = await provider.fetchStatuses(changes, jj);
             expect(result).toBe(false); // No cache changes were registered
         } finally {
@@ -574,7 +584,12 @@ describe('GitHubProvider', () => {
         const testRepo = new TestRepo();
         try {
             testRepo.init();
-            const jj = new JjService(testRepo.path, () => {});
+            const jj = new JjService(testRepo.path, {
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+                debug: () => {},
+            });
             await provider.fetchStatuses(changes, jj);
         } finally {
             testRepo.dispose();

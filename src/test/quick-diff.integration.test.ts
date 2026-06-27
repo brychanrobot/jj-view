@@ -2,16 +2,17 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 suite('Quick Diff Integration Test', () => {
     let jj: JjService;
@@ -30,8 +31,8 @@ suite('Quick Diff Integration Test', () => {
         // Canonicalize path to resolve RUNNER~1 short names on Windows
         canonicalPath = fs.realpathSync(repo.path);
 
-        jj = new JjService(canonicalPath);
-        const outputChannel = createMock<vscode.OutputChannel>({
+        jj = new JjService(canonicalPath, NO_OP_LOGGER);
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             dispose: () => {},

@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjMergeContentProvider } from '../jj-merge-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { TestRepo } from './test-repo';
 
 suite('JJ Merge Provider Integration Test', () => {
@@ -19,7 +20,7 @@ suite('JJ Merge Provider Integration Test', () => {
         repo = new TestRepo();
         repo.init();
         // JjService uses process.env
-        jj = new JjService(repo.path); // JjService takes path
+        jj = new JjService(repo.path, NO_OP_LOGGER); // JjService takes path
         provider = new JjMergeContentProvider(jj);
         registration = vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', provider);
     });

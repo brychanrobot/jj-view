@@ -2,15 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { JjRepository } from './jj-repository';
-import { JjService } from './jj-service';
+import { JjService, NO_OP_LOGGER } from './jj-service';
 import { CoalescingQueue } from './utils/coalescing-queue';
-import { JjOutputChannel } from './utils/output-channel';
+import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 
 interface DetectedRepoInfo {
     rootPath: string;
@@ -54,7 +55,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
     constructor(
         private readonly _codeForgeRegistry: CodeForgeRegistry,
-        private readonly _outputChannel: vscode.OutputChannel,
+        private readonly _outputChannel: JjLoggerChannel,
         private readonly _workspaceState: vscode.Memento,
         initialBinaryPath?: string,
     ) {
@@ -75,7 +76,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                         }
                     })
                     .catch((err) => {
-                        this._outputChannel.appendLine(
+                        this._outputChannel.error(
                             `[RepositoryManager] Error checking open editor URI at start: ${err}`,
                         );
                     });
@@ -115,7 +116,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                     this.tryAutoSwitch(uri);
                 }
             } catch (err) {
-                this._outputChannel.appendLine(`[RepositoryManager] Error checking active tab URI: ${err}`);
+                this._outputChannel.error(`[RepositoryManager] Error checking active tab URI: ${err}`);
             }
         };
 
@@ -126,7 +127,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                 this._normalizedWorkspaceFolders = undefined;
                 this._realNormalizedPathCache.clear();
                 this.scanForRepositories().catch((err) => {
-                    this._outputChannel.appendLine(`[RepositoryManager] Error scanning on workspace change: ${err}`);
+                    this._outputChannel.error(`[RepositoryManager] Error scanning on workspace change: ${err}`);
                 });
             }),
         );
@@ -148,7 +149,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this._workspaceState;
     }
 
-    get outputChannel(): vscode.OutputChannel {
+    get outputChannel(): JjLoggerChannel {
         return this._outputChannel;
     }
 
@@ -164,7 +165,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         for (const repo of this._repositories) {
             repo.jj.binaryPath = binPath;
             repo.refresh({ reason: 'binary path set' }).catch((err) => {
-                this._outputChannel.appendLine(
+                this._outputChannel.error(
                     `[RepositoryManager] Failed to refresh repo ${repo.rootUri.fsPath} on binary path change: ${err}`,
                 );
             });
@@ -185,7 +186,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         }
 
         this._focusedRepository = repo;
-        this._outputChannel.appendLine(`[RepositoryManager] Focused repository: ${repo?.rootUri.fsPath ?? 'none'}`);
+        this._outputChannel.info(`[RepositoryManager] Focused repository: ${repo?.rootUri.fsPath ?? 'none'}`);
         this.fireEvent(this._onDidChangeFocusedRepository, repo);
 
         if (repo) {
@@ -216,7 +217,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             return;
         }
 
-        this._outputChannel.appendLine(`[RepositoryManager] Loading ${stored.length} cached repositories...`);
+        this._outputChannel.info(`[RepositoryManager] Loading ${stored.length} cached repositories...`);
 
         const loaded: JjRepository[] = [];
         for (const item of stored) {
@@ -232,9 +233,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                 const repo = await this.createRepository(item.rootPath, item.storePath);
                 loaded.push(repo);
             } catch (err) {
-                this._outputChannel.appendLine(
-                    `[RepositoryManager] Failed to restore cached repo ${item.rootPath}: ${err}`,
-                );
+                this._outputChannel.error(`[RepositoryManager] Failed to restore cached repo ${item.rootPath}: ${err}`);
             }
         }
 
@@ -361,7 +360,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                     absPath = path.resolve(folders[0].uri.fsPath, p);
                 }
                 if (!(await this.isPathInOrAncestorOfWorkspace(absPath))) {
-                    this._outputChannel.appendLine(
+                    this._outputChannel.warn(
                         `[RepositoryManager] Warning: Skipping configured scan path outside workspace folders: ${p}`,
                     );
                     return;
@@ -416,7 +415,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                     const repo = await this.createRepository(info.rootPath, info.storePath);
                     newRepos.push(repo);
                 } catch (err) {
-                    this._outputChannel.appendLine(
+                    this._outputChannel.error(
                         `[RepositoryManager] Error creating repository for ${info.rootPath}: ${err}`,
                     );
                 }
@@ -458,9 +457,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         }
 
         this.fireEvent(this._onDidChangeRepositories, this._repositories);
-        this._outputChannel.appendLine(
-            `[RepositoryManager] Total registered repositories: ${this._repositories.length}`,
-        );
+        this._outputChannel.info(`[RepositoryManager] Total registered repositories: ${this._repositories.length}`);
 
         // 5. Update focus
         if (this._repositories.length > 0) {
@@ -512,7 +509,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             }
 
             if (!info.isMain && mainStores.has(this.normalizePath(info.storePath))) {
-                this._outputChannel.appendLine(`[RepositoryManager] Skipping secondary workspace: ${info.rootPath}`);
+                this._outputChannel.info(`[RepositoryManager] Skipping secondary workspace: ${info.rootPath}`);
                 continue;
             }
 
@@ -584,7 +581,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
             const realDir = await fs.realpath(existingDir).catch(() => existingDir);
 
-            const jj = new JjService(realDir, () => {}, this._binaryPath || 'jj');
+            const jj = new JjService(realDir, NO_OP_LOGGER, this._binaryPath || 'jj');
             try {
                 const resolvedRoot = await jj.getRepoRoot();
                 const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
@@ -686,7 +683,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             }
 
             this.registerRepositories([repo]);
-            this._outputChannel.appendLine(`[RepositoryManager] Dynamically registered repo: ${info.rootPath}`);
+            this._outputChannel.info(`[RepositoryManager] Dynamically registered repo: ${info.rootPath}`);
 
             return repo;
         })();
@@ -1152,7 +1149,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             this._repositories.splice(index, 1);
             this.persistRepositories();
 
-            this._outputChannel.appendLine(
+            this._outputChannel.info(
                 `[RepositoryManager] Closing and disposing repository explicitly: ${repo.rootUri.fsPath}`,
             );
             await repo.dispose();
@@ -1175,12 +1172,12 @@ export class JjRepositoryManager implements vscode.Disposable {
      * Keeps the manager itself active for subsequent use.
      */
     async clear(): Promise<void> {
-        this._outputChannel.appendLine(`[RepositoryManager] Clearing ${this._repositories.length} repositories`);
+        this._outputChannel.info(`[RepositoryManager] Clearing ${this._repositories.length} repositories`);
 
         // 1. Await any active or queued scan
         const currentScan = this._scanQueue.currentRun;
         if (currentScan) {
-            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active/queued scan before clearing...`);
+            this._outputChannel.info(`[RepositoryManager] Awaiting active/queued scan before clearing...`);
             await currentScan.catch(() => {});
         }
 
@@ -1201,9 +1198,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         this.setFocusedRepository(undefined);
 
         for (const repo of repos) {
-            this._outputChannel.appendLine(
-                `[RepositoryManager] Closing and disposing repository: ${repo.rootUri.fsPath}`,
-            );
+            this._outputChannel.info(`[RepositoryManager] Closing and disposing repository: ${repo.rootUri.fsPath}`);
             await repo.dispose();
             this.fireEvent(this._onDidCloseRepository, repo);
         }
@@ -1211,7 +1206,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         // 5. Dispose pending repositories
         for (const repo of pendingRepos) {
             if (repo) {
-                this._outputChannel.appendLine(
+                this._outputChannel.info(
                     `[RepositoryManager] Closing and disposing pending repository: ${repo.rootUri.fsPath}`,
                 );
                 await repo.dispose();
@@ -1223,14 +1218,14 @@ export class JjRepositoryManager implements vscode.Disposable {
 
         this.fireEvent(this._onDidChangeRepositories, []);
 
-        this._outputChannel.appendLine(`[RepositoryManager] Clear complete`);
+        this._outputChannel.info(`[RepositoryManager] Clear complete`);
     }
     async dispose(): Promise<void> {
         if (this._disposed) {
             return;
         }
         this._disposed = true;
-        this._outputChannel.appendLine(`[RepositoryManager] Disposing JjRepositoryManager`);
+        this._outputChannel.info(`[RepositoryManager] Disposing JjRepositoryManager`);
 
         this._onDidOpenRepository.dispose();
         this._onDidCloseRepository.dispose();
@@ -1240,7 +1235,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         // 1. Await any active or queued scan
         const currentScan = this._scanQueue.currentRun;
         if (currentScan) {
-            this._outputChannel.appendLine(`[RepositoryManager] Awaiting active/queued scan before disposing...`);
+            this._outputChannel.info(`[RepositoryManager] Awaiting active/queued scan before disposing...`);
             await currentScan.catch(() => {});
         }
 
@@ -1251,7 +1246,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
         // 3. Dispose registered repositories
         for (const repo of this._repositories) {
-            this._outputChannel.appendLine(`[RepositoryManager] Disposing repository: ${repo.rootUri.fsPath}`);
+            this._outputChannel.info(`[RepositoryManager] Disposing repository: ${repo.rootUri.fsPath}`);
             await repo.dispose();
         }
         this._repositories = [];
@@ -1260,9 +1255,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         // 4. Dispose pending repositories
         for (const repo of pendingRepos) {
             if (repo) {
-                this._outputChannel.appendLine(
-                    `[RepositoryManager] Disposing pending repository: ${repo.rootUri.fsPath}`,
-                );
+                this._outputChannel.info(`[RepositoryManager] Disposing pending repository: ${repo.rootUri.fsPath}`);
                 await repo.dispose();
             }
         }
@@ -1271,6 +1264,6 @@ export class JjRepositoryManager implements vscode.Disposable {
             d.dispose();
         }
         this._disposables = [];
-        this._outputChannel.appendLine(`[RepositoryManager] JjRepositoryManager disposed`);
+        this._outputChannel.info(`[RepositoryManager] JjRepositoryManager disposed`);
     }
 }

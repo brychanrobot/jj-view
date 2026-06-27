@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../../code-forge-auth';
@@ -9,9 +10,9 @@ import type { CodeForgeService } from '../../code-forge-service';
 import { uploadCommand } from '../../commands/upload';
 import { GitHubProvider } from '../../github-provider';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 // Mock dependencies
 const mockConfig = {
@@ -37,12 +38,12 @@ describe('uploadCommand', () => {
     let repo: TestRepo;
     let codeForgeService: CodeForgeService;
     let scmProvider: JjScmProvider;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
 
         codeForgeService = createMock<CodeForgeService>({
             isEnabled: true,
@@ -51,7 +52,7 @@ describe('uploadCommand', () => {
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn(), show: vi.fn() });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn() });
         mockConfig.get.mockReset();
         vi.mocked(vscode.window.showErrorMessage).mockClear();
         vi.mocked(vscode.commands.executeCommand).mockClear();

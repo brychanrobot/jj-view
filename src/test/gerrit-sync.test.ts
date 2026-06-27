@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CodeForgeService } from '../code-forge-service';
 import { GerritProvider, type GerritRevision } from '../gerrit-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
@@ -54,7 +55,7 @@ describe('Gerrit Sync Verification', () => {
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
         fakeGerritServer = new FakeGerritServer();
         await fakeGerritServer.start();
 

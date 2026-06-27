@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { promptForRevision, RevisionQuery, withDelayedProgress } from '../commands/command-utils';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
 
@@ -79,7 +79,7 @@ describe('promptForRevision', () => {
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
         vi.clearAllMocks();
     });
 

@@ -42,7 +42,7 @@ export async function deleteBookmarkCommand(scmProvider: JjScmProvider, jj: JjSe
         } catch (e) {
             const message = getErrorMessage(e);
             vscode.window.showErrorMessage(`Failed to fetch bookmarks: ${message}`);
-            scmProvider.outputChannel.appendLine(`[Error] Fetch bookmarks failed: ${message}`);
+            scmProvider.outputChannel.error(`[Error] Fetch bookmarks failed: ${message}`);
             return;
         }
     }
@@ -67,6 +67,6 @@ export async function deleteBookmarkCommand(scmProvider: JjScmProvider, jj: JjSe
     } catch (e) {
         const message = getErrorMessage(e);
         vscode.window.showErrorMessage(`Failed to delete bookmark: ${message}`);
-        scmProvider.outputChannel.appendLine(`[Error] Bookmark delete failed: ${message}`);
+        scmProvider.outputChannel.error(`[Error] Bookmark delete failed: ${message}`);
     }
 }

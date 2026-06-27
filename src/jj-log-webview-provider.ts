@@ -12,6 +12,7 @@ import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
 import { canAbsorbCommit } from './utils/jj-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';
@@ -23,14 +24,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     private _codeForgeDisposable: vscode.Disposable | undefined;
     private readonly _onSelectionChange: (commits: string[]) => void;
     private readonly _context: vscode.ExtensionContext;
-    public readonly outputChannel?: vscode.OutputChannel;
+    public readonly outputChannel?: JjLoggerChannel;
 
     constructor(
         extensionUri: vscode.Uri,
         initialRepo: JjRepository | undefined,
         onSelectionChange: (commits: string[]) => void,
         context: vscode.ExtensionContext,
-        outputChannel?: vscode.OutputChannel,
+        outputChannel?: JjLoggerChannel,
     );
     constructor(
         extensionUri: vscode.Uri,
@@ -38,26 +39,26 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         commitDetailsProvider: JjCommitDetailsEditorProvider,
         onSelectionChange: (commits: string[]) => void,
         context: vscode.ExtensionContext,
-        outputChannel?: vscode.OutputChannel,
+        outputChannel?: JjLoggerChannel,
     );
     constructor(
         private readonly _extensionUri: vscode.Uri,
         initialRepo: JjRepository | undefined,
         arg3: JjCommitDetailsEditorProvider | ((commits: string[]) => void),
         arg4?: ((commits: string[]) => void) | vscode.ExtensionContext,
-        arg5?: vscode.ExtensionContext | vscode.OutputChannel,
-        outputChannel?: vscode.OutputChannel,
+        arg5?: vscode.ExtensionContext | JjLoggerChannel,
+        outputChannel?: JjLoggerChannel,
     ) {
         this._repo = initialRepo;
 
         let onSelectionChange: (commits: string[]) => void;
         let context: vscode.ExtensionContext;
-        let finalOutputChannel: vscode.OutputChannel | undefined;
+        let finalOutputChannel: JjLoggerChannel | undefined;
 
         if (typeof arg3 === 'function') {
             onSelectionChange = arg3;
             context = arg4 as vscode.ExtensionContext;
-            finalOutputChannel = arg5 as vscode.OutputChannel;
+            finalOutputChannel = arg5 as JjLoggerChannel;
         } else {
             onSelectionChange = arg4 as (commits: string[]) => void;
             context = arg5 as vscode.ExtensionContext;
@@ -141,7 +142,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         // it uses the latest cached data instead of the initial stale data.
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this.outputChannel?.appendLine('[JjLogWebviewProvider] View became visible, re-rendering');
+                this.outputChannel?.info('[JjLogWebviewProvider] View became visible, re-rendering');
                 this._renderCommits(this._cachedCommits);
             } else {
                 const config = vscode.workspace.getConfiguration('jj-view');
@@ -341,10 +342,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
 
             try {
                 const reasonStr = reason ? ` (reason: ${reason})` : '';
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Refreshing${reasonStr}...`);
+                this.outputChannel?.info(`[JjLogWebviewProvider] Refreshing${reasonStr}...`);
 
                 if (!this._repo || !(await this._repo.isValid())) {
-                    this.outputChannel?.appendLine(
+                    this.outputChannel?.info(
                         `[JjLogWebviewProvider] ${this._repo ? this._repo.rootUri.fsPath : 'No repository'} is not a valid jj repository. Skipping log refresh.`,
                     );
                     this._cachedCommits = [];
@@ -352,7 +353,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     return;
                 }
 
-                const jj = this.jj;
+                const { jj } = this;
                 if (!jj) {
                     return;
                 }
@@ -364,7 +365,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     includeNearestVisibleAncestors: true,
                 });
                 const logDuration = performance.now() - logStart;
-                this.outputChannel?.appendLine(
+                this.outputChannel?.info(
                     `[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`,
                 );
 
@@ -372,11 +373,11 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 this._renderCommits(commits);
 
                 const initialRenderDuration = performance.now() - start;
-                this.outputChannel?.appendLine(
+                this.outputChannel?.info(
                     `[JjLogWebviewProvider] Initial render took ${initialRenderDuration.toFixed(0)}ms`,
                 );
             } catch (e) {
-                this.outputChannel?.appendLine(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
+                this.outputChannel?.error(`[JjLogWebviewProvider] Failed to fetch log: ${e}`);
                 return;
             }
 
@@ -416,14 +417,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             );
 
             const duration = performance.now() - start;
-            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Code forge fetch took ${duration.toFixed(0)}ms`);
+            this.outputChannel?.info(`[JjLogWebviewProvider] Code forge fetch took ${duration.toFixed(0)}ms`);
 
             if (hasChanges) {
-                this.outputChannel?.appendLine('[JjLogWebviewProvider] Code forge data changed, re-rendering');
+                this.outputChannel?.info('[JjLogWebviewProvider] Code forge data changed, re-rendering');
                 this._renderCommits(this._cachedCommits);
             }
         } catch (e) {
-            this.outputChannel?.appendLine(`[JjLogWebviewProvider] Code forge refresh failed: ${e}`);
+            this.outputChannel?.error(`[JjLogWebviewProvider] Code forge refresh failed: ${e}`);
         }
     }
 
@@ -437,7 +438,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         if (cf?.isEnabled) {
             cf.populateCodeForgeInfo(commits);
         } else {
-            this.outputChannel?.appendLine('[JjLogWebviewProvider] Code forge service is disabled.');
+            this.outputChannel?.info('[JjLogWebviewProvider] Code forge service is disabled.');
         }
 
         this._view?.webview.postMessage({

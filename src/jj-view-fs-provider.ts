@@ -60,7 +60,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         this._knownUris.add(uri.toString());
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
-            this._repositoryManager.outputChannel.appendLine(
+            this._repositoryManager.outputChannel.info(
                 `[JjViewFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
             );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);

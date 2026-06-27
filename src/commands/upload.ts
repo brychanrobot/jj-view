@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { CodeForgeService } from '../code-forge-service';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function uploadCommand(
@@ -13,7 +14,7 @@ export async function uploadCommand(
     jj: JjService,
     codeForge: CodeForgeService,
     args: unknown[],
-    outputChannel: vscode.OutputChannel,
+    outputChannel: JjLoggerChannel,
 ): Promise<void> {
     const revision = extractRevision(args);
     const config = vscode.workspace.getConfiguration('jj-view');
@@ -30,7 +31,7 @@ export async function uploadCommand(
             subcommand = first;
             commandArgs = rest;
         } else {
-            const activeProvider = codeForge.activeProvider;
+            const { activeProvider } = codeForge;
             if (activeProvider?.getUploadCommand) {
                 const rev = revision || '@';
                 let hasBookmark = false;

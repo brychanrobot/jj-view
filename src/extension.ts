@@ -69,6 +69,7 @@ import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import type { JjResourceState } from './scm-resource-state';
 import { resolveJjBinary } from './utils/binary-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 import { JjOutputChannel } from './utils/output-channel';
 
 export interface Api {
@@ -80,7 +81,7 @@ export interface Api {
 export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const folders = vscode.workspace.workspaceFolders || [];
     const workspaceRoot = folders.length > 0 ? folders[0].uri.fsPath : '';
-    const realOutputChannel = vscode.window.createOutputChannel('JJ View');
+    const realOutputChannel = vscode.window.createOutputChannel('JJ View', { log: true });
     const outputChannel = new JjOutputChannel(realOutputChannel);
     context.subscriptions.push(realOutputChannel);
 
@@ -113,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
         if (resolvedPath) {
             repositoryManager.setBinaryPath(resolvedPath);
-            outputChannel.appendLine(`[Extension] Using jj binary at: ${resolvedPath}`);
+            outputChannel.info(`[Extension] Using jj binary at: ${resolvedPath}`);
         } else if (errorMessage) {
             showBinaryError(errorMessage);
         }
@@ -370,7 +371,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
         // Fire and forget: check if we should warn about git colocation
         checkGitColocation(repo.jj).catch((e) =>
-            outputChannel.appendLine(`[Extension] Colocation check failed for ${repoPrefix}: ${e}`),
+            outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}: ${e}`),
         );
     });
 
@@ -422,7 +423,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 repositoryManager.setFocusedRepository(context.repo);
                 return await handler(context.scm, context.repo.jj, ...args);
             } else {
-                outputChannel.appendLine(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
                 return;
             }
         });
@@ -652,12 +653,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 export function handleTerminalExecution(
     commandLine: string,
     codeForgeService: CodeForgeService,
-    outputChannel: vscode.OutputChannel,
+    outputChannel: JjLoggerChannel,
     scmProvider: JjScmProvider,
 ): boolean {
     const cmd = commandLine.trim();
     if (cmd.startsWith('jj') && (cmd.includes('upload') || cmd.includes('git push'))) {
-        outputChannel.appendLine(`[Extension] Detected terminal upload/push: "${cmd}"`);
+        outputChannel.info(`[Extension] Detected terminal upload/push: "${cmd}"`);
         codeForgeService.requestRefreshWithBackoffs();
         scmProvider.refresh({ reason: 'terminal upload/push' });
         return true;

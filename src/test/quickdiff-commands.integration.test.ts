@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -9,11 +10,11 @@ import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashHunkIntoParentCommand } from '../commands/squash-selection';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('Quick Diff Commands Integration Test', () => {
     let jj: JjService;
@@ -34,8 +35,8 @@ suite('Quick Diff Commands Integration Test', () => {
             subscriptions: [],
         });
 
-        jj = new JjService(canonicalPath);
-        const outputChannel = createMock<vscode.OutputChannel>({
+        jj = new JjService(canonicalPath, NO_OP_LOGGER);
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             replace: () => {},

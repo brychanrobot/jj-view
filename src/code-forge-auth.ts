@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import type { AuthManageItem } from './code-forge-provider';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export type AuthToken = string;
 
@@ -35,7 +36,7 @@ export class CodeForgeAuthManager {
 
     constructor(
         private readonly context: vscode.ExtensionContext,
-        private readonly outputChannel?: vscode.OutputChannel,
+        private readonly outputChannel?: JjLoggerChannel,
     ) {}
 
     public registerProvider(providerId: string): void {
@@ -57,9 +58,7 @@ export class CodeForgeAuthManager {
         if (!skipped) {
             this.promptedThisSession.delete(providerId);
         }
-        this.outputChannel?.appendLine(
-            `[CodeForgeAuthManager] Auth skipped state for '${providerId}' set to: ${skipped}`,
-        );
+        this.outputChannel?.info(`[CodeForgeAuthManager] Auth skipped state for '${providerId}' set to: ${skipped}`);
     }
 
     public hasPromptedThisSession(providerId: string): boolean {
@@ -91,7 +90,7 @@ export class CodeForgeAuthManager {
         this.unavailableProviders.clear();
         const promises = Array.from(this.registeredProviderIds).map((id) => this.setAuthSkipped(id, false));
         await Promise.all(promises);
-        this.outputChannel?.appendLine(`[CodeForgeAuthManager] Reset all authentication choices.`);
+        this.outputChannel?.info(`[CodeForgeAuthManager] Reset all authentication choices.`);
     }
 
     /**
@@ -178,7 +177,7 @@ export class CodeForgeAuthManager {
                     return storedToken;
                 }
             } catch (err) {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[CodeForgeAuthManager] Failed to read token from secrets for '${providerId}': ${err}`,
                 );
             }
@@ -212,12 +211,12 @@ export class CodeForgeAuthManager {
 
             if (isUnregistered) {
                 this.setProviderUnavailable(providerId, true);
-                this.outputChannel?.appendLine(
+                this.outputChannel?.info(
                     `[CodeForgeAuthManager] ${providerId} authentication provider is not available in VS Code. Using unauthenticated requests only.`,
                 );
                 return undefined;
             } else {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[CodeForgeAuthManager] Failed to get OAuth token silently for ${providerId}: ${errorStr}`,
                 );
             }
@@ -266,9 +265,7 @@ export class CodeForgeAuthManager {
                 await this.setAuthSkipped(providerId, true);
             }
         } catch (e) {
-            this.outputChannel?.appendLine(
-                `[CodeForgeAuthManager] Failed to prompt or sign in for ${providerId}: ${e}`,
-            );
+            this.outputChannel?.error(`[CodeForgeAuthManager] Failed to prompt or sign in for ${providerId}: ${e}`);
             return (await this.handleAuthError(providerId, e, {
                 extensionInstaller: options.extensionInstaller,
                 alternativeChoice: options.alternativeChoice,
@@ -471,13 +468,13 @@ export class CodeForgeAuthManager {
         try {
             const storedToken = await this.secrets.get(options.secretTokenKey);
             if (storedToken === options.currentToken) {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.info(
                     `[CodeForgeAuthManager] Clearing invalid stored PAT for '${options.providerId}'...`,
                 );
                 await this.secrets.delete(options.secretTokenKey);
             }
         } catch (err) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[CodeForgeAuthManager] Failed to delete token for '${options.providerId}': ${err}`,
             );
         }
@@ -508,11 +505,11 @@ export class CodeForgeAuthManager {
 
         try {
             await this.secrets.store(options.secretTokenKey, token.trim());
-            this.outputChannel?.appendLine(`[${options.displayName}Provider] Personal Access Token saved successfully`);
+            this.outputChannel?.info(`[${options.displayName}Provider] Personal Access Token saved successfully`);
             options.clearCache();
             return { status: 'success', token: token.trim() };
         } catch (err) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.info(
                 `[${options.displayName}Provider] Secrets storage is not available to save PAT: ${err}`,
             );
             return { status: 'failure', error: err };

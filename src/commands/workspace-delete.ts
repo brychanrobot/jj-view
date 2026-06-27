@@ -52,7 +52,7 @@ export async function workspaceDeleteCommand(scmProvider: JjScmProvider, jj: JjS
     } catch (e) {
         const message = getErrorMessage(e);
         vscode.window.showErrorMessage(`Failed to delete workspace: ${message}`);
-        scmProvider.outputChannel.appendLine(`[Error] Workspace delete failed: ${message}`);
+        scmProvider.outputChannel.error(`[Error] Workspace delete failed: ${message}`);
     }
 }
 

@@ -8,6 +8,7 @@ import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote 
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
 
@@ -71,7 +72,7 @@ export class GitLabProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: vscode.OutputChannel,
+        private outputChannel?: JjLoggerChannel,
     ) {
         this.authManager.registerProvider(this.id);
     }
@@ -119,7 +120,7 @@ export class GitLabProvider implements CodeForgeProvider {
             this.gitlabHost = host;
             this.projectPath = projectPath;
             this.remoteProjectPaths = projectPaths;
-            this.outputChannel?.appendLine(
+            this.outputChannel?.info(
                 `[GitLabProvider] Detected GitLab repo: host=${this.gitlabHost}, projectPath=${this.projectPath}`,
             );
             return true;
@@ -277,7 +278,7 @@ export class GitLabProvider implements CodeForgeProvider {
                     }
                 }
             } catch (error) {
-                this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch statuses for batch: ${error}`);
+                this.outputChannel?.error(`[GitLabProvider] Failed to fetch statuses for batch: ${error}`);
             }
         };
 
@@ -372,7 +373,7 @@ export class GitLabProvider implements CodeForgeProvider {
             await this.handleInvalidTokenIfNeeded(response.status, context);
 
             if (!response.ok) {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[GitLabProvider] Request failed with status ${response.status}: ${response.statusText}`,
                 );
                 this.handle403Warning(response);
@@ -382,7 +383,7 @@ export class GitLabProvider implements CodeForgeProvider {
             const parsedJson = await response.json();
             const validation = GitLabMergeRequestSchema.array().safeParse(parsedJson);
             if (!validation.success) {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[GitLabProvider] Failed to validate MR array response: ${validation.error.message}`,
                 );
                 return undefined;
@@ -406,7 +407,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 }
             }
         } catch (error) {
-            this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch MR for bookmark ${bookmark}: ${error}`);
+            this.outputChannel?.error(`[GitLabProvider] Failed to fetch MR for bookmark ${bookmark}: ${error}`);
         }
         return undefined;
     }
@@ -425,7 +426,7 @@ export class GitLabProvider implements CodeForgeProvider {
                     this.promptInstallGitLabExtension();
                 }
             } else {
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[GitLabProvider] Unauthenticated request failed with status ${response.status}. Prompting for GitLab OAuth...`,
                 );
                 const promptToken = await acquireToken();
@@ -444,7 +445,7 @@ export class GitLabProvider implements CodeForgeProvider {
     private async handleInvalidTokenIfNeeded(status: number, context: GitLabRequestContext): Promise<void> {
         const currentToken = context.sharedToken;
         if (status === 401 && currentToken) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[GitLabProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
             );
             // Reset the in-memory token cache so the next request re-fetches credentials.
@@ -496,17 +497,17 @@ export class GitLabProvider implements CodeForgeProvider {
                 if (validation.success) {
                     return validation.data;
                 }
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[GitLabProvider] Failed to validate single MR detail: ${validation.error.message}`,
                 );
                 return selectedMr;
             }
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[GitLabProvider] Failed to fetch single MR detail with status ${response.status}, falling back to list MR data`,
             );
             this.handle403Warning(response);
         } catch (err) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[GitLabProvider] Error fetching single MR detail: ${err}, falling back to list MR data`,
             );
         }
@@ -562,7 +563,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 }
                 if (projectInfo.forked_from_project?.path_with_namespace) {
                     this.resolvedProjectPath = projectInfo.forked_from_project.path_with_namespace;
-                    this.outputChannel?.appendLine(
+                    this.outputChannel?.info(
                         `[GitLabProvider] Detected parent project for fork: ${this.resolvedProjectPath}`,
                     );
                 } else {
@@ -602,13 +603,13 @@ export class GitLabProvider implements CodeForgeProvider {
                 if (validation.success) {
                     return validation.data;
                 }
-                this.outputChannel?.appendLine(
+                this.outputChannel?.error(
                     `[GitLabProvider] Failed to validate project info: ${validation.error.message}`,
                 );
                 return undefined;
             }
         } catch (e) {
-            this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
+            this.outputChannel?.error(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
         }
         return undefined;
     }
@@ -703,11 +704,11 @@ export class GitLabProvider implements CodeForgeProvider {
         this.authManager.setProviderUnavailable(this.id, false);
         this.extensionPromptShown = false;
         this.hasWarned403 = false;
-        this.outputChannel?.appendLine('[GitLabProvider] Activated');
+        this.outputChannel?.info('[GitLabProvider] Activated');
     }
 
     public deactivate(): void {
-        this.outputChannel?.appendLine('[GitLabProvider] Deactivated');
+        this.outputChannel?.info('[GitLabProvider] Deactivated');
     }
 
     private async getSessionToken(prompt = false): Promise<string | undefined> {

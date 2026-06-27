@@ -13,7 +13,7 @@ import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjEditFileSystemProvider } from '../jj-edit-fs-provider';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('JjEditFileSystemProvider', () => {
     let repo: TestRepo;
@@ -31,7 +31,7 @@ describe('JjEditFileSystemProvider', () => {
         repo.init();
 
         const codeForgeRegistry = new CodeForgeRegistry();
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
         const workspaceState = createMock<vscode.Memento>({

@@ -2,12 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as cp from 'node:child_process';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { checkGitColocation, resetGitColocationCheckForTesting } from '../git-colocation';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { TestRepo } from './test-repo';
 
 suite('Git Colocation Integration Test Suite', () => {
@@ -19,7 +20,7 @@ suite('Git Colocation Integration Test Suite', () => {
         repo = new TestRepo();
         // Create a colocated repo
         cp.execFileSync('jj', ['git', 'init', '--colocate'], { cwd: repo.path, encoding: 'utf-8' });
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
     suiteTeardown(() => {

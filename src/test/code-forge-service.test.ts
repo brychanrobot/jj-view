@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 // sort-imports-ignore
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
+import { NO_OP_LOGGER } from '../jj-service';
 
 const mockConfigStore = new Map<string, unknown>();
 let mockConfigListener: ((e: { affectsConfiguration(section: string): boolean }) => void) | undefined;
@@ -94,11 +96,11 @@ describe('CodeForgeService Tests', () => {
 
         repo1 = new TestRepo();
         repo1.init();
-        jjService1 = new JjService(repo1.path);
+        jjService1 = new JjService(repo1.path, NO_OP_LOGGER);
 
         repo2 = new TestRepo();
         repo2.init();
-        jjService2 = new JjService(repo2.path);
+        jjService2 = new JjService(repo2.path, NO_OP_LOGGER);
     });
 
     afterEach(() => {

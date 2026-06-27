@@ -9,9 +9,9 @@ import type { CodeForgeService } from '../../code-forge-service';
 import { advanceBookmarkAndUploadCommand } from '../../commands/bookmark-advance-upload';
 import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 import { resetMockQuickPick } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
@@ -33,10 +33,10 @@ describe('advanceBookmarkAndUploadCommand', () => {
         remoteRepo = new TestRepo();
         remoteRepo.init();
 
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
-            outputChannel: createMock<vscode.OutputChannel>({
+            outputChannel: createMockLogOutputChannel({
                 appendLine: vi.fn((msg: string) => console.log('OUTPUT CHANNEL:', msg)),
             }),
             repo: createMock<JjRepository>({
