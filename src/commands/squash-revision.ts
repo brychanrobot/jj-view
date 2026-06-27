@@ -5,25 +5,16 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { z } from 'zod';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
 import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
-interface SquashMeta {
-    revision: string;
-    parentRev: string;
-}
-
-function isSquashMeta(obj: unknown): obj is SquashMeta {
-    return (
-        !!obj &&
-        typeof obj === 'object' &&
-        'revision' in obj &&
-        'parentRev' in obj &&
-        typeof (obj as Record<string, unknown>).revision === 'string' &&
-        typeof (obj as Record<string, unknown>).parentRev === 'string'
-    );
-}
+const SquashMetaSchema = z.object({
+    revision: z.string(),
+    parentRev: z.string(),
+});
+type SquashMeta = z.infer<typeof SquashMetaSchema>;
 
 /**
  * Command to squash the entire revision into its parent.
@@ -198,11 +189,12 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
 
     try {
         const metaContent = await fs.readFile(metaPath, 'utf-8');
-        const metaRaw: unknown = JSON.parse(metaContent);
-        if (!isSquashMeta(metaRaw)) {
+        const parsed = JSON.parse(metaContent);
+        const validation = SquashMetaSchema.safeParse(parsed);
+        if (!validation.success) {
             throw new Error('Invalid squash metadata.');
         }
-        const { revision, parentRev } = metaRaw;
+        const { revision, parentRev } = validation.data;
 
         // Strip comments
         const finalMessage = message

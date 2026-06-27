@@ -1033,6 +1033,7 @@
         "react": "^19.2.3",
         "react-dom": "^19.2.3",
         "renderdag-ts": "git+https://github.com/brychanrobot/renderdag-ts.git",
-        "ts-pattern": "^5.9.0"
+        "ts-pattern": "^5.9.0",
+        "zod": "^4.4.3"
     }
 }
