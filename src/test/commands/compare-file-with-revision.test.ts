@@ -7,18 +7,12 @@ import * as vscode from 'vscode';
 import { compareFileWithRevisionCommand } from '../../commands/compare-file-with-revision';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
         commands: { executeCommand: vi.fn() },
-        window: {
-            showInformationMessage: vi.fn(),
-            showErrorMessage: vi.fn(),
-            showInputBox: vi.fn(),
-            showQuickPick: vi.fn(),
-        },
     });
 });
 
@@ -43,24 +37,19 @@ describe('compareFileWithRevisionCommand', () => {
         repo.writeFile('file1.txt', 'content');
         const fileUri = vscode.Uri.file(`${repo.path}/file1.txt`);
 
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+
         let acceptCallback: () => void = () => {};
-        const mockQuickPick = {
-            items: [],
-            selectedItems: [{ label: 'main', detail: 'main' }],
-            activeItems: [{ label: 'main', detail: 'main' }],
-            onDidChangeValue: vi.fn(),
-            onDidAccept: vi.fn().mockImplementation((cb) => {
-                acceptCallback = cb;
-            }),
-            onDidHide: vi.fn(),
-            show: vi.fn().mockImplementation(() => {
-                acceptCallback();
-            }),
-            dispose: vi.fn(),
-        };
-        vi.mocked(vscode.window.createQuickPick).mockReturnValue(
-            createMock<vscode.QuickPick<vscode.QuickPickItem>>(mockQuickPick),
-        );
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        setSelectedItems(mockQuickPick, [{ label: 'main', detail: 'main' }]);
+        setActiveItems(mockQuickPick, [{ label: 'main', detail: 'main' }]);
 
         await compareFileWithRevisionCommand(jj, mockOutputChannel, fileUri);
 

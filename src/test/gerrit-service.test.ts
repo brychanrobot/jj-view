@@ -13,7 +13,8 @@ import { GerritProvider } from '../gerrit-provider';
 import { JjService } from '../jj-service';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { accessPrivate, asMock, exposePrivate } from './test-utils';
+import { accessPrivate, exposePrivate } from './test-utils';
+import { asMock } from './vitest-utils';
 
 // Mock VS Code
 const mockConfig = {

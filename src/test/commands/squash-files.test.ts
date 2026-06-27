@@ -13,7 +13,8 @@ import {
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
-import { asMock, createMock } from '../test-utils';
+import { createMock } from '../test-utils';
+import { asMock } from '../vitest-utils';
 
 // Mock VS Code
 vi.mock('vscode', async () => {

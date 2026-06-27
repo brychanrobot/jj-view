@@ -7,6 +7,7 @@ import { expect } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogAction,
+    dragAndDrop,
     entry,
     expectTree,
     focusJJLog,
@@ -260,20 +261,8 @@ test.describe('JJ Log Pane E2E', () => {
             await sourceRow.scrollIntoViewIfNeeded();
             await targetRow.scrollIntoViewIfNeeded();
 
-            const sourceBox = await sourceRow.boundingBox();
-            const targetBox = await targetRow.boundingBox();
-
             // Drag source onto target to rebase
-            if (sourceBox && targetBox) {
-                // Move to source
-                await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
-                await page.mouse.down();
-                // Move to target
-                await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
-                    steps: 10,
-                });
-                await page.mouse.up();
-            }
+            await dragAndDrop(page, { source: sourceRow, target: targetRow });
 
             // Verify rebase via repo
             await expect(async () => {
@@ -321,6 +310,57 @@ test.describe('JJ Log Pane E2E', () => {
 
             // 5. Verify the bookmark pill disappears from the webview
             await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
+        } finally {
+            repo.dispose();
+        }
+    });
+
+    test('Drag & Drop Bookmark (Advance/Move)', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
+            {
+                label: 'wc',
+                parents: ['initial'],
+                description: 'working tree',
+                files: { 'file.txt': 'mod' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        // 1. Create a bookmark on initial commit
+        repo.bookmark('drag-bookmark', nodes.initial.changeId);
+
+        const { page } = await vscode.openWorkspace(repo);
+
+        try {
+            await focusJJLog(page);
+
+            // 2. Locate the draggable bookmark pill and target commit row (move forward)
+            const bookmarkPill = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
+            const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
+
+            // 3. Drag the bookmark pill onto the wc commit row (move forward)
+            await dragAndDrop(page, { source: bookmarkPill, target: wcRow });
+
+            // 4. Verify bookmark moved to wc in local repository
+            const wcCommitId = repo.getCommitId(nodes.wc.changeId);
+            await expect(async () => {
+                expect(repo.getCommitId('drag-bookmark')).toBe(wcCommitId);
+            }).toPass({ timeout: 10000 });
+
+            // 5. Drag it backward (from wc back onto initial commit)
+            const initialRow = await waitForLogCommitRow(page, { changeId: nodes.initial.changeId });
+            // Re-fetch the bookmark pill since the webview refreshes after the move command
+            const bookmarkPillAfterMove = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
+            await dragAndDrop(page, { source: bookmarkPillAfterMove, target: initialRow });
+
+            // 6. Verify bookmark moved back to initial commit in local repository
+            const initialCommitId = repo.getCommitId(nodes.initial.changeId);
+            await expect(async () => {
+                expect(repo.getCommitId('drag-bookmark')).toBe(initialCommitId);
+            }).toPass({ timeout: 10000 });
         } finally {
             repo.dispose();
         }

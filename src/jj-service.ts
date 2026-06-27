@@ -318,6 +318,17 @@ export class JjService {
         });
     }
 
+    async advanceBookmark(toRevision: string, names?: string[]): Promise<string> {
+        const args = ['advance', '--to', toRevision];
+        if (names && names.length > 0) {
+            args.push(...names);
+        }
+        return this.run('bookmark', args, {
+            isMutation: true,
+            label: 'advanceBookmark',
+        });
+    }
+
     async deleteBookmark(name: string): Promise<string> {
         return this.run('bookmark', ['delete', name], {
             isMutation: true,

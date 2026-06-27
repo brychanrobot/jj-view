@@ -442,6 +442,32 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
 }
 
 /**
+ * Simulates a drag and drop action between two locators.
+ */
+export async function dragAndDrop(page: Page, options: { source: Locator; target: Locator }) {
+    const { source, target } = options;
+    await source.scrollIntoViewIfNeeded();
+    await target.scrollIntoViewIfNeeded();
+
+    const sourceBox = await source.boundingBox();
+    const targetBox = await target.boundingBox();
+
+    if (!sourceBox) {
+        throw new Error('Could not get bounding box for source locator');
+    }
+    if (!targetBox) {
+        throw new Error('Could not get bounding box for target locator');
+    }
+
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+        steps: 10,
+    });
+    await page.mouse.up();
+}
+
+/**
  * Triggers a manual refresh of the JJ Log view by clicking the refresh button in the view title.
  */
 export async function triggerRefresh(page: Page) {
@@ -1330,4 +1356,31 @@ export function maybePrintExtensionLogs(userDataDir: string) {
     } catch (err) {
         console.error('Failed to read logs:', err);
     }
+}
+
+/**
+ * Polls the repository until the bookmark points to the expected commit ID.
+ */
+export async function waitForBookmark(
+    repo: TestRepo,
+    name: string,
+    expectedCommitId: string,
+    options: { timeout?: number; remoteRepo?: TestRepo } = {},
+) {
+    await expect
+        .poll(
+            async () => {
+                try {
+                    if (options.remoteRepo) {
+                        options.remoteRepo.gitImport();
+                        return options.remoteRepo.getCommitId(name) === expectedCommitId;
+                    }
+                    return repo.getCommitId(name) === expectedCommitId;
+                } catch {
+                    return false;
+                }
+            },
+            { timeout: options.timeout ?? 10000 },
+        )
+        .toBe(true);
 }

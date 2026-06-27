@@ -8,7 +8,8 @@ import { newMergeChangeCommand } from '../../commands/merge';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
-import { asMock, createMock } from '../test-utils';
+import { createMock } from '../test-utils';
+import { asMock } from '../vitest-utils';
 
 vi.mock('vscode', () => ({
     Uri: { file: (path: string) => ({ fsPath: path }) },

@@ -8,7 +8,8 @@ import { rebaseOntoSelectedCommand } from '../../commands/rebase';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
-import { asMock, createMock } from '../test-utils';
+import { createMock } from '../test-utils';
+import { asMock } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');

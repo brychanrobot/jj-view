@@ -261,6 +261,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 onDidAccept: vi.fn(),
                 onDidHide: vi.fn(),
                 show: vi.fn(),
+                hide: vi.fn(),
                 dispose: vi.fn(),
             }),
             withProgress: vi.fn().mockImplementation(async (_: unknown, task: () => Promise<unknown>) => task()),

@@ -12,6 +12,8 @@ import type { CodeForgeService } from './code-forge-service';
 import { abandonCommand } from './commands/abandon';
 import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
+import { advanceBookmarkCommand } from './commands/bookmark-advance';
+import { advanceBookmarkAndUploadCommand } from './commands/bookmark-advance-upload';
 import { deleteBookmarkCommand } from './commands/bookmark-delete';
 import { resolveRepository } from './commands/command-utils';
 import { commitCommand } from './commands/commit';
@@ -529,6 +531,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         registerWrappedCommand('jj-view.setBookmark', async (scm, jj, ...args) => {
             const arg = args[0] as { commitId: string };
             await setBookmarkCommand(scm, jj, arg);
+        }),
+        registerWrappedCommand('jj-view.advanceBookmark', async (scm, jj, ...args) => {
+            await advanceBookmarkCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.advanceBookmarkAndUpload', async (scm, jj, ...args) => {
+            await advanceBookmarkAndUploadCommand(scm, jj, args);
         }),
         registerWrappedCommand('jj-view.deleteBookmark', async (scm, jj, ...args) => {
             await deleteBookmarkCommand(scm, jj, args);

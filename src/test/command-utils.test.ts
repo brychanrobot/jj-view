@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { promptForRevision, withDelayedProgress } from '../commands/command-utils';
 import { JjService } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
 
 // Mock vscode
 vi.mock('vscode', async () => {
@@ -96,24 +96,19 @@ describe('promptForRevision', () => {
         ]);
         const changeId = ids.v4.changeId;
 
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+
         let acceptCallback: () => void = () => {};
-        const mockQuickPick = {
-            items: [],
-            selectedItems: [{ label: 'any', detail: changeId }],
-            activeItems: [{ label: 'any', detail: changeId }],
-            onDidChangeValue: vi.fn(),
-            onDidAccept: vi.fn().mockImplementation((cb) => {
-                acceptCallback = cb;
-            }),
-            onDidHide: vi.fn(),
-            show: vi.fn().mockImplementation(() => {
-                acceptCallback();
-            }),
-            dispose: vi.fn(),
-        };
-        vi.mocked(vscode.window.createQuickPick).mockReturnValue(
-            createMock<vscode.QuickPick<vscode.QuickPickItem>>(mockQuickPick),
-        );
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        setSelectedItems(mockQuickPick, [{ label: 'any', detail: changeId }]);
+        setActiveItems(mockQuickPick, [{ label: 'any', detail: changeId }]);
 
         const result = await promptForRevision(jj, '@');
 
@@ -123,25 +118,18 @@ describe('promptForRevision', () => {
     it('returns arbitrary typed text if not in list', async () => {
         await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
 
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+
         let acceptCallback: () => void = () => {};
-        const mockQuickPick = {
-            items: [],
-            selectedItems: [],
-            activeItems: [],
-            onDidChangeValue: vi.fn(),
-            value: 'custom-revision',
-            onDidAccept: vi.fn().mockImplementation((cb) => {
-                acceptCallback = cb;
-            }),
-            onDidHide: vi.fn(),
-            show: vi.fn().mockImplementation(() => {
-                acceptCallback();
-            }),
-            dispose: vi.fn(),
-        };
-        vi.mocked(vscode.window.createQuickPick).mockReturnValue(
-            createMock<vscode.QuickPick<vscode.QuickPickItem>>(mockQuickPick),
-        );
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        mockQuickPick.value = 'custom-revision';
 
         const result = await promptForRevision(jj, '@');
 
@@ -174,36 +162,21 @@ describe('promptForRevision', () => {
     it('configures quick pick to match on description and detail', async () => {
         await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
 
-        const state = {
-            createdQuickPick: null as vscode.QuickPick<vscode.QuickPickItem> | null,
-        };
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+
         let acceptCallback: () => void = () => {};
-        const mockQuickPick = {
-            items: [],
-            selectedItems: [],
-            activeItems: [],
-            onDidChangeValue: vi.fn(),
-            value: 'custom-revision',
-            onDidAccept: vi.fn().mockImplementation((cb) => {
-                acceptCallback = cb;
-            }),
-            onDidHide: vi.fn(),
-            show: vi.fn().mockImplementation(() => {
-                acceptCallback();
-            }),
-            dispose: vi.fn(),
-            matchOnDescription: false,
-            matchOnDetail: false,
-        };
-        vi.mocked(vscode.window.createQuickPick).mockImplementation(() => {
-            state.createdQuickPick = createMock<vscode.QuickPick<vscode.QuickPickItem>>(mockQuickPick);
-            return state.createdQuickPick;
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
         });
 
         await promptForRevision(jj, '@');
 
-        expect(state.createdQuickPick).not.toBeNull();
-        expect(state.createdQuickPick?.matchOnDescription).toBe(true);
-        expect(state.createdQuickPick?.matchOnDetail).toBe(true);
+        expect(mockQuickPick.matchOnDescription).toBe(true);
+        expect(mockQuickPick.matchOnDetail).toBe(true);
     });
 });
