@@ -1037,22 +1037,32 @@ log = "none()"
     });
 
     test('setFilesContent writes multiple files to a specific revision atomically', async () => {
-        repo.writeFile('file1.txt', 'old1');
-        repo.writeFile('file2.txt', 'old2');
+        const NUM_FILES = 5;
+        const files = new Map<string, string>();
+        for (let i = 1; i <= NUM_FILES; i++) {
+            repo.writeFile(`file${i}.txt`, `old${i}`);
+            files.set(`file${i}.txt`, `new${i}`);
+        }
         repo.describe('parent');
         const parentId = repo.getChangeId('@');
 
         repo.new();
         repo.writeFile('child.txt', 'child');
 
-        const files = new Map([
-            ['file1.txt', 'new1'],
-            ['file2.txt', 'new2'],
-        ]);
+        // Snapshot first to avoid snapshotting operations polluting the count
+        repo.snapshot();
+        const beforeOpId = repo.getCurrentOperationId();
+
         await jjService.setFilesContent(parentId, files);
 
-        expect(repo.getFileContent(parentId, 'file1.txt')).toBe('new1');
-        expect(repo.getFileContent(parentId, 'file2.txt')).toBe('new2');
+        for (const [filePath, expectedContent] of files) {
+            expect(repo.getFileContent(parentId, filePath)).toBe(expectedContent);
+        }
+
+        const ops = repo.getOperationsSince(beforeOpId);
+        // Verify that the batch write is recorded as a single atomic operation in the op log
+        const nonSnapshotOps = ops.filter((op) => !op.description.includes('snapshot'));
+        expect(nonSnapshotOps.length).toBe(1);
     });
 
     test('squashPartialToParent handles new files (not in parent)', async () => {

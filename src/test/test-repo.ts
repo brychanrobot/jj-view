@@ -496,6 +496,29 @@ export class TestRepo {
             return [];
         }
     }
+
+    getCurrentOperationId(): string {
+        return this.exec(['op', 'log', '-T', 'id', '--limit', '1', '--no-graph']);
+    }
+
+    getOperationsSince(opId: string): { id: string; description: string }[] {
+        const output = this.exec(['op', 'log', '--no-graph', '-T', 'id ++ " " ++ description ++ "\\n"']);
+        const lines = output
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0);
+        const ops: { id: string; description: string }[] = [];
+        for (const line of lines) {
+            const spaceIdx = line.indexOf(' ');
+            const id = spaceIdx !== -1 ? line.substring(0, spaceIdx) : line;
+            const description = spaceIdx !== -1 ? line.substring(spaceIdx + 1) : '';
+            if (id.startsWith(opId) || opId.startsWith(id)) {
+                break;
+            }
+            ops.push({ id, description });
+        }
+        return ops;
+    }
 }
 
 export interface CommitDefinition {

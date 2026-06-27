@@ -675,14 +675,14 @@ export class JjService {
         return this.runMutation(async () => {
             const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-batch-edit-'));
             try {
-                const fileList: { relPath: string; tmpPath: string }[] = [];
-                for (const [filePath, content] of files.entries()) {
+                const writePromises = Array.from(files.entries()).map(([filePath, content]) => {
                     const relPath = this.toRelative(filePath);
                     const safeName = relPath.replace(/[\\/]/g, '_');
                     const tmpPath = path.join(tempDir, `src_${safeName}`);
-                    await fs.writeFile(tmpPath, content, 'utf8');
-                    fileList.push({ relPath, tmpPath });
-                }
+                    return fs.writeFile(tmpPath, content, 'utf8').then(() => ({ relPath, tmpPath }));
+                });
+
+                const fileList = await Promise.all(writePromises);
 
                 const normalizedScriptPath = this.getScriptPath('batch-edit');
                 const toolName = 'vscode-batch-write';
