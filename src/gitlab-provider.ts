@@ -11,21 +11,35 @@ import { fetchWithTimeout } from './utils/fetch-utils';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
 
-interface GitLabMergeRequest {
-    id: number;
-    iid: number;
-    state: string;
-    draft?: boolean;
-    work_in_progress?: boolean;
-    has_conflicts?: boolean;
-    merge_status?: string;
-    detailed_merge_status?: string;
-    blocking_discussions_resolved?: boolean;
-    user_notes_count?: number;
-    web_url: string;
-    sha: string;
-    source_project_id?: number;
-}
+import { z } from 'zod';
+
+export const GitLabMergeRequestSchema = z.object({
+    id: z.number(),
+    iid: z.number(),
+    state: z.string(),
+    draft: z.boolean().optional(),
+    work_in_progress: z.boolean().optional(),
+    has_conflicts: z.boolean().optional(),
+    merge_status: z.string().optional(),
+    detailed_merge_status: z.string().optional(),
+    blocking_discussions_resolved: z.boolean().optional(),
+    user_notes_count: z.number().optional(),
+    web_url: z.string(),
+    sha: z.string(),
+    source_project_id: z.number().optional(),
+});
+export type GitLabMergeRequest = z.infer<typeof GitLabMergeRequestSchema>;
+
+export const GitLabProjectInfoSchema = z.object({
+    id: z.number().optional(),
+    forked_from_project: z
+        .object({
+            id: z.number().optional(),
+            path_with_namespace: z.string().optional(),
+        })
+        .optional(),
+});
+export type GitLabProjectInfo = z.infer<typeof GitLabProjectInfoSchema>;
 
 interface GitLabRequestContext {
     apiBaseUrl: string;
@@ -365,7 +379,16 @@ export class GitLabProvider implements CodeForgeProvider {
                 return undefined;
             }
 
-            const mrs = (await response.json()) as GitLabMergeRequest[];
+            const parsedJson = await response.json();
+            const validation = GitLabMergeRequestSchema.array().safeParse(parsedJson);
+            if (!validation.success) {
+                this.outputChannel?.appendLine(
+                    `[GitLabProvider] Failed to validate MR array response: ${validation.error.message}`,
+                );
+                return undefined;
+            }
+
+            const mrs = validation.data;
             if (Array.isArray(mrs) && mrs.length > 0) {
                 const filteredMrs = this.filterGitLabMrs(mrs, bookmark, context.bookmarkToCommitId);
                 if (filteredMrs.length > 0) {
@@ -468,7 +491,15 @@ export class GitLabProvider implements CodeForgeProvider {
                 headers: this.getHeaders(token),
             });
             if (response.ok) {
-                return (await response.json()) as GitLabMergeRequest;
+                const parsedJson = await response.json();
+                const validation = GitLabMergeRequestSchema.safeParse(parsedJson);
+                if (validation.success) {
+                    return validation.data;
+                }
+                this.outputChannel?.appendLine(
+                    `[GitLabProvider] Failed to validate single MR detail: ${validation.error.message}`,
+                );
+                return selectedMr;
             }
             this.outputChannel?.appendLine(
                 `[GitLabProvider] Failed to fetch single MR detail with status ${response.status}, falling back to list MR data`,
@@ -566,13 +597,15 @@ export class GitLabProvider implements CodeForgeProvider {
                 headers: this.getHeaders(token),
             });
             if (response.ok) {
-                return (await response.json()) as {
-                    id?: number;
-                    forked_from_project?: {
-                        id?: number;
-                        path_with_namespace?: string;
-                    };
-                };
+                const parsedJson = await response.json();
+                const validation = GitLabProjectInfoSchema.safeParse(parsedJson);
+                if (validation.success) {
+                    return validation.data;
+                }
+                this.outputChannel?.appendLine(
+                    `[GitLabProvider] Failed to validate project info: ${validation.error.message}`,
+                );
+                return undefined;
             }
         } catch (e) {
             this.outputChannel?.appendLine(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
