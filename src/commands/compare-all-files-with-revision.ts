@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
 import { encodeJjViewQuery } from '../uri-utils';
-import { extractRevision, promptForRevision, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
 export async function compareAllFilesWithRevisionCommand(
     jj: JjService,
@@ -16,12 +16,11 @@ export async function compareAllFilesWithRevisionCommand(
     try {
         let revision = extractRevision(args);
         if (!revision) {
-            revision = await promptForRevision(
-                jj,
-                '@',
-                'Select an ancestor to compare with all files',
-                'Enter revision to compare with all files',
-            );
+            revision = await promptForRevision(jj, {
+                placeHolder: 'Select an ancestor to compare with all files',
+                emptyPrompt: 'Enter revision to compare with all files',
+                revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+            });
         }
 
         if (!revision) {

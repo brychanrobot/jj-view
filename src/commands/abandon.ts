@@ -5,9 +5,16 @@
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { extractRevision, isCurrentWorkingCopyResourceGroup, showJjError, withDelayedProgress } from './command-utils';
+import {
+    extractRevision,
+    isCurrentWorkingCopyResourceGroup,
+    promptForRevision,
+    RevisionQuery,
+    showJjError,
+    withDelayedProgress,
+} from './command-utils';
 
-export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
+export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]): Promise<void> {
     let revisions: string[] = [];
 
     // 1. Check if triggered from Working Copy header (ignore selection)
@@ -28,18 +35,16 @@ export async function abandonCommand(scmProvider: JjScmProvider, jj: JjService, 
                 // Clicked outside selection -> abandon only the clicked one
                 revisions = [clickedRevision];
             }
+        } else if (selectedRevisions.length > 0) {
+            revisions = selectedRevisions;
         } else {
-            // No click arg -> use selection or prompt
-            if (selectedRevisions.length > 0) {
-                revisions = selectedRevisions;
-            } else {
-                const input = await vscode.window.showInputBox({
-                    prompt: 'Enter revision to abandon',
-                    placeHolder: 'Revision ID (e.g. @, commit_id)',
-                });
-                if (input) {
-                    revisions = [input];
-                }
+            const input = await promptForRevision(jj, {
+                placeHolder: 'Select revision to abandon',
+                emptyPrompt: 'Enter revision to abandon',
+                revisionQuery: RevisionQuery.mutable(),
+            });
+            if (input) {
+                revisions = [input];
             }
         }
     }

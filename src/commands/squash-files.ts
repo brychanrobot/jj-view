@@ -8,7 +8,8 @@ import type { JjService } from '../jj-service';
 import {
     collectResourceStates,
     extractRevision,
-    pickAncestor,
+    promptForRevision,
+    RevisionQuery,
     showJjError,
     withDelayedProgress,
 } from './command-utils';
@@ -51,7 +52,11 @@ export async function squashFilesIntoAncestorCommand(scmProvider: JjScmProvider,
     const revision = extractRevision(args) || '@';
 
     try {
-        const selectedAncestorRev = await pickAncestor(jj, revision);
+        const selectedAncestorRev = await promptForRevision(jj, {
+            placeHolder: 'Select which ancestor to squash into',
+            emptyPrompt: 'Enter ancestor revision',
+            revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+        });
         if (!selectedAncestorRev) {
             return;
         }
@@ -90,8 +95,10 @@ export async function squashFilesIntoChildCommand(scmProvider: JjScmProvider, jj
         } else if (children.length === 1) {
             targetChild = children[0];
         } else {
-            targetChild = await vscode.window.showQuickPick(children, {
+            targetChild = await promptForRevision(jj, {
                 placeHolder: `Select child commit for ${revision}`,
+                emptyPrompt: `Enter child commit for ${revision}`,
+                revisionQuery: RevisionQuery.children(revision),
             });
         }
 

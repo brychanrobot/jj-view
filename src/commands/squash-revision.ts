@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { extractRevision, pickAncestor, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
 interface SquashMeta {
     revision: string;
@@ -94,7 +94,11 @@ export async function squashRevisionIntoAncestorCommand(scmProvider: JjScmProvid
     const revision = extractRevision(args) || '@';
 
     try {
-        const selectedAncestorRev = await pickAncestor(jj, revision);
+        const selectedAncestorRev = await promptForRevision(jj, {
+            placeHolder: 'Select which ancestor to squash into',
+            emptyPrompt: 'Enter ancestor revision',
+            revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+        });
         if (!selectedAncestorRev) {
             return;
         }

@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
 import { encodeJjViewQuery } from '../uri-utils';
-import { promptForRevision, showJjError } from './command-utils';
+import { promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
 export async function compareFileWithRevisionCommand(
     jj: JjService,
@@ -33,12 +33,11 @@ export async function compareFileWithRevisionCommand(
             return;
         }
 
-        const revision = await promptForRevision(
-            jj,
-            '@',
-            `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
-            `Compare ${path.basename(fileUri.fsPath)} with revision`,
-        );
+        const revision = await promptForRevision(jj, {
+            placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
+            emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
+            revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+        });
 
         if (!revision) {
             return;

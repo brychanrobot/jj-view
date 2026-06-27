@@ -4,7 +4,7 @@
  */
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { extractRevision, promptForRevision, showJjError, withDelayedProgress } from './command-utils';
+import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
 export async function advanceBookmarkCommand(
     scmProvider: JjScmProvider,
@@ -14,7 +14,11 @@ export async function advanceBookmarkCommand(
     let revision = extractRevision(args);
 
     if (!revision) {
-        revision = await promptForRevision(jj, '@', 'Select target revision to advance bookmarks to');
+        revision = await promptForRevision(jj, {
+            placeHolder: 'Select target revision to advance bookmarks to',
+            emptyPrompt: 'Enter revision',
+            revisionQuery: RevisionQuery.ancestorsIncluding('@'),
+        });
     }
 
     if (!revision) {
