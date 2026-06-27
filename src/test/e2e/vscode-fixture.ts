@@ -969,7 +969,13 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                             }
                             const refreshStart = Date.now();
                             if (focused.activeRefresh) {
-                                await focused.activeRefresh;
+                                try {
+                                    await focused.activeRefresh;
+                                } catch (e: unknown) {
+                                    throw new Error(
+                                        `Active background refresh failed: ${e instanceof Error ? e.message : String(e)}`,
+                                    );
+                                }
                             } else {
                                 await focused.refresh({ forceSnapshot: false, reason: 'e2e-sync' });
                             }
@@ -992,6 +998,9 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                         } catch (e: unknown) {
                             const err = e as { message?: string; code?: string };
                             const msg = String(err?.message || e);
+                            if (msg.includes('Active background refresh failed')) {
+                                throw e;
+                            }
                             // If it's a "missing binary" error, we can safely ignore it because
                             // some tests specifically test invalid configurations.
                             if (
