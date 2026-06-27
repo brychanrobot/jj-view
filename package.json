@@ -416,6 +416,18 @@
                 "icon": "$(bookmark)"
             },
             {
+                "command": "jj-view.advanceBookmark",
+                "title": "Advance Bookmark",
+                "category": "JJ View",
+                "icon": "$(bookmark)"
+            },
+            {
+                "command": "jj-view.advanceBookmarkAndUpload",
+                "title": "Advance Bookmark & Upload",
+                "category": "JJ View",
+                "icon": "$(cloud-upload)"
+            },
+            {
                 "command": "jj-view.deleteBookmark",
                 "title": "Delete Bookmark",
                 "category": "JJ View",
@@ -720,6 +732,16 @@
                     "command": "jj-view.setBookmark",
                     "when": "webviewSection == 'commit'",
                     "group": "3_bookmark@1"
+                },
+                {
+                    "command": "jj-view.advanceBookmark",
+                    "when": "webviewSection == 'commit'",
+                    "group": "3_bookmark@1.5"
+                },
+                {
+                    "command": "jj-view.advanceBookmarkAndUpload",
+                    "when": "webviewSection == 'commit' && jj.canUpload",
+                    "group": "3_bookmark@1.6"
                 },
                 {
                     "command": "jj-view.deleteBookmark",

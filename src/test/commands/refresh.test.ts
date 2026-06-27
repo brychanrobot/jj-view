@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { refreshCommand } from '../../commands/refresh';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { asMock, createMock } from '../test-utils';
+import { createMock } from '../test-utils';
+import { asMock } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');

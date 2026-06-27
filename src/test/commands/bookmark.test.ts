@@ -2,38 +2,26 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { setBookmarkCommand } from '../../commands/bookmark';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-
-// Mock QuickPick
-const { mockQuickPick } = vi.hoisted(() => ({
-    mockQuickPick: {
-        show: vi.fn(),
-        hide: vi.fn(),
-        onDidAccept: vi.fn(),
-        selectedItems: [] as { label: string; description?: string }[],
-        value: '',
-        items: [] as { label: string; description?: string }[],
-        placeholder: '',
-        matchOnDescription: false,
-    },
-}));
+import { resetMockQuickPick, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        window: { createQuickPick: vi.fn(() => mockQuickPick) },
-    });
+    return createVscodeMock();
 });
 
 describe('setBookmarkCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
+    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -41,11 +29,8 @@ describe('setBookmarkCommand', () => {
         jj = new JjService(repo.path);
         scmProvider = createMock<JjScmProvider>({ refresh: vi.fn() });
 
-        mockQuickPick.show.mockClear();
-        mockQuickPick.hide.mockClear();
-        mockQuickPick.onDidAccept.mockClear();
-        mockQuickPick.selectedItems = [];
-        mockQuickPick.value = '';
+        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
     });
 
     afterEach(() => {
@@ -66,14 +51,14 @@ describe('setBookmarkCommand', () => {
         repo.bookmark('feature-a', '@');
 
         let acceptCallback: () => Promise<void> = async () => {};
-        mockQuickPick.onDidAccept.mockImplementation((cb: () => Promise<void>) => {
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb: () => Promise<void>) => {
             acceptCallback = cb;
             return { dispose: () => {} };
         });
 
         await setBookmarkCommand(scmProvider, jj, { commitId: repo.getChangeId('@') });
 
-        mockQuickPick.selectedItems = [{ label: 'feature-a' }];
+        setSelectedItems(mockQuickPick, [{ label: 'feature-a' }]);
         await acceptCallback();
 
         expect(mockQuickPick.hide).toHaveBeenCalled();
@@ -82,7 +67,7 @@ describe('setBookmarkCommand', () => {
 
     test('creates new bookmark when typed', async () => {
         let acceptCallback: () => Promise<void> = async () => {};
-        mockQuickPick.onDidAccept.mockImplementation((cb: () => Promise<void>) => {
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb: () => Promise<void>) => {
             acceptCallback = cb;
             return { dispose: () => {} };
         });
@@ -90,7 +75,7 @@ describe('setBookmarkCommand', () => {
         const commitId = repo.getChangeId('@');
         await setBookmarkCommand(scmProvider, jj, { commitId });
 
-        mockQuickPick.selectedItems = [];
+        setSelectedItems(mockQuickPick, []);
         mockQuickPick.value = 'new-feature';
         await acceptCallback();
 

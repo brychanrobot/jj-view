@@ -16,6 +16,7 @@ import {
     selectCommits,
     test,
     triggerRefresh,
+    waitForBookmark,
     waitForLogCommitRow,
     waitForLogPill,
     waitForTab,
@@ -471,21 +472,57 @@ test.describe('JJ Log Context Menu E2E', () => {
             // 6. Verify the commit reached the remote repo
             const pushedCommitId = repo.getCommitId('test-branch');
 
-            await expect
-                .poll(
-                    async () => {
-                        try {
-                            // Import git changes into the remote jj repo so it sees the push
-                            remoteRepo.gitImport();
-                            const remoteCommitId = remoteRepo.getCommitId('test-branch');
-                            return remoteCommitId === pushedCommitId;
-                        } catch {
-                            return false;
-                        }
-                    },
-                    { timeout: 20000 },
-                )
-                .toBe(true);
+            await waitForBookmark(repo, 'test-branch', pushedCommitId, { remoteRepo, timeout: 20000 });
+
+            remoteRepo.dispose();
+        });
+
+        test('Advance Bookmark', async () => {
+            const webview = await getLogWebview(page);
+            const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+
+            // 1. Create a bookmark on initial commit
+            const initialChangeId = nodes.initial.changeId;
+            repo.bookmark('to-advance', initialChangeId);
+
+            // 2. Trigger "Advance Bookmark" on commit1
+            await rightClickAndSelect(page, commit1Row, 'Advance Bookmark');
+
+            // 3. Verify bookmark moved to commit1 locally
+            const targetCommitId = repo.getCommitId(nodes.commit1.changeId);
+            await waitForBookmark(repo, 'to-advance', targetCommitId);
+        });
+
+        test('Advance Bookmark & Upload', async () => {
+            const webview = await getLogWebview(page);
+            const commit1Row = webview.locator('.commit-row', { hasText: 'commit1' });
+
+            // 1. Create and initialize a remote repository
+            const remoteRepo = new TestRepo();
+            remoteRepo.init();
+
+            // 2. Add as 'origin' to the main repo
+            repo.addRemote('origin', remoteRepo.path);
+
+            // 3. Configure jj
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+            repo.config('git.push-new-bookmarks', 'true');
+
+            // 4. Create a bookmark on initial commit
+            const initialChangeId = nodes.initial.changeId;
+            repo.bookmark('sync-branch', initialChangeId);
+
+            // 5. Trigger "Advance Bookmark & Upload" on commit1
+            await rightClickAndSelect(page, commit1Row, 'Advance Bookmark & Upload');
+
+            // 6. Verify bookmark was advanced locally and pushed to remote
+            const pushedCommitId = repo.getCommitId(nodes.commit1.changeId);
+
+            // Local verification
+            await waitForBookmark(repo, 'sync-branch', pushedCommitId);
+
+            // Remote verification
+            await waitForBookmark(repo, 'sync-branch', pushedCommitId, { remoteRepo, timeout: 20000 });
 
             remoteRepo.dispose();
         });

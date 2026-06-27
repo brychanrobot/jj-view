@@ -1259,6 +1259,53 @@ log = "none()"
         );
     });
 
+    test('advanceBookmark advances all bookmarks to target revision', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'initial', description: 'initial' },
+            { label: 'child1', parents: ['initial'], description: 'child1' },
+            { label: 'child2', parents: ['child1'], description: 'child2' },
+        ]);
+
+        repo.bookmark('bookmark-a', ids.initial.changeId);
+        repo.bookmark('bookmark-b', ids.initial.changeId);
+
+        // Advance all bookmarks to child2
+        await jjService.advanceBookmark(ids.child2.changeId);
+
+        const [child2Log] = await jjService.getLog({ revision: ids.child2.changeId });
+        expect(child2Log.bookmarks).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: 'bookmark-a' }),
+                expect.objectContaining({ name: 'bookmark-b' }),
+            ]),
+        );
+    });
+
+    test('advanceBookmark advances only specified bookmarks to target revision', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'initial', description: 'initial' },
+            { label: 'child1', parents: ['initial'], description: 'child1' },
+            { label: 'child2', parents: ['child1'], description: 'child2' },
+        ]);
+
+        repo.bookmark('bookmark-a', ids.initial.changeId);
+        repo.bookmark('bookmark-b', ids.initial.changeId);
+
+        // Advance only bookmark-a to child2
+        await jjService.advanceBookmark(ids.child2.changeId, ['bookmark-a']);
+
+        // Verify bookmark-a moved to child2
+        const [child2Log] = await jjService.getLog({ revision: ids.child2.changeId });
+        expect(child2Log.bookmarks).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'bookmark-a' })]));
+        expect(child2Log.bookmarks).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: 'bookmark-b' })]),
+        );
+
+        // Verify bookmark-b remained on initial
+        const [initialLog] = await jjService.getLog({ revision: ids.initial.changeId });
+        expect(initialLog.bookmarks).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'bookmark-b' })]));
+    });
+
     test('rebase command supports source and revision modes with children', async () => {
         // Setup: Root -> Target
         //       -> Grandparent -> Parent -> Child
