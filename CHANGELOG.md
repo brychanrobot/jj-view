@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.2.0
+
+### Features
+
+- **Repository Scanning**:
+    - Parallelize repository scanning to improve load times and responsiveness when scanning workspace folders.
+
+### Fixes
+
+- **Merge Editor**:
+    - Restrict merge editor to the conflict resource group to prevent accidental actions on non-conflicting resources.
+
+### Chores & Testing
+
+- **Tooling**:
+    - Update the `sync` alias in `repo-config.toml` to target `main@origin` instead of `main` for correct remote synchronizations.
+- **Testing**:
+    - Optimize end-to-end tests by sharing a single VS Code window instance.
+    - Improve E2E test speed and reliability by implementing webview caching and shared refresh awaits.
+
 ## 2.1.0
 
 ### Features
