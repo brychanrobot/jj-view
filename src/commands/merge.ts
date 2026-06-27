@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { showJjError } from './command-utils';
+import { promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
 export interface MergeCommandArg {
     revision: string;
@@ -30,11 +30,19 @@ export async function newMergeChangeCommand(
             revisions.push(...selection);
         } else {
             // Try getting from context or input
-            const rev1 = await vscode.window.showInputBox({ prompt: 'Enter first revision for merge (optional)' });
+            const rev1 = await promptForRevision(jj, {
+                placeHolder: 'Select first revision for merge (optional)',
+                emptyPrompt: 'Enter first revision for merge (optional)',
+                revisionQuery: RevisionQuery.visible(),
+            });
             if (rev1) {
                 revisions.push(rev1);
             }
-            const rev2 = await vscode.window.showInputBox({ prompt: 'Enter second revision for merge (optional)' });
+            const rev2 = await promptForRevision(jj, {
+                placeHolder: 'Select second revision for merge (optional)',
+                emptyPrompt: 'Enter second revision for merge (optional)',
+                revisionQuery: RevisionQuery.visible(),
+            });
             if (rev2) {
                 revisions.push(rev2);
             }

@@ -7,7 +7,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { promptForRevision, withDelayedProgress } from '../commands/command-utils';
+import { promptForRevision, RevisionQuery, withDelayedProgress } from '../commands/command-utils';
 import { JjService } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
@@ -110,7 +110,7 @@ describe('promptForRevision', () => {
         setSelectedItems(mockQuickPick, [{ label: 'any', detail: changeId }]);
         setActiveItems(mockQuickPick, [{ label: 'any', detail: changeId }]);
 
-        const result = await promptForRevision(jj, '@');
+        const result = await promptForRevision(jj, { revisionQuery: RevisionQuery.ancestorsExcluding('@') });
 
         expect(result).toBe(changeId);
     });
@@ -131,7 +131,7 @@ describe('promptForRevision', () => {
         });
         mockQuickPick.value = 'custom-revision';
 
-        const result = await promptForRevision(jj, '@');
+        const result = await promptForRevision(jj, { revisionQuery: RevisionQuery.ancestorsExcluding('@') });
 
         expect(result).toBe('custom-revision');
     });
@@ -139,7 +139,7 @@ describe('promptForRevision', () => {
     it('falls back to input box if no ancestors are found', async () => {
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('manual-rev');
 
-        const result = await promptForRevision(jj, 'root()');
+        const result = await promptForRevision(jj, { revisionQuery: RevisionQuery.ancestorsExcluding('root()') });
 
         expect(result).toBe('manual-rev');
         expect(vscode.window.showInputBox).toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe('promptForRevision', () => {
 
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('fallback-rev');
 
-        const result = await promptForRevision(jj, '@');
+        const result = await promptForRevision(jj, { revisionQuery: RevisionQuery.ancestorsExcluding('@') });
 
         expect(result).toBe('fallback-rev');
         expect(vscode.window.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Enter revision' }));
@@ -174,9 +174,83 @@ describe('promptForRevision', () => {
             acceptCallback();
         });
 
-        await promptForRevision(jj, '@');
+        await promptForRevision(jj, { revisionQuery: RevisionQuery.ancestorsExcluding('@') });
 
         expect(mockQuickPick.matchOnDescription).toBe(true);
         expect(mockQuickPick.matchOnDetail).toBe(true);
+    });
+
+    it('includes target revision with ancestorsIncluding, and excludes it with ancestorsExcluding', async () => {
+        const ids = await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
+        const targetChangeId = ids.v1.changeId;
+
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+
+        // 1. By default/excluding, target is excluded
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        mockQuickPick.value = 'fallback';
+        await promptForRevision(jj, {
+            placeHolder: 'Select',
+            emptyPrompt: 'Enter',
+            revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+        });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(false);
+
+        // 2. With ancestorsIncluding, target is included
+        resetMockQuickPick(mockQuickPick);
+        mockQuickPick.value = 'fallback';
+        await promptForRevision(jj, {
+            placeHolder: 'Select',
+            emptyPrompt: 'Enter',
+            revisionQuery: RevisionQuery.ancestorsIncluding('@'),
+        });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
+    });
+
+    it('supports RevisionQuery factory methods (mutable, visible, and custom)', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'parent', files: { 'file1.txt': 'parent\n' } },
+            { label: 'child', parents: ['parent'], files: { 'file1.txt': 'child\n' } },
+        ]);
+        const targetChangeId = ids.child.changeId;
+
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+
+        // 1. query: mutable
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        mockQuickPick.value = 'fallback';
+        await promptForRevision(jj, { revisionQuery: RevisionQuery.mutable() });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
+
+        // 2. query: visible
+        resetMockQuickPick(mockQuickPick);
+        await promptForRevision(jj, { revisionQuery: RevisionQuery.visible() });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
+
+        // 3. query: custom string
+        resetMockQuickPick(mockQuickPick);
+        await promptForRevision(jj, { revisionQuery: 'visible()' });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
+
+        // 4. query: children
+        resetMockQuickPick(mockQuickPick);
+        await promptForRevision(jj, { revisionQuery: RevisionQuery.children(ids.parent.changeId) });
+        expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
     });
 });

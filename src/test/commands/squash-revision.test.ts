@@ -6,7 +6,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { pickAncestor } from '../../commands/command-utils';
 import {
     completeSquashRevisionCommand,
     squashRevisionIntoAncestorCommand,
@@ -16,6 +15,7 @@ import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
+import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 // Mock VS Code
 vi.mock('vscode', async () => {
@@ -24,6 +24,7 @@ vi.mock('vscode', async () => {
         window: {
             showQuickPick: vi.fn(),
             showTextDocument: vi.fn(),
+            showErrorMessage: vi.fn(),
             tabGroups: {
                 all: [],
                 close: vi.fn(),
@@ -39,18 +40,11 @@ vi.mock('vscode', async () => {
     });
 });
 
-vi.mock('../../commands/command-utils', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../commands/command-utils')>();
-    return {
-        ...actual,
-        pickAncestor: vi.fn(),
-    };
-});
-
 describe('squashRevisionIntoParentCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
+    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -63,6 +57,17 @@ describe('squashRevisionIntoParentCommand', () => {
             outputChannel: createMock<vscode.OutputChannel>({
                 appendLine: vi.fn(),
             }),
+        });
+
+        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
         });
     });
 
@@ -315,12 +320,14 @@ describe('squashRevisionIntoParentCommand', () => {
             { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
         ]);
 
-        // Mock pickAncestor to select 'base'
-        vi.mocked(pickAncestor).mockResolvedValueOnce(ids.base.commitId);
+        // Mock QuickPick selection to base
+        mockQuickPick.value = ids.base.changeId;
+        setSelectedItems(mockQuickPick, [{ label: 'base', detail: ids.base.changeId }]);
+        setActiveItems(mockQuickPick, [{ label: 'base', detail: ids.base.changeId }]);
 
         await squashRevisionIntoAncestorCommand(scmProvider, jj, [ids.child.changeId]);
 
-        expect(pickAncestor).toHaveBeenCalledWith(expect.anything(), ids.child.changeId);
+        expect(mockQuickPick.show).toHaveBeenCalled();
 
         // base should now have child's content
         expect(repo.getFileContent(ids.base.changeId, 'child.txt')).toBe('child');

@@ -163,8 +163,7 @@ export function extractRevisions(args: unknown[]): string[] {
         }
     }
 
-    const uniqueRevisions = Array.from(new Set(revisions));
-    return uniqueRevisions;
+    return Array.from(new Set(revisions));
 }
 
 /**
@@ -183,22 +182,55 @@ export function getErrorMessage(error: unknown): string {
     return String(error);
 }
 
+export const RevisionQuery = {
+    ancestorsIncluding: (targetRevision = '@'): string => {
+        return `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable())))`;
+    },
+    ancestorsExcluding: (targetRevision = '@'): string => {
+        return `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable()))) ~ ${targetRevision}`;
+    },
+    mutable: (): string => {
+        return 'visible() & mutable()';
+    },
+    visible: (): string => {
+        return 'visible()';
+    },
+    children: (targetRevision = '@'): string => {
+        return `children(${targetRevision})`;
+    },
+};
+
+export interface PromptForRevisionOptions {
+    placeHolder?: string;
+    emptyPrompt?: string;
+    revisionQuery?: string;
+}
+
+export const DEFAULT_PROMPT_FOR_REVISION_OPTIONS: Required<PromptForRevisionOptions> = {
+    placeHolder: 'Select a revision',
+    emptyPrompt: 'Enter revision',
+    revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+};
+
 /**
  * Prompts the user to select or type a revision.
  * Populates a QuickPick with the mutable ancestors of the target revision.
  */
 export async function promptForRevision(
     jj: JjService,
-    targetRevision: string = '@',
-    placeHolder: string = 'Select a revision',
-    emptyPrompt: string = 'Enter revision',
+    options: PromptForRevisionOptions = {},
 ): Promise<string | undefined> {
+    const { placeHolder, emptyPrompt, revisionQuery } = {
+        ...DEFAULT_PROMPT_FOR_REVISION_OPTIONS,
+        ...options,
+    };
+
     const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
     const limit = maxMutableAncestors + 1;
 
     try {
         const commitIds = await jj.getLogIds({
-            revision: `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable()))) ~ ${targetRevision}`,
+            revision: revisionQuery,
             limit,
         });
 
@@ -385,51 +417,6 @@ export async function maybeFormatDescriptionOnSave(
         scmProvider.sourceControl.inputBox.value = description;
     }
     return description;
-}
-
-/**
- * Helper to pick a mutable ancestor for a given revision.
- */
-export async function pickAncestor(jj: JjService, revision: string): Promise<string | undefined> {
-    const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
-    const limit = maxMutableAncestors + 1;
-
-    const commitIds = await jj.getLogIds({ revision: `(::${revision} & mutable())`, limit });
-
-    if (commitIds.length <= 1) {
-        vscode.window.showInformationMessage('No mutable ancestors available to squash into.');
-        return undefined;
-    }
-
-    const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
-    const linearAncestors = entries.map((e) => e[0]).filter(Boolean);
-
-    const ancestorsToChoose = linearAncestors.slice(1);
-
-    if (ancestorsToChoose.length === 0) {
-        vscode.window.showInformationMessage('No mutable ancestors available to squash into.');
-        return undefined;
-    }
-
-    const options: vscode.QuickPickItem[] = ancestorsToChoose.map((entry) => {
-        const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
-        const desc = entry.description?.trim() || '(no description)';
-        const shortDesc = desc.split('\n')[0].substring(0, 50);
-
-        return {
-            label: shortId,
-            description: shortDesc,
-            detail: entry.commit_id,
-        };
-    });
-
-    const selected = await vscode.window.showQuickPick(options, {
-        placeHolder: 'Select which ancestor to squash into',
-        matchOnDescription: true,
-        matchOnDetail: true,
-    });
-
-    return selected?.detail;
 }
 
 /**

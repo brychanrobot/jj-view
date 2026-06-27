@@ -9,21 +9,18 @@ import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock } from '../vitest-utils';
+import { asMock, resetMockQuickPick } from '../vitest-utils';
 
-vi.mock('vscode', () => ({
-    Uri: { file: (path: string) => ({ fsPath: path }) },
-    window: {
-        showErrorMessage: vi.fn(),
-        showWarningMessage: vi.fn(),
-        showInputBox: vi.fn(),
-    },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('newMergeChangeCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
+    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -32,6 +29,17 @@ describe('newMergeChangeCommand', () => {
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
             getSelectedCommitIds: vi.fn().mockReturnValue([]),
+        });
+
+        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
         });
     });
 

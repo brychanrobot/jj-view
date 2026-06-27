@@ -14,14 +14,13 @@ import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock } from '../vitest-utils';
+import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 // Mock VS Code
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
         window: {
-            showQuickPick: vi.fn(),
             showErrorMessage: vi.fn(),
         },
     });
@@ -31,6 +30,7 @@ describe('squash-files commands', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
+    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -42,6 +42,17 @@ describe('squash-files commands', () => {
             outputChannel: createMock<vscode.OutputChannel>({
                 appendLine: vi.fn(),
             }),
+        });
+
+        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
         });
     });
 
@@ -110,22 +121,17 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            const grandparentCommitId = ids.grandparent.commitId;
-
-            // Mock QuickPick to return grandparent
-            vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce(
-                createMock<vscode.QuickPickItem>({
-                    detail: grandparentCommitId,
-                    label: 'Ancestor 2',
-                }),
-            );
+            // Mock QuickPick selection to grandparent
+            mockQuickPick.value = ids.grandparent.changeId;
+            setSelectedItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
+            setActiveItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
 
             const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }];
 
             await squashFilesIntoAncestorCommand(scmProvider, jj, args);
 
-            expect(vscode.window.showQuickPick).toHaveBeenCalled();
+            expect(mockQuickPick.show).toHaveBeenCalled();
 
             // Grandparent should have 'child content'
             const gpContent = repo.getFileContent(ids.grandparent.changeId, fileName);
@@ -176,14 +182,17 @@ describe('squash-files commands', () => {
                 { label: 'child2', parents: ['parent'] },
             ]);
 
-            asMock(vscode.window.showQuickPick).mockResolvedValueOnce(ids.child2.changeId);
+            // Mock QuickPick selection to child2
+            mockQuickPick.value = ids.child2.changeId;
+            setSelectedItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
+            setActiveItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
 
             const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
 
             await squashFilesIntoChildCommand(scmProvider, jj, args);
 
-            expect(vscode.window.showQuickPick).toHaveBeenCalled();
+            expect(mockQuickPick.show).toHaveBeenCalled();
             expect(repo.getFileContent(ids.child2.changeId, fileName)).toBe('parent modified');
         });
 

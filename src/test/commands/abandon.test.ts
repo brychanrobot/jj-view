@@ -10,13 +10,11 @@ import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock } from '../vitest-utils';
+import { asMock, resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        window: { showInputBox: vi.fn() },
-    });
+    return createVscodeMock();
 });
 
 describe('abandonCommand', () => {
@@ -188,11 +186,22 @@ describe('abandonCommand', () => {
         // Create child
         repo.new();
 
-        asMock(vscode.window.showInputBox).mockResolvedValue(c1);
+        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+        resetMockQuickPick(mockQuickPick);
+        let acceptCallback: () => void = () => {};
+        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
+            acceptCallback = cb;
+            return { dispose: () => {} };
+        });
+        vi.mocked(mockQuickPick.show).mockImplementation(() => {
+            acceptCallback();
+        });
+        setSelectedItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
+        setActiveItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
 
         await abandonCommand(scmProvider, jj, []);
 
-        expect(vscode.window.showInputBox).toHaveBeenCalled();
+        expect(mockQuickPick.show).toHaveBeenCalled();
 
         // c1 abandoned
         expectChangeAbandoned(c1);
