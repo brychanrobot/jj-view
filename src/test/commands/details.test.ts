@@ -2,13 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { JjResourceState } from '../../scm-resource-state';
 import { TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -18,13 +19,13 @@ vi.mock('vscode', async () => {
 describe('showDetailsCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
-        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn(), show: vi.fn() });
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn() });
     });
 
     afterEach(() => {

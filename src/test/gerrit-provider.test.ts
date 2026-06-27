@@ -8,7 +8,7 @@ import type { ChangeStatusRequest } from '../code-forge-provider';
 import { GerritProvider } from '../gerrit-provider';
 import type { JjService } from '../jj-service';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
-import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
+import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
 vi.mock('vscode', () => ({
@@ -58,11 +58,11 @@ describe('Gerrit Utils', () => {
 describe('GerritProvider', () => {
     let provider: GerritProvider;
     let mockJjService: JjService;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
         mockJjService = createMock<JjService>({});
-        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         provider = new GerritProvider(mockOutputChannel);
     });
 

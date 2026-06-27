@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
@@ -14,7 +15,7 @@ import { undoCommand } from '../commands/undo';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
@@ -27,7 +28,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
     let executeCommandStub: sinon.SinonStub;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     // Mock Webview
@@ -62,8 +63,8 @@ suite('Webview Commands End-to-End Integration Test', () => {
         await repo.init(); // Init repo
 
         // Services
-        jj = new JjService(repo.path);
-        outputChannel = vscode.window.createOutputChannel('JJ View Test');
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        outputChannel = vscode.window.createOutputChannel('JJ View Test', { log: true });
 
         // We need a context for the provider, but we can mock it
         const mockContext = createMock<vscode.ExtensionContext>({

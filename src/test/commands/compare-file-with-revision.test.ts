@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { compareFileWithRevisionCommand } from '../../commands/compare-file-with-revision';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { TestRepo } from '../test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
@@ -16,16 +17,18 @@ vi.mock('vscode', async () => {
     });
 });
 
+import { createMockLogOutputChannel } from '../test-utils';
+
 describe('compareFileWithRevisionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
-        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        mockOutputChannel = createMockLogOutputChannel();
     });
 
     afterEach(() => {

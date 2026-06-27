@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 suite('Button Visibility Integration Test', () => {
     let scmProvider: JjScmProvider;
@@ -23,7 +23,7 @@ suite('Button Visibility Integration Test', () => {
 
         // Initialize Service and Provider
 
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             replace: () => {},

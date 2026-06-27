@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 
 // Mock child_process to control execution and simulate hangs
 vi.mock('child_process');
@@ -13,7 +14,7 @@ describe('JjService Timeout Tests', () => {
     let jjService: JjService;
 
     beforeEach(() => {
-        jjService = new JjService('/mock/root');
+        jjService = new JjService('/mock/root', NO_OP_LOGGER);
         vi.useFakeTimers();
     });
 

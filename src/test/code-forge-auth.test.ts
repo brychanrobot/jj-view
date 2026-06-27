@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { type AuthResult, CodeForgeAuthManager } from '../code-forge-auth';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 // Mock VS Code
 vi.mock('vscode', () => ({
@@ -37,7 +37,7 @@ vi.mock('vscode', () => ({
 
 describe('CodeForgeAuthManager', () => {
     let context: vscode.ExtensionContext;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let authManager: CodeForgeAuthManager;
     let globalStateMap: Map<string, unknown>;
 
@@ -60,7 +60,7 @@ describe('CodeForgeAuthManager', () => {
             }),
         });
 
-        outputChannel = createMock<vscode.OutputChannel>({
+        outputChannel = createMockLogOutputChannel({
             appendLine: vi.fn(),
         });
 
@@ -581,7 +581,7 @@ describe('CodeForgeAuthManager', () => {
             );
             expect(context.secrets.store).toHaveBeenCalledWith('test_token', 'my-new-token');
             expect(clearCacheMock).toHaveBeenCalled();
-            expect(outputChannel.appendLine).toHaveBeenCalledWith(
+            expect(outputChannel.info).toHaveBeenCalledWith(
                 '[TestProviderProvider] Personal Access Token saved successfully',
             );
         });
@@ -636,7 +636,7 @@ describe('CodeForgeAuthManager', () => {
 
             expect(result).toEqual({ status: 'failure', error });
             expect(clearCacheMock).not.toHaveBeenCalled();
-            expect(outputChannel.appendLine).toHaveBeenCalledWith(
+            expect(outputChannel.info).toHaveBeenCalledWith(
                 '[TestProviderProvider] Secrets storage is not available to save PAT: Error: Secret storage write error',
             );
         });

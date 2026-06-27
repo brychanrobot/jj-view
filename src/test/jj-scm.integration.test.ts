@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
@@ -13,11 +14,11 @@ import { completeSquashRevisionCommand, squashRevisionIntoParentCommand } from '
 import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
 import { createTestRepositoryContext, waitUntil } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
-import { accessPrivate, createMock } from './test-utils';
+import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', () => {
     let jj: JjService;
@@ -36,8 +37,8 @@ suite('JJ SCM Provider Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        jj = new JjService(repo.path);
-        const outputChannel = createMock<vscode.OutputChannel>({
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
             replace: () => {},

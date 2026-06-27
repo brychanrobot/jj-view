@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 
 suite('Absorb Integration Test', function () {
@@ -14,15 +15,15 @@ suite('Absorb Integration Test', function () {
     let repo: TestRepo;
     let jj: JjService;
     let scmProvider: JjScmProvider;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let contextHelper: import('../integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
         await repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        outputChannel = vscode.window.createOutputChannel('JJ Test');
+        outputChannel = vscode.window.createOutputChannel('JJ Test', { log: true });
         const { createTestRepositoryContext } = await import('../integration-test-utils');
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         scmProvider = contextHelper.scmProvider;

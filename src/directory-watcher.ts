@@ -5,6 +5,7 @@
 import { type AsyncSubscription, type BackendType, type Event, subscribe } from '@parcel/watcher';
 import * as vscode from 'vscode';
 import { isWatchmanAvailable } from './utils/binary-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 
@@ -18,7 +19,7 @@ export class DirectoryWatcher implements vscode.Disposable {
     constructor(
         private readonly path: string,
         private readonly callback: DirectoryWatcherCallback,
-        private readonly outputChannel: vscode.OutputChannel,
+        private readonly outputChannel: JjLoggerChannel,
         private readonly name: string = 'DirectoryWatcher',
         backend?: BackendType,
     ) {
@@ -137,7 +138,7 @@ export class DirectoryWatcher implements vscode.Disposable {
             return;
         }
         try {
-            this.outputChannel.appendLine(message);
+            this.outputChannel.info(message);
         } catch {
             // Ignore errors if channel is closed/disposed
         }

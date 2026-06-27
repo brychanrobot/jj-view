@@ -8,7 +8,7 @@ import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitLabProvider } from '../gitlab-provider';
 import type { CodeForgeChangeInfo } from '../jj-types';
-import { accessPrivate, createMock, exposePrivate, setPrivate } from './test-utils';
+import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 vi.mock('vscode', () => ({
     workspace: {
@@ -42,11 +42,11 @@ vi.mock('vscode', () => ({
 
 describe('GitLabProvider', () => {
     let provider: GitLabProvider;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
 
     beforeEach(() => {
-        mockOutputChannel = createMock<vscode.OutputChannel>({ appendLine: vi.fn() });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         mockAuthManager = createMock<CodeForgeAuthManager>({
             isAuthSkipped: vi.fn().mockReturnValue(false),
             hasPromptedThisSession: vi.fn().mockReturnValue(false),

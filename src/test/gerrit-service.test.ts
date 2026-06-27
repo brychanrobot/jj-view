@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -10,7 +11,7 @@ import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CodeForgeService } from '../code-forge-service';
 import { GerritProvider } from '../gerrit-provider';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
 import { accessPrivate, exposePrivate } from './test-utils';
@@ -80,7 +81,7 @@ describe('GerritService Detection', () => {
             'probeGerritHost',
         ).mockResolvedValue(true);
 
-        jjService = new JjService(repo.path);
+        jjService = new JjService(repo.path, NO_OP_LOGGER);
         fakeGerritServer = new FakeGerritServer();
         await fakeGerritServer.start();
     });

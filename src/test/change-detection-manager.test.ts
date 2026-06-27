@@ -2,15 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { ChangeDetectionManager } from '../change-detection-manager';
 import { DirectoryWatcher } from '../directory-watcher';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock } from './test-utils';
+import { accessPrivate, createMock, createMockLogOutputChannel } from './test-utils';
 
 // Mock VS Code
 const mockGetConfiguration = vi.fn();
@@ -39,16 +40,16 @@ describe('ChangeDetectionManager', () => {
     let repo: TestRepo;
     let jj: JjService;
     let changeManager: ChangeDetectionManager | undefined;
-    let outputChannel: vscode.OutputChannel;
+    let outputChannel: vscode.LogOutputChannel;
     let triggerRefreshSpy: Mock<(event: { forceSnapshot: boolean; reason: string }) => Promise<void>>;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
 
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        outputChannel = createMock<vscode.OutputChannel>({
+        outputChannel = createMockLogOutputChannel({
             appendLine: vi.fn(),
         });
 
@@ -85,7 +86,10 @@ describe('ChangeDetectionManager', () => {
     const waitForLog = async (pattern: string) => {
         await vi.waitFor(
             () => {
-                const { calls } = (outputChannel.appendLine as Mock).mock;
+                const infoCalls = (outputChannel.info as Mock).mock.calls;
+                const debugCalls = (outputChannel.debug as Mock).mock.calls;
+                const errorCalls = (outputChannel.error as Mock).mock.calls;
+                const calls = [...infoCalls, ...debugCalls, ...errorCalls];
                 const found = calls.some((call) => call[0].includes(pattern));
                 if (!found) {
                     throw new Error(`Log pattern "${pattern}" not found`);
@@ -261,7 +265,12 @@ describe('ChangeDetectionManager', () => {
 
         it('handles op_heads changes in non-default workspace', async () => {
             const secondRepo = repo.workspaceAdd('second_workspace');
-            const secondJj = new JjService(secondRepo.path);
+            const secondJj = new JjService(secondRepo.path, {
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+                debug: () => {},
+            });
 
             changeManager = new ChangeDetectionManager(secondRepo.path, secondJj, outputChannel, triggerRefreshSpy);
 

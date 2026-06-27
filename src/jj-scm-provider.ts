@@ -14,12 +14,14 @@ import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
 import type { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
+import type { JjRepository } from './jj-repository';
+import type { JjRepositoryManager } from './jj-repository-manager';
 import { JjService } from './jj-service';
 import type { JjLogEntry, JjStatusEntry } from './jj-types';
 import type { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { createJjResourceState, type JjResourceState } from './scm-resource-state';
-
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export class JjScmProvider implements vscode.Disposable {
     private _disposed = false;
@@ -60,9 +62,9 @@ export class JjScmProvider implements vscode.Disposable {
 
     constructor(
         public readonly context: vscode.ExtensionContext,
-        public readonly repo: import('./jj-repository').JjRepository,
-        public readonly outputChannel: vscode.OutputChannel,
-        public readonly repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
+        public readonly repo: JjRepository,
+        public readonly outputChannel: JjLoggerChannel,
+        public readonly repositoryManager: JjRepositoryManager,
         public readonly viewFileSystemProvider?: JjViewFileSystemProvider,
         public readonly editProvider?: JjEditFileSystemProvider,
         public readonly isFocused: () => boolean = () => true,
@@ -174,7 +176,7 @@ export class JjScmProvider implements vscode.Disposable {
         // Initial refresh: force snapshot and warm cache, which triggers updateScmView via status change subscription
         this.refresh({ forceSnapshot: true, reason: 'initialization' }).catch((err) => {
             try {
-                this.outputChannel.appendLine(`[ScmProvider] Initial refresh failed: ${err}`);
+                this.outputChannel.error(`[ScmProvider] Initial refresh failed: ${err}`);
             } catch {
                 // Ignore channel closed errors
             }
@@ -209,7 +211,7 @@ export class JjScmProvider implements vscode.Disposable {
                 }
                 const reasonStr = event.reason ? ` (reason: ${event.reason})` : '';
                 const msg = `Updating JJ Scm${reasonStr}...`;
-                this.outputChannel.appendLine(msg);
+                this.outputChannel.info(msg);
                 const start = performance.now();
                 try {
                     // 1. Fetch data in parallel for performance
@@ -477,10 +479,10 @@ export class JjScmProvider implements vscode.Disposable {
                                 if (selection === DELETE_LOCK) {
                                     try {
                                         await fs.unlink(lockPath);
-                                        this.outputChannel.appendLine(`[Info] Deleted lock file at ${lockPath}`);
+                                        this.outputChannel.info(`[Info] Deleted lock file at ${lockPath}`);
                                         await this.refresh({ forceSnapshot: true, reason: 'lock file deleted' });
                                     } catch (unlinkErr) {
-                                        this.outputChannel.appendLine(
+                                        this.outputChannel.error(
                                             `[Error] Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
                                         );
                                         vscode.window.showErrorMessage(
@@ -496,11 +498,11 @@ export class JjScmProvider implements vscode.Disposable {
                         ((err.message.includes('Object') && err.message.includes('not found')) ||
                             err.message.includes('No such file or directory'))
                     ) {
-                        this.outputChannel.appendLine(
+                        this.outputChannel.error(
                             `[${this.repo.rootUri.fsPath}] Ignored transient error during refresh: ${getErrorMessage(e)}`,
                         );
                     } else {
-                        this.outputChannel.appendLine(
+                        this.outputChannel.error(
                             `[${this.repo.rootUri.fsPath}] Error refreshing JJ SCM: ${getErrorMessage(e)}`,
                         );
                         console.error(`Error refreshing JJ SCM for ${this.repo.rootUri.fsPath}:`, e);
@@ -509,7 +511,7 @@ export class JjScmProvider implements vscode.Disposable {
                     if (!this._disposed) {
                         const duration = performance.now() - start;
                         try {
-                            this.outputChannel.appendLine(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
+                            this.outputChannel.info(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
                         } catch {
                             // Ignore channel closed errors
                         }
@@ -530,9 +532,7 @@ export class JjScmProvider implements vscode.Disposable {
             })
             .catch((err) => {
                 try {
-                    this.outputChannel.appendLine(
-                        `[ScmProvider] Refresh mutex encountered unhandled rejection: ${err}`,
-                    );
+                    this.outputChannel.info(`[ScmProvider] Refresh mutex encountered unhandled rejection: ${err}`);
                 } catch {
                     // Ignore channel closed errors
                 }

@@ -4,11 +4,13 @@
  */
 import type * as vscode from 'vscode';
 
-export class JjOutputChannel implements vscode.OutputChannel {
-    private readonly delegateChannel: vscode.OutputChannel;
+export type JjLoggerChannel = Omit<vscode.LogOutputChannel, 'appendLine' | 'append'>;
+
+export class JjOutputChannel {
+    private readonly delegateChannel: JjLoggerChannel;
     private readonly prefixes: string[] = [];
 
-    constructor(delegate: vscode.OutputChannel, prefix?: string) {
+    constructor(delegate: JjLoggerChannel, prefix?: string) {
         if (delegate instanceof JjOutputChannel) {
             this.delegateChannel = delegate.delegateChannel;
             this.prefixes = [...delegate.prefixes];
@@ -27,18 +29,43 @@ export class JjOutputChannel implements vscode.OutputChannel {
         return this.delegateChannel.name;
     }
 
-    private format(value: string): string {
-        const timestamp = new Date().toISOString();
-        const prefixStr = this.prefixes.length > 0 ? ` [${this.prefixes.join('][')}]` : '';
-        return `[${timestamp}]${prefixStr} ${value}`;
+    get logLevel(): vscode.LogLevel {
+        return this.delegateChannel.logLevel;
     }
 
-    append(value: string): void {
-        this.delegateChannel.append(value);
+    get onDidChangeLogLevel(): vscode.Event<vscode.LogLevel> {
+        return this.delegateChannel.onDidChangeLogLevel;
     }
 
-    appendLine(value: string): void {
-        this.delegateChannel.appendLine(this.format(value));
+    private formatPrefixes(): string {
+        return this.prefixes.length > 0 ? `[${this.prefixes.join('][')}] ` : '';
+    }
+
+    trace(message: string, ...args: unknown[]): void {
+        this.delegateChannel.trace(this.formatPrefixes() + message, ...args);
+    }
+
+    debug(message: string, ...args: unknown[]): void {
+        this.delegateChannel.debug(this.formatPrefixes() + message, ...args);
+    }
+
+    info(message: string, ...args: unknown[]): void {
+        this.delegateChannel.info(this.formatPrefixes() + message, ...args);
+    }
+
+    warn(message: string, ...args: unknown[]): void {
+        this.delegateChannel.warn(this.formatPrefixes() + message, ...args);
+    }
+
+    error(message: string | Error, ...args: unknown[]): void {
+        const prefix = this.formatPrefixes();
+        if (typeof message === 'string') {
+            this.delegateChannel.error(prefix + message, ...args);
+        } else {
+            // Pass the prefixed message but forward the original Error object to preserve
+            // stack traces, identity, and any custom properties (e.g. error codes).
+            this.delegateChannel.error(prefix + message.message, message, ...args);
+        }
     }
 
     replace(value: string): void {

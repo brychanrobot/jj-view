@@ -86,7 +86,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
-            this._repositoryManager.outputChannel.appendLine(
+            this._repositoryManager.outputChannel.info(
                 `[JjEditFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
             );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
@@ -98,7 +98,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
-            this._repositoryManager.outputChannel.appendLine(
+            this._repositoryManager.outputChannel.info(
                 `[JjEditFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
             );
             throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
@@ -131,7 +131,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
             const revision = batchKey.substring(separatorIndex + 1);
             const repo = repoRoot ? this._repositoryManager.getRepositoryForUri(vscode.Uri.file(repoRoot)) : undefined;
             if (!repo) {
-                this._repositoryManager.outputChannel.appendLine(
+                this._repositoryManager.outputChannel.info(
                     `[JjEditFileSystemProvider.flushWrites] No Jujutsu repository resolved for root: ${repoRoot}`,
                 );
                 const err = new Error(`No Jujutsu repository found for root: ${repoRoot}`);

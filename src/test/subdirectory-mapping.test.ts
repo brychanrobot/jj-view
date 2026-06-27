@@ -24,14 +24,24 @@ describe('JjService Subdirectory Mapping', () => {
         const workspacePath = path.join(repo.path, 'subdirectory');
         fs.mkdirSync(workspacePath);
 
-        const subService = new JjService(workspacePath);
+        const subService = new JjService(workspacePath, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
         const discoveredRoot = await subService.getRepoRoot();
 
         // Ask jj to evaluate the repository root from the top-level repo path
         // to get the exact canonicalized string format that Rust generates
         // for this system. This avoids Node.js string-matching quirks with
         // Windows 8.3 short paths or macOS symlinks altogether!
-        const rootService = new JjService(repo.path);
+        const rootService = new JjService(repo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
         const expectedRoot = await rootService.getRepoRoot();
 
         expect(discoveredRoot).toBe(expectedRoot);
@@ -52,7 +62,12 @@ describe('JjService Subdirectory Mapping', () => {
         repo.new();
         repo.writeFile(fileRepoRelativePath, 'v2');
 
-        const subService = new JjService(workspacePath);
+        const subService = new JjService(workspacePath, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
 
         // This should use the bulk cache and find the file at google3/test.txt
         const diff = await subService.getDiffContent('@', absoluteFilePath);

@@ -13,6 +13,7 @@ import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 import { resolveGerritChangeKey, stripGerritTrailers } from './utils/gerrit-utils';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export const GerritFileSchema = z.object({
     status: z.string().optional(),
@@ -63,7 +64,7 @@ export class GerritProvider implements CodeForgeProvider {
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
-    constructor(private outputChannel?: vscode.OutputChannel) {}
+    constructor(private outputChannel?: JjLoggerChannel) {}
 
     public async detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const detectedHost = vscode.workspace.getConfiguration('jj-view').get<string>('gerrit.host')?.trim();
@@ -96,7 +97,7 @@ export class GerritProvider implements CodeForgeProvider {
                 }
             }
         } catch (e) {
-            this.outputChannel?.appendLine(`[GerritProvider] Failed to parse .gitreview: ${e}`);
+            this.outputChannel?.error(`[GerritProvider] Failed to parse .gitreview: ${e}`);
         }
 
         // Check git remotes via jj
@@ -118,7 +119,7 @@ export class GerritProvider implements CodeForgeProvider {
         });
 
         for (const { name, url } of sortedRemotes) {
-            this.outputChannel?.appendLine(`[GerritProvider] Checking remote '${name}' URL: '${url}'`);
+            this.outputChannel?.info(`[GerritProvider] Checking remote '${name}' URL: '${url}'`);
 
             let host: string | undefined;
 
@@ -168,7 +169,7 @@ export class GerritProvider implements CodeForgeProvider {
                     this.gerritHost = host;
                     return true;
                 } else {
-                    this.outputChannel?.appendLine(`[GerritProvider] Probe failed for host: ${host}`);
+                    this.outputChannel?.error(`[GerritProvider] Probe failed for host: ${host}`);
                 }
             }
         }
@@ -182,7 +183,7 @@ export class GerritProvider implements CodeForgeProvider {
             const response = await fetchWithTimeout(`${host}/config/server/version`, 3000);
             return response.ok;
         } catch (e) {
-            this.outputChannel?.appendLine(`[GerritProvider] Probe error for host ${host}: ${e}`);
+            this.outputChannel?.error(`[GerritProvider] Probe error for host ${host}: ${e}`);
             return false;
         }
     }
@@ -222,7 +223,7 @@ export class GerritProvider implements CodeForgeProvider {
                 const hexId = convertJjChangeIdToHex(changeId);
                 return `I${hexId}`;
             } catch (e) {
-                this.outputChannel?.appendLine(`[GerritProvider] Failed to convert JJ Change-Id: ${e}`);
+                this.outputChannel?.error(`[GerritProvider] Failed to convert JJ Change-Id: ${e}`);
             }
         }
         return undefined;
@@ -273,7 +274,7 @@ export class GerritProvider implements CodeForgeProvider {
         jj: JjService,
     ): Promise<boolean> {
         let batchChanged = false;
-        this.outputChannel?.appendLine(
+        this.outputChannel?.debug(
             `[GerritProvider] Fetching fresh status for batch ${batchIndex + 1} (${batchCacheKeys.length} changes)...`,
         );
 
@@ -281,7 +282,7 @@ export class GerritProvider implements CodeForgeProvider {
         try {
             fetchedInfoMap = await this.fetchBatchFromNetwork(batchCacheKeys);
         } catch (error) {
-            this.outputChannel?.appendLine(`[GerritProvider] Failed to fetch batch Gerrit status: ${error}`);
+            this.outputChannel?.error(`[GerritProvider] Failed to fetch batch Gerrit status: ${error}`);
             return false;
         }
 
@@ -326,7 +327,7 @@ export class GerritProvider implements CodeForgeProvider {
         params.append('o', 'CURRENT_COMMIT');
 
         const urlStr = `${baseUrl}?${params.toString()}`;
-        this.outputChannel?.appendLine(`[GerritProvider] GET ${urlStr}`);
+        this.outputChannel?.info(`[GerritProvider] GET ${urlStr}`);
         const response = await fetchWithTimeout(urlStr, 15000);
         if (!response.ok) {
             throw new Error(`Batch request failed with status: ${response.status}`);
@@ -353,7 +354,7 @@ export class GerritProvider implements CodeForgeProvider {
         try {
             parsed = JSON.parse(jsonStr);
         } catch (e) {
-            this.outputChannel?.appendLine(`[GerritProvider] Error parsing batch response: ${e}`);
+            this.outputChannel?.error(`[GerritProvider] Error parsing batch response: ${e}`);
             return [];
         }
 
@@ -361,7 +362,7 @@ export class GerritProvider implements CodeForgeProvider {
         const validation = arraySchema.safeParse(parsed);
 
         if (!validation.success) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[GerritProvider] Validation failed for batch response: ${validation.error.message}`,
             );
             return [];
@@ -461,7 +462,7 @@ export class GerritProvider implements CodeForgeProvider {
 
             info.contentSynced = true;
         } catch (e) {
-            this.outputChannel?.appendLine(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
+            this.outputChannel?.error(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
         }
     }
 
@@ -478,10 +479,10 @@ export class GerritProvider implements CodeForgeProvider {
     }
 
     public activate(): void {
-        this.outputChannel?.appendLine('[GerritProvider] Activated');
+        this.outputChannel?.info('[GerritProvider] Activated');
     }
 
     public deactivate(): void {
-        this.outputChannel?.appendLine('[GerritProvider] Deactivated');
+        this.outputChannel?.info('[GerritProvider] Deactivated');
     }
 }

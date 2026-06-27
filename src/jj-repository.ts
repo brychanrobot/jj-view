@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Disposable, OutputChannel, Uri } from 'vscode';
+import type { Disposable, Uri } from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
@@ -13,6 +13,7 @@ import { JjService } from './jj-service';
 import { RefreshScheduler } from './refresh-scheduler';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
 import { CoalescingQueue } from './utils/coalescing-queue';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export class JjRepository implements Disposable {
     private readonly _jj: JjService;
@@ -29,17 +30,32 @@ export class JjRepository implements Disposable {
         public readonly rootUri: Uri,
         public readonly storePath: string,
         registry: CodeForgeRegistry,
-        outputChannel: OutputChannel,
+        outputChannel: JjLoggerChannel,
         binaryPath?: string,
     ) {
         this._jj = new JjService(
             rootUri.fsPath,
-            (msg) => {
-                try {
-                    outputChannel.appendLine(msg);
-                } catch {
-                    // OutputChannel might be disposed during teardown or shutdown
-                }
+            {
+                info: (msg) => {
+                    try {
+                        outputChannel.info(msg);
+                    } catch {}
+                },
+                warn: (msg) => {
+                    try {
+                        outputChannel.warn(msg);
+                    } catch {}
+                },
+                error: (msg) => {
+                    try {
+                        outputChannel.error(msg);
+                    } catch {}
+                },
+                debug: (msg) => {
+                    try {
+                        outputChannel.debug(msg);
+                    } catch {}
+                },
             },
             binaryPath,
         );

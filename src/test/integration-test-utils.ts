@@ -53,7 +53,7 @@ async function updateWorkspaceFoldersWithRetry(
 
 export async function createTestRepositoryContext(
     repoPath: string,
-    outputChannel: vscode.OutputChannel,
+    outputChannel: vscode.LogOutputChannel,
 ): Promise<TestRepositoryContext> {
     void outputChannel;
     const originalFolders = vscode.workspace.workspaceFolders || [];

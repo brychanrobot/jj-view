@@ -2,12 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type * as vscode from 'vscode';
 import { openCommitDetails } from '../jj-commit-details-editor-provider';
 import type { JjService } from '../jj-service';
+import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
-export async function showDetailsCommand(jj: JjService, outputChannel: vscode.OutputChannel, args: unknown[]) {
+export async function showDetailsCommand(jj: JjService, outputChannel: JjLoggerChannel, args: unknown[]) {
     const revision = extractRevision(args) || '@';
 
     try {

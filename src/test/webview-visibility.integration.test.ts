@@ -9,7 +9,7 @@ import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjLogEntry } from '../jj-types';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 interface UpdateMessage {
     type: 'update';
@@ -62,7 +62,7 @@ suite('Webview Visibility Integration Test', () => {
         await repo.init();
 
         const extensionUri = vscode.Uri.file(__dirname);
-        const outputChannel = createMock<vscode.OutputChannel>({
+        const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);

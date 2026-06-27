@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import { DirectoryWatcher } from './directory-watcher';
 import type { JjService } from './jj-service';
 import { Poller } from './poller';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export class ChangeDetectionManager implements vscode.Disposable {
     private _disposed = false;
@@ -61,7 +62,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     constructor(
         private workspaceRoot: string,
         private jj: JjService,
-        private outputChannel: vscode.OutputChannel,
+        private outputChannel: JjLoggerChannel,
         private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
         private readonly watcherBackend?: BackendType,
     ) {
@@ -115,7 +116,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this._lifecyclePromise = Promise.all([this.startOpHeadsWatcher(), this.updateFileWatcherModeInternal()])
             .then(() => {})
             .catch((err) => {
-                this.outputChannel.appendLine(`[ChangeDetectionManager] Error during initialization: ${err}`);
+                this.outputChannel.error(`[ChangeDetectionManager] Error during initialization: ${err}`);
             });
     }
 
@@ -140,7 +141,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
         const config = vscode.workspace.getConfiguration('jj-view');
         const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
-        this.outputChannel.appendLine(`[ChangeDetectionManager] File watcher mode: ${mode}`);
+        this.outputChannel.debug(`[ChangeDetectionManager] File watcher mode: ${mode}`);
 
         const modeChanged = this._fileWatcherMode !== mode;
         this._fileWatcherMode = mode;
@@ -231,7 +232,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
                 await this._opHeadsWatcher.start();
                 return; // Success
             } catch (err) {
-                this.outputChannel.appendLine(
+                this.outputChannel.error(
                     `[Error] [ChangeDetectionManager] startOpHeadsWatcher retry ${retries} failed for path ${this.workspaceRoot}: ${err instanceof Error ? err.stack : err}`,
                 );
                 lastErr = err;
@@ -242,7 +243,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             }
         }
 
-        this.outputChannel.appendLine(`Failed to setup op_heads watcher after ${maxRetries} retries: ${lastErr}`);
+        this.outputChannel.error(`Failed to setup op_heads watcher after ${maxRetries} retries: ${lastErr}`);
     }
 
     private async startWorkingCopyWatchingInternal() {
@@ -251,8 +252,8 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
         if (this._fileWatcherMode === 'watch') {
             await this.startWorkingCopyWatcherInternal().catch((err) => {
-                this.outputChannel.appendLine(`Failed to start working copy watcher: ${err}`);
-                this.outputChannel.appendLine('Falling back to polling mode.');
+                this.outputChannel.error(`Failed to start working copy watcher: ${err}`);
+                this.outputChannel.info('Falling back to polling mode.');
                 this._fileWatcherMode = 'polling';
                 this.updatePollingState();
             });
@@ -289,7 +290,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
 
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules, ...workspaceRoots];
-        this.outputChannel.appendLine(`[ChangeDetectionManager] Watcher ignore list: ${JSON.stringify(ignore)}`);
+        this.outputChannel.debug(`[ChangeDetectionManager] Watcher ignore list: ${JSON.stringify(ignore)}`);
 
         this._workingCopyWatcher = new DirectoryWatcher(
             this.workspaceRoot,
@@ -306,7 +307,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             this.watcherBackend,
         );
 
-        this.outputChannel.appendLine(
+        this.outputChannel.info(
             `[ChangeDetectionManager] Starting Working Copy Watcher on ${this.workspaceRoot} with backend: ${this.watcherBackend}`,
         );
 
@@ -316,9 +317,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     private async getSecondaryWorkspacePatterns(): Promise<string[]> {
         try {
             const workspaceList = await this.jj.getWorkspaces();
-            this.outputChannel.appendLine(
-                `[ChangeDetectionManager] Workspaces retrieved: ${JSON.stringify(workspaceList)}`,
-            );
+            this.outputChannel.info(`[ChangeDetectionManager] Workspaces retrieved: ${JSON.stringify(workspaceList)}`);
             const patterns: string[] = [];
             const rootReal = await fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
 
@@ -333,7 +332,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             }
             return patterns;
         } catch (err) {
-            this.outputChannel.appendLine(`[ChangeDetectionManager] getSecondaryWorkspacePatterns error: ${err}`);
+            this.outputChannel.error(`[ChangeDetectionManager] getSecondaryWorkspacePatterns error: ${err}`);
             return [];
         }
     }

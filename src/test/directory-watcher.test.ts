@@ -8,9 +8,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import type { OutputChannel } from 'vscode';
+import type { LogOutputChannel } from 'vscode';
 import { DirectoryWatcher } from '../directory-watcher';
-import { createMock } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
@@ -27,15 +27,13 @@ vi.mock('@parcel/watcher', async (importOriginal) => {
 
 describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === 'win32' ? 3 : 0 }, () => {
     let tmpDir: string;
-    let outputChannel: OutputChannel;
+    let outputChannel: LogOutputChannel;
     let callback: Mock;
     let watcher: DirectoryWatcher;
 
     beforeEach(() => {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-test-'));
-        outputChannel = createMock<OutputChannel>({
-            appendLine: vi.fn(),
-        });
+        outputChannel = createMockLogOutputChannel();
         callback = vi.fn();
         watcher = new DirectoryWatcher(tmpDir, callback, outputChannel);
     });
@@ -48,7 +46,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
     const waitForLog = async (pattern: string, timeout = 10000) => {
         await vi.waitFor(
             () => {
-                const calls = (outputChannel.appendLine as Mock).mock.calls;
+                const { calls } = (outputChannel.info as Mock).mock;
                 const found = calls.some((call) => call[0].includes(pattern));
                 if (!found) {
                     throw new Error(`Log pattern "${pattern}" not found`);
@@ -61,16 +59,14 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
     it('subscribes and logs on start', async () => {
         await watcher.start();
         await waitForLog('Started');
-        expect(outputChannel.appendLine).toHaveBeenCalledWith(expect.stringMatching(/Starting.*watcher/));
+        expect(outputChannel.info).toHaveBeenCalledWith(expect.stringMatching(/Starting.*watcher/));
     });
 
     it('does not double subscribe if start is called twice', async () => {
         await watcher.start();
         await watcher.start();
 
-        const startCalls = (outputChannel.appendLine as Mock).mock.calls.filter((call) =>
-            /Starting.*watcher/.test(call[0]),
-        );
+        const startCalls = (outputChannel.info as Mock).mock.calls.filter((call) => /Starting.*watcher/.test(call[0]));
         expect(startCalls).toHaveLength(1);
     });
 

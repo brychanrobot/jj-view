@@ -15,7 +15,12 @@ describe('JjService Write Operation Timeout', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         logs = [];
-        jjService = new JjService('/fake/path', (msg) => logs.push(msg));
+        jjService = new JjService('/fake/path', {
+            info: (msg) => logs.push(msg),
+            warn: (msg) => logs.push(msg),
+            error: (msg) => logs.push(msg),
+            debug: (msg) => logs.push(msg),
+        });
     });
 
     afterEach(() => {

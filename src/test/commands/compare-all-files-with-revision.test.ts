@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../../commands/compare-all-files-with-revision';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 
 vi.mock('vscode', async () => {
@@ -23,16 +23,18 @@ vi.mock('vscode', async () => {
     });
 });
 
+import { createMockLogOutputChannel } from '../test-utils';
+
 describe('compareAllFilesWithRevisionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let mockOutputChannel: vscode.OutputChannel;
+    let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
-        mockOutputChannel = { appendLine: vi.fn(), show: vi.fn() } as unknown as vscode.OutputChannel;
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        mockOutputChannel = createMockLogOutputChannel();
     });
 
     afterEach(() => {

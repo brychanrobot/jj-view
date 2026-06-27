@@ -9,6 +9,7 @@ import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote 
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
+import type { JjLoggerChannel } from './utils/output-channel';
 
 export const GitHubPrNodeSchema = z.object({
     id: z.string(),
@@ -118,7 +119,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: vscode.OutputChannel,
+        private outputChannel?: JjLoggerChannel,
     ) {
         this.authManager.registerProvider(this.id);
     }
@@ -162,7 +163,7 @@ export class GitHubProvider implements CodeForgeProvider {
             }
             this.owner = owner;
             this.repo = repo;
-            this.outputChannel?.appendLine(`[GitHubProvider] Detected GitHub repo: ${this.owner}/${this.repo}`);
+            this.outputChannel?.info(`[GitHubProvider] Detected GitHub repo: ${this.owner}/${this.repo}`);
             return true;
         }
 
@@ -255,7 +256,7 @@ export class GitHubProvider implements CodeForgeProvider {
                     }
                 }
             } catch (error) {
-                this.outputChannel?.appendLine(`[GitHubProvider] Failed to fetch statuses for batch: ${error}`);
+                this.outputChannel?.error(`[GitHubProvider] Failed to fetch statuses for batch: ${error}`);
             }
         };
 
@@ -353,7 +354,7 @@ export class GitHubProvider implements CodeForgeProvider {
         });
 
         if (response.status === 401 && token) {
-            this.outputChannel?.appendLine(
+            this.outputChannel?.error(
                 `[GitHubProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
             );
             await this.authManager.clearInvalidToken({
@@ -432,7 +433,7 @@ export class GitHubProvider implements CodeForgeProvider {
         const remoteParents = commitNode?.parents?.nodes?.map((p) => p.oid);
         const remoteDescription = commitNode?.message;
 
-        const reviewDecision = pr.reviewDecision;
+        const { reviewDecision } = pr;
         const statusCheckRollup = commitNode?.statusCheckRollup;
 
         const isMergeable = pr.mergeable === 'MERGEABLE';
@@ -475,11 +476,11 @@ export class GitHubProvider implements CodeForgeProvider {
     }
 
     public activate(): void {
-        this.outputChannel?.appendLine('[GitHubProvider] Activated');
+        this.outputChannel?.info('[GitHubProvider] Activated');
     }
 
     public deactivate(): void {
-        this.outputChannel?.appendLine('[GitHubProvider] Deactivated');
+        this.outputChannel?.info('[GitHubProvider] Deactivated');
     }
 
     private async getSessionToken(): Promise<string | undefined> {

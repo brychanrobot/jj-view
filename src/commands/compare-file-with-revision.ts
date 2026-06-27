@@ -6,11 +6,12 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
 import { encodeJjViewQuery } from '../uri-utils';
+import type { JjLoggerChannel } from '../utils/output-channel';
 import { promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
 export async function compareFileWithRevisionCommand(
     jj: JjService,
-    outputChannel: vscode.OutputChannel,
+    outputChannel: JjLoggerChannel,
     ...args: unknown[]
 ): Promise<void> {
     try {

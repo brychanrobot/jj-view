@@ -76,6 +76,6 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
     } catch (e) {
         const message = getErrorMessage(e);
         vscode.window.showErrorMessage(`Failed to create workspace: ${message}`);
-        scmProvider.outputChannel.appendLine(`[Error] Workspace creation failed: ${message}`);
+        scmProvider.outputChannel.error(`[Error] Workspace creation failed: ${message}`);
     }
 }

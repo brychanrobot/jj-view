@@ -2,13 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { describePromptCommand } from '../../commands/describe-prompt';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService } from '../../jj-service';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -23,11 +24,11 @@ describe('describePromptCommand', () => {
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
 
         scmProvider = createMock<JjScmProvider>({
             refresh: vi.fn(),
-            outputChannel: createMock<vscode.OutputChannel>({
+            outputChannel: createMockLogOutputChannel({
                 appendLine: vi.fn(),
             }),
             sourceControl: createMock<vscode.SourceControl>({

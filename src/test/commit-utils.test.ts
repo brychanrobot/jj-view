@@ -2,8 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CommitAction, JjLogEntry } from '../jj-types';
 import { computeCommitActions } from '../webview/utils/commit-utils';
 import { buildGraph, TestRepo } from './test-repo';
@@ -15,7 +16,7 @@ describe('computeCommitActions', () => {
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
-        jj = new JjService(repo.path);
+        jj = new JjService(repo.path, NO_OP_LOGGER);
     });
 
     afterEach(() => {

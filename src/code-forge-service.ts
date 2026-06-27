@@ -8,6 +8,7 @@ import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
+import type { JjLoggerChannel } from './utils/output-channel';
 import { TimerBucket } from './utils/timer-bucket';
 
 export class CodeForgeService implements vscode.Disposable {
@@ -34,7 +35,7 @@ export class CodeForgeService implements vscode.Disposable {
         private workspaceRoot: string,
         private jjService: JjService,
         private registry: CodeForgeRegistry,
-        private outputChannel?: vscode.OutputChannel,
+        private outputChannel?: JjLoggerChannel,
     ) {
         for (const factory of this.registry.getFactories()) {
             this.providers.set(factory.id, factory.create(this.outputChannel));
@@ -131,7 +132,7 @@ export class CodeForgeService implements vscode.Disposable {
             return;
         }
         if (this.activeProviderInstance) {
-            this.outputChannel?.appendLine(`[CodeForgeService] Force refresh triggered`);
+            this.outputChannel?.info(`[CodeForgeService] Force refresh triggered`);
             this.lastRefreshTime = Date.now();
             this._onDidUpdate.fire();
         }
@@ -146,7 +147,7 @@ export class CodeForgeService implements vscode.Disposable {
         this.backoffTimers.dispose();
 
         const delays = [2000, 3000, 5000, 10000];
-        this.outputChannel?.appendLine(`[CodeForgeService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
+        this.outputChannel?.info(`[CodeForgeService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
 
         for (const delay of delays) {
             this.backoffTimers.schedule(() => this.forceRefresh(), delay);
@@ -220,7 +221,7 @@ export class CodeForgeService implements vscode.Disposable {
                 this._onDidUpdate.fire();
             }
         } catch (e) {
-            this.outputChannel?.appendLine(`[CodeForgeService] Failed to detect active provider: ${e}`);
+            this.outputChannel?.error(`[CodeForgeService] Failed to detect active provider: ${e}`);
         }
     }
 
@@ -321,7 +322,7 @@ export class CodeForgeService implements vscode.Disposable {
 
                 if (!(idMatches || (contentSynced && parentSynced))) {
                     needsUpload = true;
-                    this.outputChannel?.appendLine(
+                    this.outputChannel?.info(
                         `[CodeForgeService] Commit ${commit.change_id.substring(0, 8)} needs upload: ` +
                             `idMatches=${idMatches}, contentSynced=${contentSynced}, parentSynced=${parentSynced} ` +
                             `(currentRevision=${info.currentRevision?.substring(0, 8)}, commitId=${commit.commit_id?.substring(0, 8)})`,
@@ -333,7 +334,7 @@ export class CodeForgeService implements vscode.Disposable {
                 for (const parent of commit.parents) {
                     if (computeNeedsUpload(parent.commit_id)) {
                         needsUpload = true;
-                        this.outputChannel?.appendLine(
+                        this.outputChannel?.info(
                             `[CodeForgeService] Commit ${commit.change_id.substring(0, 8)} needs upload: inherited from parent ${parent.commit_id.substring(0, 8)}`,
                         );
                         break;

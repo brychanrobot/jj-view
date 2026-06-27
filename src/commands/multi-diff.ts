@@ -5,11 +5,12 @@
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
 import { createDiffUris } from '../uri-utils';
+import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
 export async function showMultiFileDiffCommand(
     jj: JjService,
-    outputChannel: vscode.OutputChannel,
+    outputChannel: JjLoggerChannel,
     ...args: unknown[]
 ): Promise<void> {
     try {
