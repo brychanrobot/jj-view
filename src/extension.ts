@@ -16,6 +16,12 @@ import { advanceBookmarkCommand } from './commands/bookmark-advance';
 import { advanceBookmarkAndUploadCommand } from './commands/bookmark-advance-upload';
 import { deleteBookmarkCommand } from './commands/bookmark-delete';
 import { resolveRepository } from './commands/command-utils';
+import {
+    replyCommentCommand,
+    resolveCommentThreadCommand,
+    showCommentsCommand,
+    unresolveCommentThreadCommand,
+} from './commands/comments';
 import { commitCommand } from './commands/commit';
 import { commitPromptCommand } from './commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from './commands/compare-all-files-with-revision';
@@ -54,6 +60,7 @@ import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
 import { workspaceDeleteCommand } from './commands/workspace-delete';
 import { workspaceForgetCommand } from './commands/workspace-forget';
+import { CommentsManager } from './comments-manager';
 import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
 import { GitHubProvider } from './github-provider';
@@ -75,6 +82,7 @@ import { JjOutputChannel } from './utils/output-channel';
 export interface Api {
     repositoryManager: JjRepositoryManager;
     scmProviders: Map<string, JjScmProvider>;
+    commentsManager: CommentsManager;
     registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
 }
 
@@ -165,6 +173,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         resolvedBinaryPath,
     );
     context.subscriptions.push(repositoryManager);
+
+    const commentsManager = new CommentsManager(repositoryManager);
+    context.subscriptions.push(commentsManager);
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -460,6 +471,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.showComments', async (changeId?: string) => {
+            await showCommentsCommand(commentsManager, changeId);
+        }),
+        vscode.commands.registerCommand('jj-view.replyComment', async (reply?: vscode.CommentReply) => {
+            await replyCommentCommand(commentsManager, reply);
+        }),
+        vscode.commands.registerCommand(
+            'jj-view.resolveCommentThread',
+            async (arg?: vscode.CommentThread | vscode.CommentReply) => {
+                await resolveCommentThreadCommand(commentsManager, arg);
+            },
+        ),
+        vscode.commands.registerCommand(
+            'jj-view.unresolveCommentThread',
+            async (arg?: vscode.CommentThread | vscode.CommentReply) => {
+                await unresolveCommentThreadCommand(commentsManager, arg);
+            },
+        ),
+    );
+
+    context.subscriptions.push(
         registerWrappedCommand('jj-view.abandon', async (scm, jj, ...args) => {
             await abandonCommand(scm, jj, args);
         }),
@@ -645,6 +677,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     return {
         repositoryManager,
         scmProviders,
+        commentsManager,
         registerCodeForgeProvider: (factory: CodeForgeProviderFactory) => codeForgeRegistry.register(factory),
     };
 }

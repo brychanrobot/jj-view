@@ -111,20 +111,24 @@ You MUST run individual test cases when writing a new test or debugging a broken
     VERBOSE=1 pnpm test:e2e context-menu.spec.ts -g "New Merge Change"
     ```
 
-### 4. Debugging E2E Tests (DOM Dumping)
+- **Configurable Artifacts Output Directory (Direct Image Debugging):**
+  By default, Playwright outputs failure screenshots/videos to `test-results/` inside the workspace. To view these images directly without copying them to the artifact directory, you can set the `PLAYWRIGHT_OUTPUT_DIR` environment variable to the agent's current conversation artifact directory:
+  ```bash
+  PLAYWRIGHT_OUTPUT_DIR=<artifact-directory-path>/test-results pnpm test:e2e <test-arguments>
+  ```
+  *(Note: You can find the `<artifact-directory-path>` in the conversation details/metadata, e.g., `<appDataDir>/brain/<conversation-id>`)*
+  This will place failure screenshots directly into your artifact folder, making them instantly available for the `view_file` tool.
 
-**Purpose:** When locators fail in E2E tests, it's often due to the complex, nested structure of VS Code (including shadow roots and iframes). Simply dumping the page content can help identify the correct selectors.
+### 4. Debugging E2E Tests (Automatic Failure Diagnostics)
 
-**Common Strategy:**
+**Purpose:** When locators fail in E2E tests, it's often due to the complex, nested structure of VS Code. Playwright is configured to automatically dump the visual and DOM state on failure.
 
-```typescript
-// Dump the entire page content as a string
-console.log(await page.content());
+**Diagnostic Outputs:**
+Whenever an E2E test fails, the test runner automatically saves two diagnostic files in the output directory:
+1. **Screenshot:** `test-failure.png` showing the visual editor/workspace state.
+2. **DOM HTML:** `test-failure.html` containing the complete DOM structure (including shadow roots and iframes).
 
-// Or dump focused parts of the DOM if you suspect nested structures
-const dom = await page.evaluate(() => document.body.innerHTML);
-console.log(dom);
-```
+You can directly read the automatically generated `test-failure.html` using the `view_file` tool to inspect selectors and find elements at the time of the failure.
 
 ## Mandatory Debugging Practice
 

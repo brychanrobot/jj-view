@@ -11,12 +11,19 @@ import {
     expectNotificationToast,
     focusJJLog,
     focusSCM,
+    getReviewWidget,
     locateQuickInputItem,
     locateQuickInputWidget,
+    openFileInEditor,
     pickQuickPickItem,
+    replyToCommentThread,
+    resolveCommentThread,
     test,
+    unresolveCommentThread,
+    waitForCommentThreadsCount,
     waitForLogCommitRow,
     waitForQuickInput,
+    waitForThreadState,
 } from './e2e-helpers';
 
 test.describe('GitHub Integration E2E', () => {
@@ -356,5 +363,141 @@ test.describe('GitHub Integration E2E', () => {
 
         // Verify PR badge is shown with correct number and URL (even though the headOwner is 'fork-owner')
         await expectBadgeLink(row, 'PR #99', 'https://github.com/mainline-owner/mainline-repo/pull/99');
+    });
+
+    test('Clicks unresolved comments bubble and fetches comments', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            {
+                label: 'pr-commit',
+                parents: ['base'],
+                description: 'PR Commit',
+                bookmarks: ['my-feature-branch'],
+                files: {
+                    'file.txt': 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n',
+                },
+            },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.registerPR('my-feature-branch', {
+            id: 'pr_node_id_123',
+            number: 42,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/test-owner/test-repo/pull/42',
+            currentRevision: commits['pr-commit'].commitId,
+            unresolvedComments: 3,
+        });
+
+        github.registerReviewThreads('pr_node_id_123', [
+            {
+                id: 'thread-1',
+                isResolved: false,
+                path: 'file.txt',
+                line: 10,
+                comments: [
+                    {
+                        id: 'c-1',
+                        body: 'Review comment',
+                        createdAt: '2026-06-30T12:00:00Z',
+                        author: { login: 'reviewer' },
+                    },
+                ],
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        try {
+            await focusJJLog(page);
+
+            const row = await waitForLogCommitRow(page, 'PR Commit');
+            const bubble = row.getByTitle('3 Unresolved Comments');
+            await expect(bubble).toBeVisible();
+
+            // Clicks unresolved comments bubble to focus and fetch comments
+            await bubble.click();
+
+            // Wait until the fake server receives a request for the review threads
+            await expect
+                .poll(() => {
+                    return github.requests.some((req) => req.body.includes('reviewThreads('));
+                })
+                .toBe(true);
+
+            // Wait for CommentsManager to parse and populate the threads
+            await waitForCommentThreadsCount(vscode);
+
+            // Open the file in the editor to show the review widget
+            await openFileInEditor(vscode, page, 'file.txt', repo);
+
+            // Wait for the review widget to appear in the editor DOM
+            const reviewWidget = await getReviewWidget(page, 'Review comment');
+
+            // Type and submit the reply
+            await replyToCommentThread(page, reviewWidget, 'My GitHub E2E reply');
+
+            // Assert that the fake server receives the reply request
+            await expect
+                .poll(() => {
+                    return github.requests.some((req) => req.body.includes('addPullRequestReviewThreadReply'));
+                })
+                .toBe(true);
+
+            github.clearRequests();
+
+            // Wait for the reply to be rendered in the UI
+            await expect(reviewWidget).toContainText('My GitHub E2E reply');
+
+            // Resolve the thread
+            await resolveCommentThread(reviewWidget);
+
+            // Assert that the fake server receives the resolve request
+            await expect
+                .poll(() => {
+                    return github.requests.some((req) => req.body.includes('resolveReviewThread'));
+                })
+                .toBe(true);
+
+            github.clearRequests();
+
+            // Wait for CommentsManager to update the thread to resolved & collapsed
+            await waitForThreadState(vscode, 'resolved', 0);
+
+            // Wait for the review widget to be hidden
+            await expect(page.locator('.review-widget')).toBeHidden();
+
+            // Expand the thread since resolving it collapsed it
+            await page.locator('.comment-range-glyph').first().click();
+
+            // Wait for the review widget to appear in the editor DOM again
+            const reviewWidget2 = await getReviewWidget(page, 'Review comment');
+
+            // Unresolve the thread
+            await unresolveCommentThread(reviewWidget2);
+
+            // Assert that the fake server receives the unresolve request
+            await expect
+                .poll(() => {
+                    return github.requests.some((req) => req.body.includes('unresolveReviewThread'));
+                })
+                .toBe(true);
+        } finally {
+        }
     });
 });

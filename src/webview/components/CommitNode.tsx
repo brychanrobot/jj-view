@@ -549,19 +549,28 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
                         {/* Attributes */}
                         {codeForgeChange.unresolvedComments > 0 && (
-                            <span
-                                title={`${codeForgeChange.unresolvedComments} Unresolved Comments`}
+                            <button
+                                type="button"
+                                title={`${codeForgeChange.unresolvedComments} Unresolved Comments (Click to view)`}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('showComments', { changeId: commit.change_id });
+                                }}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '3px',
                                     color: 'var(--vscode-problemsWarningIcon-foreground)',
                                     marginLeft: '4px',
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: 0,
+                                    cursor: 'pointer',
                                 }}
                             >
                                 <span className="codicon codicon-comment-discussion" style={{ fontSize: '11px' }} />
                                 <span>{codeForgeChange.unresolvedComments}</span>
-                            </span>
+                            </button>
                         )}
 
                         {codeForgeChange.submittable && codeForgeChange.status === 'NEW' && (

@@ -1384,3 +1384,120 @@ export async function waitForBookmark(
         )
         .toBe(true);
 }
+
+/**
+ * Locates the comment review widget in the editor and waits for it to become visible.
+ */
+export async function getReviewWidget(page: Page, expectedText?: string): Promise<Locator> {
+    const start = Date.now();
+    const reviewWidget = page.locator('.review-widget');
+    await expect(reviewWidget).toBeVisible({ timeout: 15000 });
+    if (expectedText) {
+        await expect(reviewWidget).toContainText(expectedText);
+    }
+    logPerf('getReviewWidget', start);
+    return reviewWidget;
+}
+
+/**
+ * Types and submits a reply on the given comment thread review widget.
+ */
+export async function replyToCommentThread(page: Page, reviewWidget: Locator, text: string) {
+    const start = Date.now();
+    // Click the "Reply..." placeholder button to expand the comment form
+    const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
+    await expect(replyPlaceholderBtn).toBeVisible();
+    await replyPlaceholderBtn.click();
+
+    // Type into the reply input in the DOM (Monaco Editor instance inside comment-form)
+    const editor = reviewWidget.locator('.comment-form .monaco-editor');
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.type(text);
+
+    // Find and click the "Reply" button in the form actions
+    const replyBtn = reviewWidget
+        .locator('.form-actions button, .form-actions [role="button"]')
+        .filter({ hasText: 'Reply' })
+        .first();
+    await expect(replyBtn).toBeVisible();
+    await replyBtn.click();
+    logPerf('replyToCommentThread', start);
+}
+
+/**
+ * Resolves the given comment thread review widget by clicking the resolve button next to Reply.
+ */
+export async function resolveCommentThread(reviewWidget: Locator) {
+    const start = Date.now();
+    // If the reply form is not already expanded, click the "Reply..." placeholder to show the action buttons.
+    const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
+    await expect(replyPlaceholderBtn).toBeVisible();
+    await replyPlaceholderBtn.click();
+
+    // Find and click the "Resolve Thread" button in the form actions
+    const resolveBtn = reviewWidget
+        .locator('.form-actions button, .form-actions [role="button"]')
+        .filter({ hasText: 'Resolve Thread' })
+        .first();
+    await expect(resolveBtn).toBeVisible();
+    await resolveBtn.click();
+    logPerf('resolveCommentThread', start);
+}
+
+/**
+ * Unresolves the given comment thread review widget by clicking the unresolve button next to Reply.
+ */
+export async function unresolveCommentThread(reviewWidget: Locator) {
+    const start = Date.now();
+    // If the reply form is not already expanded, click the "Reply..." placeholder to show the action buttons.
+    const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
+    await expect(replyPlaceholderBtn).toBeVisible();
+    await replyPlaceholderBtn.click();
+
+    // Find and click the "Unresolve Thread" button in the form actions
+    const unresolveBtn = reviewWidget
+        .locator('.form-actions button, .form-actions [role="button"]')
+        .filter({ hasText: 'Unresolve Thread' })
+        .first();
+    await expect(unresolveBtn).toBeVisible();
+    await unresolveBtn.click();
+    logPerf('unresolveCommentThread', start);
+}
+
+/**
+ * Polls the comments manager until the count of loaded comment threads is at least minCount.
+ */
+export async function waitForCommentThreadsCount(vscode: VSCodeFixture, minCount = 1) {
+    await expect
+        .poll(async () => {
+            return await vscode.evaluate((_, api) => {
+                return api.commentsManager.getThreads().size;
+            });
+        })
+        .toBeGreaterThanOrEqual(minCount);
+}
+
+/**
+ * Polls the first comment thread until its resolution status and collapsible state match the expected values.
+ */
+export async function waitForThreadState(
+    vscode: VSCodeFixture,
+    expectedContextValue: 'resolved' | 'unresolved',
+    expectedCollapsibleState: 0 | 1,
+) {
+    await expect
+        .poll(async () => {
+            return await vscode.evaluate((_, api) => {
+                const thread = Array.from(api.commentsManager.getThreads().values())[0];
+                return {
+                    contextValue: thread?.contextValue,
+                    collapsibleState: thread?.collapsibleState,
+                };
+            });
+        })
+        .toEqual({
+            contextValue: expectedContextValue,
+            collapsibleState: expectedCollapsibleState,
+        });
+}

@@ -12,7 +12,7 @@ export default defineConfig({
         timeout: 10000,
     },
     reporter: [['list'], ['html', { open: 'never' }]],
-    outputDir: 'test-results',
+    outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || 'test-results',
     use: {
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',

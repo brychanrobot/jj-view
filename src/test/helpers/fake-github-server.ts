@@ -17,6 +17,24 @@ export interface FakePrInfo {
     headOwner?: string;
 }
 
+export interface FakeComment {
+    id: string;
+    body: string;
+    createdAt: string;
+    author: {
+        login: string;
+        avatarUrl?: string;
+    };
+}
+
+export interface FakeReviewThread {
+    id: string;
+    isResolved: boolean;
+    path: string;
+    line?: number | null;
+    comments: FakeComment[];
+}
+
 interface GqlPrNode {
     id: string;
     number: number;
@@ -50,12 +68,17 @@ interface GqlPrNode {
 
 export class FakeGitHubServer {
     private prs = new Map<string, FakePrInfo>();
+    private threads = new Map<string, FakeReviewThread[]>(); // prId -> FakeReviewThread[]
     private server: http.Server | undefined;
     public url = '';
     public requests: { url: string; body: string }[] = [];
 
     public registerPR(bookmark: string, pr: FakePrInfo) {
         this.prs.set(bookmark, pr);
+    }
+
+    public registerReviewThreads(prId: string, threads: FakeReviewThread[]) {
+        this.threads.set(prId, threads);
     }
 
     public clearRequests() {
@@ -75,8 +98,99 @@ export class FakeGitHubServer {
                     this.requests.push({ url: urlStr, body });
 
                     try {
-                        const parsedBody = JSON.parse(body) as { query?: string };
+                        const parsedBody = JSON.parse(body) as { query?: string; variables?: Record<string, unknown> };
                         const query = parsedBody.query || '';
+
+                        if (query.includes('node(id:') || query.includes('$id: ID!')) {
+                            const variables = parsedBody.variables as { id: string } | undefined;
+                            const prId = variables?.id || '';
+                            const prThreads = this.threads.get(prId) || [];
+
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(
+                                JSON.stringify({
+                                    data: {
+                                        node: {
+                                            reviewThreads: {
+                                                nodes: prThreads.map((t) => ({
+                                                    id: t.id,
+                                                    isResolved: t.isResolved,
+                                                    path: t.path,
+                                                    line: t.line,
+                                                    comments: {
+                                                        nodes: t.comments,
+                                                    },
+                                                })),
+                                            },
+                                        },
+                                    },
+                                }),
+                            );
+                            return;
+                        }
+
+                        if (query.includes('addPullRequestReviewThreadReply')) {
+                            const variables = parsedBody.variables as { threadId: string; body: string } | undefined;
+                            const threadId = variables?.threadId || '';
+                            const bodyText = variables?.body || '';
+
+                            let createdComment: FakeComment | undefined;
+                            for (const threadsList of this.threads.values()) {
+                                const found = threadsList.find((t) => t.id === threadId);
+                                if (found) {
+                                    createdComment = {
+                                        id: `comment-reply-${Date.now()}`,
+                                        body: bodyText,
+                                        createdAt: new Date().toISOString(),
+                                        author: { login: 'replier-login' },
+                                    };
+                                    found.comments.push(createdComment);
+                                    break;
+                                }
+                            }
+
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(
+                                JSON.stringify({
+                                    data: {
+                                        addPullRequestReviewThreadReply: {
+                                            comment: createdComment,
+                                        },
+                                    },
+                                }),
+                            );
+                            return;
+                        }
+
+                        if (query.includes('resolveReviewThread') || query.includes('unresolveReviewThread')) {
+                            const variables = parsedBody.variables as { threadId: string } | undefined;
+                            const threadId = variables?.threadId || '';
+                            const resolve =
+                                query.includes('resolveReviewThread') && !query.includes('unresolveReviewThread');
+
+                            for (const threadsList of this.threads.values()) {
+                                const found = threadsList.find((t) => t.id === threadId);
+                                if (found) {
+                                    found.isResolved = resolve;
+                                    break;
+                                }
+                            }
+
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(
+                                JSON.stringify({
+                                    data: {
+                                        resolvePullRequestReviewThread: {
+                                            thread: {
+                                                id: threadId,
+                                                isResolved: resolve,
+                                            },
+                                        },
+                                    },
+                                }),
+                            );
+                            return;
+                        }
 
                         // Parse queries in the format:
                         // pr_0: pullRequests(first: 1, headRefName: "some-bookmark") {

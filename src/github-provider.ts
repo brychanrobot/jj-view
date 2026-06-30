@@ -5,7 +5,14 @@
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
+import type {
+    AuthManageItem,
+    ChangeStatusRequest,
+    CodeForgeComment,
+    CodeForgeCommentThread,
+    CodeForgeProvider,
+    GitRemote,
+} from './code-forge-provider';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
@@ -102,6 +109,48 @@ export const GitHubAliasSchema = z
     })
     .nullable()
     .optional();
+
+interface GitHubAuthorGql {
+    login: string;
+    avatarUrl?: string;
+}
+
+interface GitHubCommentGql {
+    id: string;
+    body: string;
+    createdAt: string;
+    author?: GitHubAuthorGql | null;
+}
+
+interface GitHubReviewThreadNodeGql {
+    id: string;
+    isResolved: boolean;
+    path: string;
+    line?: number | null;
+    comments: {
+        nodes?: (GitHubCommentGql | null)[] | null;
+    };
+}
+
+interface GitHubCommentsNodeResponseGql {
+    data?: {
+        node?: {
+            reviewThreads?: {
+                nodes?: (GitHubReviewThreadNodeGql | null)[] | null;
+            } | null;
+        } | null;
+    } | null;
+    errors?: unknown[] | null;
+}
+
+interface GitHubReplyResponseGql {
+    data?: {
+        addPullRequestReviewThreadReply?: {
+            comment?: GitHubCommentGql | null;
+        } | null;
+    } | null;
+    errors?: unknown[] | null;
+}
 
 export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
@@ -468,6 +517,221 @@ export class GitHubProvider implements CodeForgeProvider {
             args.push('-r', revision);
         }
         return { subcommand: 'git', args };
+    }
+
+    /**
+     * Fetches comment threads from GitHub for a given pull request node ID.
+     * Note: This GraphQL query is limited to retrieving the first 100 review threads
+     * and the first 100 comments per thread. It does not perform cursor-based pagination.
+     */
+    public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
+        const token = await this.getSessionToken();
+        if (!token) {
+            return [];
+        }
+
+        const query = `
+        query($id: ID!) {
+            node(id: $id) {
+                ... on PullRequest {
+                    reviewThreads(first: 100) {
+                        nodes {
+                            id
+                            isResolved
+                            path
+                            line
+                            comments(first: 100) {
+                                nodes {
+                                    id
+                                    body
+                                    createdAt
+                                    author {
+                                        login
+                                        avatarUrl
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        `;
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const response = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query,
+                variables: { id: changeId },
+            }),
+            signal,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch comments: ${response.statusText}`);
+        }
+
+        const json = (await response.json()) as GitHubCommentsNodeResponseGql;
+        if (json.errors) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+        }
+
+        const prNode = json.data?.node;
+        if (!prNode) {
+            return [];
+        }
+
+        const threads: CodeForgeCommentThread[] = [];
+        const rawThreads = prNode.reviewThreads?.nodes || [];
+        for (const rawThread of rawThreads) {
+            if (!rawThread) {
+                continue;
+            }
+            const comments: CodeForgeComment[] = [];
+            const rawComments = rawThread.comments?.nodes || [];
+            for (const c of rawComments) {
+                if (!c) {
+                    continue;
+                }
+                comments.push({
+                    id: c.id,
+                    author: {
+                        name: c.author?.login || 'Unknown',
+                        username: c.author?.login,
+                        avatarUrl: c.author?.avatarUrl,
+                    },
+                    body: c.body,
+                    createdAt: c.createdAt,
+                });
+            }
+
+            threads.push({
+                id: rawThread.id,
+                filePath: rawThread.path,
+                line: rawThread.line || undefined,
+                isResolved: rawThread.isResolved,
+                comments,
+            });
+        }
+
+        return threads;
+    }
+
+    public async replyToCommentThread(_changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+        const token = await this.getSessionToken();
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const query = `
+        mutation($threadId: ID!, $body: String!) {
+            addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
+                comment {
+                    id
+                    body
+                    createdAt
+                    author {
+                        login
+                        avatarUrl
+                    }
+                }
+            }
+        }
+        `;
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const response = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query,
+                variables: { threadId, body },
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to post reply: ${response.statusText}`);
+        }
+
+        const json = (await response.json()) as GitHubReplyResponseGql;
+        if (json.errors) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+        }
+
+        const comment = json.data?.addPullRequestReviewThreadReply?.comment;
+        if (!comment) {
+            throw new Error('Failed to create reply: No comment returned');
+        }
+
+        return {
+            id: comment.id,
+            author: {
+                name: comment.author?.login || 'Unknown',
+                username: comment.author?.login,
+                avatarUrl: comment.author?.avatarUrl,
+            },
+            body: comment.body,
+            createdAt: comment.createdAt,
+        };
+    }
+
+    public async resolveCommentThread(_changeId: string, threadId: string, resolved: boolean): Promise<void> {
+        const token = await this.getSessionToken();
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const query = resolved
+            ? `mutation($threadId: ID!) {
+                resolveReviewThread(input: {threadId: $threadId}) {
+                    thread {
+                        id
+                        isResolved
+                    }
+                }
+            }`
+            : `mutation($threadId: ID!) {
+                unresolveReviewThread(input: {threadId: $threadId}) {
+                    thread {
+                        id
+                        isResolved
+                    }
+                }
+            }`;
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const response = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query,
+                variables: { threadId },
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to toggle resolve: ${response.statusText}`);
+        }
+
+        const json = await response.json();
+        const errors = (json as { errors?: unknown[] }).errors;
+        if (errors) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(errors)}`);
+        }
     }
 
     public clearCache(): void {

@@ -5,8 +5,22 @@
 import * as http from 'node:http';
 import type { GerritChange } from '../../gerrit-provider';
 
+export interface FakeGerritComment {
+    id: string;
+    line?: number;
+    message: string;
+    updated: string;
+    unresolved?: boolean;
+    in_reply_to?: string;
+    author?: {
+        name: string;
+        username: string;
+    };
+}
+
 export class FakeGerritServer {
-    private changes = new Map<string, GerritChange>();
+    public changes = new Map<string, GerritChange>();
+    private comments = new Map<number, Record<string, FakeGerritComment[]>>(); // changeNumber -> (filePath -> comments)
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
@@ -33,6 +47,10 @@ export class FakeGerritServer {
         if (change._number !== undefined) {
             this.changes.set(String(change._number), fullChange);
         }
+    }
+
+    public registerComments(changeNumber: number, comments: Record<string, FakeGerritComment[]>) {
+        this.comments.set(changeNumber, comments);
     }
 
     /**
@@ -129,8 +147,60 @@ export class FakeGerritServer {
                 return;
             }
 
+            if (urlStr.includes('/comments')) {
+                const match = urlStr.match(/\/changes\/(\d+)\/comments/);
+                if (match) {
+                    const changeNumber = parseInt(match[1], 10);
+                    const list = this.comments.get(changeNumber) || {};
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(`)]}'\n${JSON.stringify(list)}`);
+                    return;
+                }
+            }
+
+            if (urlStr.includes('/review') && req.method === 'POST') {
+                const match = urlStr.match(/\/changes\/(\d+)\/revisions\/current\/review/);
+                if (match) {
+                    const changeNumber = parseInt(match[1], 10);
+                    let body = '';
+                    req.on('data', (chunk) => {
+                        body += chunk;
+                    });
+                    req.on('end', () => {
+                        const parsed = JSON.parse(body) as {
+                            comments?: Record<string, Partial<FakeGerritComment>[]>;
+                        };
+
+                        const currentComments = this.comments.get(changeNumber) || {};
+
+                        if (parsed.comments) {
+                            for (const [filePath, list] of Object.entries(parsed.comments)) {
+                                currentComments[filePath] = currentComments[filePath] || [];
+                                for (const incoming of list) {
+                                    const newComment: FakeGerritComment = {
+                                        id: `comment-${Date.now()}-${Math.random()}`,
+                                        line: incoming.line,
+                                        message: incoming.message || '',
+                                        updated: new Date().toISOString(),
+                                        unresolved: incoming.unresolved,
+                                        in_reply_to: incoming.in_reply_to,
+                                        author: { name: 'Gerrit User', username: 'gerrit_user' },
+                                    };
+                                    currentComments[filePath].push(newComment);
+                                }
+                            }
+                        }
+
+                        this.comments.set(changeNumber, currentComments);
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(`)]}'\n{}`);
+                    });
+                    return;
+                }
+            }
+
             if (urlStr.includes('/changes/')) {
-                const urlObj = new URL(urlStr, `http://${req.headers.host}`);
+                const urlObj = new URL(urlStr, `http://${req.headers.host || 'localhost'}`);
                 const queries = urlObj.searchParams.getAll('q');
                 const options = new Set(urlObj.searchParams.getAll('o'));
 
@@ -164,6 +234,7 @@ export class FakeGerritServer {
                                 _number: change._number,
                                 change_id: change.change_id,
                                 owner: change.owner,
+                                unresolved_comment_count: change.unresolved_comment_count,
                             };
 
                             if (options.has('SUBMITTABLE')) {

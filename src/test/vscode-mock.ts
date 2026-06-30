@@ -205,6 +205,62 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         }
     }
 
+    enum CommentThreadCollapsibleState {
+        Collapsed = 0,
+        Expanded = 1,
+    }
+
+    enum CommentThreadState {
+        Unresolved = 0,
+        Resolved = 1,
+    }
+
+    enum CommentMode {
+        Preview = 0,
+        Editing = 1,
+    }
+
+    class MockCommentThread {
+        canReply = true;
+        collapsibleState = CommentThreadCollapsibleState.Expanded;
+        comments: readonly unknown[] = [];
+        contextValue?: string;
+        constructor(
+            public readonly uri: unknown,
+            public readonly range: unknown,
+            comments: readonly unknown[],
+        ) {
+            this.comments = comments;
+        }
+        dispose = vi.fn();
+    }
+
+    class MarkdownString {
+        constructor(public value: string = '') {}
+        appendMarkdown(value: string): MarkdownString {
+            this.value += value;
+            return this;
+        }
+        appendCodeblock(value: string, language?: string): MarkdownString {
+            this.value += `\n\`\`\`${language || ''}\n${value}\n\`\`\`\n`;
+            return this;
+        }
+    }
+
+    class MockCommentController {
+        commentingRangeProvider?: unknown;
+        constructor(
+            public readonly id: string,
+            public readonly label: string,
+        ) {}
+        createCommentThread = vi
+            .fn()
+            .mockImplementation((uri: unknown, range: unknown, comments: readonly unknown[]) => {
+                return new MockCommentThread(uri, range, comments);
+            });
+        dispose = vi.fn();
+    }
+
     let mockWorkspaceFolders: { uri: MockUri; name: string; index: number }[] = [
         {
             uri: new MockUri('/root'),
@@ -220,6 +276,15 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         Selection,
         Disposable,
         EventEmitter,
+        CommentThreadCollapsibleState,
+        CommentThreadState,
+        CommentMode,
+        MarkdownString,
+        comments: {
+            createCommentController: vi.fn().mockImplementation((id: string, label: string) => {
+                return new MockCommentController(id, label);
+            }),
+        },
         FileChangeType: {
             Changed: 1,
             Created: 2,
