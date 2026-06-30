@@ -4,7 +4,14 @@
  */
 import * as vscode from 'vscode';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
+import type {
+    AuthManageItem,
+    ChangeStatusRequest,
+    CodeForgeComment,
+    CodeForgeCommentThread,
+    CodeForgeProvider,
+    GitRemote,
+} from './code-forge-provider';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
@@ -41,6 +48,32 @@ export const GitLabProjectInfoSchema = z.object({
         .optional(),
 });
 export type GitLabProjectInfo = z.infer<typeof GitLabProjectInfoSchema>;
+
+interface GitLabAuthorGql {
+    name: string;
+    username: string;
+    avatar_url?: string;
+}
+
+interface GitLabPositionGql {
+    new_path?: string;
+    new_line?: number;
+}
+
+interface GitLabNoteGql {
+    id: number;
+    body: string;
+    created_at: string;
+    author: GitLabAuthorGql;
+    resolved?: boolean;
+    system?: boolean;
+    position?: GitLabPositionGql;
+}
+
+interface GitLabDiscussionGql {
+    id: string;
+    notes?: GitLabNoteGql[];
+}
 
 interface GitLabRequestContext {
     apiBaseUrl: string;
@@ -686,6 +719,133 @@ export class GitLabProvider implements CodeForgeProvider {
                     `GitLab request failed (403 Forbidden). Please check that your token has 'Merge Request' read/write permissions or 'api' scope.`,
                 );
             }
+        }
+    }
+
+    public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            return [];
+        }
+        const token = await this.getSessionToken(false);
+        const { projectPath } = this;
+        if (!this.gitlabHost || !projectPath) {
+            return [];
+        }
+
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions?per_page=100`;
+
+        const response = await fetchWithTimeout(url, 15000, {
+            headers: {
+                'Private-Token': token || '',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            signal,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch GitLab discussions: ${response.statusText}`);
+        }
+
+        const rawDiscussions = (await response.json()) as GitLabDiscussionGql[];
+        const threads: CodeForgeCommentThread[] = [];
+
+        for (const disc of rawDiscussions) {
+            const notes = (disc.notes || []).filter((n) => !n.system);
+            if (notes.length === 0) {
+                continue;
+            }
+
+            const firstNote = notes[0];
+            const comments: CodeForgeComment[] = notes.map((n) => ({
+                id: n.id.toString(),
+                author: {
+                    name: n.author?.name || 'Unknown',
+                    username: n.author?.username,
+                    avatarUrl: n.author?.avatar_url,
+                },
+                body: n.body,
+                createdAt: n.created_at,
+            }));
+
+            threads.push({
+                id: disc.id,
+                filePath: firstNote.position?.new_path || undefined,
+                line: firstNote.position?.new_line || undefined,
+                isResolved: notes.every((n) => n.resolved !== false),
+                comments,
+            });
+        }
+
+        return threads;
+    }
+
+    public async replyToCommentThread(changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            throw new Error('Change not found in cache');
+        }
+        const token = await this.getSessionToken(false);
+        const projectPath = this.projectPath;
+        if (!this.gitlabHost || !projectPath) {
+            throw new Error('GitLab provider not fully configured');
+        }
+
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${threadId}/notes`;
+
+        const response = await fetchWithTimeout(url, 15000, {
+            method: 'POST',
+            headers: {
+                'Private-Token': token || '',
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({ body }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to post GitLab reply: ${response.statusText}`);
+        }
+
+        const note = (await response.json()) as GitLabNoteGql;
+        return {
+            id: note.id.toString(),
+            author: {
+                name: note.author?.name || 'Unknown',
+                username: note.author?.username,
+                avatarUrl: note.author?.avatar_url,
+            },
+            body: note.body,
+            createdAt: note.created_at,
+        };
+    }
+
+    public async resolveCommentThread(changeId: string, threadId: string, resolved: boolean): Promise<void> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            throw new Error('Change not found in cache');
+        }
+        const token = await this.getSessionToken(false);
+        const projectPath = this.projectPath;
+        if (!this.gitlabHost || !projectPath) {
+            throw new Error('GitLab provider not fully configured');
+        }
+
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${threadId}`;
+
+        const response = await fetchWithTimeout(`${url}?resolved=${resolved}`, 15000, {
+            method: 'PUT',
+            headers: {
+                'Private-Token': token || '',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to toggle resolved status: ${response.statusText}`);
         }
     }
 

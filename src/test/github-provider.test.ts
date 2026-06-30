@@ -9,6 +9,7 @@ import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider
 import { GitHubProvider } from '../github-provider';
 import { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
+import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
@@ -583,5 +584,276 @@ describe('GitHubProvider', () => {
         // my-feature-merged SHOULD be cached even though local commit ID doesn't match
         expect(cache.get('my-feature-merged')).toBeDefined();
         expect(cache.get('my-feature-merged')?.contentSynced).toBe(false);
+    });
+
+    describe('Comments API', () => {
+        let server: FakeGitHubServer;
+        let originalApiUrl: string | undefined;
+
+        beforeEach(async () => {
+            server = new FakeGitHubServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITHUB_API_URL;
+            process.env.JJ_VIEW_GITHUB_API_URL = server.url;
+            setPrivate(provider, 'owner', 'test-owner');
+            setPrivate(provider, 'repo', 'test-repo');
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+        });
+
+        test('getCommentThreads fetches threads from GitHub', async () => {
+            server.registerReviewThreads('pr_node_id_123', [
+                {
+                    id: 'thread-1',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: 10,
+                    comments: [
+                        {
+                            id: 'c-1',
+                            body: 'Nice change!',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: { login: 'reviewer-user' },
+                        },
+                    ],
+                },
+            ]);
+
+            const threads = await provider.getCommentThreads('pr_node_id_123');
+            expect(threads).toHaveLength(1);
+            expect(threads[0].id).toBe('thread-1');
+            expect(threads[0].filePath).toBe('file.txt');
+            expect(threads[0].line).toBe(10);
+            expect(threads[0].isResolved).toBe(false);
+            expect(threads[0].comments[0].body).toBe('Nice change!');
+        });
+
+        test('getCommentThreads handles threads with no comments', async () => {
+            server.registerReviewThreads('pr_node_id_123', [
+                {
+                    id: 'thread-empty-comments',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: 5,
+                    comments: [],
+                },
+            ]);
+
+            const threads = await provider.getCommentThreads('pr_node_id_123');
+
+            expect(threads).toEqual([
+                {
+                    id: 'thread-empty-comments',
+                    isResolved: false,
+                    filePath: 'file.txt',
+                    line: 5,
+                    comments: [],
+                },
+            ]);
+        });
+
+        test('getCommentThreads defaults author name to "Unknown" when author/login is missing', async () => {
+            const rawThreads: unknown = [
+                {
+                    id: 'thread-null-author',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: 7,
+                    comments: [
+                        {
+                            id: 'c-null-author',
+                            body: 'Comment with null author',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: null,
+                        },
+                    ],
+                },
+                {
+                    id: 'thread-missing-login',
+                    isResolved: false,
+                    path: 'file2.txt',
+                    line: 8,
+                    comments: [
+                        {
+                            id: 'c-missing-login',
+                            body: 'Comment with missing login',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                login: undefined,
+                            },
+                        },
+                    ],
+                },
+            ];
+            server.registerReviewThreads(
+                'pr_node_id_123',
+                rawThreads as import('./helpers/fake-github-server').FakeReviewThread[],
+            );
+
+            const threads = await provider.getCommentThreads('pr_node_id_123');
+
+            expect(threads).toEqual([
+                {
+                    id: 'thread-null-author',
+                    isResolved: false,
+                    filePath: 'file.txt',
+                    line: 7,
+                    comments: [
+                        {
+                            id: 'c-null-author',
+                            body: 'Comment with null author',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                name: 'Unknown',
+                                username: undefined,
+                                avatarUrl: undefined,
+                            },
+                        },
+                    ],
+                },
+                {
+                    id: 'thread-missing-login',
+                    isResolved: false,
+                    filePath: 'file2.txt',
+                    line: 8,
+                    comments: [
+                        {
+                            id: 'c-missing-login',
+                            body: 'Comment with missing login',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                name: 'Unknown',
+                                username: undefined,
+                                avatarUrl: undefined,
+                            },
+                        },
+                    ],
+                },
+            ]);
+        });
+
+        test('getCommentThreads omits line when null and handles empty path', async () => {
+            server.registerReviewThreads('pr_node_id_123', [
+                {
+                    id: 'thread-null-line',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: null,
+                    comments: [
+                        {
+                            id: 'c-null-line',
+                            body: 'Comment with null line',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                login: 'reviewer2',
+                            },
+                        },
+                    ],
+                },
+                {
+                    id: 'thread-empty-path',
+                    isResolved: true,
+                    path: '',
+                    line: 12,
+                    comments: [
+                        {
+                            id: 'c-empty-path',
+                            body: 'Comment with empty path',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                login: 'reviewer3',
+                            },
+                        },
+                    ],
+                },
+            ]);
+
+            const threads = await provider.getCommentThreads('pr_node_id_123');
+
+            expect(threads).toEqual([
+                {
+                    id: 'thread-null-line',
+                    isResolved: false,
+                    filePath: 'file.txt',
+                    line: undefined,
+                    comments: [
+                        {
+                            id: 'c-null-line',
+                            body: 'Comment with null line',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                name: 'reviewer2',
+                                username: 'reviewer2',
+                                avatarUrl: undefined,
+                            },
+                        },
+                    ],
+                },
+                {
+                    id: 'thread-empty-path',
+                    isResolved: true,
+                    filePath: '',
+                    line: 12,
+                    comments: [
+                        {
+                            id: 'c-empty-path',
+                            body: 'Comment with empty path',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: {
+                                name: 'reviewer3',
+                                username: 'reviewer3',
+                                avatarUrl: undefined,
+                            },
+                        },
+                    ],
+                },
+            ]);
+        });
+
+        test('replyToCommentThread posts a reply', async () => {
+            server.registerReviewThreads('pr_node_id_123', [
+                {
+                    id: 'thread-1',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: 10,
+                    comments: [
+                        {
+                            id: 'c-1',
+                            body: 'Nice change!',
+                            createdAt: '2026-06-30T12:00:00Z',
+                            author: { login: 'reviewer-user' },
+                        },
+                    ],
+                },
+            ]);
+
+            const reply = await provider.replyToCommentThread('pr_node_id_123', 'thread-1', 'Thanks!');
+            expect(reply.body).toBe('Thanks!');
+            expect(reply.author.name).toBe('replier-login');
+        });
+
+        test('resolveCommentThread resolves/unresolves a thread', async () => {
+            server.registerReviewThreads('pr_node_id_123', [
+                {
+                    id: 'thread-1',
+                    isResolved: false,
+                    path: 'file.txt',
+                    line: 10,
+                    comments: [],
+                },
+            ]);
+
+            await provider.resolveCommentThread('pr_node_id_123', 'thread-1', true);
+            let threads = await provider.getCommentThreads('pr_node_id_123');
+            expect(threads[0].isResolved).toBe(true);
+
+            await provider.resolveCommentThread('pr_node_id_123', 'thread-1', false);
+            threads = await provider.getCommentThreads('pr_node_id_123');
+            expect(threads[0].isResolved).toBe(false);
+        });
     });
 });

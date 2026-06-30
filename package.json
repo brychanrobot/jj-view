@@ -528,6 +528,28 @@
                 "title": "Manage Code Forge Authentication",
                 "category": "JJ View",
                 "icon": "$(key)"
+            },
+            {
+                "command": "jj-view.showComments",
+                "title": "Show Comments",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.replyComment",
+                "title": "Reply",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.resolveCommentThread",
+                "title": "Resolve Thread",
+                "category": "JJ View",
+                "icon": "$(check)"
+            },
+            {
+                "command": "jj-view.unresolveCommentThread",
+                "title": "Unresolve Thread",
+                "category": "JJ View",
+                "icon": "$(reply)"
             }
         ],
         "keybindings": [
@@ -552,6 +574,22 @@
         ],
         "menus": {
             "commandPalette": [
+                {
+                    "command": "jj-view.showComments",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.replyComment",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.resolveCommentThread",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.unresolveCommentThread",
+                    "when": "false"
+                },
                 {
                     "command": "jj-view.squashHunkIntoParent",
                     "when": "false"
@@ -949,6 +987,23 @@
                     "command": "jj-view.compareFileWith",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                }
+            ],
+            "comments/commentThread/context": [
+                {
+                    "command": "jj-view.replyComment",
+                    "group": "inline@1",
+                    "when": "commentController =~ /jj-view/"
+                },
+                {
+                    "command": "jj-view.resolveCommentThread",
+                    "group": "inline@2",
+                    "when": "commentController =~ /jj-view/ && commentThread == unresolved"
+                },
+                {
+                    "command": "jj-view.unresolveCommentThread",
+                    "group": "inline@2",
+                    "when": "commentController =~ /jj-view/ && commentThread == resolved"
                 }
             ]
         },

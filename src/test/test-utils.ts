@@ -64,3 +64,54 @@ export function createMockLogOutputChannel(partial: Partial<vscode.LogOutputChan
         ...partial,
     } as unknown as vscode.LogOutputChannel;
 }
+
+/**
+ * A helper class to simplify waiting for a callback to be invoked and retrieving
+ * the arguments passed to it.
+ */
+export class CallbackWaiter<T = void> {
+    private _promise: Promise<T>;
+    private _resolve!: (value: T | PromiseLike<T>) => void;
+    private _isResolved = false;
+    private _resolvedValue?: T;
+
+    constructor() {
+        this._promise = new Promise<T>((resolve) => {
+            this._resolve = resolve;
+        });
+    }
+
+    recordCall(value: T): void {
+        if (this._isResolved) {
+            throw new Error('CallbackWaiter: recordCall was called twice without waitNext/reset.');
+        }
+        this._resolvedValue = value;
+        this._isResolved = true;
+        this._resolve(value);
+    }
+
+    async get(): Promise<T> {
+        if (this._isResolved) {
+            return this._resolvedValue as T;
+        }
+        return this._promise;
+    }
+
+    async waitNext(): Promise<T> {
+        const val = await this.get();
+        this.reset();
+        return val;
+    }
+
+    reset(): void {
+        this._isResolved = false;
+        this._resolvedValue = undefined;
+        this._promise = new Promise<T>((resolve) => {
+            this._resolve = resolve;
+        });
+    }
+
+    getCallback(): (value: T) => void {
+        return (value: T) => this.recordCall(value);
+    }
+}

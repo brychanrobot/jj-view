@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { ChangeStatusRequest } from '../code-forge-provider';
 import { GerritProvider } from '../gerrit-provider';
 import type { JjService } from '../jj-service';
+import type { CodeForgeChangeInfo } from '../jj-types';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
@@ -120,5 +122,169 @@ describe('GerritProvider', () => {
         expect(cache.get('I12345')).toBeDefined();
         const cachedEntry = cache.get('I12345') as { status: string } | undefined;
         expect(cachedEntry?.status).toBe('NEW');
+    });
+
+    describe('Comments API', () => {
+        let server: FakeGerritServer;
+
+        beforeEach(async () => {
+            server = new FakeGerritServer();
+            await server.start();
+            setPrivate(provider, 'gerritHost', server.url);
+
+            // Populate cache
+            const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+            cache.set('I12345', {
+                id: 'I12345',
+                number: 123,
+                displayLabel: 'CL/123',
+                providerName: 'Gerrit',
+                status: 'NEW',
+                submittable: true,
+                unresolvedComments: 0,
+                url: `${server.url}/c/test-project/+/123`,
+                currentRevision: 'sha-1',
+            });
+        });
+
+        afterEach(async () => {
+            await server.stop();
+        });
+
+        test('getCommentThreads fetches comments from Gerrit', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(1);
+            expect(threads[0].id).toBe('comment-1');
+            expect(threads[0].filePath).toBe('file.txt');
+            expect(threads[0].line).toBe(10);
+            expect(threads[0].isResolved).toBe(false);
+            expect(threads[0].comments[0].body).toBe('First comment');
+        });
+
+        test('getCommentThreads fetches comments from Gerrit and handles grouping/replies/orphans', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-2',
+                        in_reply_to: 'comment-1',
+                        line: 10,
+                        message: 'Reply to first comment',
+                        updated: '2026-06-30T12:01:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer B', username: 'rev_b' },
+                    },
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                    {
+                        id: 'comment-3',
+                        in_reply_to: 'comment-2',
+                        line: 10,
+                        message: 'Nested reply in same thread',
+                        updated: '2026-06-30T12:02:00Z',
+                        unresolved: false,
+                        author: { name: 'Reviewer C', username: 'rev_c' },
+                    },
+                    {
+                        id: 'comment-4',
+                        in_reply_to: 'missing-root',
+                        line: 10,
+                        message: 'Orphan reply whose parent is absent',
+                        updated: '2026-06-30T12:03:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer D', username: 'rev_d' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(2);
+
+            // Thread 1: Groups comment-1, comment-2, comment-3
+            const thread1 = threads.find((t) => t.id === 'comment-1');
+            expect(thread1).toBeDefined();
+            if (!thread1) {
+                return;
+            }
+            expect(thread1.filePath).toBe('file.txt');
+            expect(thread1.line).toBe(10);
+            expect(thread1.isResolved).toBe(true); // Resolves to true because latest comment-3 unresolved is false
+            expect(thread1.comments).toHaveLength(3);
+            expect(thread1.comments[0].id).toBe('comment-1');
+            expect(thread1.comments[1].id).toBe('comment-2');
+            expect(thread1.comments[2].id).toBe('comment-3');
+
+            // Thread 2: The orphan comment-4 starts its own thread
+            const thread2 = threads.find((t) => t.id === 'comment-4');
+            expect(thread2).toBeDefined();
+            if (!thread2) {
+                return;
+            }
+            expect(thread2.filePath).toBe('file.txt');
+            expect(thread2.line).toBe(10);
+            expect(thread2.isResolved).toBe(false); // unresolved is true
+            expect(thread2.comments).toHaveLength(1);
+            expect(thread2.comments[0].id).toBe('comment-4');
+        });
+
+        test('replyToCommentThread posts a reply', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            expect(reply.body).toBe('Thanks!');
+            expect(reply.author.name).toBe('Gerrit User');
+        });
+
+        test('resolveCommentThread resolves/unresolves a thread', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            await provider.resolveCommentThread('I12345', 'comment-1', true);
+            let threads = await provider.getCommentThreads('I12345');
+            expect(threads[0].isResolved).toBe(true);
+
+            await provider.resolveCommentThread('I12345', 'comment-1', false);
+            threads = await provider.getCommentThreads('I12345');
+            expect(threads[0].isResolved).toBe(false);
+        });
     });
 });

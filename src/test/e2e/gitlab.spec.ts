@@ -11,13 +11,20 @@ import {
     expectNotificationToast,
     focusJJLog,
     focusSCM,
+    getReviewWidget,
     locateQuickInputItem,
     locateQuickInputWidget,
     maybePrintExtensionLogs,
+    openFileInEditor,
     pickQuickPickItem,
+    replyToCommentThread,
+    resolveCommentThread,
     test,
+    unresolveCommentThread,
+    waitForCommentThreadsCount,
     waitForLogCommitRow,
     waitForQuickInput,
+    waitForThreadState,
 } from './e2e-helpers';
 
 test.describe('GitLab Integration E2E', () => {
@@ -428,5 +435,154 @@ test.describe('GitLab Integration E2E', () => {
 
         // Verify MR badge is shown with correct ID (even though it's submitted from project ID 200, which is the fork)
         await expectBadgeLink(row, 'MR !99', 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/99');
+    });
+
+    test('Clicks unresolved comments bubble and fetches discussions', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://gitlab.com/test-owner/test-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            {
+                label: 'mr-commit',
+                parents: ['base'],
+                description: 'MR Commit',
+                bookmarks: ['my-feature-branch'],
+                files: {
+                    'file.txt': 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n',
+                },
+            },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        gitlab.registerMR('my-feature-branch', {
+            id: 123456,
+            iid: 42,
+            state: 'opened',
+            title: 'MR Commit',
+            description: 'Mock MR Commit Description',
+            web_url: 'https://gitlab.com/test-owner/test-repo/-/merge_requests/42',
+            draft: false,
+            merge_status: 'can_be_merged',
+            detailed_merge_status: 'mergeable',
+            blocking_discussions_resolved: false,
+            sha: commits['mr-commit'].commitId,
+            user_notes_count: 3,
+        });
+
+        gitlab.registerDiscussions(42, [
+            {
+                id: 'discussion-123',
+                notes: [
+                    {
+                        id: 201,
+                        body: 'E2E GitLab Comment',
+                        created_at: '2026-06-30T12:00:00Z',
+                        author: { name: 'Reviewer', username: 'reviewer' },
+                        resolved: false,
+                        position: {
+                            new_path: 'file.txt',
+                            new_line: 10,
+                        },
+                    },
+                ],
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'gitlab',
+                'jj-view.gitlab.host': gitlab.url,
+            },
+            {
+                JJ_VIEW_GITLAB_TOKEN: 'test-token',
+                JJ_VIEW_GITLAB_API_URL: gitlab.url,
+            },
+        );
+
+        try {
+            await focusJJLog(page);
+
+            const row = await waitForLogCommitRow(page, 'MR Commit');
+            const bubble = row.getByTitle('3 Unresolved Comments');
+            await expect(bubble).toBeVisible();
+
+            await bubble.click();
+
+            // Wait until the fake server receives a request for discussions
+            await expect
+                .poll(() => {
+                    return gitlab.requests.some((req) => req.url.includes('/discussions'));
+                })
+                .toBe(true);
+
+            // Wait for CommentsManager to parse and populate the threads
+            await waitForCommentThreadsCount(vscode);
+
+            // Open the file in the editor to show the review widget
+            await openFileInEditor(vscode, page, 'file.txt', repo);
+
+            // Wait for the review widget to appear in the editor DOM
+            const reviewWidget = await getReviewWidget(page, 'E2E GitLab Comment');
+
+            // Type and submit the reply
+            await replyToCommentThread(page, reviewWidget, 'My GitLab E2E reply');
+
+            // Assert that the fake server receives the reply request (POST to notes endpoint)
+            await expect
+                .poll(() => {
+                    return gitlab.requests.some((req) => req.url.includes('/notes') && req.method === 'POST');
+                })
+                .toBe(true);
+
+            gitlab.clearRequests();
+
+            // Wait for the reply to be rendered in the UI
+            await expect(reviewWidget).toContainText('My GitLab E2E reply');
+
+            // Resolve the thread
+            await resolveCommentThread(reviewWidget);
+
+            // Assert that the fake server receives the resolve request (PUT to discussion endpoint)
+            await expect
+                .poll(() => {
+                    return gitlab.requests.some((req) => req.url.includes('/discussions/') && req.method === 'PUT');
+                })
+                .toBe(true);
+
+            gitlab.clearRequests();
+
+            // Wait for CommentsManager to update the thread to resolved & collapsed
+            await waitForThreadState(vscode, 'resolved', 0);
+
+            // Wait for the review widget to be hidden
+            await expect(page.locator('.review-widget')).toBeHidden();
+
+            // Expand the thread since resolving it collapsed it
+            await page.locator('.comment-range-glyph').first().click();
+
+            // Wait for the review widget to appear in the editor DOM again
+            const reviewWidget2 = await getReviewWidget(page, 'E2E GitLab Comment');
+
+            // Unresolve the thread
+            await unresolveCommentThread(reviewWidget2);
+
+            // Assert that the fake server receives the unresolve request
+            await expect
+                .poll(() => {
+                    return gitlab.requests.some(
+                        (req) =>
+                            req.url.includes('/discussions/') &&
+                            req.url.includes('resolved=false') &&
+                            req.method === 'PUT',
+                    );
+                })
+                .toBe(true);
+        } finally {
+            maybePrintExtensionLogs(vscode.userDataDir);
+        }
     });
 });

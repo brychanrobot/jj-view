@@ -6,7 +6,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { z } from 'zod';
-import type { ChangeStatusRequest, CodeForgeProvider, GitRemote } from './code-forge-provider';
+import type {
+    ChangeStatusRequest,
+    CodeForgeComment,
+    CodeForgeCommentThread,
+    CodeForgeProvider,
+    GitRemote,
+} from './code-forge-provider';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
@@ -52,6 +58,22 @@ export const GerritChangeSchema = z.object({
     labels: z.record(z.string(), z.unknown()).optional(),
 });
 export type GerritChange = z.infer<typeof GerritChangeSchema>;
+
+interface GerritAuthorGql {
+    name?: string;
+    username?: string;
+    email?: string;
+}
+
+interface GerritCommentGql {
+    id: string;
+    line?: number;
+    message?: string;
+    updated: string;
+    author?: GerritAuthorGql;
+    unresolved?: boolean;
+    in_reply_to?: string;
+}
 
 export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
@@ -471,6 +493,229 @@ export class GerritProvider implements CodeForgeProvider {
         _hasBookmark?: boolean,
     ): { subcommand: string; args: string[] } | undefined {
         return { subcommand: 'gerrit', args: ['upload', '-r', revision] };
+    }
+
+    public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            return [];
+        }
+        if (!this.gerritHost) {
+            return [];
+        }
+
+        const url = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
+        const response = await fetchWithTimeout(url, 15000, { signal });
+        if (!response.ok) {
+            throw new Error(`Failed to fetch Gerrit comments: ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        const jsonStr = text.replace(/^\)]}'\n/, '');
+        const commentsMap = JSON.parse(jsonStr) as Record<string, GerritCommentGql[]>;
+
+        const threads: CodeForgeCommentThread[] = [];
+
+        for (const [filePath, commentsList] of Object.entries(commentsMap)) {
+            // Roots: comments that do not have in_reply_to, or whose parent is not in commentsList
+            const commentIds = new Set(commentsList.map((c) => c.id));
+            const roots = commentsList.filter((c) => !c.in_reply_to || !commentIds.has(c.in_reply_to));
+
+            for (const root of roots) {
+                const threadComments = [root];
+
+                let addedNew = true;
+                while (addedNew) {
+                    addedNew = false;
+                    for (const c of commentsList) {
+                        if (
+                            !threadComments.includes(c) &&
+                            c.in_reply_to &&
+                            threadComments.some((tc) => tc.id === c.in_reply_to)
+                        ) {
+                            threadComments.push(c);
+                            addedNew = true;
+                        }
+                    }
+                }
+
+                // Sort chronologically
+                threadComments.sort((a, b) => new Date(a.updated).getTime() - new Date(b.updated).getTime());
+
+                const lastComment = threadComments[threadComments.length - 1];
+                const isResolved = !lastComment.unresolved;
+
+                threads.push({
+                    id: root.id,
+                    filePath,
+                    line: root.line || undefined,
+                    isResolved,
+                    comments: threadComments.map((c) => ({
+                        id: c.id,
+                        author: {
+                            name: c.author?.name || 'Unknown',
+                            username: c.author?.username,
+                        },
+                        body: c.message || '',
+                        createdAt: c.updated,
+                    })),
+                });
+            }
+        }
+
+        return threads;
+    }
+
+    public async replyToCommentThread(changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            throw new Error('Change not found in cache');
+        }
+        if (!this.gerritHost) {
+            throw new Error('Gerrit provider not fully configured');
+        }
+
+        // Fetch comments to locate parent file path and line
+        const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
+        const commentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        if (!commentsResponse.ok) {
+            throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
+        }
+        const commentsText = await commentsResponse.text();
+        const commentsMap = JSON.parse(commentsText.replace(/^\)]}'\n/, '')) as Record<string, GerritCommentGql[]>;
+
+        let parentComment: GerritCommentGql | undefined;
+        let parentFilePath: string | undefined;
+        for (const [filePath, comments] of Object.entries(commentsMap)) {
+            const found = comments.find((c) => c.id === threadId);
+            if (found) {
+                parentComment = found;
+                parentFilePath = filePath;
+                break;
+            }
+        }
+
+        if (!parentComment || !parentFilePath) {
+            throw new Error('Parent comment thread not found');
+        }
+
+        // Post review with comment reply
+        const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
+        const response = await fetchWithTimeout(reviewUrl, 15000, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                drafts: 'PUBLISH',
+                comments: {
+                    [parentFilePath]: [
+                        {
+                            in_reply_to: threadId,
+                            line: parentComment.line,
+                            message: body,
+                            unresolved: parentComment.unresolved ?? true,
+                        },
+                    ],
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to post Gerrit reply: ${response.statusText}`);
+        }
+
+        // Re-fetch to retrieve the newly posted comment
+        const updatedCommentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        if (!updatedCommentsResponse.ok) {
+            throw new Error('Failed to retrieve updated comments');
+        }
+        const updatedCommentsText = await updatedCommentsResponse.text();
+        const updatedCommentsMap = JSON.parse(updatedCommentsText.replace(/^\)]}'\n/, '')) as Record<
+            string,
+            GerritCommentGql[]
+        >;
+
+        const threadComments = updatedCommentsMap[parentFilePath] || [];
+        const replies = threadComments.filter((c) => c.in_reply_to === threadId || c.id === threadId);
+        replies.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
+        const newest = replies[0];
+
+        if (!newest) {
+            throw new Error('Could not find the newly created comment');
+        }
+
+        return {
+            id: newest.id,
+            author: {
+                name: newest.author?.name || 'Unknown',
+                username: newest.author?.username,
+            },
+            body: newest.message || '',
+            createdAt: newest.updated,
+        };
+    }
+
+    public async resolveCommentThread(changeId: string, threadId: string, resolved: boolean): Promise<void> {
+        const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
+        if (!changeInfo) {
+            throw new Error('Change not found in cache');
+        }
+        if (!this.gerritHost) {
+            throw new Error('Gerrit provider not fully configured');
+        }
+
+        // Fetch comments to locate parent file path and line
+        const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
+        const commentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        if (!commentsResponse.ok) {
+            throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
+        }
+        const commentsText = await commentsResponse.text();
+        const commentsMap = JSON.parse(commentsText.replace(/^\)]}'\n/, '')) as Record<string, GerritCommentGql[]>;
+
+        let parentComment: GerritCommentGql | undefined;
+        let parentFilePath: string | undefined;
+        for (const [filePath, comments] of Object.entries(commentsMap)) {
+            const found = comments.find((c) => c.id === threadId);
+            if (found) {
+                parentComment = found;
+                parentFilePath = filePath;
+                break;
+            }
+        }
+
+        if (!parentComment || !parentFilePath) {
+            throw new Error('Parent comment thread not found');
+        }
+
+        // Post review with a resolution reply comment
+        const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
+        const response = await fetchWithTimeout(reviewUrl, 15000, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                drafts: 'PUBLISH',
+                comments: {
+                    [parentFilePath]: [
+                        {
+                            in_reply_to: threadId,
+                            line: parentComment.line,
+                            message: resolved ? 'Resolved' : 'Unresolved',
+                            unresolved: !resolved,
+                        },
+                    ],
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to resolve Gerrit comment: ${response.statusText}`);
+        }
     }
 
     public clearCache(): void {

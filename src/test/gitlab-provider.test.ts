@@ -8,6 +8,7 @@ import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
 import { GitLabProvider } from '../gitlab-provider';
 import type { CodeForgeChangeInfo } from '../jj-types';
+import { FakeGitLabServer } from './helpers/fake-gitlab-server';
 import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 vi.mock('vscode', () => ({
@@ -550,5 +551,123 @@ describe('GitLabProvider', () => {
         expect(mr?.url).toBe('https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42');
 
         expect(accessPrivate(provider, 'resolvedProjectPath')).toBe('mainline-owner/mainline-repo');
+    });
+
+    describe('Comments API', () => {
+        let server: FakeGitLabServer;
+        let originalFetch: typeof global.fetch;
+
+        beforeEach(async () => {
+            server = new FakeGitLabServer();
+            await server.start();
+            setPrivate(provider, 'gitlabHost', server.url);
+            setPrivate(provider, 'projectPath', 'test-owner/test-repo');
+            setPrivate(provider, 'resolvedProjectPath', 'test-owner/test-repo');
+
+            // Populate cache
+            const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+            cache.set('my-bookmark', {
+                id: '101',
+                number: 42,
+                displayLabel: 'MR #42',
+                providerName: 'GitLab',
+                status: 'NEW',
+                submittable: true,
+                unresolvedComments: 0,
+                url: `${server.url}/test-owner/test-repo/-/merge_requests/42`,
+                currentRevision: 'sha-123',
+            });
+
+            originalFetch = global.fetch;
+            global.fetch = originalFetch;
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            global.fetch = originalFetch;
+        });
+
+        test('getCommentThreads fetches threads from GitLab', async () => {
+            server.registerDiscussions(42, [
+                {
+                    id: 'discussion-1',
+                    notes: [
+                        {
+                            id: 201,
+                            body: 'First comment',
+                            created_at: '2026-06-30T12:00:00Z',
+                            author: { name: 'Reviewer A', username: 'rev_a' },
+                            resolved: false,
+                            position: {
+                                new_path: 'file.txt',
+                                new_line: 15,
+                            },
+                        },
+                    ],
+                },
+            ]);
+
+            const threads = await provider.getCommentThreads('101');
+            expect(threads).toHaveLength(1);
+            expect(threads[0].id).toBe('discussion-1');
+            expect(threads[0].filePath).toBe('file.txt');
+            expect(threads[0].line).toBe(15);
+            expect(threads[0].isResolved).toBe(false);
+            expect(threads[0].comments[0].body).toBe('First comment');
+        });
+
+        test('replyToCommentThread posts a reply', async () => {
+            server.registerDiscussions(42, [
+                {
+                    id: 'discussion-1',
+                    notes: [
+                        {
+                            id: 201,
+                            body: 'First comment',
+                            created_at: '2026-06-30T12:00:00Z',
+                            author: { name: 'Reviewer A', username: 'rev_a' },
+                            resolved: false,
+                            position: {
+                                new_path: 'file.txt',
+                                new_line: 15,
+                            },
+                        },
+                    ],
+                },
+            ]);
+
+            const reply = await provider.replyToCommentThread('101', 'discussion-1', 'Thanks!');
+            expect(reply.body).toBe('Thanks!');
+            expect(reply.author.name).toBe('Replier Name');
+        });
+
+        test('resolveCommentThread resolves/unresolves a thread', async () => {
+            server.registerDiscussions(42, [
+                {
+                    id: 'discussion-1',
+                    notes: [
+                        {
+                            id: 201,
+                            body: 'First comment',
+                            created_at: '2026-06-30T12:00:00Z',
+                            author: { name: 'Reviewer A', username: 'rev_a' },
+                            resolved: false,
+                            position: {
+                                new_path: 'file.txt',
+                                new_line: 15,
+                            },
+                        },
+                    ],
+                },
+            ]);
+
+            await provider.resolveCommentThread('101', 'discussion-1', true);
+            let threads = await provider.getCommentThreads('101');
+            expect(threads[0].isResolved).toBe(true);
+
+            await provider.resolveCommentThread('101', 'discussion-1', false);
+            threads = await provider.getCommentThreads('101');
+            expect(threads[0].isResolved).toBe(false);
+        });
     });
 });

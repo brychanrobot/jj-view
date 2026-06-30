@@ -1417,8 +1417,8 @@ export const test = baseTest.extend<
             try {
                 const artifactDir = path.join(testInfo.outputDir, Math.random().toString(36).substring(2, 10));
                 fs.mkdirSync(artifactDir, { recursive: true });
-                const pngPath = path.join(artifactDir, 'dialog-failure.png');
-                const htmlPath = path.join(artifactDir, 'dialog-failure.html');
+                const pngPath = path.join(artifactDir, 'test-failure.png');
+                const htmlPath = path.join(artifactDir, 'test-failure.html');
 
                 // Capture screenshot
                 await fixture.page.screenshot({ path: pngPath });
@@ -1429,12 +1429,12 @@ export const test = baseTest.extend<
 
                 // Attach to Playwright's testInfo so they are linked in the test reports
                 testInfo.attachments.push({
-                    name: 'dialog-failure.png',
+                    name: 'test-failure.png',
                     path: pngPath,
                     contentType: 'image/png',
                 });
                 testInfo.attachments.push({
-                    name: 'dialog-failure.html',
+                    name: 'test-failure.html',
                     path: htmlPath,
                     contentType: 'text/html',
                 });

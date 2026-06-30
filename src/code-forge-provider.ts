@@ -55,6 +55,32 @@ export interface CodeForgeProvider {
     readonly isAuthManageable?: boolean;
     /** Returns custom authentication management items for this provider */
     getAuthManageItems?(): Promise<AuthManageItem[]>;
+
+    /** Fetch all comment threads for a given change */
+    getCommentThreads?(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]>;
+    /** Reply to a comment thread */
+    replyToCommentThread?(changeId: string, threadId: string, body: string): Promise<CodeForgeComment>;
+    /** Resolve/unresolve a comment thread */
+    resolveCommentThread?(changeId: string, threadId: string, resolved: boolean): Promise<void>;
+}
+
+export interface CodeForgeComment {
+    id: string;
+    author: {
+        name: string;
+        username?: string;
+        avatarUrl?: string;
+    };
+    body: string;
+    createdAt: string;
+}
+
+export interface CodeForgeCommentThread {
+    id: string;
+    filePath?: string;
+    line?: number;
+    isResolved: boolean;
+    comments: CodeForgeComment[];
 }
 
 export interface AuthManageItem extends vscode.QuickPickItem {

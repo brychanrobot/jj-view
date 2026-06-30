@@ -271,6 +271,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload);
                     break;
+                case 'showComments':
+                    await vscode.commands.executeCommand('jj-view.showComments', data.payload.changeId);
+                    break;
                 case 'selectionChange': {
                     const count = data.payload.commitIds.length;
                     const hasImmutable = !!data.payload.hasImmutableSelection;

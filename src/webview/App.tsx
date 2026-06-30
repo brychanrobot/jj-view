@@ -251,6 +251,11 @@ const App: React.FC = () => {
             return;
         }
 
+        if (action === 'showComments') {
+            vscode.postMessage({ type: 'showComments', payload });
+            return;
+        }
+
         if (action === 'contextMenu') {
             // Include current selection in payload for smarter menus
             vscode.postMessage({

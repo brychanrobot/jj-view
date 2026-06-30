@@ -12,6 +12,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - **Forbidden**: disabling the `any` type check for a line or block. `// @ts-ignore` or `// eslint-disable-line` are not allowed.
 - **Forbidden**: `as unknown as Type` double casting. Use `createMock` utility or proper type narrowing instead.
 - **Early Returns**: Always prefer early returns / guard clauses to avoid deeply nested blocks of conditional logic. Check error or mismatch conditions first, return early, and keep the primary execution path unindented.
+- **Imports**: All imports (static or dynamic) should be placed at the top of the file. Avoid inline/local dynamic `await import(...)` statements inside functions, classes, or test cases unless strictly necessary (e.g., to break circular dependencies or for conditional loading).
 ### Target Environment
 
 - **Node.js**: The extension targets **Node.js 22** or later. Modern APIs like `Set.prototype.difference` are permitted and encouraged.
