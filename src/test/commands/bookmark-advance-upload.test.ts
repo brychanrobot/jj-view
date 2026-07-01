@@ -52,8 +52,6 @@ describe('advanceBookmarkAndUploadCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
-        remoteRepo.dispose();
         vi.clearAllMocks();
     });
 

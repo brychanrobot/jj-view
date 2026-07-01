@@ -40,7 +40,6 @@ describe('describePromptCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

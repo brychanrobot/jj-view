@@ -19,9 +19,7 @@ describe('JjService Diff Tests', () => {
         jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     test('getChanges with from/to revisions correctly identifies arbitrary changes', async () => {
         const ids = await buildGraph(repo, [

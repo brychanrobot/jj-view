@@ -45,7 +45,6 @@ describe('squash-selection commands', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

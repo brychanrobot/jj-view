@@ -34,7 +34,6 @@ describe('setBookmarkCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -29,7 +29,6 @@ describe('showDetailsCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

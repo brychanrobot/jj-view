@@ -91,7 +91,6 @@ test.describe('GitLab Integration E2E', () => {
             await expect(uploadButton).not.toBeVisible();
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -162,7 +161,6 @@ test.describe('GitLab Integration E2E', () => {
             }).toPass({ timeout: 15000 });
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -221,7 +219,6 @@ test.describe('GitLab Integration E2E', () => {
             await expect(quickPick).not.toBeVisible();
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -301,7 +298,6 @@ test.describe('GitLab Integration E2E', () => {
             await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -360,7 +356,6 @@ test.describe('GitLab Integration E2E', () => {
             await expect(quickPick).not.toBeVisible();
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -405,7 +400,6 @@ test.describe('GitLab Integration E2E', () => {
         } finally {
             gitlab.statusOverride = undefined;
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 
@@ -457,7 +451,6 @@ test.describe('GitLab Integration E2E', () => {
             await expectBadgeLink(row, 'MR !99', 'https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/99');
         } finally {
             maybePrintExtensionLogs(vscode.userDataDir);
-            repo.dispose();
         }
     });
 });

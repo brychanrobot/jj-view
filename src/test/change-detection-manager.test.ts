@@ -79,7 +79,6 @@ describe('ChangeDetectionManager', () => {
             changeManager = undefined;
         }
 
-        repo.dispose();
         vi.clearAllMocks();
     });
 
@@ -424,7 +423,6 @@ describe('ChangeDetectionManager', () => {
             );
 
             // Clean up the secondary workspace
-            secondRepo.dispose();
         });
     });
 });

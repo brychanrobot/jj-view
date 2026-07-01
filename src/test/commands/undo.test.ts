@@ -28,7 +28,6 @@ describe('undoCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

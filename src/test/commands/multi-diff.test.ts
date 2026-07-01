@@ -32,7 +32,6 @@ describe('showMultiFileDiffCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

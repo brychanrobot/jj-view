@@ -14,7 +14,6 @@ test.describe('Quick Diff E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
         repo = undefined;
     });

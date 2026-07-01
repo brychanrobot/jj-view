@@ -93,7 +93,6 @@ suite('Webview Visibility Integration Test', () => {
             await contextHelper.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-        repo.dispose();
     });
 
     test('webview re-renders when becoming visible', async () => {

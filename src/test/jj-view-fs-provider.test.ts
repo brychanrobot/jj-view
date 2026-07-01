@@ -45,7 +45,6 @@ describe('JjViewFileSystemProvider', () => {
 
     afterEach(async () => {
         await repoManager.dispose();
-        repo.dispose();
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {

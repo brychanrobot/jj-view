@@ -38,7 +38,6 @@ describe('compareAllFilesWithRevisionCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

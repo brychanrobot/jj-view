@@ -52,10 +52,6 @@ export class TestRepo {
         tempDirs.add(this.path);
     }
 
-    dispose() {
-        // Defer actual directory deletion to process exit to avoid blocking file watchers
-    }
-
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.

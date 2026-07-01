@@ -46,24 +46,20 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
-            const webview = await getLogWebview(page);
+        await focusJJLog(page);
+        const webview = await getLogWebview(page);
 
-            // Assert all commit descriptions are present
-            await expect(await waitForLogCommitRow(page, 'initial setup')).toBeVisible();
-            await expect(await waitForLogCommitRow(page, 'side branch commit')).toBeVisible();
-            await expect(await waitForLogCommitRow(page, 'working tree')).toBeVisible();
+        // Assert all commit descriptions are present
+        await expect(await waitForLogCommitRow(page, 'initial setup')).toBeVisible();
+        await expect(await waitForLogCommitRow(page, 'side branch commit')).toBeVisible();
+        await expect(await waitForLogCommitRow(page, 'working tree')).toBeVisible();
 
-            // Assert Working Copy row is styled bold
-            const wcDesc = webview.locator('.working-copy .commit-desc');
-            await expect(wcDesc).toHaveCSS('font-weight', '700' /* bold */);
+        // Assert Working Copy row is styled bold
+        const wcDesc = webview.locator('.working-copy .commit-desc');
+        await expect(wcDesc).toHaveCSS('font-weight', '700' /* bold */);
 
-            // Assert Bookmark pill is present inside the working copy row
-            await waitForLogPill(page, 'main', 'bookmark');
-        } finally {
-            repo.dispose();
-        }
+        // Assert Bookmark pill is present inside the working copy row
+        await waitForLogPill(page, 'main', 'bookmark');
     });
 
     test('Pane Header Actions: Undo and New Merge Change', async ({ vscode }) => {
@@ -84,58 +80,54 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
-            // 1. New Merge Change (Requires Multi-select)
-            const sideBranchRow = await waitForLogCommitRow(page, { changeId: nodes.side_branch.changeId });
-            const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
+        await focusJJLog(page);
+        // 1. New Merge Change (Requires Multi-select)
+        const sideBranchRow = await waitForLogCommitRow(page, { changeId: nodes.side_branch.changeId });
+        const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
 
-            // Click the first one normally, the second with Control
-            await sideBranchRow.click();
-            await expect(sideBranchRow).toHaveAttribute('data-selected', 'true');
+        // Click the first one normally, the second with Control
+        await sideBranchRow.click();
+        await expect(sideBranchRow).toHaveAttribute('data-selected', 'true');
 
-            await wcRow.click({ modifiers: ['Control'] });
-            await expect(wcRow).toHaveAttribute('data-selected', 'true');
+        await wcRow.click({ modifiers: ['Control'] });
+        await expect(wcRow).toHaveAttribute('data-selected', 'true');
 
-            // Click the native 'New Merge Change' header action
-            // name-based locator is more robust for VS Code header actions
-            const mergeAction = page.getByRole('button', { name: 'New Merge Change' }).first();
-            await expect(mergeAction).toBeEnabled();
-            await mergeAction.click();
+        // Click the native 'New Merge Change' header action
+        // name-based locator is more robust for VS Code header actions
+        const mergeAction = page.getByRole('button', { name: 'New Merge Change' }).first();
+        await expect(mergeAction).toBeEnabled();
+        await mergeAction.click();
 
-            // Assert via repo that a new merge commit was created with correct parents
-            await expect(async () => {
-                const parents = repo.getParents('@');
-                expect(parents).toContain(nodes.side_branch.changeId);
-                expect(parents).toContain(nodes.wc.changeId);
-            }).toPass({ timeout: 5000 });
+        // Assert via repo that a new merge commit was created with correct parents
+        await expect(async () => {
+            const parents = repo.getParents('@');
+            expect(parents).toContain(nodes.side_branch.changeId);
+            expect(parents).toContain(nodes.wc.changeId);
+        }).toPass({ timeout: 5000 });
 
-            // Verify full tree: [merge, wc, side_branch, initial, dummy]
-            await expect(async () => {
-                const mergeChangeId = repo.getChangeId('@');
-                await expectTree(repo, [
-                    `@ ${entry(mergeChangeId, '(empty)', [nodes.side_branch.changeId, nodes.wc.changeId])}`,
-                    entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
-                    entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
-                    entry(nodes.initial.changeId, 'initial setup', dummyId),
-                    entry(dummyId, '(empty)', ROOT_ID),
-                ]);
-            }).toPass();
-
-            // 2. Undo
-            const undoAction = page.getByRole('button', { name: 'Undo' }).first();
-            await undoAction.click();
-
-            // Assert the merge change was undone accurately
+        // Verify full tree: [merge, wc, side_branch, initial, dummy]
+        await expect(async () => {
+            const mergeChangeId = repo.getChangeId('@');
             await expectTree(repo, [
-                `@ ${entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId)}`,
+                `@ ${entry(mergeChangeId, '(empty)', [nodes.side_branch.changeId, nodes.wc.changeId])}`,
+                entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
                 entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
                 entry(nodes.initial.changeId, 'initial setup', dummyId),
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
-        } finally {
-            repo.dispose();
-        }
+        }).toPass();
+
+        // 2. Undo
+        const undoAction = page.getByRole('button', { name: 'Undo' }).first();
+        await undoAction.click();
+
+        // Assert the merge change was undone accurately
+        await expectTree(repo, [
+            `@ ${entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId)}`,
+            entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
+            entry(nodes.initial.changeId, 'initial setup', dummyId),
+            entry(dummyId, '(empty)', ROOT_ID),
+        ]);
     });
 
     test('Hover Actions: New Child, Squash, Abandon', async ({ vscode }) => {
@@ -156,79 +148,75 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // 1. New Child
-            const branchId = nodes.branch.changeId;
-            await clickLogAction(page, { changeId: branchId }, 'New Child');
+        // 1. New Child
+        const branchId = nodes.branch.changeId;
+        await clickLogAction(page, { changeId: branchId }, 'New Child');
 
-            let childId = '';
-            await expect(async () => {
-                const currentId = repo.getChangeId('@');
-                // Ensure @ has actually moved away from wc
-                expect(currentId).not.toBe(nodes.wc.changeId);
-                childId = currentId;
-            }).toPass({ timeout: 10000 });
+        let childId = '';
+        await expect(async () => {
+            const currentId = repo.getChangeId('@');
+            // Ensure @ has actually moved away from wc
+            expect(currentId).not.toBe(nodes.wc.changeId);
+            childId = currentId;
+        }).toPass({ timeout: 10000 });
 
-            // Make a file change in the child so it's not abandoned by 'jj edit'
-            // but keep description empty so 'jj squash' stays silent
-            repo.writeFile('child.txt', 'child content');
+        // Make a file change in the child so it's not abandoned by 'jj edit'
+        // but keep description empty so 'jj squash' stays silent
+        repo.writeFile('child.txt', 'child content');
 
-            // Tree: [new_child(@), wc, branch, initial, dummy]
-            // Order: child is newest head, wc is other head.
-            await expect(async () => {
-                const childId = repo.getChangeId('@');
-                await expectTree(repo, [
-                    `@ ${entry(childId, '(empty)', nodes.branch.changeId)}`,
-                    entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
-                    entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-                    entry(nodes.initial.changeId, 'initial setup', dummyId),
-                    entry(dummyId, '(empty)', ROOT_ID),
-                ]);
-            }).toPass();
-            await waitForWebviewWorkingCopy(page, childId);
-
-            // 2. Prepare for squash: move working copy away from the new child
-            const initialId = nodes.initial.changeId;
-            await clickLogAction(page, { changeId: initialId }, 'Edit Commit');
-
-            // Tree is the same commits, just @ moved. Order: [child, wc, branch, initial, dummy]
+        // Tree: [new_child(@), wc, branch, initial, dummy]
+        // Order: child is newest head, wc is other head.
+        await expect(async () => {
+            const childId = repo.getChangeId('@');
             await expectTree(repo, [
-                entry(childId, '(empty)', nodes.branch.changeId),
+                `@ ${entry(childId, '(empty)', nodes.branch.changeId)}`,
                 entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
                 entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
+                entry(nodes.initial.changeId, 'initial setup', dummyId),
                 entry(dummyId, '(empty)', ROOT_ID),
             ]);
-            await waitForWebviewWorkingCopy(page, initialId);
+        }).toPass();
+        await waitForWebviewWorkingCopy(page, childId);
 
-            // 3. Squash the child into branch
-            await clickLogAction(page, { changeId: childId }, 'Squash');
+        // 2. Prepare for squash: move working copy away from the new child
+        const initialId = nodes.initial.changeId;
+        await clickLogAction(page, { changeId: initialId }, 'Edit Commit');
 
-            // After squash: child is gone. branch has its changes.
-            await expectTree(repo, [
-                entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
-                entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
-                entry(dummyId, '(empty)', ROOT_ID),
-            ]);
-            await waitForWebviewCommitRemoved(page, childId);
+        // Tree is the same commits, just @ moved. Order: [child, wc, branch, initial, dummy]
+        await expectTree(repo, [
+            entry(childId, '(empty)', nodes.branch.changeId),
+            entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
+            entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
+            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
+            entry(dummyId, '(empty)', ROOT_ID),
+        ]);
+        await waitForWebviewWorkingCopy(page, initialId);
 
-            // 4. Abandon the branch commit
-            await clickLogAction(page, { changeId: branchId }, 'Abandon');
+        // 3. Squash the child into branch
+        await clickLogAction(page, { changeId: childId }, 'Squash');
 
-            // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
-            // Tree: [wc, initial(@)]
-            await expectTree(repo, [
-                entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
-                `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
-                entry(dummyId, '(empty)', ROOT_ID),
-            ]);
-            await waitForWebviewCommitRemoved(page, branchId);
-        } finally {
-            repo.dispose();
-        }
+        // After squash: child is gone. branch has its changes.
+        await expectTree(repo, [
+            entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
+            entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
+            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
+            entry(dummyId, '(empty)', ROOT_ID),
+        ]);
+        await waitForWebviewCommitRemoved(page, childId);
+
+        // 4. Abandon the branch commit
+        await clickLogAction(page, { changeId: branchId }, 'Abandon');
+
+        // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
+        // Tree: [wc, initial(@)]
+        await expectTree(repo, [
+            entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
+            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
+            entry(dummyId, '(empty)', ROOT_ID),
+        ]);
+        await waitForWebviewCommitRemoved(page, branchId);
     });
 
     test('Multi-select and Drag & Drop (Rebase)', async ({ vscode }) => {
@@ -252,27 +240,23 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
-            const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
+        const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
+        const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
 
-            await sourceRow.scrollIntoViewIfNeeded();
-            await targetRow.scrollIntoViewIfNeeded();
+        await sourceRow.scrollIntoViewIfNeeded();
+        await targetRow.scrollIntoViewIfNeeded();
 
-            // Drag source onto target to rebase
-            await dragAndDrop(page, { source: sourceRow, target: targetRow });
+        // Drag source onto target to rebase
+        await dragAndDrop(page, { source: sourceRow, target: targetRow });
 
-            // Verify rebase via repo
-            await expect(async () => {
-                // Check 'source' parent is now 'target'
-                const parents = repo.getParents(nodes.source.changeId);
-                expect(parents).toContain(nodes.target.changeId);
-            }).toPass({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+        // Verify rebase via repo
+        await expect(async () => {
+            // Check 'source' parent is now 'target'
+            const parents = repo.getParents(nodes.source.changeId);
+            expect(parents).toContain(nodes.target.changeId);
+        }).toPass({ timeout: 10000 });
     });
 
     test('Delete Bookmark (Command Palette/Quick Pick Flow)', async ({ vscode }) => {
@@ -294,25 +278,21 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
-            await triggerRefresh(page);
+        await focusJJLog(page);
+        await triggerRefresh(page);
 
-            // 2. Verify bookmark pill is visible
-            const bookmarkPill = await waitForLogPill(page, 'local-to-delete', 'bookmark');
-            await expect(bookmarkPill).toBeVisible();
+        // 2. Verify bookmark pill is visible
+        const bookmarkPill = await waitForLogPill(page, 'local-to-delete', 'bookmark');
+        await expect(bookmarkPill).toBeVisible();
 
-            // 3. Trigger Delete Bookmark via keyboard shortcut
-            await page.keyboard.press('Control+Alt+D');
+        // 3. Trigger Delete Bookmark via keyboard shortcut
+        await page.keyboard.press('Control+Alt+D');
 
-            // 4. Select the bookmark to delete in the Quick Pick
-            await pickQuickPickItem(page, 'local-to-delete');
+        // 4. Select the bookmark to delete in the Quick Pick
+        await pickQuickPickItem(page, 'local-to-delete');
 
-            // 5. Verify the bookmark pill disappears from the webview
-            await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+        // 5. Verify the bookmark pill disappears from the webview
+        await expect(bookmarkPill).toBeHidden({ timeout: 10000 });
     });
 
     test('Drag & Drop Bookmark (Advance/Move)', async ({ vscode }) => {
@@ -334,35 +314,31 @@ test.describe('JJ Log Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // 2. Locate the draggable bookmark pill and target commit row (move forward)
-            const bookmarkPill = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
-            const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
+        // 2. Locate the draggable bookmark pill and target commit row (move forward)
+        const bookmarkPill = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
+        const wcRow = await waitForLogCommitRow(page, { changeId: nodes.wc.changeId });
 
-            // 3. Drag the bookmark pill onto the wc commit row (move forward)
-            await dragAndDrop(page, { source: bookmarkPill, target: wcRow });
+        // 3. Drag the bookmark pill onto the wc commit row (move forward)
+        await dragAndDrop(page, { source: bookmarkPill, target: wcRow });
 
-            // 4. Verify bookmark moved to wc in local repository
-            const wcCommitId = repo.getCommitId(nodes.wc.changeId);
-            await expect(async () => {
-                expect(repo.getCommitId('drag-bookmark')).toBe(wcCommitId);
-            }).toPass({ timeout: 10000 });
+        // 4. Verify bookmark moved to wc in local repository
+        const wcCommitId = repo.getCommitId(nodes.wc.changeId);
+        await expect(async () => {
+            expect(repo.getCommitId('drag-bookmark')).toBe(wcCommitId);
+        }).toPass({ timeout: 10000 });
 
-            // 5. Drag it backward (from wc back onto initial commit)
-            const initialRow = await waitForLogCommitRow(page, { changeId: nodes.initial.changeId });
-            // Re-fetch the bookmark pill since the webview refreshes after the move command
-            const bookmarkPillAfterMove = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
-            await dragAndDrop(page, { source: bookmarkPillAfterMove, target: initialRow });
+        // 5. Drag it backward (from wc back onto initial commit)
+        const initialRow = await waitForLogCommitRow(page, { changeId: nodes.initial.changeId });
+        // Re-fetch the bookmark pill since the webview refreshes after the move command
+        const bookmarkPillAfterMove = await waitForLogPill(page, 'drag-bookmark', 'bookmark');
+        await dragAndDrop(page, { source: bookmarkPillAfterMove, target: initialRow });
 
-            // 6. Verify bookmark moved back to initial commit in local repository
-            const initialCommitId = repo.getCommitId(nodes.initial.changeId);
-            await expect(async () => {
-                expect(repo.getCommitId('drag-bookmark')).toBe(initialCommitId);
-            }).toPass({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+        // 6. Verify bookmark moved back to initial commit in local repository
+        const initialCommitId = repo.getCommitId(nodes.initial.changeId);
+        await expect(async () => {
+            expect(repo.getCommitId('drag-bookmark')).toBe(initialCommitId);
+        }).toPass({ timeout: 10000 });
     });
 });

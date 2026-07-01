@@ -65,7 +65,6 @@ test.describe('Commit Details E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 

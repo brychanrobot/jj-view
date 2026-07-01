@@ -146,7 +146,6 @@ suite('Webview Commands End-to-End Integration Test', () => {
             await contextHelper.dispose();
         }
         if (repo) {
-            repo.dispose();
         }
         if (outputChannel) {
             outputChannel.dispose();

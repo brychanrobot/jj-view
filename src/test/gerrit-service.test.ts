@@ -93,7 +93,6 @@ describe('GerritService Detection', () => {
         if (fakeGerritServer) {
             await fakeGerritServer.stop();
         }
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -32,7 +32,6 @@ describe('absorbCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

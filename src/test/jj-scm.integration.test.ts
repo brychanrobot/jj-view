@@ -61,7 +61,6 @@ suite('JJ SCM Provider Integration Test', () => {
             await contextHelper.dispose();
         }
         if (repo) {
-            repo.dispose();
         }
     });
 

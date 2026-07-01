@@ -37,26 +37,22 @@ test.describe('Workspace Management E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusJJLog(page);
-            const webview = await getLogWebview(page);
+        await focusJJLog(page);
+        const webview = await getLogWebview(page);
 
-            // The default workspace label is 'default@'
-            await waitForLogPill(page, 'default@', 'workspace');
+        // The default workspace label is 'default@'
+        await waitForLogPill(page, 'default@', 'workspace');
 
-            // The secondary workspace label should match our workspace name
-            await waitForLogPill(page, workspaceName, 'workspace');
+        // The secondary workspace label should match our workspace name
+        await waitForLogPill(page, workspaceName, 'workspace');
 
-            // 'default@' should be on the 'other' commit
-            const otherRow = webview.locator(`[data-change-id="${otherId}"]`);
-            await expect(otherRow.locator('.bookmark-pill', { hasText: 'default@' })).toBeVisible();
+        // 'default@' should be on the 'other' commit
+        const otherRow = webview.locator(`[data-change-id="${otherId}"]`);
+        await expect(otherRow.locator('.bookmark-pill', { hasText: 'default@' })).toBeVisible();
 
-            // 'repo2@' should be on its own working copy (created by workspace add)
-            const repo2Pill = webview.locator('.bookmark-pill', { hasText: new RegExp(`${workspaceName}.*@`) });
-            await expect(repo2Pill).toBeVisible();
-        } finally {
-            repo.dispose();
-        }
+        // 'repo2@' should be on its own working copy (created by workspace add)
+        const repo2Pill = webview.locator('.bookmark-pill', { hasText: new RegExp(`${workspaceName}.*@`) });
+        await expect(repo2Pill).toBeVisible();
     });
 
     test('Add Workspace via title bar action', async ({ vscode }) => {
@@ -69,51 +65,47 @@ test.describe('Workspace Management E2E', () => {
         // Enable notifications for this test so we can click "Open Workspace"
         const { app, page } = await vscode.openWorkspace(repo, {}, {}, true);
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // 1. Click Add Workspace and input name
+        // 1. Click Add Workspace and input name
+        await expect(async () => {
+            await clickLogTitleButton(page, 'Add Workspace');
+            const input = await waitForQuickInput(page, 2000);
+            await input.fill(workspaceName, { timeout: 2000 });
+            await page.keyboard.press('Enter');
+        }, 'Failed to add workspace via title bar').toPass({ timeout: 20000 });
+
+        // 3. Verify workspace pill appears in webview
+        await waitForLogPill(page, workspaceName, 'workspace');
+
+        // 4. Click "Open Workspace" in the notification and verify a new window opens
+        const openWorkspace = async (): Promise<Page> => {
+            let newPage: Page | undefined;
             await expect(async () => {
-                await clickLogTitleButton(page, 'Add Workspace');
-                const input = await waitForQuickInput(page, 2000);
-                await input.fill(workspaceName, { timeout: 2000 });
-                await page.keyboard.press('Enter');
-            }, 'Failed to add workspace via title bar').toPass({ timeout: 20000 });
+                const [window] = await Promise.all([
+                    app.waitForEvent('window', { timeout: 8000 }),
+                    clickNotificationButton(page, 'Open Workspace'),
+                ]);
+                newPage = window;
+            }, 'Failed to open new workspace window').toPass({ timeout: 25000 });
 
-            // 3. Verify workspace pill appears in webview
-            await waitForLogPill(page, workspaceName, 'workspace');
+            if (!newPage) {
+                throw new Error('New workspace window was not captured');
+            }
+            return newPage;
+        };
 
-            // 4. Click "Open Workspace" in the notification and verify a new window opens
-            const openWorkspace = async (): Promise<Page> => {
-                let newPage: Page | undefined;
-                await expect(async () => {
-                    const [window] = await Promise.all([
-                        app.waitForEvent('window', { timeout: 8000 }),
-                        clickNotificationButton(page, 'Open Workspace'),
-                    ]);
-                    newPage = window;
-                }, 'Failed to open new workspace window').toPass({ timeout: 25000 });
+        const newPage = await openWorkspace();
 
-                if (!newPage) {
-                    throw new Error('New workspace window was not captured');
-                }
-                return newPage;
-            };
+        // Wait for workbench to load in new window
+        await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
 
-            const newPage = await openWorkspace();
+        // On Linux, the window title should contain the folder name
+        await expect.poll(async () => await newPage.title(), { timeout: 10000 }).toContain(workspaceName);
 
-            // Wait for workbench to load in new window
-            await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
-
-            // On Linux, the window title should contain the folder name
-            await expect.poll(async () => await newPage.title(), { timeout: 10000 }).toContain(workspaceName);
-
-            // 5. Verify in jj
-            const workspaces = repo.getLog('all()', 'working_copies.map(|w| w.name()).join("\\n")');
-            expect(workspaces).toContain(workspaceName);
-        } finally {
-            repo.dispose();
-        }
+        // 5. Verify in jj
+        const workspaces = repo.getLog('all()', 'working_copies.map(|w| w.name()).join("\\n")');
+        expect(workspaces).toContain(workspaceName);
     });
 
     test('Forget and Delete Workspace via context menu', async ({ vscode }) => {
@@ -133,50 +125,46 @@ test.describe('Workspace Management E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo, {}, {}, true);
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // 1. Forget Workspace
-            const forgetPill = await waitForLogPill(page, forgetWs, 'workspace');
+        // 1. Forget Workspace
+        const forgetPill = await waitForLogPill(page, forgetWs, 'workspace');
 
-            await rightClickAndSelect(page, forgetPill, 'Forget Workspace');
+        await rightClickAndSelect(page, forgetPill, 'Forget Workspace');
 
-            // Confirm warning dialog
-            const forgetBtn = page.getByRole('button', { name: 'Yes, Forget Workspace' });
-            await expect(forgetBtn, 'Forget confirmation button should be visible').toBeVisible({ timeout: 5000 });
-            await forgetBtn.click();
+        // Confirm warning dialog
+        const forgetBtn = page.getByRole('button', { name: 'Yes, Forget Workspace' });
+        await expect(forgetBtn, 'Forget confirmation button should be visible').toBeVisible({ timeout: 5000 });
+        await forgetBtn.click();
 
-            await expect(async () => {
-                const webview = await getLogWebview(page, 300);
-                await expect(webview.locator('.bookmark-pill', { hasText: forgetWs })).not.toBeVisible({
-                    timeout: 500,
-                });
-            }).toPass({ timeout: 15000 });
+        await expect(async () => {
+            const webview = await getLogWebview(page, 300);
+            await expect(webview.locator('.bookmark-pill', { hasText: forgetWs })).not.toBeVisible({
+                timeout: 500,
+            });
+        }).toPass({ timeout: 15000 });
 
-            const stillExists = fs.existsSync(forgetWsPath);
-            expect(stillExists, `Directory ${forgetWsPath} should still exist after forget`).toBe(true);
+        const stillExists = fs.existsSync(forgetWsPath);
+        expect(stillExists, `Directory ${forgetWsPath} should still exist after forget`).toBe(true);
 
-            // 2. Delete Workspace
-            const deletePill = await waitForLogPill(page, deleteWs, 'workspace');
+        // 2. Delete Workspace
+        const deletePill = await waitForLogPill(page, deleteWs, 'workspace');
 
-            await rightClickAndSelect(page, deletePill, 'Delete Workspace Directory');
+        await rightClickAndSelect(page, deletePill, 'Delete Workspace Directory');
 
-            // Confirm warning dialog
-            const deleteBtn = page.getByRole('button', { name: 'Yes, Delete Workspace' });
-            await expect(deleteBtn, 'Delete confirmation button should be visible').toBeVisible({ timeout: 5000 });
-            await deleteBtn.click();
+        // Confirm warning dialog
+        const deleteBtn = page.getByRole('button', { name: 'Yes, Delete Workspace' });
+        await expect(deleteBtn, 'Delete confirmation button should be visible').toBeVisible({ timeout: 5000 });
+        await deleteBtn.click();
 
-            await expect(async () => {
-                const webview = await getLogWebview(page, 300);
-                await expect(webview.locator('.bookmark-pill', { hasText: deleteWs })).not.toBeVisible({
-                    timeout: 500,
-                });
-            }).toPass({ timeout: 15000 });
+        await expect(async () => {
+            const webview = await getLogWebview(page, 300);
+            await expect(webview.locator('.bookmark-pill', { hasText: deleteWs })).not.toBeVisible({
+                timeout: 500,
+            });
+        }).toPass({ timeout: 15000 });
 
-            const gone = !fs.existsSync(deleteWsPath);
-            expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
-        } finally {
-            repo.dispose();
-        }
+        const gone = !fs.existsSync(deleteWsPath);
+        expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
     });
 });

@@ -58,7 +58,6 @@ describe('squash-files commands', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

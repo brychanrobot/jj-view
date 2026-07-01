@@ -110,9 +110,6 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.dispose();
         registry.dispose();
 
-        for (const repo of extraRepos) {
-            repo.dispose();
-        }
         for (const dir of extraDirs) {
             try {
                 fs.rmSync(dir, { recursive: true, force: true });
@@ -122,7 +119,6 @@ suite('JjRepositoryManager Integration Test', () => {
         }
 
         if (mainRepo.path !== resolvedWorkspaceRoot) {
-            mainRepo.dispose();
         } else {
             try {
                 if (resolvedWorkspaceRoot) {

@@ -82,10 +82,8 @@ test.describe('Multi-Repo Switching E2E', () => {
 
     test.afterEach(async () => {
         if (secondRepo) {
-            secondRepo.dispose();
         }
         if (mainRepo) {
-            mainRepo.dispose();
         }
     });
 

@@ -79,7 +79,6 @@ suite('Webview Initialization Integration Test', () => {
         }
         disposables = [];
         if (repo) {
-            repo.dispose();
         }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });

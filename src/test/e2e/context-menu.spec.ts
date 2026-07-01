@@ -56,7 +56,6 @@ test.describe('JJ Log Context Menu E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 
@@ -473,8 +472,6 @@ test.describe('JJ Log Context Menu E2E', () => {
             const pushedCommitId = repo.getCommitId('test-branch');
 
             await waitForBookmark(repo, 'test-branch', pushedCommitId, { remoteRepo, timeout: 20000 });
-
-            remoteRepo.dispose();
         });
 
         test('Advance Bookmark', async () => {
@@ -523,8 +520,6 @@ test.describe('JJ Log Context Menu E2E', () => {
 
             // Remote verification
             await waitForBookmark(repo, 'sync-branch', pushedCommitId, { remoteRepo, timeout: 20000 });
-
-            remoteRepo.dispose();
         });
     });
 });

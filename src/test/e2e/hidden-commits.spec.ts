@@ -15,9 +15,7 @@ test.describe('Hidden Commits', () => {
         repo.init();
     });
 
-    test.afterEach(async () => {
-        repo.dispose();
-    });
+    test.afterEach(async () => {});
 
     test('renders a ghost shape for hidden commit nodes', async ({ vscode }) => {
         // 1. Create a commit that we will hide

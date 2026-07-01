@@ -35,7 +35,6 @@ describe('rebaseOntoSelectedCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -31,7 +31,6 @@ describe('restoreCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -35,7 +35,6 @@ describe('setDescriptionCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -61,7 +61,6 @@ describe('resolveRepository', () => {
 
     afterEach(async () => {
         await repoManager.dispose();
-        repo.dispose();
     });
 
     it('resolves repository from SourceControlResourceState argument', () => {

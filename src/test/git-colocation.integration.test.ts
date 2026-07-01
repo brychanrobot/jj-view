@@ -23,9 +23,7 @@ suite('Git Colocation Integration Test Suite', () => {
         jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    suiteTeardown(() => {
-        repo.dispose();
-    });
+    suiteTeardown(() => {});
 
     setup(() => {
         sandbox = sinon.createSandbox();
