@@ -30,7 +30,6 @@ test.describe('E2E Utilities', () => {
             console.log(await vscode.getOutputChannelLogs('JJ View'));
             console.log('----------------------------------------');
             throw err;
-        } finally {
         }
     });
 
@@ -59,7 +58,6 @@ test.describe('E2E Utilities', () => {
             console.log(await vscode.getOutputChannelLogs('JJ View'));
             console.log('----------------------------------------');
             throw err;
-        } finally {
         }
     });
 
@@ -81,7 +79,6 @@ test.describe('E2E Utilities', () => {
             console.log(await vscode.getOutputChannelLogs('JJ View'));
             console.log('----------------------------------------');
             throw err;
-        } finally {
         }
     });
 });

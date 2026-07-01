@@ -32,12 +32,23 @@ merge-editor = "builtin"
 
 writeDefaultConfig(testXdgConfigHome);
 
-process.on('exit', () => {
+function cleanup() {
     for (const dir of tempDirs) {
         try {
             fs.rmSync(dir, { recursive: true, force: true });
         } catch {}
     }
+    tempDirs.clear();
+}
+
+process.on('exit', cleanup);
+process.once('SIGINT', () => {
+    cleanup();
+    process.kill(process.pid, 'SIGINT');
+});
+process.once('SIGTERM', () => {
+    cleanup();
+    process.kill(process.pid, 'SIGTERM');
 });
 
 export class TestRepo {
@@ -50,6 +61,13 @@ export class TestRepo {
         }
         this.path = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
         tempDirs.add(this.path);
+    }
+
+    dispose() {
+        try {
+            fs.rmSync(this.path, { recursive: true, force: true });
+        } catch {}
+        tempDirs.delete(this.path);
     }
 
     // POLICY: This method is intentionally private. Do not expose it publicly.
@@ -601,4 +619,10 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
 
     // Return map
     return labelToId;
+}
+
+export class ScopedTestRepo extends TestRepo implements Disposable {
+    [Symbol.dispose]() {
+        this.dispose();
+    }
 }

@@ -5,12 +5,14 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from '../code-forge-registry';
 import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { createMock } from './test-utils';
 
 export interface TestRepositoryContext {
     codeForgeRegistry: CodeForgeRegistry;
@@ -182,4 +184,64 @@ export async function waitUntil(
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
     return await condition();
+}
+
+/**
+ * Stubs specific configuration keys on the vscode.workspace.getConfiguration API.
+ * Delegates all other configuration queries to the original implementation.
+ */
+export function stubConfig(sandbox: sinon.SinonSandbox, configs: Record<string, unknown>): sinon.SinonStub {
+    const original = vscode.workspace.getConfiguration;
+    const configMock = createMock<vscode.WorkspaceConfiguration>({
+        get: (key: string, defaultValue?: unknown) => {
+            if (key in configs) {
+                return configs[key];
+            }
+            const originalConfig = original('jj-view');
+            return originalConfig.get(key, defaultValue);
+        },
+        has: (key: string) => {
+            if (key in configs) {
+                return true;
+            }
+            const originalConfig = original('jj-view');
+            return originalConfig.has(key);
+        },
+        inspect: (key: string) => {
+            const originalConfig = original('jj-view');
+            return originalConfig.inspect(key);
+        },
+        update: (key: string, value: unknown, target?: vscode.ConfigurationTarget | boolean | null) => {
+            const originalConfig = original('jj-view');
+            return originalConfig.update(key, value, target);
+        },
+    });
+
+    return sandbox.stub(vscode.workspace, 'getConfiguration').callsFake((section?, scope?) => {
+        if (section === 'jj-view') {
+            return configMock;
+        }
+        return original(section, scope);
+    });
+}
+
+/**
+ * Stubs a specific VS Code command execution handler, automatically delegating all
+ * other command executions to the original vscode.commands.executeCommand.
+ */
+export function stubCommand(
+    sandbox: sinon.SinonSandbox,
+    commandId: string,
+    handler: (...args: unknown[]) => unknown,
+): sinon.SinonStub {
+    const original = vscode.commands.executeCommand;
+    return sandbox
+        .stub(vscode.commands, 'executeCommand')
+        .callsFake(<T>(command: string, ...args: unknown[]): Thenable<T> => {
+            if (command === commandId) {
+                const result = handler(...args);
+                return Promise.resolve(result as never);
+            }
+            return original(command, ...args);
+        });
 }
