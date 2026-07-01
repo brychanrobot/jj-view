@@ -7,6 +7,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
 import { squashFilesIntoParentCommand } from '../commands/squash-files';
@@ -16,14 +17,21 @@ import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
-import { createTestRepositoryContext, waitUntil } from './integration-test-utils';
+import {
+    createTestRepositoryContext,
+    stubCommand,
+    stubConfig,
+    type TestRepositoryContext,
+    waitUntil,
+} from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', () => {
     let jj: JjService;
     let scmProvider: JjScmProvider;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
+    let contextHelper: TestRepositoryContext;
+    let sandbox: sinon.SinonSandbox;
 
     let repo: TestRepo;
 
@@ -33,6 +41,7 @@ suite('JJ SCM Provider Integration Test', () => {
     }
 
     setup(async () => {
+        sandbox = sinon.createSandbox();
         // Initialize TestRepo (creates temp dir)
         repo = new TestRepo();
         repo.init();
@@ -57,10 +66,10 @@ suite('JJ SCM Provider Integration Test', () => {
         // Allow VS Code to settle before disposing repository
         await new Promise((resolve) => setTimeout(resolve, 500));
 
+        sandbox.restore();
+
         if (contextHelper) {
             await contextHelper.dispose();
-        }
-        if (repo) {
         }
     });
 
@@ -113,7 +122,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok(resourceState, 'Should find resource state for modified file');
         assert.strictEqual(workingCopyGroup.resourceStates[0].decorations?.tooltip, 'modified');
 
-        const command = workingCopyGroup.resourceStates[0].command;
+        const { command } = workingCopyGroup.resourceStates[0];
         assert.ok(command, 'Resource state should have a command');
         assert.strictEqual(command.command, 'vscode.diff', 'Command should be vscode.diff');
         assert.strictEqual(command.arguments?.length, 3, 'Diff command should have 3 arguments');
@@ -148,69 +157,47 @@ suite('JJ SCM Provider Integration Test', () => {
         ]);
         await fsp.unlink(deletedFilePath);
 
-        const originalGetConfiguration = vscode.workspace.getConfiguration;
-        const configStub = {
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'openDiffOnClick') {
-                    return false;
-                }
-                return defaultValue;
-            },
-        };
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
-            if (section === 'jj-view') {
-                return configStub;
-            }
-            return originalGetConfiguration(section);
-        };
+        stubConfig(sandbox, { openDiffOnClick: false });
 
-        try {
-            await scmProvider.refresh({ forceSnapshot: true });
+        await scmProvider.refresh({ forceSnapshot: true });
 
-            const workingCopyGroup = accessPrivate(
-                scmProvider,
-                '_workingCopyGroup',
-            ) as vscode.SourceControlResourceGroup;
-            const resourceState = workingCopyGroup.resourceStates.find(
-                (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
-            );
-            assert.ok(resourceState, 'Should find resource state for modified file');
+        const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
+        const resourceState = workingCopyGroup.resourceStates.find(
+            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+        );
+        assert.ok(resourceState, 'Should find resource state for modified file');
 
-            const { command } = resourceState;
-            assert.ok(command, 'Resource state should have a command');
-            assert.strictEqual(
-                command.command,
-                'vscode.open',
-                'Command should be vscode.open when openDiffOnClick is false',
-            );
-            assert.strictEqual(command.arguments?.length, 1, 'Open command should have 1 argument');
-            const openUri = command.arguments?.[0] as vscode.Uri;
-            assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
-            assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
+        const { command } = resourceState;
+        assert.ok(command, 'Resource state should have a command');
+        assert.strictEqual(
+            command.command,
+            'vscode.open',
+            'Command should be vscode.open when openDiffOnClick is false',
+        );
+        assert.strictEqual(command.arguments?.length, 1, 'Open command should have 1 argument');
+        const openUri = command.arguments?.[0] as vscode.Uri;
+        assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
+        assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
 
-            const { diffTitle } = resourceState as JjResourceState;
-            assert.ok(diffTitle, 'diffTitle should be set');
+        const { diffTitle } = resourceState as JjResourceState;
+        assert.ok(diffTitle, 'diffTitle should be set');
 
-            const { leftUri } = resourceState as JjResourceState;
-            const { rightUri } = resourceState as JjResourceState;
-            assert.ok(leftUri && rightUri, 'leftUri and rightUri should be set');
+        const { leftUri, rightUri } = resourceState as JjResourceState;
+        assert.ok(leftUri && rightUri, 'leftUri and rightUri should be set');
 
-            assert.strictEqual(leftUri.scheme, 'jj-view', 'left URI scheme should be jj-view');
-            assert.strictEqual(normalize(rightUri.fsPath), normalize(filePath), 'right URI should be the file path');
+        assert.strictEqual(leftUri.scheme, 'jj-view', 'left URI scheme should be jj-view');
+        assert.strictEqual(normalize(rightUri.fsPath), normalize(filePath), 'right URI should be the file path');
 
-            // Deleted files should still open the diff editor even when openDiffOnClick is false
-            const deletedState = workingCopyGroup.resourceStates.find(
-                (r) => normalize(r.resourceUri.fsPath) === normalize(deletedFilePath),
-            );
-            assert.ok(deletedState, 'Should find resource state for deleted file');
-            assert.strictEqual(
-                deletedState.command?.command,
-                'vscode.diff',
-                'Deleted file should use vscode.diff regardless of openDiffOnClick',
-            );
-        } finally {
-            (vscode.workspace as { getConfiguration: unknown }).getConfiguration = originalGetConfiguration;
-        }
+        // Deleted files should still open the diff editor even when openDiffOnClick is false
+        const deletedState = workingCopyGroup.resourceStates.find(
+            (r) => normalize(r.resourceUri.fsPath) === normalize(deletedFilePath),
+        );
+        assert.ok(deletedState, 'Should find resource state for deleted file');
+        assert.strictEqual(
+            deletedState.command?.command,
+            'vscode.diff',
+            'Deleted file should use vscode.diff regardless of openDiffOnClick',
+        );
     });
 
     test('Shows parent commit changes in separate group', async () => {
@@ -241,7 +228,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok((resourceState.contextValue as string).includes(ScmContextValue.ResourceAllowRestore));
         assert.ok(parentGroup.label.startsWith('@-1'), `Label '${parentGroup.label}' should start with '@-1'`);
 
-        const command = resourceState.command;
+        const { command } = resourceState;
         assert.ok(command);
         const [leftUri, rightUri] = command.arguments as vscode.Uri[];
 
@@ -316,47 +303,28 @@ suite('JJ SCM Provider Integration Test', () => {
             },
         ]);
 
-        // Mock config getter
-        const originalGetConfiguration = vscode.workspace.getConfiguration;
-        const configStub = {
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'maxMutableAncestors') {
-                    return 3;
-                }
-                return defaultValue;
-            },
-        };
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
-            if (section === 'jj-view') {
-                return configStub;
-            }
-            return originalGetConfiguration(section);
-        };
+        stubConfig(sandbox, { maxMutableAncestors: 3 });
 
-        try {
-            await scmProvider.refresh({ forceSnapshot: true });
+        await scmProvider.refresh({ forceSnapshot: true });
 
-            const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
-            assert.ok(
-                parentGroups.length >= 2,
-                `Should have at least 2 ancestor groups (parent and grandparent), got ${parentGroups.length}`,
-            );
+        const parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        assert.ok(
+            parentGroups.length >= 2,
+            `Should have at least 2 ancestor groups (parent and grandparent), got ${parentGroups.length}`,
+        );
 
-            // Parent group (@-1) - This parent has a mutable parent (grandparent), so it should be squashable
-            assert.ok(parentGroups[0].label.startsWith('@-1'), `First group label should start with '@-1'`);
-            assert.ok((parentGroups[0].contextValue as string).includes(ScmContextValue.GroupAllowSquash));
-            assert.ok(
-                (parentGroups[0].resourceStates[0].contextValue as string).includes(
-                    ScmContextValue.ResourceAllowSquashIntoAncestor,
-                ),
-            );
+        // Parent group (@-1) - This parent has a mutable parent (grandparent), so it should be squashable
+        assert.ok(parentGroups[0].label.startsWith('@-1'), `First group label should start with '@-1'`);
+        assert.ok((parentGroups[0].contextValue as string).includes(ScmContextValue.GroupAllowSquash));
+        assert.ok(
+            (parentGroups[0].resourceStates[0].contextValue as string).includes(
+                ScmContextValue.ResourceAllowSquashIntoAncestor,
+            ),
+        );
 
-            // Grandparent group (@-2) - Its parent might be the implicit root/initial commit, so we don't strictly assert its squashability here
-            assert.ok(parentGroups[1].label.startsWith('@-2'), `Second group label should start with '@-2'`);
-            assert.ok(parentGroups[1].resourceStates.length > 0, 'Grandparent group should have resources');
-        } finally {
-            (vscode.workspace as { getConfiguration: unknown }).getConfiguration = originalGetConfiguration;
-        }
+        // Grandparent group (@-2) - Its parent might be the implicit root/initial commit, so we don't strictly assert its squashability here
+        assert.ok(parentGroups[1].label.startsWith('@-2'), `Second group label should start with '@-2'`);
+        assert.ok(parentGroups[1].resourceStates.length > 0, 'Grandparent group should have resources');
     });
 
     test('Partial Move to Parent moves selected changes', async () => {
@@ -444,65 +412,35 @@ suite('JJ SCM Provider Integration Test', () => {
         const conflictGroup = accessPrivate(scmProvider, '_conflictGroup') as vscode.SourceControlResourceGroup;
         assert.ok(conflictGroup.resourceStates.length > 0, 'Should have conflicted file');
 
-        let capturedArgs: {
+        const executeStub = stubCommand(sandbox, '_open.mergeEditor', () => null);
+
+        // Call openMergeEditor
+        await scmProvider.openMergeEditor(conflictGroup.resourceStates);
+
+        // Verify the argument format
+        assert.ok(executeStub.calledOnce, 'Should have called _open.mergeEditor');
+        const args = executeStub.firstCall.args[1] as {
             base: vscode.Uri;
             input1: { uri: vscode.Uri };
             input2: { uri: vscode.Uri };
             output: vscode.Uri;
-        } | null = null;
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        const stub = async (command: string, ...args: unknown[]) => {
-            if (command === '_open.mergeEditor') {
-                capturedArgs = args[0] as {
-                    base: vscode.Uri;
-                    input1: { uri: vscode.Uri };
-                    input2: { uri: vscode.Uri };
-                    output: vscode.Uri;
-                };
-                // Don't actually open the editor in tests
-                return;
-            }
-            return originalExecuteCommand.call(vscode.commands, command, ...args);
         };
-        type WritableCommands = { executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown> };
-        (vscode.commands as WritableCommands).executeCommand = stub;
 
-        try {
-            // Call openMergeEditor
-            await scmProvider.openMergeEditor(conflictGroup.resourceStates);
+        // CRITICAL: base must be a plain URI, not an object
+        assert.ok(args.base instanceof vscode.Uri, 'base should be a plain Uri, not an object');
 
-            // Verify the argument format
-            assert.ok(capturedArgs, 'Should have captured _open.mergeEditor arguments');
-            const args = capturedArgs as {
-                base: vscode.Uri;
-                input1: { uri: vscode.Uri };
-                input2: { uri: vscode.Uri };
-                output: vscode.Uri;
-            };
+        // input1 and input2 should be objects with uri property
+        assert.ok(typeof args.input1 === 'object', 'input1 should be an object');
+        assert.ok(args.input1.uri instanceof vscode.Uri, 'input1.uri should be a Uri');
+        assert.ok(typeof args.input2 === 'object', 'input2 should be an object');
+        assert.ok(args.input2.uri instanceof vscode.Uri, 'input2.uri should be a Uri');
 
-            // CRITICAL: base must be a plain URI, not an object
-            assert.ok(args.base instanceof vscode.Uri, 'base should be a plain Uri, not an object');
+        // output should be a URI
+        assert.ok(args.output instanceof vscode.Uri, 'output should be a Uri');
 
-            // input1 and input2 should be objects with uri property
-            assert.ok(typeof args.input1 === 'object', 'input1 should be an object');
-            assert.ok(args.input1.uri instanceof vscode.Uri, 'input1.uri should be a Uri');
-            assert.ok(typeof args.input2 === 'object', 'input2 should be an object');
-            assert.ok(args.input2.uri instanceof vscode.Uri, 'input2.uri should be a Uri');
-
-            // output should be a URI
-            assert.ok(args.output instanceof vscode.Uri, 'output should be a Uri');
-
-            // Verify URI scheme
-            assert.strictEqual(args.base.scheme, 'jj-merge-output', 'base scheme should be jj-merge-output');
-            assert.strictEqual(
-                args.input1.uri.scheme,
-                'jj-merge-output',
-                'input1.uri scheme should be jj-merge-output',
-            );
-        } finally {
-            // Restore original executeCommand
-            (vscode.commands as WritableCommands).executeCommand = originalExecuteCommand;
-        }
+        // Verify URI scheme
+        assert.strictEqual(args.base.scheme, 'jj-merge-output', 'base scheme should be jj-merge-output');
+        assert.strictEqual(args.input1.uri.scheme, 'jj-merge-output', 'input1.uri scheme should be jj-merge-output');
     });
     test('Squash button squashes changes into parent', async () => {
         const filePath = path.join(repo.path, 'squash-test.txt');
@@ -737,55 +675,36 @@ suite('JJ SCM Provider Integration Test', () => {
     });
 
     test('Parent group context value updates when switching between immutable and mutable parents', async () => {
-        // Mock config to only show 1 ancestor for this test
-        const originalGetConfiguration = vscode.workspace.getConfiguration;
-        const configStub = {
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'maxMutableAncestors') {
-                    return 1;
-                }
-                return defaultValue;
-            },
-        };
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = (section: string) => {
-            if (section === 'jj-view') {
-                return configStub;
-            }
-            return originalGetConfiguration(section);
-        };
+        stubConfig(sandbox, { maxMutableAncestors: 1 });
 
-        try {
-            // Scenario:
-            // 1. Edit C1 (Parent is Root). Root is Immutable. Group should be 'jjAncestorGroup'.
-            // 2. Edit C2 (Parent is C1). C1 is Mutable. Group should be 'jjAncestorGroup:mutable'.
+        // Scenario:
+        // 1. Edit C1 (Parent is Root). Root is Immutable. Group should be 'jjAncestorGroup'.
+        // 2. Edit C2 (Parent is C1). C1 is Mutable. Group should be 'jjAncestorGroup:mutable'.
 
-            // 1. Create C1 on top of root
-            repo.new(['root()'], 'C1');
-            // Current working copy (@) is C1. Parent is Root.
+        // 1. Create C1 on top of root
+        repo.new(['root()'], 'C1');
+        // Current working copy (@) is C1. Parent is Root.
 
-            await scmProvider.refresh();
-            let parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
-            // Root is immutable, so no parent group should be created
-            assert.strictEqual(parentGroups.length, 0, 'Should have 0 parent groups when parent is immutable');
+        await scmProvider.refresh();
+        let parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        // Root is immutable, so no parent group should be created
+        assert.strictEqual(parentGroups.length, 0, 'Should have 0 parent groups when parent is immutable');
 
-            // 2. Create C2 on top of C1
-            repo.new([], 'C2');
-            // Current working copy (@) is C2. Parent is C1.
-            // C1 is a normal commit, so it is mutable.
+        // 2. Create C2 on top of C1
+        repo.new([], 'C2');
+        // Current working copy (@) is C2. Parent is C1.
+        // C1 is a normal commit, so it is mutable.
 
-            await scmProvider.refresh();
-            parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
-            assert.strictEqual(parentGroups.length, 1, 'Should show 1 ancestor group (direct parent)');
+        await scmProvider.refresh();
+        parentGroups = accessPrivate(scmProvider, '_parentGroups') as vscode.SourceControlResourceGroup[];
+        assert.strictEqual(parentGroups.length, 1, 'Should show 1 ancestor group (direct parent)');
 
-            // This is the key assertion: Did the group get the correct context value?
-            assert.ok(
-                (parentGroups[0].contextValue as string).includes(ScmContextValue.GroupAllowEdit),
-                'Parent (C1) should allow edit',
-            );
-            assert.ok(parentGroups[0].label.includes('C1'), 'Group should be C1');
-        } finally {
-            (vscode.workspace as { getConfiguration: unknown }).getConfiguration = originalGetConfiguration;
-        }
+        // This is the key assertion: Did the group get the correct context value?
+        assert.ok(
+            (parentGroups[0].contextValue as string).includes(ScmContextValue.GroupAllowEdit),
+            'Parent (C1) should allow edit',
+        );
+        assert.ok(parentGroups[0].label.includes('C1'), 'Group should be C1');
     });
 
     test('Verifies comprehensive SCM context values (WorkingCopy, Conflict)', async () => {

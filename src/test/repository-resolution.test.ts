@@ -13,12 +13,12 @@ vi.mock('vscode', async () => {
 });
 
 // Import after mock
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import type { JjRepository } from '../jj-repository';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
@@ -174,35 +174,25 @@ describe('resolveRepository', () => {
         //     └── .jj -> repo.path/.jj (symlink to directory)
 
         // Create a target directory inside the repository
-        const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(repo.path, 'jj-view-nested-')));
+        using nestedDir = new ScopedTempDir(path.join(repo.path, 'jj-view-nested-'));
+        const targetDir = nestedDir.path;
+
         const symlinkPath = path.join(repo.path, 'bazel-core');
         const jjSymlinkPath = path.join(targetDir, '.jj');
 
-        try {
-            // Create symlink: bazel-core -> targetDir
-            fs.symlinkSync(targetDir, symlinkPath, 'dir');
+        // Create symlink: bazel-core -> targetDir
+        using _link1 = new ScopedSymlink(symlinkPath, targetDir, 'dir');
 
-            // Create symlink: targetDir/.jj -> repo.path/.jj
-            fs.symlinkSync(path.join(repo.path, '.jj'), jjSymlinkPath, 'dir');
+        // Create symlink: targetDir/.jj -> repo.path/.jj
+        using _link2 = new ScopedSymlink(jjSymlinkPath, path.join(repo.path, '.jj'), 'dir');
 
-            // Resource URI is inside the symlink path
-            const mockState = { resourceUri: vscode.Uri.file(path.join(symlinkPath, 'file.txt')) };
+        // Resource URI is inside the symlink path
+        const mockState = { resourceUri: vscode.Uri.file(path.join(symlinkPath, 'file.txt')) };
 
-            const result = resolveRepository([mockState], repoManager, scmProviders);
+        const result = resolveRepository([mockState], repoManager, scmProviders);
 
-            expect(result).toBeDefined();
-            expect(result?.repo).toBe(resolvedRepo);
-            expect(result?.scm).toBe(mockScm);
-        } finally {
-            try {
-                fs.unlinkSync(symlinkPath);
-            } catch {}
-            try {
-                fs.unlinkSync(jjSymlinkPath);
-            } catch {}
-            try {
-                fs.rmdirSync(targetDir);
-            } catch {}
-        }
+        expect(result).toBeDefined();
+        expect(result?.repo).toBe(resolvedRepo);
+        expect(result?.scm).toBe(mockScm);
     });
 });

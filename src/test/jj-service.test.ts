@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
-import { buildGraph, TestRepo } from './test-repo';
+import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
 
 describe('JjService Unit Tests', () => {
     let jjService: JjService;
@@ -1473,7 +1473,7 @@ log = "none()"
         ]);
 
         // Setup a remote repo and push a bookmark to it to simulate a remote bookmark
-        const remoteRepo = new TestRepo();
+        using remoteRepo = new ScopedTestRepo();
         remoteRepo.init();
 
         repo.addRemote('origin', remoteRepo.path);
@@ -1497,7 +1497,7 @@ log = "none()"
     });
 
     test('getBookmarks with revision filters bookmarks by revision', async () => {
-        const remoteRepo = new TestRepo();
+        using remoteRepo = new ScopedTestRepo();
         remoteRepo.init();
 
         repo.addRemote('origin', remoteRepo.path);

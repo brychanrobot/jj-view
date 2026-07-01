@@ -194,25 +194,22 @@ test.describe('GitHub Integration E2E', () => {
             },
         );
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            const childRow = await waitForLogCommitRow(page, 'Child Commit');
-            const parentRow = await waitForLogCommitRow(page, 'Parent Commit');
+        const childRow = await waitForLogCommitRow(page, 'Child Commit');
+        const parentRow = await waitForLogCommitRow(page, 'Parent Commit');
 
-            // 1. Child row should show the PR #42 badge and URL (since it has local bookmark)
-            await expectBadgeLink(childRow, 'PR #42', 'https://github.com/test-owner/test-repo/pull/42');
+        // 1. Child row should show the PR #42 badge and URL (since it has local bookmark)
+        await expectBadgeLink(childRow, 'PR #42', 'https://github.com/test-owner/test-repo/pull/42');
 
-            // 2. Parent row should NOT show the PR #42 badge (since it only has remote bookmark)
-            await expect(parentRow.locator('a', { hasText: 'PR #42' })).not.toBeVisible();
+        // 2. Parent row should NOT show the PR #42 badge (since it only has remote bookmark)
+        await expect(parentRow.locator('a', { hasText: 'PR #42' })).not.toBeVisible();
 
-            // 3. Child row has local changes that need upload, and parent has correct structure (no parent mismatch).
-            // So the child row upload button should NOT show the parent mismatch title.
-            const uploadButton = childRow.getByRole('button', { name: 'Upload changes to GitHub' });
-            await expect(uploadButton).toBeVisible();
-            await expect(uploadButton).toHaveAttribute('title', 'Local changes need upload (Click to push)');
-        } finally {
-        }
+        // 3. Child row has local changes that need upload, and parent has correct structure (no parent mismatch).
+        // So the child row upload button should NOT show the parent mismatch title.
+        const uploadButton = childRow.getByRole('button', { name: 'Upload changes to GitHub' });
+        await expect(uploadButton).toBeVisible();
+        await expect(uploadButton).toHaveAttribute('title', 'Local changes need upload (Click to push)');
     });
 
     test('Manages GitHub auth choices via Quick Pick', async ({ vscode }) => {

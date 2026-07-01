@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
@@ -44,8 +44,12 @@ describe('GitHubProvider', () => {
     let provider: GitHubProvider;
     let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
+    let originalEnv: string | undefined;
+    let originalFetch: typeof global.fetch;
 
     beforeEach(() => {
+        originalEnv = process.env.JJ_VIEW_GITHUB_TOKEN;
+        originalFetch = global.fetch;
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         mockAuthManager = createMock<CodeForgeAuthManager>({
             isAuthSkipped: vi.fn().mockReturnValue(false),
@@ -66,6 +70,11 @@ describe('GitHubProvider', () => {
         });
         provider = new GitHubProvider(mockAuthManager, mockOutputChannel);
         vi.mocked(vscode.window.showWarningMessage).mockReset();
+    });
+
+    afterEach(() => {
+        process.env.JJ_VIEW_GITHUB_TOKEN = originalEnv;
+        global.fetch = originalFetch;
     });
 
     test('parseGitHubUrl correctly parses standard and dotted repo URLs', () => {
@@ -400,37 +409,27 @@ describe('GitHubProvider', () => {
     });
 
     test('hasAuth returns true if environment variable JJ_VIEW_GITHUB_TOKEN is set', async () => {
-        const originalEnv = process.env.JJ_VIEW_GITHUB_TOKEN;
-        try {
-            process.env.JJ_VIEW_GITHUB_TOKEN = 'test-token';
-            const hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-        } finally {
-            process.env.JJ_VIEW_GITHUB_TOKEN = originalEnv;
-        }
+        process.env.JJ_VIEW_GITHUB_TOKEN = 'test-token';
+        const hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
     });
 
     test('hasAuth returns true if stored token is found, false otherwise', async () => {
-        const originalEnv = process.env.JJ_VIEW_GITHUB_TOKEN;
         delete process.env.JJ_VIEW_GITHUB_TOKEN;
-        try {
-            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
-            let hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-            expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('github_token');
+        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+        let hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
+        expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('github_token');
 
-            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
-            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
-            hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-            expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('github', ['repo']);
+        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+        vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
+        hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
+        expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('github', ['repo']);
 
-            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
-            hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(false);
-        } finally {
-            process.env.JJ_VIEW_GITHUB_TOKEN = originalEnv;
-        }
+        vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
+        hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(false);
     });
 
     test('getAuthManageItems delegates to authManager.getAuthManageItems', async () => {
@@ -475,7 +474,6 @@ describe('GitHubProvider', () => {
         setPrivate(provider, 'owner', 'fork-owner');
         setPrivate(provider, 'repo', 'fork-repo');
 
-        const originalFetch = global.fetch;
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
             status: 200,
@@ -514,28 +512,24 @@ describe('GitHubProvider', () => {
         });
         global.fetch = fetchMock;
 
-        try {
-            const fetchBatch = exposePrivate<{
-                fetchBatchFromNetwork(
-                    bookmarkNames: string[],
-                    bookmarkToCommitId: Map<string, string>,
-                ): Promise<Map<string, CodeForgeChangeInfo>>;
-            }>(provider).fetchBatchFromNetwork.bind(provider);
+        const fetchBatch = exposePrivate<{
+            fetchBatchFromNetwork(
+                bookmarkNames: string[],
+                bookmarkToCommitId: Map<string, string>,
+            ): Promise<Map<string, CodeForgeChangeInfo>>;
+        }>(provider).fetchBatchFromNetwork.bind(provider);
 
-            const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
-            expect(results.size).toBe(1);
-            const pr = results.get('my-feature-branch');
-            expect(pr).toBeDefined();
-            expect(pr?.id).toBe('parent-pr-id');
-            expect(pr?.number).toBe(42);
-            expect(pr?.url).toBe('https://github.com/parent-owner/parent-repo/pull/42');
+        const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
+        expect(results.size).toBe(1);
+        const pr = results.get('my-feature-branch');
+        expect(pr).toBeDefined();
+        expect(pr?.id).toBe('parent-pr-id');
+        expect(pr?.number).toBe(42);
+        expect(pr?.url).toBe('https://github.com/parent-owner/parent-repo/pull/42');
 
-            expect(fetchMock).toHaveBeenCalledTimes(1);
-            const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
-            expect(requestBody.query).toContain('parent {');
-        } finally {
-            global.fetch = originalFetch;
-        }
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+        expect(requestBody.query).toContain('parent {');
     });
 
     test('fetchStatuses matches closed/merged PRs even if local commit ID differs', async () => {

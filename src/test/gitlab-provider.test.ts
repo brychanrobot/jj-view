@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
@@ -44,8 +44,12 @@ describe('GitLabProvider', () => {
     let provider: GitLabProvider;
     let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
+    let originalEnv: string | undefined;
+    let originalFetch: typeof global.fetch;
 
     beforeEach(() => {
+        originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
+        originalFetch = global.fetch;
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         mockAuthManager = createMock<CodeForgeAuthManager>({
             isAuthSkipped: vi.fn().mockReturnValue(false),
@@ -68,6 +72,11 @@ describe('GitLabProvider', () => {
         });
         provider = new GitLabProvider(mockAuthManager, mockOutputChannel);
         vi.mocked(vscode.window.showWarningMessage).mockReset();
+    });
+
+    afterEach(() => {
+        process.env.JJ_VIEW_GITLAB_TOKEN = originalEnv;
+        global.fetch = originalFetch;
     });
 
     test('parseGitLabUrl correctly parses standard, subgroup, and configured host URLs', () => {
@@ -396,37 +405,27 @@ describe('GitLabProvider', () => {
     });
 
     test('hasAuth returns true if environment variable JJ_VIEW_GITLAB_TOKEN is set', async () => {
-        const originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
-        try {
-            process.env.JJ_VIEW_GITLAB_TOKEN = 'test-token';
-            const hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-        } finally {
-            process.env.JJ_VIEW_GITLAB_TOKEN = originalEnv;
-        }
+        process.env.JJ_VIEW_GITLAB_TOKEN = 'test-token';
+        const hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
     });
 
     test('hasAuth returns true if stored token is found, false otherwise', async () => {
-        const originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
         delete process.env.JJ_VIEW_GITLAB_TOKEN;
-        try {
-            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
-            let hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-            expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('gitlab_token');
+        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+        let hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
+        expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('gitlab_token');
 
-            vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
-            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
-            hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(true);
-            expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('gitlab', ['api']);
+        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+        vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
+        hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(true);
+        expect(mockAuthManager.hasOAuthSession).toHaveBeenCalledWith('gitlab', ['api']);
 
-            vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
-            hasAuth = await provider.hasAuth();
-            expect(hasAuth).toBe(false);
-        } finally {
-            process.env.JJ_VIEW_GITLAB_TOKEN = originalEnv;
-        }
+        vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(false);
+        hasAuth = await provider.hasAuth();
+        expect(hasAuth).toBe(false);
     });
 
     test('getAuthManageItems delegates to authManager.getAuthManageItems', async () => {
@@ -476,7 +475,6 @@ describe('GitLabProvider', () => {
         setPrivate(provider, 'gitlabHost', 'https://gitlab.com');
         setPrivate(provider, 'projectPath', 'fork-owner/fork-repo');
 
-        const originalFetch = global.fetch;
         const fetchMock = vi.fn().mockImplementation(async (url: string) => {
             if (url.includes('/projects/fork-owner%2Ffork-repo')) {
                 return createMock<Response>({
@@ -536,25 +534,21 @@ describe('GitLabProvider', () => {
         });
         global.fetch = fetchMock;
 
-        try {
-            const fetchBatch = exposePrivate<{
-                fetchBatchFromNetwork(
-                    bookmarkNames: string[],
-                    bookmarkToCommitId: Map<string, string>,
-                ): Promise<Map<string, CodeForgeChangeInfo>>;
-            }>(provider).fetchBatchFromNetwork.bind(provider);
+        const fetchBatch = exposePrivate<{
+            fetchBatchFromNetwork(
+                bookmarkNames: string[],
+                bookmarkToCommitId: Map<string, string>,
+            ): Promise<Map<string, CodeForgeChangeInfo>>;
+        }>(provider).fetchBatchFromNetwork.bind(provider);
 
-            const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
-            expect(results.size).toBe(1);
-            const mr = results.get('my-feature-branch');
-            expect(mr).toBeDefined();
-            expect(mr?.id).toBe('101');
-            expect(mr?.number).toBe(42);
-            expect(mr?.url).toBe('https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42');
+        const results = await fetchBatch(['my-feature-branch'], new Map([['my-feature-branch', 'sha-parent']]));
+        expect(results.size).toBe(1);
+        const mr = results.get('my-feature-branch');
+        expect(mr).toBeDefined();
+        expect(mr?.id).toBe('101');
+        expect(mr?.number).toBe(42);
+        expect(mr?.url).toBe('https://gitlab.com/mainline-owner/mainline-repo/-/merge_requests/42');
 
-            expect(accessPrivate(provider, 'resolvedProjectPath')).toBe('mainline-owner/mainline-repo');
-        } finally {
-            global.fetch = originalFetch;
-        }
+        expect(accessPrivate(provider, 'resolvedProjectPath')).toBe('mainline-owner/mainline-repo');
     });
 });

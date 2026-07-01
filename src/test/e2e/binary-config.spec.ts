@@ -7,12 +7,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { expect } from '@playwright/test';
-import { TestRepo } from '../test-repo';
+import { ScopedTestRepo } from '../test-repo';
 import { clickNotificationButton, expectNotificationToast, expectSettingsOpen, test } from './e2e-helpers';
 
 test.describe('JJ Binary Configuration E2E', () => {
     test('Shows error and opens settings for invalid binary path', async ({ vscode }) => {
-        const repo = new TestRepo();
+        using repo = new ScopedTestRepo();
         repo.init();
 
         const invalidPath = path.join(os.tmpdir(), 'non-existent-jj-binary');
@@ -44,7 +44,7 @@ test.describe('JJ Binary Configuration E2E', () => {
     });
 
     test('Shows error when jj binary is not found', async ({ vscode }) => {
-        const repo = new TestRepo();
+        using repo = new ScopedTestRepo();
         repo.init();
 
         // Filter PATH to exclude directories containing 'jj' so we don't crash the extension host

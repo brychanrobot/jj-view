@@ -9,7 +9,9 @@ import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
+import type { Api } from '../extension';
 import { JjRepositoryManager } from '../jj-repository-manager';
+import { autoCleanup, ScopedSymlink, ScopedTempDir, ScopedTestRepo } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel, exposePrivate } from './test-utils';
 
@@ -22,15 +24,13 @@ suite('JjRepositoryManager Integration Test', () => {
     let sandbox: sinon.SinonSandbox;
     let initialFolders: vscode.Uri[] = [];
     let resolvedWorkspaceRoot: string | undefined;
-    let extraRepos: TestRepo[] = [];
-    let extraDirs: string[] = [];
 
     suiteSetup(() => {
         process.env.VSCODE_TEST = '1';
         initialFolders = (vscode.workspace.workspaceFolders || []).map((f) => f.uri);
     });
 
-    async function setWorkspaceFolders(folders: vscode.Uri[]): Promise<void> {
+    async function setWorkspaceFoldersInternal(folders: vscode.Uri[]): Promise<void> {
         const currentFolders = vscode.workspace.workspaceFolders || [];
         const currentCount = currentFolders.length;
 
@@ -64,9 +64,23 @@ suite('JjRepositoryManager Integration Test', () => {
         });
     }
 
+    async function setWorkspaceFolders(folders: vscode.Uri[]): Promise<AsyncDisposable> {
+        await setWorkspaceFoldersInternal(folders);
+
+        return {
+            async [Symbol.asyncDispose]() {
+                const extension = vscode.extensions.getExtension<Api>('jj-view.jj-view');
+                if (extension) {
+                    const api = await extension.activate();
+                    await api.repositoryManager.clear();
+                }
+                await manager.clear();
+                await setWorkspaceFoldersInternal(initialFolders);
+            },
+        };
+    }
+
     setup(async () => {
-        extraRepos = [];
-        extraDirs = [];
         sandbox = sinon.createSandbox();
         registry = new CodeForgeRegistry();
         outputChannel = createMockLogOutputChannel({
@@ -83,7 +97,7 @@ suite('JjRepositoryManager Integration Test', () => {
         });
 
         // Ensure we are working with the clean, initial workspace folder
-        await setWorkspaceFolders(initialFolders);
+        await setWorkspaceFoldersInternal(initialFolders);
 
         resolvedWorkspaceRoot = initialFolders[0] ? fs.realpathSync(initialFolders[0].fsPath) : undefined;
         if (resolvedWorkspaceRoot && fs.existsSync(resolvedWorkspaceRoot)) {
@@ -101,7 +115,7 @@ suite('JjRepositoryManager Integration Test', () => {
     });
 
     teardown(async () => {
-        const extension = vscode.extensions.getExtension<import('../extension').Api>('jj-view.jj-view');
+        const extension = vscode.extensions.getExtension<Api>('jj-view.jj-view');
         if (extension) {
             const api = await extension.activate();
             await api.repositoryManager.clear();
@@ -109,14 +123,6 @@ suite('JjRepositoryManager Integration Test', () => {
 
         await manager.dispose();
         registry.dispose();
-
-        for (const dir of extraDirs) {
-            try {
-                fs.rmSync(dir, { recursive: true, force: true });
-            } catch {
-                // Ignore
-            }
-        }
 
         if (mainRepo.path !== resolvedWorkspaceRoot) {
         } else {
@@ -131,7 +137,7 @@ suite('JjRepositoryManager Integration Test', () => {
             }
         }
 
-        await setWorkspaceFolders(initialFolders);
+        await setWorkspaceFoldersInternal(initialFolders);
 
         sandbox.restore();
     });
@@ -146,21 +152,17 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.dispose();
 
         // 2. Create a new manager with the same workspaceState to simulate restart
-        const restartManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
-        try {
-            // 3. Initialize from cache - should restore immediately
-            await restartManager.restoreCachedRepositories();
-            assert.strictEqual(restartManager.repositories.length, 1, 'Should load repo from cache');
-            assert.strictEqual(restartManager.repositories[0].rootUri.fsPath, mainRepo.path);
-            assert.strictEqual(restartManager.focusedRepository?.rootUri.fsPath, mainRepo.path);
+        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, workspaceState));
+        // 3. Initialize from cache - should restore immediately
+        await restartManager.restoreCachedRepositories();
+        assert.strictEqual(restartManager.repositories.length, 1, 'Should load repo from cache');
+        assert.strictEqual(restartManager.repositories[0].rootUri.fsPath, mainRepo.path);
+        assert.strictEqual(restartManager.focusedRepository?.rootUri.fsPath, mainRepo.path);
 
-            // 4. Run scan on restartManager to verify reconciliation
-            await restartManager.scanForRepositories();
-            assert.strictEqual(restartManager.repositories.length, 1, 'Reconciliation should keep the repository');
-            assert.strictEqual(restartManager.repositories[0].rootUri.fsPath, mainRepo.path);
-        } finally {
-            await restartManager.dispose();
-        }
+        // 4. Run scan on restartManager to verify reconciliation
+        await restartManager.scanForRepositories();
+        assert.strictEqual(restartManager.repositories.length, 1, 'Reconciliation should keep the repository');
+        assert.strictEqual(restartManager.repositories[0].rootUri.fsPath, mainRepo.path);
     });
 
     test('reconciliation disposes of invalid/missing cached repositories', async () => {
@@ -172,25 +174,17 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.dispose();
 
         // 2. Create restartManager
-        const restartManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
-        try {
-            // 3. Initialize from cache
-            await restartManager.restoreCachedRepositories();
-            assert.strictEqual(restartManager.repositories.length, 1);
+        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, workspaceState));
+        // 3. Initialize from cache
+        await restartManager.restoreCachedRepositories();
+        assert.strictEqual(restartManager.repositories.length, 1);
 
-            // 4. Delete the .jj/working_copy/type file to make the cached repo invalid/missing
-            fs.rmSync(path.join(mainRepo.path, '.jj', 'working_copy', 'type'), { force: true });
+        // 4. Delete the .jj/working_copy/type file to make the cached repo invalid/missing
+        fs.rmSync(path.join(mainRepo.path, '.jj', 'working_copy', 'type'), { force: true });
 
-            // 5. Run scan - should reconcile and dispose of the now-missing repository
-            await restartManager.scanForRepositories();
-            assert.strictEqual(
-                restartManager.repositories.length,
-                0,
-                'Should remove repo that is no longer valid on disk',
-            );
-        } finally {
-            await restartManager.dispose();
-        }
+        // 5. Run scan - should reconcile and dispose of the now-missing repository
+        await restartManager.scanForRepositories();
+        assert.strictEqual(restartManager.repositories.length, 0, 'Should remove repo that is no longer valid on disk');
     });
 
     test('getRepositoryForUri works for repo and subfolders', async () => {
@@ -215,7 +209,6 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan filters out secondary workspaces when main is present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        extraRepos.push(secondaryRepo);
         await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
@@ -233,7 +226,6 @@ suite('JjRepositoryManager Integration Test', () => {
 
         // Try to dynamically register secondary workspace path
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        extraRepos.push(secondaryRepo);
 
         const fileUri = vscode.Uri.file(path.join(secondaryRepo.path, 'file.txt'));
         const repo = await manager.maybeRegisterRepositoryContainingUri(fileUri);
@@ -245,7 +237,6 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan includes secondary workspace if main is NOT present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        extraRepos.push(secondaryRepo);
         await setWorkspaceFolders([vscode.Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
@@ -258,7 +249,6 @@ suite('JjRepositoryManager Integration Test', () => {
         const subRepoPath = path.join(mainRepo.path, 'subproject');
         fs.mkdirSync(subRepoPath, { recursive: true });
         const subRepo = new TestRepo(subRepoPath);
-        extraRepos.push(subRepo);
         subRepo.init();
 
         await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(subRepo.path)]);
@@ -280,9 +270,8 @@ suite('JjRepositoryManager Integration Test', () => {
     });
 
     test('scan discovers multiple sibling repositories in a non-repo root', async () => {
-        // Create a non-repo parent directory outside mainRepo
-        const tmpParent = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(mainRepo.path), 'jj-view-siblings-')));
-        extraDirs.push(tmpParent);
+        using tmpParentDir = new ScopedTempDir(path.join(path.dirname(mainRepo.path), 'jj-view-siblings-'));
+        const tmpParent = tmpParentDir.path;
         const parentPath = path.join(tmpParent, 'siblings');
         const repo1Path = path.join(parentPath, 'project1');
         const repo2Path = path.join(parentPath, 'project2');
@@ -290,13 +279,12 @@ suite('JjRepositoryManager Integration Test', () => {
         fs.mkdirSync(repo1Path, { recursive: true });
         fs.mkdirSync(repo2Path, { recursive: true });
 
-        const repo1 = new TestRepo(repo1Path);
-        const repo2 = new TestRepo(repo2Path);
-        extraRepos.push(repo1, repo2);
+        using repo1 = new ScopedTestRepo(repo1Path);
+        using repo2 = new ScopedTestRepo(repo2Path);
         repo1.init();
         repo2.init();
 
-        await setWorkspaceFolders([vscode.Uri.file(parentPath)]);
+        await using _workspace = await setWorkspaceFolders([vscode.Uri.file(parentPath)]);
 
         await manager.scanForRepositories();
 
@@ -306,11 +294,13 @@ suite('JjRepositoryManager Integration Test', () => {
     });
 
     test('tryAutoSwitch changes focused repository', async () => {
-        const otherRepo = new TestRepo();
-        extraRepos.push(otherRepo);
+        using otherRepo = new ScopedTestRepo();
         otherRepo.init();
 
-        await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(otherRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([
+            vscode.Uri.file(mainRepo.path),
+            vscode.Uri.file(otherRepo.path),
+        ]);
 
         await manager.scanForRepositories();
         const initialFocus = manager.focusedRepository?.rootUri.fsPath;
@@ -331,23 +321,15 @@ suite('JjRepositoryManager Integration Test', () => {
         // Create a symlink to the main repository
         const symlinkPath = `${mainRepo.path}-symlink`;
 
-        try {
-            fs.symlinkSync(mainRepo.path, symlinkPath, 'dir');
+        using _symlink = new ScopedSymlink(symlinkPath, mainRepo.path, 'dir');
 
-            await manager.scanForRepositories();
+        await manager.scanForRepositories();
 
-            // A file URI inside the symlink path should match the repository
-            const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
-            const matched = manager.getRepositoryForUri(symlinkFileUri);
-            assert.ok(matched, 'Should match repository through symbolic link path');
-            assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
-        } finally {
-            try {
-                fs.unlinkSync(symlinkPath);
-            } catch {
-                // Ignore
-            }
-        }
+        // A file URI inside the symlink path should match the repository
+        const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
+        const matched = manager.getRepositoryForUri(symlinkFileUri);
+        assert.ok(matched, 'Should match repository through symbolic link path');
+        assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
     });
 
     test('getRepositoryForUri matches files in nested symlinked directory layout (issue 348)', async () => {
@@ -359,55 +341,40 @@ suite('JjRepositoryManager Integration Test', () => {
         //     └── .jj -> mainRepo.path/.jj (symlink to directory)
 
         // Create a target directory inside the repository
-        const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(mainRepo.path, 'jj-view-nested-')));
+        using nestedDir = new ScopedTempDir(path.join(mainRepo.path, 'jj-view-nested-'));
+        const targetDir = nestedDir.path;
 
         const symlinkPath = path.join(mainRepo.path, 'bazel-core');
         const jjSymlinkPath = path.join(targetDir, '.jj');
 
-        try {
-            // Create symlink: bazel-core -> targetDir
-            fs.symlinkSync(targetDir, symlinkPath, 'dir');
+        // Create symlink: bazel-core -> targetDir
+        using _link1 = new ScopedSymlink(symlinkPath, targetDir, 'dir');
 
-            // Create symlink: targetDir/.jj -> mainRepo.path/.jj
-            fs.symlinkSync(path.join(mainRepo.path, '.jj'), jjSymlinkPath, 'dir');
+        // Create symlink: targetDir/.jj -> mainRepo.path/.jj
+        using _link2 = new ScopedSymlink(jjSymlinkPath, path.join(mainRepo.path, '.jj'), 'dir');
 
-            // Scan to discover repositories
-            await manager.scanForRepositories();
+        // Scan to discover repositories
+        await manager.scanForRepositories();
 
-            // Verify that we only have the main repository registered, not the nested one
-            assert.strictEqual(manager.repositories.length, 1);
-            assert.strictEqual(manager.repositories[0].rootUri.fsPath, mainRepo.path);
+        // Verify that we only have the main repository registered, not the nested one
+        assert.strictEqual(manager.repositories.length, 1);
+        assert.strictEqual(manager.repositories[0].rootUri.fsPath, mainRepo.path);
 
-            // A file URI inside the symlink path should match the repository
-            const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
-            const matched = manager.getRepositoryForUri(symlinkFileUri);
-            assert.ok(matched, 'Should match repository through nested symlink path');
-            assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
-        } finally {
-            try {
-                fs.unlinkSync(symlinkPath);
-            } catch {
-                // Ignore
-            }
-            try {
-                fs.unlinkSync(jjSymlinkPath);
-            } catch {
-                // Ignore
-            }
-            try {
-                fs.rmdirSync(targetDir);
-            } catch {
-                // Ignore
-            }
-        }
+        // A file URI inside the symlink path should match the repository
+        const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
+        const matched = manager.getRepositoryForUri(symlinkFileUri);
+        assert.ok(matched, 'Should match repository through nested symlink path');
+        assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
     });
 
     test('scan ignores repositories listed in ignoredRepositories config', async () => {
-        const otherRepo = new TestRepo();
-        extraRepos.push(otherRepo);
+        using otherRepo = new ScopedTestRepo();
         otherRepo.init();
 
-        await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(otherRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([
+            vscode.Uri.file(mainRepo.path),
+            vscode.Uri.file(otherRepo.path),
+        ]);
 
         // Stub configuration
         const getStub = sandbox.stub();
@@ -432,8 +399,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan registers repositories in scanRepositories config even if autoDetect is false', async () => {
         const otherRepoPath = path.join(mainRepo.path, 'other-project');
-        const otherRepo = new TestRepo(otherRepoPath);
-        extraRepos.push(otherRepo);
+        using otherRepo = new ScopedTestRepo(otherRepoPath);
         otherRepo.init();
 
         await setWorkspaceFolders([vscode.Uri.file(mainRepo.path)]);
@@ -487,13 +453,11 @@ suite('JjRepositoryManager Integration Test', () => {
         const sub1 = path.join(mainRepo.path, 'subproject1');
         const sub2 = path.join(mainRepo.path, 'nested', 'subproject2');
 
-        const sub1Repo = new TestRepo(sub1);
+        using sub1Repo = new ScopedTestRepo(sub1);
         sub1Repo.init();
-        extraRepos.push(sub1Repo);
 
-        const sub2Repo = new TestRepo(sub2);
+        using sub2Repo = new ScopedTestRepo(sub2);
         sub2Repo.init();
-        extraRepos.push(sub2Repo);
 
         await manager.scanForRepositories();
 
@@ -513,13 +477,11 @@ suite('JjRepositoryManager Integration Test', () => {
         const sub1 = path.join(mainRepo.path, 'subproject1');
         const sub2 = path.join(mainRepo.path, 'nested', 'subproject2');
 
-        const sub1Repo = new TestRepo(sub1);
+        using sub1Repo = new ScopedTestRepo(sub1);
         sub1Repo.init();
-        extraRepos.push(sub1Repo);
 
-        const sub2Repo = new TestRepo(sub2);
+        using sub2Repo = new ScopedTestRepo(sub2);
         sub2Repo.init();
-        extraRepos.push(sub2Repo);
 
         const getStub = sandbox.stub();
         getStub.withArgs('autoRepositoryDetection', true).returns('subFolders');
@@ -589,11 +551,10 @@ suite('JjRepositoryManager Integration Test', () => {
     });
 
     test('isPathInOrAncestorOfWorkspace rejects repositories in unrelated directories', async () => {
-        const tempParent = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-unrelated-'));
-        extraDirs.push(tempParent);
+        using tempParentDir = new ScopedTempDir(path.join(os.tmpdir(), 'jj-unrelated-'));
+        const tempParent = tempParentDir.path;
 
-        const unrelatedRepo = new TestRepo(tempParent);
-        extraRepos.push(unrelatedRepo);
+        using unrelatedRepo = new ScopedTestRepo(tempParent);
         unrelatedRepo.init();
 
         const registered = await manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(unrelatedRepo.path));

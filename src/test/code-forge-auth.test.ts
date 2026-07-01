@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { type AuthResult, CodeForgeAuthManager } from '../code-forge-auth';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -74,6 +74,10 @@ describe('CodeForgeAuthManager', () => {
         vi.mocked(vscode.commands.executeCommand).mockReset();
     });
 
+    afterEach(() => {
+        delete process.env.TEST_GITHUB_ENV_KEY;
+    });
+
     test('isAuthSkipped and setAuthSkipped persistent states', async () => {
         expect(authManager.isAuthSkipped('github')).toBe(false);
         await authManager.setAuthSkipped('github', true);
@@ -100,17 +104,13 @@ describe('CodeForgeAuthManager', () => {
 
     test('getSessionToken checks environment variables first', async () => {
         process.env.TEST_GITHUB_ENV_KEY = 'env-token-123';
-        try {
-            const token = await authManager.getSessionToken('github', {
-                scopes: ['repo'],
-                envTokenKey: 'TEST_GITHUB_ENV_KEY',
-                promptMessage: 'test',
-                prompt: false,
-            });
-            expect(token).toBe('env-token-123');
-        } finally {
-            delete process.env.TEST_GITHUB_ENV_KEY;
-        }
+        const token = await authManager.getSessionToken('github', {
+            scopes: ['repo'],
+            envTokenKey: 'TEST_GITHUB_ENV_KEY',
+            promptMessage: 'test',
+            prompt: false,
+        });
+        expect(token).toBe('env-token-123');
     });
 
     test('getSessionToken checks stored token in secrets', async () => {
