@@ -52,7 +52,6 @@ describe('Diff Tab Cleaner', () => {
 
     afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 

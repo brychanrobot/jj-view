@@ -30,7 +30,6 @@ describe('editCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

@@ -83,9 +83,7 @@ describe('promptForRevision', () => {
         vi.clearAllMocks();
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     it('returns selected revision from quick pick', async () => {
         const ids = await buildGraph(repo, [

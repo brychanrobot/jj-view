@@ -421,9 +421,7 @@ describe('Graph Layout Integration Tests (Real jj output)', () => {
         jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     /*
      * Linear History Layout

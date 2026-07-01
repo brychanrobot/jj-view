@@ -28,7 +28,6 @@ describe('newCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

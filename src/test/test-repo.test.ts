@@ -14,9 +14,7 @@ describe('TestRepo', () => {
         repo.init();
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     it('basic operations', () => {
         repo.writeFile('file.txt', 'hello');

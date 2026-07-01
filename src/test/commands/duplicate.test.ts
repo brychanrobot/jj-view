@@ -28,7 +28,6 @@ describe('duplicateCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

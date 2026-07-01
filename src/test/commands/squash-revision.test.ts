@@ -73,7 +73,6 @@ describe('squashRevisionIntoParentCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

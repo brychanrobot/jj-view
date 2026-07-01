@@ -42,7 +42,6 @@ test.describe('Divergent Commits E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 

@@ -53,25 +53,21 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // Verify groups
-            const mergeConflictsHeader = page.getByRole('treeitem', { name: 'Merge Conflicts' });
-            const workingCopyHeader = page.getByRole('treeitem', { name: /Working Copy/ });
+        // Verify groups
+        const mergeConflictsHeader = page.getByRole('treeitem', { name: 'Merge Conflicts' });
+        const workingCopyHeader = page.getByRole('treeitem', { name: /Working Copy/ });
 
-            await expect(mergeConflictsHeader).toBeVisible();
-            await expect(workingCopyHeader).toBeVisible();
+        await expect(mergeConflictsHeader).toBeVisible();
+        await expect(workingCopyHeader).toBeVisible();
 
-            // Verify ancestor groups (merge commit is empty, showing parents @-2^1 and @-2^2)
-            await expect(page.getByRole('treeitem', { name: /@-2\^1:.*side 1/ })).toBeVisible({ timeout: 5000 });
-            await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible();
+        // Verify ancestor groups (merge commit is empty, showing parents @-2^1 and @-2^2)
+        await expect(page.getByRole('treeitem', { name: /@-2\^1:.*side 1/ })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible();
 
-            // Verify SCM input is populated with working copy description
-            await expectScmDescription(page, 'my working copy');
-        } finally {
-            repo.dispose();
-        }
+        // Verify SCM input is populated with working copy description
+        await expectScmDescription(page, 'my working copy');
     });
 
     test('Top-Level Commands: Commit and New Change', async ({ vscode }) => {
@@ -85,44 +81,40 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
+        const scmInput = page.getByRole('treeitem', { name: 'Source Control Input' });
 
-            // Set Description and Commit with robust helper inside a single retry-safe block
+        // Set Description and Commit with robust helper inside a single retry-safe block
+        await expect(async () => {
+            await setScmDescription(page, 'Updated description explicitly', vscode);
+
+            // Commit using button inside the Source Control view title bar
+            const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
+            await commitButton.click();
+
             await expect(async () => {
-                await setScmDescription(page, 'Updated description explicitly', vscode);
+                expect(repo.log()).toContain('Updated description explicitly');
+            }).toPass({ timeout: 5000 });
+        }).toPass({ timeout: 15000 });
 
-                // Commit using button inside the Source Control view title bar
-                const commitButton = page.getByRole('button', { name: 'Commit (Ctrl+Enter)' }).first();
-                await commitButton.click();
+        // Ensure wait for SCM refresh before next action
+        await expect(scmInput).not.toContainText('Updated description explicitly', { timeout: 10000 });
 
-                await expect(async () => {
-                    expect(repo.log()).toContain('Updated description explicitly');
-                }).toPass({ timeout: 5000 });
-            }).toPass({ timeout: 15000 });
+        const prevWcId = repo.getWorkingCopyId();
 
-            // Ensure wait for SCM refresh before next action
-            await expect(scmInput).not.toContainText('Updated description explicitly', { timeout: 10000 });
+        // Click New Change (+)
+        const newButton = page.getByRole('button', { name: 'New', exact: true }).first();
+        await expect(newButton).toBeVisible();
+        await newButton.click();
 
-            const prevWcId = repo.getWorkingCopyId();
-
-            // Click New Change (+)
-            const newButton = page.getByRole('button', { name: 'New', exact: true }).first();
-            await expect(newButton).toBeVisible();
-            await newButton.click();
-
-            // Wait for UI to reflect empty input box and tree to update
-            await expectTree(repo, [
-                expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[${prevWcId}\\] \\(empty\\)$`)),
-                entry(prevWcId, '(empty)', initialId),
-                entry(initialId, 'Updated description explicitly', workspaceRootId),
-                entry(workspaceRootId, '(empty)', ROOT_ID),
-            ]);
-        } finally {
-            repo.dispose();
-        }
+        // Wait for UI to reflect empty input box and tree to update
+        await expectTree(repo, [
+            expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[${prevWcId}\\] \\(empty\\)$`)),
+            entry(prevWcId, '(empty)', initialId),
+            entry(initialId, 'Updated description explicitly', workspaceRootId),
+            entry(workspaceRootId, '(empty)', ROOT_ID),
+        ]);
     });
 
     test('Keyboard Shortcuts: Ctrl+S and Ctrl+Enter', async ({ vscode }) => {
@@ -135,36 +127,32 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
-            let scmInput: Locator | undefined;
+        await focusSCM(page);
+        let scmInput: Locator | undefined;
 
-            // Set Description and Save with Control+S
-            await expect(async () => {
-                scmInput = await setScmDescription(page, 'Using keyboard shortcuts', vscode);
-                await page.keyboard.press('Control+S');
+        // Set Description and Save with Control+S
+        await expect(async () => {
+            scmInput = await setScmDescription(page, 'Using keyboard shortcuts', vscode);
+            await page.keyboard.press('Control+S');
 
-                // Wait for input to be stable (picked up by the backend)
-                expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
-            }).toPass({ timeout: 15000 });
+            // Wait for input to be stable (picked up by the backend)
+            expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
+        }).toPass({ timeout: 15000 });
 
-            // Set Description and Commit with Control+Enter
-            await expect(async () => {
-                scmInput = await setScmDescription(page, 'Commit via keyboard', vscode);
-                await page.keyboard.press('Control+Enter');
+        // Set Description and Commit with Control+Enter
+        await expect(async () => {
+            scmInput = await setScmDescription(page, 'Commit via keyboard', vscode);
+            await page.keyboard.press('Control+Enter');
 
-                // Wait for it to be committed and appear in log
-                const log = repo.log();
-                expect(log).toContain('Commit via keyboard');
-            }).toPass({ timeout: 15000 });
+            // Wait for it to be committed and appear in log
+            const log = repo.log();
+            expect(log).toContain('Commit via keyboard');
+        }).toPass({ timeout: 15000 });
 
-            if (!scmInput) {
-                throw new Error('scmInput not initialized');
-            }
-            await expect(scmInput).not.toContainText('Commit via keyboard', { timeout: 10000 });
-        } finally {
-            repo.dispose();
+        if (!scmInput) {
+            throw new Error('scmInput not initialized');
         }
+        await expect(scmInput).not.toContainText('Commit via keyboard', { timeout: 10000 });
     });
 
     test('Format on Save for SCM Set Description and Commit', async ({ vscode }) => {
@@ -179,53 +167,49 @@ test.describe('SCM Pane E2E', () => {
             'jj-view.commit.formatDescriptionOnSave': true,
         });
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            const longBody =
-                'This is a very long body text that should be wrapped onto multiple lines when saved because it exceeds the limit of seventy-two characters.';
-            const messageToFormat = `Title line\n\n${longBody}`;
+        const longBody =
+            'This is a very long body text that should be wrapped onto multiple lines when saved because it exceeds the limit of seventy-two characters.';
+        const messageToFormat = `Title line\n\n${longBody}`;
 
-            // 1. Test Set Description (Ctrl+S)
-            // Use a toPass block for the entire operation to handle synchronization delays
-            // between the renderer and extension host.
-            await expect(async () => {
-                await setScmDescription(page, messageToFormat, vscode);
-                await page.keyboard.press('Control+S');
+        // 1. Test Set Description (Ctrl+S)
+        // Use a toPass block for the entire operation to handle synchronization delays
+        // between the renderer and extension host.
+        await expect(async () => {
+            await setScmDescription(page, messageToFormat, vscode);
+            await page.keyboard.press('Control+S');
 
-                const desc = repo.getDescription('@');
-                const expectedDesc =
-                    'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
-                expect(desc).toBe(expectedDesc);
-                expect(desc.split('\n').length).toBeGreaterThan(2);
+            const desc = repo.getDescription('@');
+            const expectedDesc =
+                'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
+            expect(desc).toBe(expectedDesc);
+            expect(desc.split('\n').length).toBeGreaterThan(2);
 
-                // Wait for the UI input box to reflect the formatted text
-                await expectScmDescription(page, expectedDesc);
-            }).toPass({ timeout: 20000 });
+            // Wait for the UI input box to reflect the formatted text
+            await expectScmDescription(page, expectedDesc);
+        }).toPass({ timeout: 20000 });
 
-            // 2. Test Commit (Ctrl+Enter)
-            const longBody2 =
-                'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
-            const messageToFormat2 = `Commit Title\n\n${longBody2}`;
+        // 2. Test Commit (Ctrl+Enter)
+        const longBody2 =
+            'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
+        const messageToFormat2 = `Commit Title\n\n${longBody2}`;
 
-            await expect(async () => {
-                const scmInput2 = await setScmDescription(page, messageToFormat2, vscode);
+        await expect(async () => {
+            const scmInput2 = await setScmDescription(page, messageToFormat2, vscode);
 
-                await page.keyboard.press('Control+Enter');
-                await expect(scmInput2).not.toContainText('Commit Title', { timeout: 5000 });
+            await page.keyboard.press('Control+Enter');
+            await expect(scmInput2).not.toContainText('Commit Title', { timeout: 5000 });
 
-                // Wait for it to be committed, formatted, and appear in log
-                const log = repo.log();
-                expect(log).toContain('Commit Title');
-                // Find latest commit description (working copy is parent of the new commit)
-                const desc = repo.getDescription('@-');
-                const expectedDesc = `Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.`;
-                expect(desc).toBe(expectedDesc);
-                expect(desc.split('\n').length).toBeGreaterThan(2);
-            }).toPass({ timeout: 20000 });
-        } finally {
-            repo.dispose();
-        }
+            // Wait for it to be committed, formatted, and appear in log
+            const log = repo.log();
+            expect(log).toContain('Commit Title');
+            // Find latest commit description (working copy is parent of the new commit)
+            const desc = repo.getDescription('@-');
+            const expectedDesc = `Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.`;
+            expect(desc).toBe(expectedDesc);
+            expect(desc.split('\n').length).toBeGreaterThan(2);
+        }).toPass({ timeout: 20000 });
     });
 
     test('Group-Level Actions: Abandon Working Copy and Squash Ancestor', async ({ vscode }) => {
@@ -252,40 +236,36 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Abandon Working Copy
-            await clickScmAction(page, /Working Copy/, SCM_ACTIONS.Abandon);
+        // 1. Abandon Working Copy
+        await clickScmAction(page, /Working Copy/, SCM_ACTIONS.Abandon);
 
-            // Assert via repo that wc change is abandoned. Poll until true.
-            await expect(async () => {
-                const isWcChangeStillPresent = repo.log().includes(commits.wc.changeId);
-                expect(isWcChangeStillPresent).toBe(false);
-            }).toPass({ timeout: 5000 });
+        // Assert via repo that wc change is abandoned. Poll until true.
+        await expect(async () => {
+            const isWcChangeStillPresent = repo.log().includes(commits.wc.changeId);
+            expect(isWcChangeStillPresent).toBe(false);
+        }).toPass({ timeout: 5000 });
 
-            // 2. Squash Ancestor into Initial
-            // ancestor change is @-2 now because middle is still there.
-            await clickScmAction(page, /ancestor change/, SCM_ACTIONS.SquashRevisionIntoParent);
+        // 2. Squash Ancestor into Initial
+        // ancestor change is @-2 now because middle is still there.
+        await clickScmAction(page, /ancestor change/, SCM_ACTIONS.SquashRevisionIntoParent);
 
-            // Assert via repo that the ancestor was squashed into its parent (initial). Poll until true.
-            await expect(async () => {
-                const logAfterSquash = repo.log();
-                // The ancestor's change ID should be gone
-                expect(logAfterSquash).not.toContain(commits.ancestor.changeId);
-                // The middle change should still be there
-                expect(logAfterSquash).toContain('middle change');
+        // Assert via repo that the ancestor was squashed into its parent (initial). Poll until true.
+        await expect(async () => {
+            const logAfterSquash = repo.log();
+            // The ancestor's change ID should be gone
+            expect(logAfterSquash).not.toContain(commits.ancestor.changeId);
+            // The middle change should still be there
+            expect(logAfterSquash).toContain('middle change');
 
-                // Verify files in initial (it should have its own files + ancestor's files)
-                const filesInInitial = repo.getFiles(commits.initial.changeId);
-                expect(filesInInitial).toContain('i.txt');
-                expect(filesInInitial).toContain('a.txt');
-                expect(filesInInitial).toContain('a2.txt');
-                expect(filesInInitial).toContain('base.txt'); // inherited from base
-            }).toPass({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+            // Verify files in initial (it should have its own files + ancestor's files)
+            const filesInInitial = repo.getFiles(commits.initial.changeId);
+            expect(filesInInitial).toContain('i.txt');
+            expect(filesInInitial).toContain('a.txt');
+            expect(filesInInitial).toContain('a2.txt');
+            expect(filesInInitial).toContain('base.txt'); // inherited from base
+        }).toPass({ timeout: 10000 });
     });
 
     test('Squash into Ancestor (Revision and Files)', async ({ vscode }) => {
@@ -306,41 +286,37 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Squash Revision into Ancestor
-            // We'll squash 'middle' into 'target'
-            await clickScmAction(page, /middle message/, SCM_ACTIONS.SquashRevisionIntoAncestor);
-            // Pick 'target' from quickpick. Since it has no description, it will show '(no description)'
-            await pickQuickPickItem(page, '(no description)');
+        // 1. Squash Revision into Ancestor
+        // We'll squash 'middle' into 'target'
+        await clickScmAction(page, /middle message/, SCM_ACTIONS.SquashRevisionIntoAncestor);
+        // Pick 'target' from quickpick. Since it has no description, it will show '(no description)'
+        await pickQuickPickItem(page, '(no description)');
 
-            await expect(async () => {
-                const log = repo.log();
-                expect(log).not.toContain(commits.middle.changeId);
-                const targetFiles = repo.getFiles(commits.target.changeId);
-                expect(targetFiles).toContain('t.txt');
-                expect(targetFiles).toContain('m.txt');
-            }).toPass({ timeout: 10000 });
+        await expect(async () => {
+            const log = repo.log();
+            expect(log).not.toContain(commits.middle.changeId);
+            const targetFiles = repo.getFiles(commits.target.changeId);
+            expect(targetFiles).toContain('t.txt');
+            expect(targetFiles).toContain('m.txt');
+        }).toPass({ timeout: 10000 });
 
-            // 2. Squash Files into Ancestor
-            // We'll squash s.txt from 'source' (WC) into 'base'
-            // Hover over s.txt row and click squash into ancestor
-            await clickScmAction(page, /s\.txt/, SCM_ACTIONS.SquashFilesIntoAncestor);
-            // Pick 'base' from quickpick.
-            await pickQuickPickItem(page, '(no description)');
+        // 2. Squash Files into Ancestor
+        // We'll squash s.txt from 'source' (WC) into 'base'
+        // Hover over s.txt row and click squash into ancestor
+        await clickScmAction(page, /s\.txt/, SCM_ACTIONS.SquashFilesIntoAncestor);
+        // Pick 'base' from quickpick.
+        await pickQuickPickItem(page, '(no description)');
 
-            await expect(async () => {
-                const baseFiles = repo.getFiles(commits.base.changeId);
-                expect(baseFiles).toContain('s.txt');
+        await expect(async () => {
+            const baseFiles = repo.getFiles(commits.base.changeId);
+            expect(baseFiles).toContain('s.txt');
 
-                // Verify s.txt is no longer modified in the working copy
-                const wcDiff = repo.getDiffSummary('@');
-                expect(wcDiff).not.toContain('s.txt');
-            }).toPass({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+            // Verify s.txt is no longer modified in the working copy
+            const wcDiff = repo.getDiffSummary('@');
+            expect(wcDiff).not.toContain('s.txt');
+        }).toPass({ timeout: 10000 });
     });
 
     test('File-Level Actions: Discard Changes and Diff Editing (Right Side)', async ({ vscode }) => {
@@ -363,123 +339,119 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
-            // Discard Changes (file3.txt)
-            const wcFile3Row = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
-            const discardIcon = wcFile3Row.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
-            await hoverAndClick(wcFile3Row, discardIcon);
+        await focusSCM(page);
+        // Discard Changes (file3.txt)
+        const wcFile3Row = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
+        const discardIcon = wcFile3Row.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
+        await hoverAndClick(wcFile3Row, discardIcon);
 
-            // Assert the file was restored by polling
-            await expect(async () => {
-                expect(repo.getFileContent('@', 'file3.txt').trim()).toBe('base3');
-            }).toPass({ timeout: 5000 });
+        // Assert the file was restored by polling
+        await expect(async () => {
+            expect(repo.getFileContent('@', 'file3.txt').trim()).toBe('base3');
+        }).toPass({ timeout: 5000 });
 
-            // File-Level Squash (file.txt)
-            // Hover over file.txt in Working Copy and click Squash
-            // file.txt and the group squash action share the same codicon-arrow-down icon
-            const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
-            const squashFileIcon = wcFileRow
-                .getByRole('button', { name: 'Squash File(s) into Parent', exact: true })
-                .first();
-            await hoverAndClick(wcFileRow, squashFileIcon);
+        // File-Level Squash (file.txt)
+        // Hover over file.txt in Working Copy and click Squash
+        // file.txt and the group squash action share the same codicon-arrow-down icon
+        const wcFileRow = page.getByRole('treeitem', { name: /file\.txt, modified/ });
+        const squashFileIcon = wcFileRow
+            .getByRole('button', { name: 'Squash File(s) into Parent', exact: true })
+            .first();
+        await hoverAndClick(wcFileRow, squashFileIcon);
 
-            // Assert via repo that file.txt changes were squashed into the parent commit
-            await expect(async () => {
-                const parentChanges = repo.getDiffSummary('@-');
-                expect(parentChanges).toContain('A file.txt');
-                const wcChanges = repo.getDiffSummary('@');
-                expect(wcChanges).not.toContain('A file.txt');
-            }).toPass({ timeout: 5000 });
+        // Assert via repo that file.txt changes were squashed into the parent commit
+        await expect(async () => {
+            const parentChanges = repo.getDiffSummary('@-');
+            expect(parentChanges).toContain('A file.txt');
+            const wcChanges = repo.getDiffSummary('@');
+            expect(wcChanges).not.toContain('A file.txt');
+        }).toPass({ timeout: 5000 });
 
-            // Open Single File Diff (file2.txt)
-            await openScmDiff(page, /file2\.txt/);
+        // Open Single File Diff (file2.txt)
+        await openScmDiff(page, /file2\.txt/);
 
-            // Edit the right side of the diff editor (the working copy)
-            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+        // Edit the right side of the diff editor (the working copy)
+        const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+        await rightEditor.click();
+
+        // Selecting all text and typing
+        // Use toPass to retry the entire typing sequence since Monaco can be finicky
+        await expect(async () => {
             await rightEditor.click();
+            await page.keyboard.press('Control+A');
+            await page.keyboard.press('Backspace');
+            await page.keyboard.insertText('edited from diff');
+            await expect(rightEditor).toContainText('edited from diff', { timeout: 1000 });
+        }).toPass({ timeout: 5000 });
 
-            // Selecting all text and typing
-            // Use toPass to retry the entire typing sequence since Monaco can be finicky
-            await expect(async () => {
-                await rightEditor.click();
-                await page.keyboard.press('Control+A');
-                await page.keyboard.press('Backspace');
-                await page.keyboard.insertText('edited from diff');
-                await expect(rightEditor).toContainText('edited from diff', { timeout: 1000 });
-            }).toPass({ timeout: 5000 });
+        // Save and ensure JJ picks it up.
+        // Ensure focus before save
+        await rightEditor.click();
+        await page.keyboard.press('Control+s');
 
-            // Save and ensure JJ picks it up.
-            // Ensure focus before save
-            await rightEditor.click();
-            await page.keyboard.press('Control+s');
+        // Verify file content on disk and in jj using toPass polling
+        await expect(async () => {
+            const diskContent = fs.readFileSync(path.join(repo.path, 'file2.txt'), 'utf8').trim();
+            expect(diskContent).toBe('edited from diff');
 
-            // Verify file content on disk and in jj using toPass polling
-            await expect(async () => {
-                const diskContent = fs.readFileSync(path.join(repo.path, 'file2.txt'), 'utf8').trim();
-                expect(diskContent).toBe('edited from diff');
+            const content = repo.getFileContent('@', 'file2.txt').trim();
+            expect(content).toBe('edited from diff');
+        }).toPass({ timeout: 10000, intervals: [50, 100, 250, 500] });
 
-                const content = repo.getFileContent('@', 'file2.txt').trim();
-                expect(content).toBe('edited from diff');
-            }).toPass({ timeout: 10000, intervals: [50, 100, 250, 500] });
+        // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
+        await focusSCM(page);
+        const scmInputSquash = await setScmDescription(page, 'commit wc', vscode);
+        await page.keyboard.press('Control+Enter');
+        await expect(scmInputSquash).not.toContainText('commit wc', { timeout: 10000 });
 
-            // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
-            await focusSCM(page);
-            const scmInputSquash = await setScmDescription(page, 'commit wc', vscode);
-            await page.keyboard.press('Control+Enter');
-            await expect(scmInputSquash).not.toContainText('commit wc', { timeout: 10000 });
+        await expect(async () => {
+            expect(repo.getParents('@').length).toBe(1);
+        }).toPass({ timeout: 5000 });
+        // Now we have initial -> wc_commit -> new_wc
+        // Modify file3.txt in the new working copy
+        repo.writeFile('file3.txt', 'new mod3');
 
-            await expect(async () => {
-                expect(repo.getParents('@').length).toBe(1);
-            }).toPass({ timeout: 5000 });
-            // Now we have initial -> wc_commit -> new_wc
-            // Modify file3.txt in the new working copy
-            repo.writeFile('file3.txt', 'new mod3');
+        // Click the SCM refresh button
+        const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
+        await refreshButton.click();
 
-            // Click the SCM refresh button
-            const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
-            await refreshButton.click();
+        // Wait for file3.txt to appear in SCM Working Copy
+        const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
+        await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
 
-            // Wait for file3.txt to appear in SCM Working Copy
-            const newWcFileRow = page.getByRole('treeitem', { name: /file3\.txt, modified/ }).first();
-            await expect(newWcFileRow).toBeVisible({ timeout: 5000 });
+        // Hover to reveal inline actions
+        await newWcFileRow.hover();
+        const squashIcon = newWcFileRow
+            .getByRole('button', { name: 'Squash File(s) into Parent', exact: true })
+            .first();
+        await expect(squashIcon).toBeVisible();
 
-            // Hover to reveal inline actions
-            await newWcFileRow.hover();
-            const squashIcon = newWcFileRow
-                .getByRole('button', { name: 'Squash File(s) into Parent', exact: true })
-                .first();
-            await expect(squashIcon).toBeVisible();
+        // The squashInto action should be visible since there are two mutable ancestors
+        const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash File\(s\) into Ancestor/ }).first();
+        await hoverAndClick(newWcFileRow, squashIntoIcon);
 
-            // The squashInto action should be visible since there are two mutable ancestors
-            const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash File\(s\) into Ancestor/ }).first();
-            await hoverAndClick(newWcFileRow, squashIntoIcon);
+        // SCM QuickPick should appear for Ancestor selection
+        const quickPickInput = page.getByRole('listbox');
+        await expect(quickPickInput).toBeVisible({ timeout: 5000 });
 
-            // SCM QuickPick should appear for Ancestor selection
-            const quickPickInput = page.getByRole('listbox');
-            await expect(quickPickInput).toBeVisible({ timeout: 5000 });
+        const ancestor2Option = page.getByRole('option', { name: /initial/i });
+        await ancestor2Option.click();
+        await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
 
-            const ancestor2Option = page.getByRole('option', { name: /initial/i });
-            await ancestor2Option.click();
-            await expect(quickPickInput).not.toBeVisible({ timeout: 5000 });
+        // Verify the squash happened by waiting for there to be only ONE file3.txt row (the ancestor one)
+        await expect(async () => {
+            const rows = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
+            const count = await rows.count();
+            expect(count).toBe(1);
+        }).toPass({ timeout: 10000 });
 
-            // Verify the squash happened by waiting for there to be only ONE file3.txt row (the ancestor one)
-            await expect(async () => {
-                const rows = page.getByRole('treeitem', { name: /file3\.txt, modified/ });
-                const count = await rows.count();
-                expect(count).toBe(1);
-            }).toPass({ timeout: 10000 });
+        await expect(async () => {
+            const wcChanges = repo.getDiffSummary('@');
+            expect(wcChanges).not.toContain('file3.txt');
 
-            await expect(async () => {
-                const wcChanges = repo.getDiffSummary('@');
-                expect(wcChanges).not.toContain('file3.txt');
-
-                // The ancestor should now have the change.
-                expect(repo.getFileContent('@--', 'file3.txt').trim()).toBe('new mod3');
-            }).toPass({ timeout: 5000 });
-        } finally {
-            repo.dispose();
-        }
+            // The ancestor should now have the change.
+            expect(repo.getFileContent('@--', 'file3.txt').trim()).toBe('new mod3');
+        }).toPass({ timeout: 5000 });
     });
 
     test('Additional Actions: Absorb, Edit, Show Details, Squash File to Child', async ({ vscode }) => {
@@ -505,52 +477,48 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Absorb
-            await clickScmAction(page, /Working Copy/, SCM_ACTIONS.Absorb);
+        // 1. Absorb
+        await clickScmAction(page, /Working Copy/, SCM_ACTIONS.Absorb);
 
-            // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
-            await expect(async () => {
-                expect(repo.getFileContent(commits.ancestor.changeId, 'f1.txt').trim()).toBe('2');
-            }).toPass({ timeout: 5000 });
+        // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
+        await expect(async () => {
+            expect(repo.getFileContent(commits.ancestor.changeId, 'f1.txt').trim()).toBe('2');
+        }).toPass({ timeout: 5000 });
 
-            // 2. Show Details
-            await expect(async () => {
-                await clickScmAction(page, /ancestor change/, SCM_ACTIONS.ShowDetails);
-                await waitForTab(page, /^Commit: /);
-            }).toPass({ timeout: 20000 });
+        // 2. Show Details
+        await expect(async () => {
+            await clickScmAction(page, /ancestor change/, SCM_ACTIONS.ShowDetails);
+            await waitForTab(page, /^Commit: /);
+        }).toPass({ timeout: 20000 });
 
-            // Return focus to SCM View
-            await focusSCM(page);
+        // Return focus to SCM View
+        await focusSCM(page);
 
-            // 3. Squash File to Child (Pull from Ancestor)
-            // Groups are expanded by default, so f2.txt is already visible.
-            await clickScmAction(page, /f2\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
+        // 3. Squash File to Child (Pull from Ancestor)
+        // Groups are expanded by default, so f2.txt is already visible.
+        await clickScmAction(page, /f2\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
 
-            // Assert via repo that f2.txt from ancestor was moved to working copy
-            // and the UI SCM tree has refreshed to reflect the new state.
-            await expect(async () => {
-                const wcChanges = repo.getDiffSummary('@');
-                expect(wcChanges).toContain('A f2.txt');
+        // Assert via repo that f2.txt from ancestor was moved to working copy
+        // and the UI SCM tree has refreshed to reflect the new state.
+        await expect(async () => {
+            const wcChanges = repo.getDiffSummary('@');
+            expect(wcChanges).toContain('A f2.txt');
 
-                // Also wait for the UI SCM tree to refresh.
-                // In SCM tree under Working Copy group, there should be f2.txt
-                await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
-            }).toPass({ timeout: 10000 });
+            // Also wait for the UI SCM tree to refresh.
+            // In SCM tree under Working Copy group, there should be f2.txt
+            await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
+        }).toPass({ timeout: 10000 });
 
-            // 4. Edit (Make ancestor the working copy)
-            await clickScmAction(page, /ancestor change/, SCM_ACTIONS.Edit);
+        // 4. Edit (Make ancestor the working copy)
+        await clickScmAction(page, /ancestor change/, SCM_ACTIONS.Edit);
 
-            // Assert via repo that the working copy is now the ancestor
-            await expect(async () => {
-                const changeId = repo.getWorkingCopyId();
-                expect(changeId).toBe(commits.ancestor.changeId);
-            }).toPass({ timeout: 15000 });
-        } finally {
-            repo.dispose();
-        }
+        // Assert via repo that the working copy is now the ancestor
+        await expect(async () => {
+            const changeId = repo.getWorkingCopyId();
+            expect(changeId).toBe(commits.ancestor.changeId);
+        }).toPass({ timeout: 15000 });
     });
 
     test('Multi-File Diff and Diff Editing', async ({ vscode }) => {
@@ -569,34 +537,30 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
-            // 1. Multi-File Diff
-            await clickScmAction(page, /ancestor change/, SCM_ACTIONS.MultiFileDiff);
+        await focusSCM(page);
+        // 1. Multi-File Diff
+        await clickScmAction(page, /ancestor change/, SCM_ACTIONS.MultiFileDiff);
 
-            // Wait for Multi-File Diff View to appear
-            await waitForTab(page, /ancestor change/);
+        // Wait for Multi-File Diff View to appear
+        await waitForTab(page, /ancestor change/);
 
-            // Wait for the diff editor inside the view
-            await page.waitForSelector('.monaco-diff-editor');
+        // Wait for the diff editor inside the view
+        await page.waitForSelector('.monaco-diff-editor');
 
-            // Find the editor for f1.txt's right side
-            const firstRightEditor = page.locator('.monaco-diff-editor .editor.modified').first();
-            await firstRightEditor.click();
+        // Find the editor for f1.txt's right side
+        const firstRightEditor = page.locator('.monaco-diff-editor .editor.modified').first();
+        await firstRightEditor.click();
 
-            // Navigate out of readonly and type new text
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText('edited from multi-diff');
-            await page.keyboard.press('Control+S');
+        // Navigate out of readonly and type new text
+        await page.keyboard.press('Control+A');
+        await page.keyboard.insertText('edited from multi-diff');
+        await page.keyboard.press('Control+S');
 
-            // Ensure the ancestor commit was mutated with the diff edits
-            await expect(async () => {
-                const f1Content = repo.getFileContent(commits.ancestor.changeId, 'f1.txt');
-                expect(f1Content.trim()).toBe('edited from multi-diff');
-            }).toPass({ timeout: 5000 });
-        } finally {
-            repo.dispose();
-        }
+        // Ensure the ancestor commit was mutated with the diff edits
+        await expect(async () => {
+            const f1Content = repo.getFileContent(commits.ancestor.changeId, 'f1.txt');
+            expect(f1Content.trim()).toBe('edited from multi-diff');
+        }).toPass({ timeout: 5000 });
     });
 
     test('File Watcher automatically updates SCM decorations', async ({ vscode }) => {
@@ -609,41 +573,37 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // Wait for initial load
-            const initialWcGroup = page.getByRole('treeitem', { name: /Working Copy/ });
-            await expect(initialWcGroup).toBeVisible();
+        // Wait for initial load
+        const initialWcGroup = page.getByRole('treeitem', { name: /Working Copy/ });
+        await expect(initialWcGroup).toBeVisible();
 
-            // The vscode fixture already awaits change detection watchers to be ready,
-            // so we don't need a long blind wait here.
+        // The vscode fixture already awaits change detection watchers to be ready,
+        // so we don't need a long blind wait here.
 
-            // 1. Modify tracked.txt via filesystem (File Watcher picks it up)
-            repo.writeFile('tracked.txt', 'modified');
+        // 1. Modify tracked.txt via filesystem (File Watcher picks it up)
+        repo.writeFile('tracked.txt', 'modified');
 
-            // 2. Wait for it to appear with "Modified" decoration
-            const trackedRow = page.getByRole('treeitem', { name: /tracked\.txt.*modified/i });
-            await expect(trackedRow).toBeVisible({ timeout: 15000 });
+        // 2. Wait for it to appear with "Modified" decoration
+        const trackedRow = page.getByRole('treeitem', { name: /tracked\.txt.*modified/i });
+        await expect(trackedRow).toBeVisible({ timeout: 15000 });
 
-            // 3. Create a completely untracked file and add it to .gitignore
-            repo.writeFile('.gitignore', 'totally-untracked.txt\n');
-            repo.writeFile('totally-untracked.txt', 'ignored content');
+        // 3. Create a completely untracked file and add it to .gitignore
+        repo.writeFile('.gitignore', 'totally-untracked.txt\n');
+        repo.writeFile('totally-untracked.txt', 'ignored content');
 
-            // 4. Focus the File Explorer pane to see the ignored decoration
-            await page.keyboard.press('Control+Shift+E');
+        // 4. Focus the File Explorer pane to see the ignored decoration
+        await page.keyboard.press('Control+Shift+E');
 
-            // 5. Wait for the File Explorer to show the ignored file decoration
-            // Force a refresh first because VS Code file watchers can sometimes miss fast external writes in tests
-            await page.keyboard.press('Control+Alt+E');
+        // 5. Wait for the File Explorer to show the ignored file decoration
+        // Force a refresh first because VS Code file watchers can sometimes miss fast external writes in tests
+        await page.keyboard.press('Control+Alt+E');
 
-            // VS Code's explorer treeitem has its own aria-label of the filename, but its child element contains the decoration
-            const treeItem = page.getByRole('treeitem', { name: 'totally-untracked.txt', exact: true });
-            const ignoredLabel = treeItem.locator('.monaco-icon-label[aria-label*="Ignored"]');
-            await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
-        } finally {
-            repo.dispose();
-        }
+        // VS Code's explorer treeitem has its own aria-label of the filename, but its child element contains the decoration
+        const treeItem = page.getByRole('treeitem', { name: 'totally-untracked.txt', exact: true });
+        const ignoredLabel = treeItem.locator('.monaco-icon-label[aria-label*="Ignored"]');
+        await expect(ignoredLabel).toBeVisible({ timeout: 15000 });
     });
 
     test('Squash File to Child on Grandparent Commits', async ({ vscode }) => {
@@ -674,25 +634,21 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 3. Squash File to Child (Pull from Ancestor)
-            await clickScmAction(page, /gp\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
+        // 3. Squash File to Child (Pull from Ancestor)
+        await clickScmAction(page, /gp\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
 
-            // Assert via repo that gp.txt from grandparent was moved to parent, NOT the working copy
-            await expect(async () => {
-                const parentChanges = repo.getDiffSummary('@-');
-                expect(parentChanges).toContain('A gp.txt');
-                expect(parentChanges).toContain('A p.txt');
+        // Assert via repo that gp.txt from grandparent was moved to parent, NOT the working copy
+        await expect(async () => {
+            const parentChanges = repo.getDiffSummary('@-');
+            expect(parentChanges).toContain('A gp.txt');
+            expect(parentChanges).toContain('A p.txt');
 
-                const wcChanges = repo.getDiffSummary('@');
-                expect(wcChanges).not.toContain('A gp.txt');
-                expect(wcChanges).toContain('A wc.txt');
-            }).toPass({ timeout: 5000 });
-        } finally {
-            repo.dispose();
-        }
+            const wcChanges = repo.getDiffSummary('@');
+            expect(wcChanges).not.toContain('A gp.txt');
+            expect(wcChanges).toContain('A wc.txt');
+        }).toPass({ timeout: 5000 });
     });
 
     test('File-Level Actions: Discard Changes on Ancestor Commits', async ({ vscode }) => {
@@ -720,23 +676,17 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            const ancestorFileRow = page.getByRole('treeitem', { name: /file_ancestor\.txt.*modified/i });
-            await expect(ancestorFileRow).toBeVisible();
+        const ancestorFileRow = page.getByRole('treeitem', { name: /file_ancestor\.txt.*modified/i });
+        await expect(ancestorFileRow).toBeVisible();
 
-            const discardIcon = ancestorFileRow
-                .locator('.action-item', { has: page.locator('.codicon-discard') })
-                .first();
-            await hoverAndClick(ancestorFileRow, discardIcon);
+        const discardIcon = ancestorFileRow.locator('.action-item', { has: page.locator('.codicon-discard') }).first();
+        await hoverAndClick(ancestorFileRow, discardIcon);
 
-            await expect(async () => {
-                expect(repo.getFileContent(commits.ancestor.changeId, 'file_ancestor.txt').trim()).toBe('base');
-            }).toPass({ timeout: 5000 });
-        } finally {
-            repo.dispose();
-        }
+        await expect(async () => {
+            expect(repo.getFileContent(commits.ancestor.changeId, 'file_ancestor.txt').trim()).toBe('base');
+        }).toPass({ timeout: 5000 });
     });
 
     test('File Click Behavior: openDiffOnClick = true (Default)', async ({ vscode }) => {
@@ -771,26 +721,22 @@ test.describe('SCM Pane E2E', () => {
             'jj-view.openDiffOnClick': true,
         });
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Click modified.txt -> should open diff editor
-            const modifiedRow = await openScmDiff(page, /modified\.txt/i);
+        // 1. Click modified.txt -> should open diff editor
+        const modifiedRow = await openScmDiff(page, /modified\.txt/i);
 
-            // 2. Click deleted.txt -> should open diff editor
-            await openScmDiff(page, /deleted\.txt/i);
+        // 2. Click deleted.txt -> should open diff editor
+        await openScmDiff(page, /deleted\.txt/i);
 
-            // 3. Click conflict.txt -> should open merge editor
-            await openScmMerge(page, /conflict\.txt/i);
+        // 3. Click conflict.txt -> should open merge editor
+        await openScmMerge(page, /conflict\.txt/i);
 
-            // 4. Open File via inline button -> should open regular editor
-            const openFileIcon = modifiedRow.getByRole('button', { name: 'Open File', exact: true }).first();
-            await hoverAndClick(modifiedRow, openFileIcon);
-            await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
-            await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
-        } finally {
-            repo.dispose();
-        }
+        // 4. Open File via inline button -> should open regular editor
+        const openFileIcon = modifiedRow.getByRole('button', { name: 'Open File', exact: true }).first();
+        await hoverAndClick(modifiedRow, openFileIcon);
+        await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
     });
 
     test('File Click Behavior: openDiffOnClick = false', async ({ vscode }) => {
@@ -825,26 +771,22 @@ test.describe('SCM Pane E2E', () => {
             'jj-view.openDiffOnClick': false,
         });
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Click modified.txt -> should open regular editor
-            const modifiedRow = await openScmFile(page, /modified\.txt/i);
-            await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
+        // 1. Click modified.txt -> should open regular editor
+        const modifiedRow = await openScmFile(page, /modified\.txt/i);
+        await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();
 
-            // 2. Click deleted.txt -> should still open diff editor
-            await openScmDiff(page, /deleted\.txt/i);
+        // 2. Click deleted.txt -> should still open diff editor
+        await openScmDiff(page, /deleted\.txt/i);
 
-            // 3. Click conflict.txt -> should open merge editor
-            await openScmMerge(page, /conflict\.txt/i);
+        // 3. Click conflict.txt -> should open merge editor
+        await openScmMerge(page, /conflict\.txt/i);
 
-            // 4. Open Changes via inline button (for modified file) -> should open diff editor
-            const openChangesIcon = modifiedRow.getByRole('button', { name: 'Open Changes', exact: true }).first();
-            await hoverAndClick(modifiedRow, openChangesIcon);
-            await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
-        } finally {
-            repo.dispose();
-        }
+        // 4. Open Changes via inline button (for modified file) -> should open diff editor
+        const openChangesIcon = modifiedRow.getByRole('button', { name: 'Open Changes', exact: true }).first();
+        await hoverAndClick(modifiedRow, openChangesIcon);
+        await expect(page.locator('.monaco-diff-editor')).toBeVisible({ timeout: 5000 });
     });
 
     test('Squash selection into parent via diff editor context menu', async ({ vscode }) => {
@@ -887,38 +829,34 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Open Diff Editor
-            await openScmDiff(page, fileName, /Working Copy/);
+        // 1. Open Diff Editor
+        await openScmDiff(page, fileName, /Working Copy/);
 
-            // 2. Select the FIRST modified line in the right side (line 2)
-            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
-            const line2 = await selectLine(page, rightEditor, 'line 2 modified');
+        // 2. Select the FIRST modified line in the right side (line 2)
+        const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+        const line2 = await selectLine(page, rightEditor, 'line 2 modified');
 
-            // 3. Open Context Menu on the selected line and click "Squash Selection into Parent"
-            await line2.click({ button: 'right' });
-            await clickContextMenuItem(page, /Squash Selection into Parent/i);
+        // 3. Open Context Menu on the selected line and click "Squash Selection into Parent"
+        await line2.click({ button: 'right' });
+        await clickContextMenuItem(page, /Squash Selection into Parent/i);
 
-            // 4. Verify the change is moved to the parent in JJ
-            await expect(async () => {
-                const parentContent = repo.getFileContent('@-', fileName);
-                const wcContent = repo.getFileContent('@', fileName);
-                const wcDiffSummary = repo.getDiffSummary('@');
+        // 4. Verify the change is moved to the parent in JJ
+        await expect(async () => {
+            const parentContent = repo.getFileContent('@-', fileName);
+            const wcContent = repo.getFileContent('@', fileName);
+            const wcDiffSummary = repo.getDiffSummary('@');
 
-                // Parent should have the first modification
-                expect(parentContent).toBe(fileContentPartiallyModified);
+            // Parent should have the first modification
+            expect(parentContent).toBe(fileContentPartiallyModified);
 
-                // Working copy should still have BOTH modifications (because it's the head)
-                expect(wcContent).toBe(fileContentFullyModified);
+            // Working copy should still have BOTH modifications (because it's the head)
+            expect(wcContent).toBe(fileContentFullyModified);
 
-                // other.txt should still be modified
-                expect(wcDiffSummary).toContain('other.txt');
-            }).toPass({ timeout: 15000 });
-        } finally {
-            repo.dispose();
-        }
+            // other.txt should still be modified
+            expect(wcDiffSummary).toContain('other.txt');
+        }).toPass({ timeout: 15000 });
     });
 
     test('Squash selection into parent via non-working copy diff editor context menu', async ({ vscode }) => {
@@ -955,41 +893,37 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Open Diff Editor for the 'child' commit
-            // The group name in SCM for 'child' will be its description 'child commit'
-            await openScmDiff(page, fileName, /child commit/);
+        // 1. Open Diff Editor for the 'child' commit
+        // The group name in SCM for 'child' will be its description 'child commit'
+        await openScmDiff(page, fileName, /child commit/);
 
-            // 2. Select the FIRST modified line in the right side (line 2)
-            // In a non-WC diff, the right side is the 'child' commit
-            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
-            const line2 = await selectLine(page, rightEditor, 'line 2 modified');
+        // 2. Select the FIRST modified line in the right side (line 2)
+        // In a non-WC diff, the right side is the 'child' commit
+        const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+        const line2 = await selectLine(page, rightEditor, 'line 2 modified');
 
-            // 3. Open Context Menu on the selected line and click "Squash Selection into Parent"
-            await line2.click({ button: 'right' });
-            await clickContextMenuItem(page, /Squash Selection into Parent/i);
+        // 3. Open Context Menu on the selected line and click "Squash Selection into Parent"
+        await line2.click({ button: 'right' });
+        await clickContextMenuItem(page, /Squash Selection into Parent/i);
 
-            // 4. Verify the change is moved to the parent in JJ
-            await expect(async () => {
-                const parentContent = repo.getFileContent(ids.parent.changeId, fileName);
-                const childContent = repo.getFileContent(ids.child.changeId, fileName);
+        // 4. Verify the change is moved to the parent in JJ
+        await expect(async () => {
+            const parentContent = repo.getFileContent(ids.parent.changeId, fileName);
+            const childContent = repo.getFileContent(ids.child.changeId, fileName);
 
-                // Parent should now have the squashed modification
-                expect(parentContent).toBe(fileContentPartiallyModified);
+            // Parent should now have the squashed modification
+            expect(parentContent).toBe(fileContentPartiallyModified);
 
-                // Child should still have its original content (but only line 4 is now "new" relative to parent)
-                expect(childContent).toBe(fileContentFullyModified);
+            // Child should still have its original content (but only line 4 is now "new" relative to parent)
+            expect(childContent).toBe(fileContentFullyModified);
 
-                // Check diff of child to be sure
-                const childDiff = repo.getDiff(ids.child.changeId, { git: true });
-                expect(childDiff).toContain('+line 4 modified');
-                expect(childDiff).not.toContain('+line 2 modified');
-            }).toPass({ timeout: 15000 });
-        } finally {
-            repo.dispose();
-        }
+            // Check diff of child to be sure
+            const childDiff = repo.getDiff(ids.child.changeId, { git: true });
+            expect(childDiff).toContain('+line 4 modified');
+            expect(childDiff).not.toContain('+line 2 modified');
+        }).toPass({ timeout: 15000 });
     });
 
     test('Closes diff editor automatically when the revision is squashed', async ({ vscode }) => {
@@ -1017,29 +951,25 @@ test.describe('SCM Pane E2E', () => {
 
         const { page } = await vscode.openWorkspace(repo);
 
-        try {
-            await focusSCM(page);
+        await focusSCM(page);
 
-            // 1. Open Diff Editor for the target commit
-            await openScmDiff(page, fileName, /target commit message/);
+        // 1. Open Diff Editor for the target commit
+        await openScmDiff(page, fileName, /target commit message/);
 
-            // 2. Verify tab is open
-            const tab = page.getByRole('tab', { name: fileName });
-            await expect(tab).toBeVisible();
+        // 2. Verify tab is open
+        const tab = page.getByRole('tab', { name: fileName });
+        await expect(tab).toBeVisible();
 
-            // 3. Squash target commit into parent using SCM action
-            await clickScmAction(page, /target commit message/, SCM_ACTIONS.SquashRevisionIntoParent);
+        // 3. Squash target commit into parent using SCM action
+        await clickScmAction(page, /target commit message/, SCM_ACTIONS.SquashRevisionIntoParent);
 
-            // 4. Verify that the tab gets closed automatically
-            await expect(tab).not.toBeVisible({ timeout: 15000 });
+        // 4. Verify that the tab gets closed automatically
+        await expect(tab).not.toBeVisible({ timeout: 15000 });
 
-            // 5. Verify target is actually squashed (changeId no longer exists) in jj
-            await expect(async () => {
-                const log = repo.log();
-                expect(log).not.toContain(commits.target.changeId);
-            }).toPass({ timeout: 10000 });
-        } finally {
-            repo.dispose();
-        }
+        // 5. Verify target is actually squashed (changeId no longer exists) in jj
+        await expect(async () => {
+            const log = repo.log();
+            expect(log).not.toContain(commits.target.changeId);
+        }).toPass({ timeout: 10000 });
     });
 });

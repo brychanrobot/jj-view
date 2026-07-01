@@ -37,9 +37,7 @@ describe('newAfterCommand', () => {
         } as unknown as JjScmProvider;
     });
 
-    afterEach(async () => {
-        repo.dispose();
-    });
+    afterEach(async () => {});
 
     it('should create a new commit after the selected commit (between commit and its children)', async () => {
         // Setup repo: root -> A -> B

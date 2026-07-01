@@ -16,9 +16,7 @@ describe('JjService Subdirectory Mapping', () => {
         repo.init();
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     test('getRepoRoot returns the true repo root from a subdirectory', async () => {
         const workspacePath = path.join(repo.path, 'subdirectory');

@@ -103,10 +103,7 @@ describe('CodeForgeService Tests', () => {
         jjService2 = new JjService(repo2.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {
-        repo1.dispose();
-        repo2.dispose();
-    });
+    afterEach(() => {});
 
     test('Each service gets a distinct provider instance with isolated cache', async () => {
         let provider1: MockProvider | undefined;

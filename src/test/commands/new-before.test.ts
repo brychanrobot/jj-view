@@ -37,9 +37,7 @@ describe('newBeforeCommand', () => {
         } as unknown as JjScmProvider;
     });
 
-    afterEach(async () => {
-        repo.dispose();
-    });
+    afterEach(async () => {});
 
     it('should create a new commit before the selected commit', async () => {
         // Setup repo: root -> A -> B

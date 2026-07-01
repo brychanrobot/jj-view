@@ -59,7 +59,6 @@ describe('uploadCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 
@@ -80,28 +79,25 @@ describe('uploadCommand', () => {
         ]);
 
         const remoteRepo = await setupRemote();
-        try {
-            // Push first to make it tracked
-            repo.gitPush('feature-x');
-            repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            // Setup config to return 'git push' ONLY when queried for 'uploadCommand'
-            mockConfig.get.mockImplementation((key: string) => {
-                if (key === 'uploadCommand') {
-                    return 'git push';
-                }
-                return undefined;
-            });
+        // Push first to make it tracked
+        repo.gitPush('feature-x');
+        repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+        // Setup config to return 'git push' ONLY when queried for 'uploadCommand'
+        mockConfig.get.mockImplementation((key: string) => {
+            if (key === 'uploadCommand') {
+                return 'git push';
+            }
+            return undefined;
+        });
 
-            // Verify that the push succeeded and remote repository now has the ref
-            expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
-            expect(scmProvider.refresh).toHaveBeenCalled();
-            expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
-        } finally {
-            remoteRepo.dispose();
-        }
+        await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+
+        // Verify that the push succeeded and remote repository now has the ref
+        expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
+        expect(scmProvider.refresh).toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     test('falls back to default when custom command is empty', async () => {
@@ -117,22 +113,19 @@ describe('uploadCommand', () => {
         ]);
 
         const remoteRepo = await setupRemote();
-        try {
-            // Push first to make it tracked
-            repo.gitPush('feature-x');
-            repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            mockConfig.get.mockReturnValue(undefined);
+        // Push first to make it tracked
+        repo.gitPush('feature-x');
+        repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+        mockConfig.get.mockReturnValue(undefined);
 
-            // Verify that the default push succeeded
-            expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
-            expect(scmProvider.refresh).toHaveBeenCalled();
-            expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
-        } finally {
-            remoteRepo.dispose();
-        }
+        await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+
+        // Verify that the default push succeeded
+        expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
+        expect(scmProvider.refresh).toHaveBeenCalled();
+        expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
     test('extracts revision from object payload (repro for r.substring error)', async () => {
@@ -148,26 +141,17 @@ describe('uploadCommand', () => {
         ]);
 
         const remoteRepo = await setupRemote();
-        try {
-            // Push first to make it tracked
-            repo.gitPush('feature-x');
-            repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            mockConfig.get.mockReturnValue(undefined);
+        // Push first to make it tracked
+        repo.gitPush('feature-x');
+        repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-            // This simulates the webview payload: { changeId: 'feature-x' }
-            await uploadCommand(
-                scmProvider,
-                jjService,
-                codeForgeService,
-                [{ changeId: 'feature-x' }],
-                mockOutputChannel,
-            );
+        mockConfig.get.mockReturnValue(undefined);
 
-            expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
-        } finally {
-            remoteRepo.dispose();
-        }
+        // This simulates the webview payload: { changeId: 'feature-x' }
+        await uploadCommand(scmProvider, jjService, codeForgeService, [{ changeId: 'feature-x' }], mockOutputChannel);
+
+        expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
     });
 
     test('suggests configuration when upload fails and no custom command set', async () => {
@@ -263,83 +247,65 @@ describe('uploadCommand', () => {
         ]);
 
         const remoteRepo = await setupRemote();
-        try {
-            mockConfig.get.mockReturnValue(undefined);
 
-            const mockAuthManager = createMock<CodeForgeAuthManager>({
-                registerProvider: vi.fn(),
-            });
-            const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
-            const githubCodeForgeService = createMock<CodeForgeService>({
-                isEnabled: true,
-                requestRefreshWithBackoffs: vi.fn(),
-                activeProvider: githubProvider,
-            });
+        mockConfig.get.mockReturnValue(undefined);
 
-            // Capture output channel logs
-            const loggedLines: string[] = [];
-            mockOutputChannel.appendLine = vi.fn().mockImplementation((line: string) => {
-                loggedLines.push(line);
-            });
+        const mockAuthManager = createMock<CodeForgeAuthManager>({
+            registerProvider: vi.fn(),
+        });
+        const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
+        const githubCodeForgeService = createMock<CodeForgeService>({
+            isEnabled: true,
+            requestRefreshWithBackoffs: vi.fn(),
+            activeProvider: githubProvider,
+        });
 
-            await uploadCommand(
-                scmProvider,
-                jjService,
-                githubCodeForgeService,
-                [ids.commitA.changeId],
-                mockOutputChannel,
-            );
+        // Capture output channel logs
+        const loggedLines: string[] = [];
+        mockOutputChannel.appendLine = vi.fn().mockImplementation((line: string) => {
+            loggedLines.push(line);
+        });
 
-            // Since there was no local bookmark on commitA, the github provider's getUploadCommand should have returned git push -c <revision>
-            // This should create a new bookmark starting with "push-" in the repo and push it to remote.
-            const pushRefs = remoteRepo.listGitRefs('refs/heads/push-');
-            expect(pushRefs.length).toBe(1);
-        } finally {
-            remoteRepo.dispose();
-        }
+        await uploadCommand(scmProvider, jjService, githubCodeForgeService, [ids.commitA.changeId], mockOutputChannel);
+
+        // Since there was no local bookmark on commitA, the github provider's getUploadCommand should have returned git push -c <revision>
+        // This should create a new bookmark starting with "push-" in the repo and push it to remote.
+        const pushRefs = remoteRepo.listGitRefs('refs/heads/push-');
+        expect(pushRefs.length).toBe(1);
     });
 
     test('GitHub provider: uses -r if revision has local bookmark', async () => {
         const remoteRepo = await setupRemote();
-        try {
-            repo.describe('root commit');
-            await buildGraph(repo, [
-                {
-                    label: 'commitA',
-                    description: 'test github push with bookmark',
-                    bookmarks: ['my-feature-branch'],
-                    isCurrentWorkingCopy: true,
-                },
-            ]);
 
-            mockConfig.get.mockReturnValue(undefined);
+        repo.describe('root commit');
+        await buildGraph(repo, [
+            {
+                label: 'commitA',
+                description: 'test github push with bookmark',
+                bookmarks: ['my-feature-branch'],
+                isCurrentWorkingCopy: true,
+            },
+        ]);
 
-            const mockAuthManager = createMock<CodeForgeAuthManager>({
-                registerProvider: vi.fn(),
-            });
-            const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
-            const githubCodeForgeService = createMock<CodeForgeService>({
-                isEnabled: true,
-                requestRefreshWithBackoffs: vi.fn(),
-                activeProvider: githubProvider,
-            });
+        mockConfig.get.mockReturnValue(undefined);
 
-            await uploadCommand(
-                scmProvider,
-                jjService,
-                githubCodeForgeService,
-                ['my-feature-branch'],
-                mockOutputChannel,
-            );
+        const mockAuthManager = createMock<CodeForgeAuthManager>({
+            registerProvider: vi.fn(),
+        });
+        const githubProvider = new GitHubProvider(mockAuthManager, mockOutputChannel);
+        const githubCodeForgeService = createMock<CodeForgeService>({
+            isEnabled: true,
+            requestRefreshWithBackoffs: vi.fn(),
+            activeProvider: githubProvider,
+        });
 
-            // Since there was a local bookmark, it should use -r, pushing my-feature-branch.
-            expect(remoteRepo.hasGitRef('refs/heads/my-feature-branch')).toBe(true);
+        await uploadCommand(scmProvider, jjService, githubCodeForgeService, ['my-feature-branch'], mockOutputChannel);
 
-            // Also check that no "push-" bookmark was created
-            const pushRefs = remoteRepo.listGitRefs('refs/heads/push-');
-            expect(pushRefs.length).toBe(0);
-        } finally {
-            remoteRepo.dispose();
-        }
+        // Since there was a local bookmark, it should use -r, pushing my-feature-branch.
+        expect(remoteRepo.hasGitRef('refs/heads/my-feature-branch')).toBe(true);
+
+        // Also check that no "push-" bookmark was created
+        const pushRefs = remoteRepo.listGitRefs('refs/heads/push-');
+        expect(pushRefs.length).toBe(0);
     });
 });

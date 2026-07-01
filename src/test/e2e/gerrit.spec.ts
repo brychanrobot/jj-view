@@ -66,52 +66,48 @@ test.describe('Gerrit Integration E2E', () => {
             'jj-view.uploadCommand': 'describe -m uploaded_successfully',
         });
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // Verify rows show Gerrit status
+        // Verify rows show Gerrit status
 
-            // Explicit Change-Id
-            const row1 = await waitForLogCommitRow(page, 'Explicit Change-Id');
-            await expectBadgeLink(
-                row1,
-                `CL/${clNumbers['explicit-change-id']}`,
-                `${gerrit.url}/c/${clNumbers['explicit-change-id']}`,
-            );
+        // Explicit Change-Id
+        const row1 = await waitForLogCommitRow(page, 'Explicit Change-Id');
+        await expectBadgeLink(
+            row1,
+            `CL/${clNumbers['explicit-change-id']}`,
+            `${gerrit.url}/c/${clNumbers['explicit-change-id']}`,
+        );
 
-            // Fallback (has parent mismatch)
-            const rowFallback = await waitForLogCommitRow(page, 'Fallback Only');
-            await expectBadgeLink(
-                rowFallback,
-                `CL/${clNumbers['fallback-only']}`,
-                `${gerrit.url}/c/${clNumbers['fallback-only']}`,
-            );
+        // Fallback (has parent mismatch)
+        const rowFallback = await waitForLogCommitRow(page, 'Fallback Only');
+        await expectBadgeLink(
+            rowFallback,
+            `CL/${clNumbers['fallback-only']}`,
+            `${gerrit.url}/c/${clNumbers['fallback-only']}`,
+        );
 
-            const uploadButton = rowFallback.getByRole('button', { name: 'Upload changes to Gerrit' });
-            await expect(uploadButton).toBeVisible();
+        const uploadButton = rowFallback.getByRole('button', { name: 'Upload changes to Gerrit' });
+        await expect(uploadButton).toBeVisible();
 
-            // Link Only
-            const rowLink = await waitForLogCommitRow(page, 'Link Only');
-            await expectBadgeLink(rowLink, `CL/${clNumbers['link-only']}`, `${gerrit.url}/c/${clNumbers['link-only']}`);
+        // Link Only
+        const rowLink = await waitForLogCommitRow(page, 'Link Only');
+        await expectBadgeLink(rowLink, `CL/${clNumbers['link-only']}`, `${gerrit.url}/c/${clNumbers['link-only']}`);
 
-            // Mixed
-            const rowMixed = await waitForLogCommitRow(page, 'Mixed trailers');
-            await expectBadgeLink(
-                rowMixed,
-                `CL/${clNumbers['mixed-trailers']}`,
-                `${gerrit.url}/c/${clNumbers['mixed-trailers']}`,
-            );
+        // Mixed
+        const rowMixed = await waitForLogCommitRow(page, 'Mixed trailers');
+        await expectBadgeLink(
+            rowMixed,
+            `CL/${clNumbers['mixed-trailers']}`,
+            `${gerrit.url}/c/${clNumbers['mixed-trailers']}`,
+        );
 
-            // Test upload command
-            await uploadButton.click();
-            const fallbackId = commits['fallback-only'].changeId;
-            await expect(async () => {
-                const desc = repo.getDescription(fallbackId);
-                expect(desc).toContain('uploaded_successfully');
-            }).toPass({ timeout: 15000 });
-        } finally {
-            repo.dispose();
-        }
+        // Test upload command
+        await uploadButton.click();
+        const fallbackId = commits['fallback-only'].changeId;
+        await expect(async () => {
+            const desc = repo.getDescription(fallbackId);
+            expect(desc).toContain('uploaded_successfully');
+        }).toPass({ timeout: 15000 });
     });
 
     test("Detects 'Needs Upload' after rebase (rebase hole)", async ({ vscode }) => {
@@ -141,16 +137,12 @@ test.describe('Gerrit Integration E2E', () => {
             'jj-view.gerrit.host': gerrit.url,
         });
 
-        try {
-            await focusJJLog(page);
+        await focusJJLog(page);
 
-            // Row for Child should show upload button because parent mismatch
-            // (locally points to base, Gerrit expects 'sha-1000' which is the old parent)
-            const rowChild = await waitForLogCommitRow(page, 'Child');
-            const uploadButton = rowChild.getByRole('button', { name: 'Upload changes to Gerrit' });
-            await expect(uploadButton).toBeVisible({ timeout: 20000 });
-        } finally {
-            repo.dispose();
-        }
+        // Row for Child should show upload button because parent mismatch
+        // (locally points to base, Gerrit expects 'sha-1000' which is the old parent)
+        const rowChild = await waitForLogCommitRow(page, 'Child');
+        const uploadButton = rowChild.getByRole('button', { name: 'Upload changes to Gerrit' });
+        await expect(uploadButton).toBeVisible({ timeout: 20000 });
     });
 });

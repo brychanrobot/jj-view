@@ -31,7 +31,6 @@ test.describe('E2E Utilities', () => {
             console.log('----------------------------------------');
             throw err;
         } finally {
-            repo.dispose();
         }
     });
 
@@ -61,7 +60,6 @@ test.describe('E2E Utilities', () => {
             console.log('----------------------------------------');
             throw err;
         } finally {
-            repo.dispose();
         }
     });
 
@@ -84,7 +82,6 @@ test.describe('E2E Utilities', () => {
             console.log('----------------------------------------');
             throw err;
         } finally {
-            repo.dispose();
         }
     });
 });

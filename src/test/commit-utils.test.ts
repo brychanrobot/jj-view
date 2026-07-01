@@ -19,9 +19,7 @@ describe('computeCommitActions', () => {
         jj = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     async function getCommit(revision: string): Promise<JjLogEntry> {
         const log = await jj.getLog({ revision });

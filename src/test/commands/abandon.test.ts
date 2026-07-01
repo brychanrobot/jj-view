@@ -34,7 +34,6 @@ describe('abandonCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

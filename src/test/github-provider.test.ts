@@ -314,19 +314,16 @@ describe('GitHubProvider', () => {
         }
 
         const testRepo = new TestRepo();
-        try {
-            testRepo.init();
-            const jj = new JjService(testRepo.path, {
-                info: () => {},
-                warn: () => {},
-                error: () => {},
-                debug: () => {},
-            });
-            const result = await provider.fetchStatuses(changes, jj);
-            expect(result).toBe(true);
-        } finally {
-            testRepo.dispose();
-        }
+
+        testRepo.init();
+        const jj = new JjService(testRepo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
+        const result = await provider.fetchStatuses(changes, jj);
+        expect(result).toBe(true);
 
         expect(fetchBatchSpy).toHaveBeenCalledTimes(3);
         expect(fetchBatchSpy.mock.calls[0][0].length).toBe(20);
@@ -367,19 +364,16 @@ describe('GitHubProvider', () => {
         ];
 
         const testRepo = new TestRepo();
-        try {
-            testRepo.init();
-            const jj = new JjService(testRepo.path, {
-                info: () => {},
-                warn: () => {},
-                error: () => {},
-                debug: () => {},
-            });
-            const result = await provider.fetchStatuses(changes, jj);
-            expect(result).toBe(false); // No cache changes were registered
-        } finally {
-            testRepo.dispose();
-        }
+
+        testRepo.init();
+        const jj = new JjService(testRepo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
+        const result = await provider.fetchStatuses(changes, jj);
+        expect(result).toBe(false); // No cache changes were registered
 
         // Verify cache was preserved (not deleted)
         expect(cache.get('bm-1')).toBeDefined();
@@ -582,18 +576,15 @@ describe('GitHubProvider', () => {
 
         const changes: ChangeStatusRequest[] = [{ commitId: 'sha-local-differs', bookmarks: ['my-feature-merged'] }];
         const testRepo = new TestRepo();
-        try {
-            testRepo.init();
-            const jj = new JjService(testRepo.path, {
-                info: () => {},
-                warn: () => {},
-                error: () => {},
-                debug: () => {},
-            });
-            await provider.fetchStatuses(changes, jj);
-        } finally {
-            testRepo.dispose();
-        }
+
+        testRepo.init();
+        const jj = new JjService(testRepo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
+        await provider.fetchStatuses(changes, jj);
 
         // my-feature-merged SHOULD be cached even though local commit ID doesn't match
         expect(cache.get('my-feature-merged')).toBeDefined();

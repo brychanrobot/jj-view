@@ -111,7 +111,6 @@ describe('discardChangeCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

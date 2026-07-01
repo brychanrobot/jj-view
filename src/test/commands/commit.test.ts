@@ -37,7 +37,6 @@ describe('commitCommand', () => {
     });
 
     afterEach(() => {
-        repo.dispose();
         vi.clearAllMocks();
     });
 

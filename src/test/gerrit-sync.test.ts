@@ -76,7 +76,6 @@ describe('Gerrit Sync Verification', () => {
     afterEach(async () => {
         service?.dispose();
         await fakeGerritServer?.stop();
-        repo.dispose();
         vi.clearAllMocks();
     });
 

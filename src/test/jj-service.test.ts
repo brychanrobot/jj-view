@@ -21,9 +21,7 @@ describe('JjService Unit Tests', () => {
         jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {
-        repo.dispose();
-    });
+    afterEach(() => {});
 
     test('getLog returns valid log entry', async () => {
         const [log] = await jjService.getLog({ revision: '@' });
@@ -1477,75 +1475,69 @@ log = "none()"
         // Setup a remote repo and push a bookmark to it to simulate a remote bookmark
         const remoteRepo = new TestRepo();
         remoteRepo.init();
-        try {
-            repo.addRemote('origin', remoteRepo.path);
-            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
-            // Push feature-a to remote
-            repo.gitPush('feature-a');
+        repo.addRemote('origin', remoteRepo.path);
+        repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
-            // Move feature-a locally so it points to a different commit than the remote
-            repo.bookmarkMove('feature-a', ids.commitB.changeId);
+        // Push feature-a to remote
+        repo.gitPush('feature-a');
 
-            // After move, feature-a@origin points to the parent, while local feature-a points to the child.
-            // Since their targets differ, feature-a@origin will be returned by getBookmarks().
-            const bookmarks = await jjService.getBookmarks();
+        // Move feature-a locally so it points to a different commit than the remote
+        repo.bookmarkMove('feature-a', ids.commitB.changeId);
 
-            expect(bookmarks).toEqual([
-                { name: 'feature-a', remote: null },
-                { name: 'feature-a', remote: 'origin' },
-                { name: 'feature-b', remote: null },
-            ]);
-        } finally {
-            remoteRepo.dispose();
-        }
+        // After move, feature-a@origin points to the parent, while local feature-a points to the child.
+        // Since their targets differ, feature-a@origin will be returned by getBookmarks().
+        const bookmarks = await jjService.getBookmarks();
+
+        expect(bookmarks).toEqual([
+            { name: 'feature-a', remote: null },
+            { name: 'feature-a', remote: 'origin' },
+            { name: 'feature-b', remote: null },
+        ]);
     });
 
     test('getBookmarks with revision filters bookmarks by revision', async () => {
         const remoteRepo = new TestRepo();
         remoteRepo.init();
-        try {
-            repo.addRemote('origin', remoteRepo.path);
-            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
-            repo.describe('root commit');
-            const ids = await buildGraph(repo, [
-                { label: 'commitA', description: 'commit A', bookmarks: ['feature-b'] },
-                { label: 'commitB', parents: ['commitA'], description: 'commit B', bookmarks: ['feature-c'] },
-                { label: 'commitC', parents: ['commitB'], description: 'commit C', bookmarks: ['feature-a'] },
-                { label: 'commitD', parents: ['commitC'], description: 'commit D', isCurrentWorkingCopy: true },
-            ]);
+        repo.addRemote('origin', remoteRepo.path);
+        repo.config('remotes.origin.auto-track-bookmarks', '"*"');
 
-            // Push feature-b (which is at commitA) to remote
-            repo.gitPush('feature-b');
+        repo.describe('root commit');
+        const ids = await buildGraph(repo, [
+            { label: 'commitA', description: 'commit A', bookmarks: ['feature-b'] },
+            { label: 'commitB', parents: ['commitA'], description: 'commit B', bookmarks: ['feature-c'] },
+            { label: 'commitC', parents: ['commitB'], description: 'commit C', bookmarks: ['feature-a'] },
+            { label: 'commitD', parents: ['commitC'], description: 'commit D', isCurrentWorkingCopy: true },
+        ]);
 
-            // Move feature-b locally to commit B
-            repo.bookmarkMove('feature-b', ids.commitB.changeId);
+        // Push feature-b (which is at commitA) to remote
+        repo.gitPush('feature-b');
 
-            // Push feature-a (which is at commitC) to remote
-            repo.gitPush('feature-a');
+        // Move feature-b locally to commit B
+        repo.bookmarkMove('feature-b', ids.commitB.changeId);
 
-            // Move feature-a locally to commit D
-            repo.bookmarkMove('feature-a', ids.commitD.changeId);
+        // Push feature-a (which is at commitC) to remote
+        repo.gitPush('feature-a');
 
-            // Query bookmarks on Commit B (@--)
-            const parentBookmarks = await jjService.getBookmarks({ revision: '@--' });
-            expect(parentBookmarks).toEqual([
-                { name: 'feature-b', remote: null },
-                { name: 'feature-b', remote: 'origin' },
-                { name: 'feature-c', remote: null },
-                { name: 'feature-c', remote: 'origin' },
-            ]);
+        // Move feature-a locally to commit D
+        repo.bookmarkMove('feature-a', ids.commitD.changeId);
 
-            // Query bookmarks on Commit D (@)
-            const childBookmarks = await jjService.getBookmarks({ revision: '@' });
-            expect(childBookmarks).toEqual([
-                { name: 'feature-a', remote: null },
-                { name: 'feature-a', remote: 'origin' },
-            ]);
-        } finally {
-            remoteRepo.dispose();
-        }
+        // Query bookmarks on Commit B (@--)
+        const parentBookmarks = await jjService.getBookmarks({ revision: '@--' });
+        expect(parentBookmarks).toEqual([
+            { name: 'feature-b', remote: null },
+            { name: 'feature-b', remote: 'origin' },
+            { name: 'feature-c', remote: null },
+            { name: 'feature-c', remote: 'origin' },
+        ]);
+
+        // Query bookmarks on Commit D (@)
+        const childBookmarks = await jjService.getBookmarks({ revision: '@' });
+        expect(childBookmarks).toEqual([
+            { name: 'feature-a', remote: null },
+            { name: 'feature-a', remote: 'origin' },
+        ]);
     });
 
     describe('checkTrackedPaths', () => {

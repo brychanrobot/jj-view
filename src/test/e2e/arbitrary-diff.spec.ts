@@ -68,7 +68,6 @@ test.describe('Arbitrary Diff E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 

@@ -27,7 +27,6 @@ test.describe('Squash E2E', () => {
 
     test.afterEach(async () => {
         if (repo) {
-            repo.dispose();
         }
     });
 

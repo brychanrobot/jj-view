@@ -26,7 +26,6 @@ describe('Index Lock Error Handling', () => {
     afterEach(() => {
         vi.clearAllMocks();
         if (repo) {
-            repo.dispose();
         }
     });
 
@@ -105,7 +104,6 @@ describe('Index Lock Error Handling', () => {
 
         afterEach(() => {
             if (testRepo) {
-                testRepo.dispose();
             }
         });
 
@@ -156,11 +154,7 @@ describe('Index Lock Error Handling', () => {
             const showErrorMessage = vscode.window.showErrorMessage as Mock;
             showErrorMessage.mockResolvedValueOnce(undefined);
 
-            try {
-                await showJjError(error, 'Prefix', emptyJjService, mockOutputChannel, []);
-            } finally {
-                emptyDirRepo.dispose();
-            }
+            await showJjError(error, 'Prefix', emptyJjService, mockOutputChannel, []);
 
             expect(showErrorMessage).toHaveBeenCalledWith(
                 'Prefix: Could not acquire lock for index file', // Original simple message
