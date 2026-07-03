@@ -464,6 +464,18 @@
                 "icon": "$(trash)"
             },
             {
+                "command": "jj-view.workspaceOpenInCurrentWindow",
+                "title": "Open in Current Window",
+                "category": "JJ View",
+                "icon": "$(window)"
+            },
+            {
+                "command": "jj-view.workspaceOpenInNewWindow",
+                "title": "Open in New Window",
+                "category": "JJ View",
+                "icon": "$(empty-window)"
+            },
+            {
                 "command": "jj-view.hideCommitAction.newChild",
                 "title": "Hide 'New Child'",
                 "category": "JJ View"
@@ -747,6 +759,16 @@
                     "command": "jj-view.workspaceDelete",
                     "when": "webviewSection == 'workspace'",
                     "group": "1_workspace@2"
+                },
+                {
+                    "command": "jj-view.workspaceOpenInCurrentWindow",
+                    "when": "webviewSection == 'workspace'",
+                    "group": "2_workspace@1"
+                },
+                {
+                    "command": "jj-view.workspaceOpenInNewWindow",
+                    "when": "webviewSection == 'workspace'",
+                    "group": "2_workspace@2"
                 },
                 {
                     "command": "jj-view.showMultiFileDiff",

@@ -64,6 +64,7 @@ import { uploadCommand } from './commands/upload';
 import { workspaceAddCommand } from './commands/workspace-add';
 import { workspaceDeleteCommand } from './commands/workspace-delete';
 import { workspaceForgetCommand } from './commands/workspace-forget';
+import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from './commands/workspace-open';
 import { CommentsManager } from './comments-manager';
 import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
@@ -617,6 +618,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
         registerWrappedCommand('jj-view.workspaceDelete', async (scm, jj, ...args) => {
             await workspaceDeleteCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.workspaceOpenInCurrentWindow', async (scm, jj, ...args) => {
+            await workspaceOpenInCurrentWindowCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.workspaceOpenInNewWindow', async (scm, jj, ...args) => {
+            await workspaceOpenInNewWindowCommand(scm, jj, args);
         }),
         registerWrappedCommand('jj-view.discardChange', async (scm, _jj, ...args) => {
             const uri = args[0] as vscode.Uri;
