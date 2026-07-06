@@ -301,7 +301,10 @@ describe('CommentsManager Tests', () => {
 
         // Construct the manager (triggers initial pull targeting '@')
         commentsManager = new CommentsManager(repositoryManager);
-        expect(await pullWaiter.waitNext()).toBe('@');
+
+        const workingCopyLog1 = await repositoryManager.focusedRepository?.jj.getLog({ revision: '@' });
+        const workingCopyChangeId1 = workingCopyLog1?.[0]?.change_id;
+        expect(await pullWaiter.waitNext()).toBe(workingCopyChangeId1);
 
         // Explicitly target c1 (parent)
         await commentsManager.showCommentsForChange(c1ChangeId);
@@ -319,7 +322,9 @@ describe('CommentsManager Tests', () => {
         testRepo.new();
 
         // Wait for the automatic background pull to happen and target the new working copy
-        expect(await pullWaiter.waitNext()).toBe('@');
+        const workingCopyLog2 = await repositoryManager.focusedRepository?.jj.getLog({ revision: '@' });
+        const workingCopyChangeId2 = workingCopyLog2?.[0]?.change_id;
+        expect(await pullWaiter.waitNext()).toBe(workingCopyChangeId2);
 
         // explicitChangeId should be cleared to undefined
         expect(accessPrivate<string | undefined>(commentsManager, 'explicitChangeId')).toBeUndefined();
@@ -330,7 +335,7 @@ describe('CommentsManager Tests', () => {
         commentsManager.dispose();
 
         // Build c1 (parent, normal commit) and c2 (working copy, with 'no-change' in description)
-        await buildGraph(testRepo, [
+        const ids = await buildGraph(testRepo, [
             { label: 'c1', description: 'Normal parent commit with comments' },
             { label: 'c2', parents: ['c1'], description: 'Working copy with no-change' },
         ]);
@@ -339,8 +344,8 @@ describe('CommentsManager Tests', () => {
         const pullWaiter = provider.createCommentThreadsWaiter();
         commentsManager = new CommentsManager(repositoryManager);
 
-        // Wait for the automatic background pull to happen and target the parent
-        expect(await pullWaiter.waitNext()).toBe('@-');
+        // Wait for the automatic background pull to happen and target the parent c1
+        expect(await pullWaiter.waitNext()).toBe(ids.c1.changeId);
     });
 
     test('should safely handle malformed avatar URLs', async () => {
