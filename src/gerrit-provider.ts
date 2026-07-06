@@ -241,11 +241,15 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         if (changeId) {
-            try {
-                const hexId = convertJjChangeIdToHex(changeId);
-                return `I${hexId}`;
-            } catch (e) {
-                this.outputChannel?.error(`[GerritProvider] Failed to convert JJ Change-Id: ${e}`);
+            const baseId = changeId.split('/')[0];
+            const isJjChangeId = /^[k-z]+$/.test(baseId);
+            if (isJjChangeId) {
+                try {
+                    const hexId = convertJjChangeIdToHex(changeId);
+                    return `I${hexId}`;
+                } catch (e) {
+                    this.outputChannel?.error(`[GerritProvider] Failed to convert JJ Change-Id: ${e}`);
+                }
             }
         }
         return undefined;

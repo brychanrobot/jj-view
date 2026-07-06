@@ -97,7 +97,7 @@ export class CommentsManager implements vscode.Disposable {
             }
             const bookmarks =
                 logEntry.bookmarks?.filter((b: JjBookmark) => !b.remote).map((b: JjBookmark) => b.name) || [];
-            return activeProvider.getCachedChangeInfo(revision, logEntry.description, bookmarks);
+            return activeProvider.getCachedChangeInfo(logEntry.change_id, logEntry.description, bookmarks);
         } catch {
             // Ignore error
         }

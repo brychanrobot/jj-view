@@ -83,6 +83,31 @@ describe('GerritProvider', () => {
         expect(accessPrivate(provider, 'gerritHost')).toBeUndefined();
     });
 
+    test('resolveCacheKey returns undefined for non-JJ values without conversion', () => {
+        const resolveKey = exposePrivate<{
+            resolveCacheKey(changeId?: string, description?: string): string | undefined;
+        }>(provider).resolveCacheKey.bind(provider);
+
+        expect(resolveKey('@')).toBeUndefined();
+        expect(resolveKey('@-')).toBeUndefined();
+        expect(resolveKey('d239d787')).toBeUndefined();
+        expect(resolveKey(undefined)).toBeUndefined();
+        expect(resolveKey('')).toBeUndefined();
+    });
+
+    test('resolveCacheKey converts valid JJ Change-Ids (including suffixes) as expected', () => {
+        const resolveKey = exposePrivate<{
+            resolveCacheKey(changeId?: string, description?: string): string | undefined;
+        }>(provider).resolveCacheKey.bind(provider);
+
+        // JJ Change-Ids (k-z letters) without suffix should convert successfully
+        expect(resolveKey('zzzz')).toBe('I0000');
+        expect(resolveKey('yyyy')).toBe('I1111');
+
+        // JJ Change-Ids with suffixes should be split on "/" before conversion
+        expect(resolveKey('zzzz/123')).toBe('I0000');
+    });
+
     test('fetchStatuses preserves cache on transient fetchBatchFromNetwork error', async () => {
         setPrivate(provider, 'gerritHost', 'https://my-gerrit-host.com');
 
