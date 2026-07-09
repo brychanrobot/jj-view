@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.3.0
+
+### Features
+
+- **Code Forge Provider Comments**:
+    - Integrate code review comments directly into the editor.
+- **Bookmarks**:
+    - Implement "Advance Bookmark" and "Advance Bookmark & Upload" actions to simplify branch-centric workflows.
+
+### Fixes
+
+- **Commit Details**:
+    - Synchronize the dirty indicator state and parallelize queries.
+
+### Chores & Testing
+
+- **Logging**:
+    - Adopt VS Code `LogOutputChannel` with explicit log levels for clearer diagnostics.
+- **Payload Validation**:
+    - Validate SCM and forge payloads with Zod schemas to ensure type-safe integration.
+- **Revision Prompting**:
+    - Unify revision prompting across commands.
+- **Performance**:
+    - Optimize `setFilesContent` using concurrent file writes.
+- **Testing**:
+    - Modernize resource cleanup and stubbing via ERM and Sinon wrappers.
+    - Remove obsolete `TestRepo` dispose method and unwrap try-finally blocks.
+    - Optimize E2E webview caching and handle background sync errors.
+
 ## 2.2.0
 
 ### Features
