@@ -32,7 +32,7 @@ export class CodeForgeService implements vscode.Disposable {
     private activeProviderInstance: CodeForgeProvider | undefined;
 
     constructor(
-        private workspaceRoot: string,
+        public readonly workspaceRoot: string,
         private jjService: JjService,
         private registry: CodeForgeRegistry,
         private outputChannel?: JjLoggerChannel,
@@ -181,20 +181,21 @@ export class CodeForgeService implements vscode.Disposable {
     private async doDetectActiveProvider(): Promise<void> {
         try {
             const remotes = await this.jjService.getGitRemotes();
+            const repoRoot = await this.jjService.getRepoRoot();
             const preferredId = vscode.workspace.getConfiguration('jj-view').get<string>('codeForge.provider');
 
             let detectedProvider: CodeForgeProvider | undefined;
 
             if (preferredId) {
                 const provider = this.providers.get(preferredId);
-                if (provider && (await provider.detect(this.workspaceRoot, remotes))) {
+                if (provider && (await provider.detect(repoRoot, remotes))) {
                     detectedProvider = provider;
                 }
             }
 
             if (!detectedProvider) {
                 for (const provider of this.providers.values()) {
-                    if (await provider.detect(this.workspaceRoot, remotes)) {
+                    if (await provider.detect(repoRoot, remotes)) {
                         detectedProvider = provider;
                         break;
                     }
