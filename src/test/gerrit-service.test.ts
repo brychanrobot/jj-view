@@ -187,6 +187,7 @@ describe('GerritService Detection', () => {
 
     test('detect clears cache on gerritHost change, but preserves it if unchanged', async () => {
         service = initService();
+        await service.awaitReady();
 
         // 1. Initial detection sets gerritHost to chromium-review
         repo.addRemote('origin', 'https://chromium.googlesource.com/chromium/src.git');
@@ -909,7 +910,9 @@ describe('GerritService Detection', () => {
 
     test('detectActiveProvider fires onDidUpdate only when host status changes', async () => {
         // Start disabled
-        mockConfig.get.mockReturnValue(undefined);
+        mockConfig.get.mockImplementation(() => {
+            return undefined;
+        });
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
@@ -924,7 +927,12 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(0);
 
         // Set config so it succeeds
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        mockConfig.get.mockImplementation((key: string) => {
+            if (key === 'gerrit.host') {
+                return fakeGerritServer.url;
+            }
+            return undefined;
+        });
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(true);
         expect(updateCount).toBe(1);
@@ -934,7 +942,9 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(1);
 
         // Change config back to undefined, should fire when disabled
-        mockConfig.get.mockReturnValue(undefined);
+        mockConfig.get.mockImplementation(() => {
+            return undefined;
+        });
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(false);
         expect(updateCount).toBe(2);

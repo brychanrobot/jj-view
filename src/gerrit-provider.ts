@@ -2,8 +2,6 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import type {
@@ -17,6 +15,8 @@ import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
+import { getGerritAuthHeader, resolveGitRoot } from './utils/gerrit-credential-utils';
+import { detectGerritHost } from './utils/gerrit-host-detection';
 import { resolveGerritChangeKey, stripGerritTrailers } from './utils/gerrit-utils';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -75,6 +75,10 @@ interface GerritCommentGql {
     in_reply_to?: string;
 }
 
+interface FetchGerritOptions extends RequestInit {
+    timeoutMs?: number;
+}
+
 export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
     public readonly displayName = 'Gerrit';
@@ -82,118 +86,45 @@ export class GerritProvider implements CodeForgeProvider {
 
     private cache = new Map<string, CodeForgeChangeInfo>();
     private gerritHost: string | undefined;
+    private repoRoot: string | undefined;
+    private gitRoot: string | null = null;
+    private authHeader: { name: string; value: string } | undefined;
+    private authChecked = false;
 
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
 
     constructor(private outputChannel?: JjLoggerChannel) {}
 
-    public async detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
-        const detectedHost = vscode.workspace.getConfiguration('jj-view').get<string>('gerrit.host')?.trim();
-        if (detectedHost) {
-            const host = detectedHost.replace(/\/$/, '');
+    public async detect(repoRoot: string, remotes: GitRemote[]): Promise<boolean> {
+        const binaryPath = vscode.workspace.getConfiguration('jj-view').get<string>('binaryPath') || 'jj';
+        const gitRoot = await resolveGitRoot(repoRoot, binaryPath);
+
+        if (this.repoRoot !== repoRoot) {
+            this.clearCache();
+            this.repoRoot = repoRoot;
+            this.gitRoot = gitRoot;
+        } else if (gitRoot !== null) {
+            if (this.gitRoot !== gitRoot) {
+                this.clearCache();
+            }
+            this.gitRoot = gitRoot;
+        }
+
+        const host = await detectGerritHost(
+            repoRoot,
+            this.gitRoot,
+            remotes,
+            (h: string) => this.probeGerritHost(h),
+            this.outputChannel,
+        );
+
+        if (host) {
             if (this.gerritHost !== host) {
                 this.clearCache();
             }
             this.gerritHost = host;
             return true;
-        }
-
-        // Check .gitreview file
-        try {
-            const gitreviewPath = path.join(workspaceRoot, '.gitreview');
-            if (fs.existsSync(gitreviewPath)) {
-                const content = await fs.promises.readFile(gitreviewPath, 'utf8');
-                const match = content.match(/host=(.+)/);
-                if (match?.[1]) {
-                    let host = match[1].trim();
-                    if (!host.startsWith('http')) {
-                        host = `https://${host}`;
-                    }
-                    const cleanHost = host.replace(/\/$/, '');
-                    if (this.gerritHost !== cleanHost) {
-                        this.clearCache();
-                    }
-                    this.gerritHost = cleanHost;
-                    return true;
-                }
-            }
-        } catch (e) {
-            this.outputChannel?.error(`[GerritProvider] Failed to parse .gitreview: ${e}`);
-        }
-
-        // Check git remotes via jj
-        // Prioritize 'origin', then 'gerrit', then others
-        const origin = remotes.find((r) => r.name === 'origin');
-        const gerrit = remotes.find((r) => r.name === 'gerrit');
-
-        const sortedRemotes = [];
-        if (origin) {
-            sortedRemotes.push(origin);
-        }
-        if (gerrit) {
-            sortedRemotes.push(gerrit);
-        }
-        remotes.forEach((r) => {
-            if (r.name !== 'origin' && r.name !== 'gerrit') {
-                sortedRemotes.push(r);
-            }
-        });
-
-        for (const { name, url } of sortedRemotes) {
-            this.outputChannel?.info(`[GerritProvider] Checking remote '${name}' URL: '${url}'`);
-
-            let host: string | undefined;
-
-            if (url.includes('googlesource.com') || url.includes('/gerrit/')) {
-                host = url;
-            } else if (url.startsWith('sso://')) {
-                const match = url.match(/sso:\/\/([^/]+)\/(.+)/);
-                if (match) {
-                    host = `https://${match[1]}.googlesource.com/${match[2]}`;
-                }
-            }
-
-            if (host) {
-                if (host.startsWith('ssh://')) {
-                    const match = host.match(/ssh:\/\/([^@]+@)?([^:/]+)(:\d+)?\/(.+)/);
-                    if (match) {
-                        host = `https://${match[2]}`;
-                    }
-                }
-
-                if (host.endsWith('.git')) {
-                    host = host.slice(0, -4);
-                }
-
-                if (host.includes('googlesource.com')) {
-                    try {
-                        const urlObj = new URL(host);
-                        host = urlObj.origin;
-                    } catch {
-                        if (!host.startsWith('http')) {
-                            const match = host.match(/([a-zA-Z0-9-]+\.googlesource\.com)/);
-                            if (match) {
-                                host = `https://${match[1]}`;
-                            }
-                        }
-                    }
-                }
-
-                if (host.includes('googlesource.com') && !host.includes('-review')) {
-                    host = host.replace('.googlesource.com', '-review.googlesource.com');
-                }
-
-                if (await this.probeGerritHost(host)) {
-                    if (this.gerritHost !== host) {
-                        this.clearCache();
-                    }
-                    this.gerritHost = host;
-                    return true;
-                } else {
-                    this.outputChannel?.error(`[GerritProvider] Probe failed for host: ${host}`);
-                }
-            }
         }
 
         this.gerritHost = undefined;
@@ -208,6 +139,45 @@ export class GerritProvider implements CodeForgeProvider {
             this.outputChannel?.error(`[GerritProvider] Probe error for host ${host}: ${e}`);
             return false;
         }
+    }
+
+    private async getAuthHeader(): Promise<{ name: string; value: string } | undefined> {
+        if (!this.gerritHost || !this.repoRoot) {
+            return undefined;
+        }
+        if (this.authChecked) {
+            return this.authHeader;
+        }
+        this.authChecked = true;
+        this.authHeader = await getGerritAuthHeader(this.gerritHost, this.gitRoot, this.outputChannel);
+        return this.authHeader;
+    }
+
+    private async fetchGerrit(url: string, options?: FetchGerritOptions): Promise<Response> {
+        const auth = await this.getAuthHeader();
+        let finalUrl = url;
+        const headers = new Headers(options?.headers);
+
+        if (auth) {
+            headers.set(auth.name, auth.value);
+            // Rewrite /changes/ to /a/changes/ to force Gerrit to authenticate
+            try {
+                const parsedUrl = new URL(url);
+                if (parsedUrl.pathname.startsWith('/changes/') && !parsedUrl.pathname.startsWith('/a/')) {
+                    parsedUrl.pathname = `/a${parsedUrl.pathname}`;
+                    finalUrl = parsedUrl.toString();
+                }
+            } catch {
+                // Handle relative URL (e.g. '/changes/...')
+                if (url.startsWith('/changes/') && !url.startsWith('/a/')) {
+                    finalUrl = `/a${url}`;
+                }
+            }
+        }
+
+        const timeout = options?.timeoutMs ?? 15000;
+        this.outputChannel?.debug(`[GerritProvider] fetchGerrit: ${finalUrl} (auth: ${!!auth})`);
+        return fetchWithTimeout(finalUrl, timeout, { ...options, headers });
     }
 
     public getCachedChangeInfo(
@@ -354,7 +324,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         const urlStr = `${baseUrl}?${params.toString()}`;
         this.outputChannel?.info(`[GerritProvider] GET ${urlStr}`);
-        const response = await fetchWithTimeout(urlStr, 15000);
+        const response = await this.fetchGerrit(urlStr);
         if (!response.ok) {
             throw new Error(`Batch request failed with status: ${response.status}`);
         }
@@ -394,7 +364,7 @@ export class GerritProvider implements CodeForgeProvider {
             return [];
         }
 
-        const data = validation.data;
+        const { data } = validation;
         return this.isBatchResponse(data) ? data : [data as GerritChange[]];
     }
 
@@ -455,10 +425,12 @@ export class GerritProvider implements CodeForgeProvider {
             return;
         }
 
-        if (info.remoteDescription && description) {
-            if (stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)) {
-                return;
-            }
+        if (
+            info.remoteDescription &&
+            description &&
+            stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)
+        ) {
+            return;
         }
 
         const gerritFiles = info.files;
@@ -509,7 +481,7 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         const url = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const response = await fetchWithTimeout(url, 15000, { signal });
+        const response = await this.fetchGerrit(url, { signal });
         if (!response.ok) {
             throw new Error(`Failed to fetch Gerrit comments: ${response.statusText}`);
         }
@@ -581,7 +553,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         // Fetch comments to locate parent file path and line
         const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const commentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        const commentsResponse = await this.fetchGerrit(commentsUrl);
         if (!commentsResponse.ok) {
             throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
         }
@@ -605,7 +577,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         // Post review with comment reply
         const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
-        const response = await fetchWithTimeout(reviewUrl, 15000, {
+        const response = await this.fetchGerrit(reviewUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -631,7 +603,7 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         // Re-fetch to retrieve the newly posted comment
-        const updatedCommentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        const updatedCommentsResponse = await this.fetchGerrit(commentsUrl);
         if (!updatedCommentsResponse.ok) {
             throw new Error('Failed to retrieve updated comments');
         }
@@ -672,7 +644,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         // Fetch comments to locate parent file path and line
         const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const commentsResponse = await fetchWithTimeout(commentsUrl, 15000);
+        const commentsResponse = await this.fetchGerrit(commentsUrl);
         if (!commentsResponse.ok) {
             throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
         }
@@ -696,7 +668,7 @@ export class GerritProvider implements CodeForgeProvider {
 
         // Post review with a resolution reply comment
         const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
-        const response = await fetchWithTimeout(reviewUrl, 15000, {
+        const response = await this.fetchGerrit(reviewUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -724,6 +696,8 @@ export class GerritProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.authHeader = undefined;
+        this.authChecked = false;
         this._onDidUpdate.fire();
     }
 

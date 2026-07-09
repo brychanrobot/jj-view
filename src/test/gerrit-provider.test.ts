@@ -2,6 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { ChangeStatusRequest } from '../code-forge-provider';
@@ -81,6 +86,40 @@ describe('GerritProvider', () => {
         const result = await provider.detect('/root', []);
         expect(result).toBe(false);
         expect(accessPrivate(provider, 'gerritHost')).toBeUndefined();
+    });
+
+    test('detect reads gerrit.host from git configuration as fallback', async () => {
+        const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-provider-detect-gitconfig-'));
+        const gitRoot = path.join(tempRepoDir, '.git');
+        cp.execSync(`git init --bare "${gitRoot}"`);
+        cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "git-config-host.example.com"`);
+
+        // Mock workspace config to return undefined for gerrit.host
+        vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+            get: (key: string) => {
+                if (key === 'binaryPath') {
+                    return 'jj';
+                }
+                return undefined;
+            },
+            has: vi.fn(),
+            update: vi.fn(),
+            inspect: vi.fn(),
+        } as unknown as vscode.WorkspaceConfiguration);
+
+        setPrivate(provider, 'repoRoot', tempRepoDir);
+        setPrivate(provider, 'gitRoot', gitRoot);
+
+        vi.spyOn(
+            exposePrivate<{ probeGerritHost(host: string): Promise<boolean> }>(provider),
+            'probeGerritHost',
+        ).mockResolvedValue(true);
+
+        const result = await provider.detect(tempRepoDir, []);
+        expect(result).toBe(true);
+        expect(accessPrivate(provider, 'gerritHost')).toBe('https://git-config-host.example.com');
+
+        await fs.rm(tempRepoDir, { recursive: true, force: true });
     });
 
     test('resolveCacheKey returns undefined for non-JJ values without conversion', () => {
@@ -310,6 +349,129 @@ describe('GerritProvider', () => {
             await provider.resolveCommentThread('I12345', 'comment-1', false);
             threads = await provider.getCommentThreads('I12345');
             expect(threads[0].isResolved).toBe(false);
+        });
+
+        test('attaches authentication headers and rewrites URL when auth is available', async () => {
+            const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-test-'));
+            const gitRoot = path.join(tempRepoDir, '.git');
+            cp.execSync(`git init --bare "${gitRoot}"`);
+            cp.execSync(
+                `git --git-dir="${gitRoot}" config credential.helper "!f() { echo username=testuser; echo password=testpass; }; f"`,
+            );
+
+            setPrivate(provider, 'repoRoot', tempRepoDir);
+            setPrivate(provider, 'gitRoot', gitRoot);
+
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            await provider.getCommentThreads('I12345');
+
+            expect(server.requests).toContain('/a/changes/123/comments');
+            expect(server.requests).not.toContain('/changes/123/comments');
+
+            expect(server.lastHeaders).toBeDefined();
+            const expectedAuth = Buffer.from('testuser:testpass').toString('base64');
+            expect(server.lastHeaders?.authorization).toBe(`Basic ${expectedAuth}`);
+
+            await fs.rm(tempRepoDir, { recursive: true, force: true });
+        });
+
+        test('does not rewrite URL or send auth headers when auth is unavailable', async () => {
+            const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-test-unauth-'));
+            const gitRoot = path.join(tempRepoDir, '.git');
+            cp.execSync(`git init --bare "${gitRoot}"`);
+
+            // No credential.helper is configured and no cookies are present.
+            setPrivate(provider, 'repoRoot', tempRepoDir);
+            setPrivate(provider, 'gitRoot', gitRoot);
+
+            server.clearRequests();
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            await provider.getCommentThreads('I12345');
+
+            expect(server.requests).toContain('/changes/123/comments');
+            expect(server.requests).not.toContain('/a/changes/123/comments');
+
+            expect(server.lastHeaders).toBeDefined();
+            expect(server.lastHeaders?.authorization).toBeUndefined();
+            expect(server.lastHeaders?.cookie).toBeUndefined();
+
+            await fs.rm(tempRepoDir, { recursive: true, force: true });
+        });
+
+        test('reuses cached authentication header and clearCache forces recomputation', async () => {
+            const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-cache-test-'));
+            const gitRoot = path.join(tempRepoDir, '.git');
+            cp.execSync(`git init --bare "${gitRoot}"`);
+
+            const logFile = path.join(tempRepoDir, 'call_log.txt');
+            cp.execSync(
+                `git --git-dir="${gitRoot}" config credential.helper "!f() { echo username=testuser; echo password=testpass; echo invoked >> \\"${logFile}\\"; }; f"`,
+            );
+
+            setPrivate(provider, 'repoRoot', tempRepoDir);
+            setPrivate(provider, 'gitRoot', gitRoot);
+
+            server.clearRequests();
+            server.registerComments(123, {});
+
+            // First call - should trigger credential helper
+            await provider.getCommentThreads('I12345');
+
+            // Second call - should use cached credentials
+            await provider.getCommentThreads('I12345');
+
+            let logContent = await fs.readFile(logFile, 'utf8');
+            let lines = logContent.trim().split('\n').filter(Boolean);
+            expect(lines).toHaveLength(1);
+
+            // Clear cache - should force helper invocation on next request
+            provider.clearCache();
+
+            // Repopulate cache for this changeId so getCommentThreads doesn't exit early
+            const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+            cache.set('I12345', {
+                id: 'I12345',
+                number: 123,
+                displayLabel: 'CL/123',
+                providerName: 'Gerrit',
+                status: 'NEW',
+                submittable: true,
+                unresolvedComments: 0,
+                url: `${server.url}/c/test-project/+/123`,
+                currentRevision: 'sha-1',
+            });
+
+            await provider.getCommentThreads('I12345');
+
+            logContent = await fs.readFile(logFile, 'utf8');
+            lines = logContent.trim().split('\n').filter(Boolean);
+            expect(lines).toHaveLength(2);
+
+            await fs.rm(tempRepoDir, { recursive: true, force: true });
         });
     });
 });

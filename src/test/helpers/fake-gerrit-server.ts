@@ -24,6 +24,7 @@ export class FakeGerritServer {
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
+    public lastHeaders: http.IncomingHttpHeaders | undefined;
 
     private nextChangeNumber = 1000;
 
@@ -134,12 +135,14 @@ export class FakeGerritServer {
 
     public clearRequests() {
         this.requests = [];
+        this.lastHeaders = undefined;
     }
 
     public async start(): Promise<string> {
         this.server = http.createServer((req, res) => {
             const urlStr = req.url || '';
             this.requests.push(urlStr);
+            this.lastHeaders = req.headers;
 
             if (urlStr.includes('/config/server/version')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
