@@ -500,4 +500,111 @@ test.describe('GitHub Integration E2E', () => {
         } finally {
         }
     });
+
+    test('Can copy unresolved comments to clipboard', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const graph: CommitDefinition[] = [
+            {
+                label: 'base',
+                parents: ['root()'],
+                description: 'base',
+            },
+            {
+                label: 'pr-commit',
+                parents: ['base'],
+                description: 'PR Commit',
+                bookmarks: ['my-feature-branch'],
+                files: {
+                    'file.txt': 'line 1\nline 2\nline 3\nline 4\nline 5\n',
+                },
+            },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.registerPR('my-feature-branch', {
+            id: 'pr_node_id_123',
+            number: 42,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/test-owner/test-repo/pull/42',
+            currentRevision: commits['pr-commit'].commitId,
+            unresolvedComments: 1,
+        });
+
+        github.registerReviewThreads('pr_node_id_123', [
+            {
+                id: 'thread-1',
+                isResolved: false,
+                path: 'file.txt',
+                line: 3,
+                comments: [
+                    {
+                        id: 'c-1',
+                        body: 'Review comment body',
+                        createdAt: '2026-06-30T12:00:00Z',
+                        author: { login: 'reviewer' },
+                    },
+                ],
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row = await waitForLogCommitRow(page, 'PR Commit');
+        const bubble = row.getByTitle('1 Unresolved Comments');
+        await expect(bubble).toBeVisible();
+
+        // Click unresolved comments bubble to focus and fetch comments
+        await bubble.click();
+
+        // Wait until the fake server receives a request for the review threads
+        await expect
+            .poll(() => {
+                return github.requests.some((req) => req.body.includes('reviewThreads('));
+            })
+            .toBe(true);
+
+        // Wait for CommentsManager to parse and populate the threads
+        await waitForCommentThreadsCount(vscode);
+
+        // Clear clipboard first
+        await vscode.evaluate(async (vscode) => {
+            await vscode.env.clipboard.writeText('');
+        });
+
+        // Trigger the copy command
+        await vscode.executeCommand('jj-view.copyUnresolvedComments');
+
+        // Verify clipboard content
+        await expect
+            .poll(async () => {
+                return await vscode.evaluate(async (vscode) => {
+                    return await vscode.env.clipboard.readText();
+                });
+            })
+            .toContain('### Unresolved Comments for PR #42');
+
+        await expect
+            .poll(async () => {
+                return await vscode.evaluate(async (vscode) => {
+                    return await vscode.env.clipboard.readText();
+                });
+            })
+            .toContain('Review comment body');
+    });
 });

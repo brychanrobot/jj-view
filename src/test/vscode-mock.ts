@@ -307,6 +307,10 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         },
         env: {
             openExternal: vi.fn(),
+            clipboard: {
+                writeText: vi.fn().mockResolvedValue(undefined),
+                readText: vi.fn().mockResolvedValue(''),
+            },
         },
         window: {
             showErrorMessage: vi.fn(),
@@ -410,6 +414,16 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,
 
             findFiles: vi.fn().mockResolvedValue([]),
+            asRelativePath: vi.fn().mockImplementation((pathOrUri: string | { fsPath: string }) => {
+                const fsPath = typeof pathOrUri === 'string' ? pathOrUri : pathOrUri.fsPath;
+                for (const folder of mockWorkspaceFolders) {
+                    const folderPath = folder.uri.fsPath;
+                    if (fsPath.startsWith(folderPath)) {
+                        return fsPath.substring(folderPath.length).replace(/^[/\\]/, '');
+                    }
+                }
+                return fsPath.split(/[/\\]/).pop() || fsPath;
+            }),
         },
         commands: {
             executeCommand: vi.fn(),

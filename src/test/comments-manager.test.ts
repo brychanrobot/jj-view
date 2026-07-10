@@ -389,4 +389,245 @@ describe('CommentsManager Tests', () => {
 
         expect(accessPrivate<string | undefined>(commentsManager, 'explicitChangeId')).toBe('some-change-id');
     });
+
+    test('copyUnresolvedComments should filter, format, and copy unresolved comments to the clipboard', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-1',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: 'Author A' },
+                        body: 'This is unresolved',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                    {
+                        id: 'comment-2',
+                        author: { name: 'Author B' },
+                        body: 'Replying to unresolved',
+                        createdAt: '2026-06-30T12:05:00Z',
+                    },
+                ],
+            },
+            {
+                id: 'thread-2',
+                filePath: 'other.txt',
+                line: 5,
+                isResolved: true,
+                comments: [
+                    {
+                        id: 'comment-3',
+                        author: { name: 'Author C' },
+                        body: 'This is resolved',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        // Fetch comments so they are loaded into commentsManager
+        await commentsManager.showCommentsForChange('@');
+
+        // Let's call copyUnresolvedComments
+        await commentsManager.copyUnresolvedComments();
+
+        // Check that writeText was called
+        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
+        expect(writeTextMock).toHaveBeenCalled();
+        const copiedText = writeTextMock.mock.calls[0][0];
+
+        expect(copiedText).toContain('### Unresolved Comments for PR #123');
+        expect(copiedText).toContain('- **file.txt:10**');
+        expect(copiedText).toContain('  - **Author A**:');
+        expect(copiedText).toContain('    > This is unresolved');
+        expect(copiedText).toContain('  - **Author B**:');
+        expect(copiedText).toContain('    > Replying to unresolved');
+
+        // It should NOT contain the resolved comment from thread-2
+        expect(copiedText).not.toContain('other.txt:5');
+        expect(copiedText).not.toContain('This is resolved');
+    });
+
+    test('copyUnresolvedComments should show message and not copy if there are no unresolved comments', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-1',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: true,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: 'Author A' },
+                        body: 'This is resolved',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        // Reset the clipboard mock
+        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
+        writeTextMock.mockClear();
+
+        await commentsManager.copyUnresolvedComments();
+
+        expect(writeTextMock).not.toHaveBeenCalled();
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+            'No unresolved comments for the active change.',
+        );
+    });
+
+    test('copyUnresolvedComments should handle range-less threads correctly', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-1',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: 'Author A' },
+                        body: 'File-level comment',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        // Force the mock range to be undefined to simulate range-less thread
+        for (const thread of commentsManager.getThreads().values()) {
+            Object.defineProperty(thread, 'range', { value: undefined });
+        }
+
+        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
+        writeTextMock.mockClear();
+
+        await commentsManager.copyUnresolvedComments();
+
+        expect(writeTextMock).toHaveBeenCalled();
+        const copiedText = writeTextMock.mock.calls[0][0];
+        expect(copiedText).toContain('### Unresolved Comments for PR #123');
+        expect(copiedText).toContain('- **file.txt**');
+        expect(copiedText).not.toContain('file.txt:');
+        expect(copiedText).toContain('  - **Author A**:');
+        expect(copiedText).toContain('    > File-level comment');
+    });
+
+    test('copyUnresolvedComments should handle clipboard write failure and show error message', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-1',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: 'Author A' },
+                        body: 'This is unresolved',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
+        writeTextMock.mockClear();
+        writeTextMock.mockRejectedValueOnce(new Error('Clipboard write error'));
+
+        const showErrorMessageMock = vscode.window.showErrorMessage as import('vitest').Mock;
+        showErrorMessageMock.mockClear();
+
+        await commentsManager.copyUnresolvedComments();
+
+        expect(writeTextMock).toHaveBeenCalled();
+        expect(showErrorMessageMock).toHaveBeenCalledWith(
+            'Failed to copy comments to clipboard: Clipboard write error',
+        );
+    });
+
+    test('copyUnresolvedComments should sort threads by file path and line number, and handle missing author name', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-line-15',
+                filePath: 'file.txt',
+                line: 15,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: '' },
+                        body: 'Second comment in file.txt',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+            {
+                id: 'thread-file-b',
+                filePath: 'another.txt',
+                line: 5,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-2',
+                        author: { name: 'Author B' },
+                        body: 'Comment in another.txt',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+            {
+                id: 'thread-line-10',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [
+                    createMock<CodeForgeComment>({
+                        id: 'comment-3',
+                        // simulated missing author object or name
+                        body: 'First comment in file.txt',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    }),
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
+        writeTextMock.mockClear();
+
+        await commentsManager.copyUnresolvedComments();
+
+        expect(writeTextMock).toHaveBeenCalled();
+        const copiedText = writeTextMock.mock.calls[0][0];
+
+        // Verify order: another.txt:5 -> file.txt:10 -> file.txt:15
+        const indexAnother = copiedText.indexOf('another.txt:5');
+        const indexFile10 = copiedText.indexOf('file.txt:10');
+        const indexFile15 = copiedText.indexOf('file.txt:15');
+
+        expect(indexAnother).toBeLessThan(indexFile10);
+        expect(indexFile10).toBeLessThan(indexFile15);
+
+        // Verify author fallbacks
+        expect(copiedText).toContain('  - **Unknown**:\n    > First comment in file.txt');
+        expect(copiedText).toContain('  - **Unknown**:\n    > Second comment in file.txt');
+    });
 });
