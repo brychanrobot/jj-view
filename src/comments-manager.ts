@@ -13,6 +13,7 @@ export class CommentsManager implements vscode.Disposable {
     private commentController: vscode.CommentController;
     private threads = new Map<string, vscode.CommentThread>(); // threadId -> vscode.CommentThread
     private activeChangeId: string | undefined;
+    private activeChangeInfo: CodeForgeChangeInfo | undefined;
     private activeRepoPath: string | undefined;
     private disposables: vscode.Disposable[] = [];
     private repoDisposables: vscode.Disposable[] = [];
@@ -38,6 +39,7 @@ export class CommentsManager implements vscode.Disposable {
             this.repositoryManager.onDidChangeFocusedRepository(() => {
                 this.clearThreads();
                 this.activeChangeId = undefined;
+                this.activeChangeInfo = undefined;
                 this.activeRepoPath = undefined;
                 this.explicitChangeId = undefined;
                 this.lastWorkingCopyId = undefined;
@@ -175,6 +177,7 @@ export class CommentsManager implements vscode.Disposable {
             if (!repo) {
                 this.clearThreads();
                 this.activeChangeId = undefined;
+                this.activeChangeInfo = undefined;
                 this.activeRepoPath = undefined;
                 return;
             }
@@ -186,6 +189,7 @@ export class CommentsManager implements vscode.Disposable {
             if (!activeProvider?.getCommentThreads) {
                 this.clearThreads();
                 this.activeChangeId = undefined;
+                this.activeChangeInfo = undefined;
                 this.activeRepoPath = undefined;
                 return;
             }
@@ -226,6 +230,7 @@ export class CommentsManager implements vscode.Disposable {
             } else {
                 this.clearThreads();
                 this.activeChangeId = undefined;
+                this.activeChangeInfo = undefined;
                 this.activeRepoPath = undefined;
             }
         } catch {
@@ -256,6 +261,7 @@ export class CommentsManager implements vscode.Disposable {
         if (this.activeChangeId !== providerChangeId) {
             this.clearThreads();
             this.activeChangeId = undefined;
+            this.activeChangeInfo = undefined;
             this.activeRepoPath = undefined;
         }
 
@@ -267,6 +273,7 @@ export class CommentsManager implements vscode.Disposable {
                 return;
             }
             this.activeChangeId = providerChangeId;
+            this.activeChangeInfo = changeInfo;
             this.activeRepoPath = repo.rootUri.fsPath;
             this.updateCommentThreads(threadsList);
         } catch {
@@ -297,6 +304,7 @@ export class CommentsManager implements vscode.Disposable {
         } else {
             this.clearThreads();
             this.activeChangeId = undefined;
+            this.activeChangeInfo = undefined;
             this.activeRepoPath = undefined;
         }
         // Focus the native comments panel
@@ -315,7 +323,7 @@ export class CommentsManager implements vscode.Disposable {
      */
     private mapToVscodeComment(c: CodeForgeComment): vscode.Comment {
         let avatarUri: vscode.Uri | undefined;
-        if (c.author.avatarUrl) {
+        if (c.author?.avatarUrl) {
             try {
                 avatarUri = vscode.Uri.parse(c.author.avatarUrl);
             } catch {
@@ -325,7 +333,7 @@ export class CommentsManager implements vscode.Disposable {
         return {
             body: new vscode.MarkdownString(c.body),
             author: {
-                name: c.author.name,
+                name: c.author?.name || 'Unknown',
                 iconPath: avatarUri,
             },
             mode: vscode.CommentMode.Preview,
@@ -496,6 +504,66 @@ export class CommentsManager implements vscode.Disposable {
             );
         } catch (err) {
             vscode.window.showErrorMessage(`Failed to toggle resolve: ${err}`);
+        }
+    }
+
+    public async copyUnresolvedComments(): Promise<void> {
+        const unresolvedThreads = Array.from(this.threads.values()).filter(
+            (thread) => thread.state === vscode.CommentThreadState.Unresolved,
+        );
+
+        if (unresolvedThreads.length === 0) {
+            vscode.window.showInformationMessage('No unresolved comments for the active change.');
+            return;
+        }
+
+        unresolvedThreads.sort((a, b) => {
+            const pathA = a.uri.fsPath;
+            const pathB = b.uri.fsPath;
+            if (pathA !== pathB) {
+                return pathA.localeCompare(pathB);
+            }
+            const lineA = a.range?.start.line ?? 0;
+            const lineB = b.range?.start.line ?? 0;
+            return lineA - lineB;
+        });
+
+        const info = this.activeChangeInfo;
+        let changeLabel = '';
+        if (info) {
+            changeLabel = ` for ${info.displayLabel}`;
+        }
+
+        let result = `### Unresolved Comments${changeLabel}\n\n`;
+
+        for (const thread of unresolvedThreads) {
+            const relativePath = vscode.workspace.asRelativePath(thread.uri);
+            if (thread.range) {
+                const lineNum = thread.range.start.line + 1;
+                result += `- **${relativePath}:${lineNum}**\n`;
+            } else {
+                result += `- **${relativePath}**\n`;
+            }
+            for (const comment of thread.comments) {
+                const author = comment.author?.name || 'Unknown';
+                const body = typeof comment.body === 'string' ? comment.body : comment.body.value;
+                const indentedBody = body
+                    .split(/\r?\n/)
+                    .map((line) => `    > ${line}`)
+                    .join('\n');
+                result += `  - **${author}**:\n${indentedBody}\n`;
+            }
+        }
+
+        try {
+            await vscode.env.clipboard.writeText(`${result.trim()}\n`);
+            vscode.window.showInformationMessage(
+                `Copied ${unresolvedThreads.length} unresolved comment(s) to clipboard.`,
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(
+                `Failed to copy comments to clipboard: ${error instanceof Error ? error.message : String(error)}`,
+            );
         }
     }
 

@@ -17,6 +17,7 @@ import { advanceBookmarkAndUploadCommand } from './commands/bookmark-advance-upl
 import { deleteBookmarkCommand } from './commands/bookmark-delete';
 import { resolveRepository } from './commands/command-utils';
 import {
+    copyUnresolvedCommentsCommand,
     replyCommentCommand,
     resolveCommentThreadCommand,
     showCommentsCommand,
@@ -489,6 +490,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 await unresolveCommentThreadCommand(commentsManager, arg);
             },
         ),
+        vscode.commands.registerCommand('jj-view.copyUnresolvedComments', async () => {
+            await copyUnresolvedCommentsCommand(commentsManager);
+        }),
     );
 
     context.subscriptions.push(

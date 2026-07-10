@@ -40,3 +40,7 @@ export async function unresolveCommentThreadCommand(
     const thread = 'thread' in arg ? arg.thread : arg;
     await commentsManager.toggleResolveThread(thread, false);
 }
+
+export async function copyUnresolvedCommentsCommand(commentsManager: CommentsManager) {
+    await commentsManager.copyUnresolvedComments();
+}

@@ -550,6 +550,12 @@
                 "title": "Unresolve Thread",
                 "category": "JJ View",
                 "icon": "$(reply)"
+            },
+            {
+                "command": "jj-view.copyUnresolvedComments",
+                "title": "Copy Unresolved Comments",
+                "category": "JJ View",
+                "icon": "$(copy)"
             }
         ],
         "keybindings": [
@@ -588,6 +594,10 @@
                 },
                 {
                     "command": "jj-view.unresolveCommentThread",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.copyUnresolvedComments",
                     "when": "false"
                 },
                 {
@@ -693,6 +703,11 @@
                     "command": "jj-view.workspaceAdd",
                     "group": "navigation@10",
                     "when": "view == jj-view.logView"
+                },
+                {
+                    "command": "jj-view.copyUnresolvedComments",
+                    "group": "navigation",
+                    "when": "view == workbench.panel.comments && jj.codeForgeActive"
                 }
             ],
             "webview/context": [
