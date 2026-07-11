@@ -70,7 +70,12 @@ class MockCommentsProvider implements CodeForgeProvider {
         return this.threads;
     }
 
-    async replyToCommentThread(_changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+    async replyToCommentThread(
+        _changeId: string,
+        threadId: string,
+        body: string,
+        resolved?: boolean,
+    ): Promise<CodeForgeComment> {
         const reply: CodeForgeComment = {
             id: 'new-reply',
             author: { name: 'Replier' },
@@ -80,6 +85,9 @@ class MockCommentsProvider implements CodeForgeProvider {
         const thread = this.threads.find((t) => t.id === threadId);
         if (thread) {
             thread.comments.push(reply);
+            if (resolved !== undefined) {
+                thread.isResolved = resolved;
+            }
         }
         return reply;
     }

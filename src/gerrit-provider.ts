@@ -542,7 +542,12 @@ export class GerritProvider implements CodeForgeProvider {
         return threads;
     }
 
-    public async replyToCommentThread(changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+    public async replyToCommentThread(
+        changeId: string,
+        threadId: string,
+        body: string,
+        resolved?: boolean,
+    ): Promise<CodeForgeComment> {
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
             throw new Error('Change not found in cache');
@@ -584,14 +589,14 @@ export class GerritProvider implements CodeForgeProvider {
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                drafts: 'PUBLISH',
+                drafts: 'KEEP',
                 comments: {
                     [parentFilePath]: [
                         {
                             in_reply_to: threadId,
                             line: parentComment.line,
                             message: body,
-                            unresolved: parentComment.unresolved ?? true,
+                            unresolved: resolved !== undefined ? !resolved : (parentComment.unresolved ?? true),
                         },
                     ],
                 },
@@ -675,7 +680,7 @@ export class GerritProvider implements CodeForgeProvider {
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                drafts: 'PUBLISH',
+                drafts: 'KEEP',
                 comments: {
                     [parentFilePath]: [
                         {

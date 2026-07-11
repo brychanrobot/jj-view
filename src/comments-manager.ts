@@ -74,7 +74,7 @@ export class CommentsManager implements vscode.Disposable {
         // Listen for remote updates from CodeForgeService
         this.repoDisposables.push(
             repo.codeForge.onDidUpdate(async () => {
-                await this.pullCommentsAutomatically().catch(() => {});
+                await this.refreshActiveChangeComments().catch(() => {});
             }),
         );
     }
@@ -236,6 +236,19 @@ export class CommentsManager implements vscode.Disposable {
         } catch {
             // Ignore
         }
+    }
+
+    /**
+     * Lightweight method to pull comments for the active target change directly.
+     * Avoids running any slow jj CLI queries.
+     */
+    public async refreshActiveChangeComments(): Promise<void> {
+        const repo = this.repositoryManager.focusedRepository;
+        if (!repo || !this.activeChangeInfo) {
+            return;
+        }
+        const signal = this.startNewLoad();
+        await this.loadCommentsForChange(this.activeChangeInfo, signal);
     }
 
     /**
@@ -410,7 +423,7 @@ export class CommentsManager implements vscode.Disposable {
         }
     }
 
-    public async replyToThread(reply: vscode.CommentReply): Promise<void> {
+    public async replyToThread(reply: vscode.CommentReply, resolved?: boolean): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
         const changeId = this.activeChangeId;
         if (!repo || !changeId) {
@@ -449,8 +462,8 @@ export class CommentsManager implements vscode.Disposable {
                     cancellable: false,
                 },
                 async () => {
-                    await provider.replyToCommentThread(changeId, threadId, reply.text);
-                    await this.pullCommentsAutomatically();
+                    await provider.replyToCommentThread(changeId, threadId, reply.text, resolved);
+                    await this.refreshActiveChangeComments();
                     repo.codeForge.requestRefreshWithBackoffs();
                 },
             );
@@ -498,7 +511,7 @@ export class CommentsManager implements vscode.Disposable {
                 },
                 async () => {
                     await provider.resolveCommentThread(changeId, threadId, resolved);
-                    await this.pullCommentsAutomatically();
+                    await this.refreshActiveChangeComments();
                     repo.codeForge.requestRefreshWithBackoffs();
                 },
             );

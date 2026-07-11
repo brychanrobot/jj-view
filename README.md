@@ -157,6 +157,16 @@ The extension automatically refreshes the view when:
 - Supports uploading changes directly via SCM actions.
 - Auto-detected from Git remote URLs (including self-hosted instances). Set `jj-view.gitlab.host` if you use a custom self-hosted instance.
 
+### 💬 Review Discussions & Comments
+- **Unresolved Comments Bubble**: Displays a counter pill on each revision with pending unresolved comments. Clicking it focuses and fetches review comments.
+- **Inline Comment Threads**: Displays code review comments inline directly in the VS Code diff editors.
+- **Direct Reply & Resolution Actions**:
+  - **Ack**: Submits a default reply of `"Acknowledged"` and resolves the comment thread.
+  - **Done**: Submits a default reply of `"Done"` and resolves the comment thread.
+  - **Reply & Resolve**: Submits your typed response and resolves the comment thread.
+  - **Reply**: Submits your typed response and leaves the comment thread unresolved.
+- **Copy Unresolved Comments**: Copies a formatted markdown summary of all unresolved comments for the active revision to your clipboard using the copy action in the Comments panel title bar.
+
 ### 🔑 Authentication
 
 Configuring credentials (such as OAuth tokens or Personal Access Tokens) for GitHub and GitLab is seamless:

@@ -1400,69 +1400,77 @@ export async function getReviewWidget(page: Page, expectedText?: string): Promis
 }
 
 /**
- * Types and submits a reply on the given comment thread review widget.
+ * Expands the comment reply input form if it is not already visible.
  */
-export async function replyToCommentThread(page: Page, reviewWidget: Locator, text: string) {
-    const start = Date.now();
-    // Click the "Reply..." placeholder button to expand the comment form
+async function expandReplyFormIfNeeded(reviewWidget: Locator) {
     const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
-    await expect(replyPlaceholderBtn).toBeVisible();
-    await replyPlaceholderBtn.click();
+    if (await replyPlaceholderBtn.isVisible()) {
+        await replyPlaceholderBtn.click();
+    }
+}
 
-    // Type into the reply input in the DOM (Monaco Editor instance inside comment-form)
+/**
+ * Clicks a button in the form actions of a comment thread review widget.
+ */
+async function clickCommentButton(reviewWidget: Locator, buttonLabel: string | RegExp, perfLabel: string) {
+    const start = Date.now();
+    await expandReplyFormIfNeeded(reviewWidget);
+
+    const button = reviewWidget
+        .locator('.form-actions button, .form-actions [role="button"]')
+        .filter({ hasText: buttonLabel })
+        .first();
+    await expect(button).toBeVisible();
+    await button.click();
+    logPerf(perfLabel, start);
+}
+
+/**
+ * Types text into the reply input and clicks a button in the form actions.
+ */
+async function submitTypedCommentReply(
+    page: Page,
+    reviewWidget: Locator,
+    text: string,
+    buttonLabel: string | RegExp,
+    perfLabel: string,
+) {
+    const start = Date.now();
+    await expandReplyFormIfNeeded(reviewWidget);
+
     const editor = reviewWidget.locator('.comment-form .monaco-editor');
     await expect(editor).toBeVisible();
     await editor.click();
     await page.keyboard.type(text);
 
-    // Find and click the "Reply" button in the form actions
-    const replyBtn = reviewWidget
+    const button = reviewWidget
         .locator('.form-actions button, .form-actions [role="button"]')
-        .filter({ hasText: 'Reply' })
+        .filter({ hasText: buttonLabel })
         .first();
-    await expect(replyBtn).toBeVisible();
-    await replyBtn.click();
-    logPerf('replyToCommentThread', start);
+    await expect(button).toBeVisible();
+    await button.click();
+    logPerf(perfLabel, start);
+}
+
+/**
+ * Types and submits a reply on the given comment thread review widget.
+ */
+export async function replyToCommentThread(page: Page, reviewWidget: Locator, text: string) {
+    await submitTypedCommentReply(page, reviewWidget, text, /^Reply$/, 'replyToCommentThread');
 }
 
 /**
  * Resolves the given comment thread review widget by clicking the resolve button next to Reply.
  */
 export async function resolveCommentThread(reviewWidget: Locator) {
-    const start = Date.now();
-    // If the reply form is not already expanded, click the "Reply..." placeholder to show the action buttons.
-    const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
-    await expect(replyPlaceholderBtn).toBeVisible();
-    await replyPlaceholderBtn.click();
-
-    // Find and click the "Resolve Thread" button in the form actions
-    const resolveBtn = reviewWidget
-        .locator('.form-actions button, .form-actions [role="button"]')
-        .filter({ hasText: 'Resolve Thread' })
-        .first();
-    await expect(resolveBtn).toBeVisible();
-    await resolveBtn.click();
-    logPerf('resolveCommentThread', start);
+    await clickCommentButton(reviewWidget, 'Resolve Thread', 'resolveCommentThread');
 }
 
 /**
  * Unresolves the given comment thread review widget by clicking the unresolve button next to Reply.
  */
 export async function unresolveCommentThread(reviewWidget: Locator) {
-    const start = Date.now();
-    // If the reply form is not already expanded, click the "Reply..." placeholder to show the action buttons.
-    const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
-    await expect(replyPlaceholderBtn).toBeVisible();
-    await replyPlaceholderBtn.click();
-
-    // Find and click the "Unresolve Thread" button in the form actions
-    const unresolveBtn = reviewWidget
-        .locator('.form-actions button, .form-actions [role="button"]')
-        .filter({ hasText: 'Unresolve Thread' })
-        .first();
-    await expect(unresolveBtn).toBeVisible();
-    await unresolveBtn.click();
-    logPerf('unresolveCommentThread', start);
+    await clickCommentButton(reviewWidget, 'Unresolve Thread', 'unresolveCommentThread');
 }
 
 /**
@@ -1500,4 +1508,25 @@ export async function waitForThreadState(
             contextValue: expectedContextValue,
             collapsibleState: expectedCollapsibleState,
         });
+}
+
+/**
+ * Clicks the "Ack" button on the given comment thread review widget.
+ */
+export async function replyWithAck(reviewWidget: Locator) {
+    await clickCommentButton(reviewWidget, 'Ack', 'replyWithAck');
+}
+
+/**
+ * Clicks the "Done" button on the given comment thread review widget.
+ */
+export async function replyWithDone(reviewWidget: Locator) {
+    await clickCommentButton(reviewWidget, 'Done', 'replyWithDone');
+}
+
+/**
+ * Types text and clicks the "Reply & Resolve" button on the given comment thread review widget.
+ */
+export async function replyAndResolve(page: Page, reviewWidget: Locator, text: string) {
+    await submitTypedCommentReply(page, reviewWidget, text, 'Reply & Resolve', 'replyAndResolve');
 }

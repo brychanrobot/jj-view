@@ -535,6 +535,21 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.ackComment",
+                "title": "Ack",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.doneComment",
+                "title": "Done",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.replyAndResolveComment",
+                "title": "Reply & Resolve",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.replyComment",
                 "title": "Reply",
                 "category": "JJ View"
@@ -582,6 +597,18 @@
             "commandPalette": [
                 {
                     "command": "jj-view.showComments",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.ackComment",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.doneComment",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.replyAndResolveComment",
                     "when": "false"
                 },
                 {
@@ -1006,18 +1033,33 @@
             ],
             "comments/commentThread/context": [
                 {
-                    "command": "jj-view.replyComment",
+                    "command": "jj-view.replyAndResolveComment",
                     "group": "inline@1",
                     "when": "commentController =~ /jj-view/"
                 },
                 {
-                    "command": "jj-view.resolveCommentThread",
+                    "command": "jj-view.doneComment",
                     "group": "inline@2",
+                    "when": "commentController =~ /jj-view/"
+                },
+                {
+                    "command": "jj-view.ackComment",
+                    "group": "inline@3",
+                    "when": "commentController =~ /jj-view/"
+                },
+                {
+                    "command": "jj-view.replyComment",
+                    "group": "inline@4",
+                    "when": "commentController =~ /jj-view/"
+                },
+                {
+                    "command": "jj-view.resolveCommentThread",
+                    "group": "inline@5",
                     "when": "commentController =~ /jj-view/ && commentThread == unresolved"
                 },
                 {
                     "command": "jj-view.unresolveCommentThread",
-                    "group": "inline@2",
+                    "group": "inline@5",
                     "when": "commentController =~ /jj-view/ && commentThread == resolved"
                 }
             ]

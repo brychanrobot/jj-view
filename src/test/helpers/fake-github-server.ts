@@ -135,9 +135,11 @@ export class FakeGitHubServer {
                             const bodyText = variables?.body || '';
 
                             let createdComment: FakeComment | undefined;
+                            let targetThread: FakeReviewThread | undefined;
                             for (const threadsList of this.threads.values()) {
                                 const found = threadsList.find((t) => t.id === threadId);
                                 if (found) {
+                                    targetThread = found;
                                     createdComment = {
                                         id: `comment-reply-${Date.now()}`,
                                         body: bodyText,
@@ -149,6 +151,13 @@ export class FakeGitHubServer {
                                 }
                             }
 
+                            // Handle batched resolution mutation if present in the same query
+                            const isResolve = query.includes('resolveReviewThread');
+                            const isUnresolve = query.includes('unresolveReviewThread');
+                            if (targetThread && (isResolve || isUnresolve)) {
+                                targetThread.isResolved = isResolve;
+                            }
+
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
                                 JSON.stringify({
@@ -156,6 +165,22 @@ export class FakeGitHubServer {
                                         addPullRequestReviewThreadReply: {
                                             comment: createdComment,
                                         },
+                                        ...(isResolve || isUnresolve
+                                            ? {
+                                                  resolveReviewThread: {
+                                                      thread: {
+                                                          id: threadId,
+                                                          isResolved: isResolve,
+                                                      },
+                                                  },
+                                                  unresolveReviewThread: {
+                                                      thread: {
+                                                          id: threadId,
+                                                          isResolved: isResolve,
+                                                      },
+                                                  },
+                                              }
+                                            : {}),
                                     },
                                 }),
                             );

@@ -781,7 +781,12 @@ export class GitLabProvider implements CodeForgeProvider {
         return threads;
     }
 
-    public async replyToCommentThread(changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+    public async replyToCommentThread(
+        changeId: string,
+        threadId: string,
+        body: string,
+        resolved?: boolean,
+    ): Promise<CodeForgeComment> {
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
             throw new Error('Change not found in cache');
@@ -810,6 +815,11 @@ export class GitLabProvider implements CodeForgeProvider {
         }
 
         const note = (await response.json()) as GitLabNoteGql;
+
+        if (resolved !== undefined) {
+            await this.resolveCommentThread(changeId, threadId, resolved);
+        }
+
         return {
             id: note.id.toString(),
             author: {
