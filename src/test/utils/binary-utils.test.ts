@@ -6,7 +6,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { resolveJjBinary } from '../../utils/binary-utils';
 
 describe('binary-utils real-file tests', () => {
@@ -15,6 +15,42 @@ describe('binary-utils real-file tests', () => {
     let oldPath: string | undefined;
     let oldUserProfile: string | undefined;
     let oldProgramFiles: string | undefined;
+    let sharedBinaryPath: string;
+
+    beforeAll(() => {
+        const sharedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-binary-shared-'));
+        const binName = os.platform() === 'win32' ? 'jj.exe' : 'jj';
+        sharedBinaryPath = path.join(sharedDir, binName);
+
+        const goSourcePath = `${sharedBinaryPath}.go`;
+        const goSource = `
+package main
+import (
+    "fmt"
+    "os"
+)
+func main() {
+    if len(os.Args) > 1 && os.Args[1] == "--version" {
+        val := os.Getenv("JJ_TEST_VERSION_OUTPUT")
+        if val != "" {
+            fmt.Println(val)
+        } else {
+            fmt.Println("jj 0.1.0")
+        }
+    }
+}
+`;
+        fs.writeFileSync(goSourcePath, goSource);
+        cp.execFileSync('go', ['build', '-o', sharedBinaryPath, goSourcePath]);
+        fs.unlinkSync(goSourcePath);
+    });
+
+    afterAll(() => {
+        if (sharedBinaryPath) {
+            const sharedDir = path.dirname(sharedBinaryPath);
+            fs.rmSync(sharedDir, { recursive: true, force: true });
+        }
+    });
 
     beforeEach(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-binary-test-'));
@@ -25,6 +61,8 @@ describe('binary-utils real-file tests', () => {
     });
 
     afterEach(() => {
+        delete process.env.JJ_TEST_VERSION_OUTPUT;
+
         if (oldHome !== undefined) {
             process.env.HOME = oldHome;
         } else {
@@ -52,25 +90,17 @@ describe('binary-utils real-file tests', () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
-    const createExecutable = (filePath: string, output: string = 'jj 0.1.0') => {
+    const createExecutable = (filePath: string, output?: string) => {
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
-        const goSourcePath = `${filePath}.go`;
-        const goSource = `
-package main
-import (
-    "fmt"
-    "os"
-)
-func main() {
-    if len(os.Args) > 1 && os.Args[1] == "--version" {
-        fmt.Println("${output}")
-    }
-}
-`;
-        fs.writeFileSync(goSourcePath, goSource);
-        cp.execFileSync('go', ['build', '-o', filePath, goSourcePath]);
-        fs.unlinkSync(goSourcePath);
+        fs.copyFileSync(sharedBinaryPath, filePath);
+        if (os.platform() !== 'win32') {
+            fs.chmodSync(filePath, 0o755);
+        }
+        if (output !== undefined) {
+            process.env.JJ_TEST_VERSION_OUTPUT = output;
+        } else {
+            delete process.env.JJ_TEST_VERSION_OUTPUT;
+        }
     };
 
     test('resolveJjBinary returns absolute path if it exists and is working', async () => {
