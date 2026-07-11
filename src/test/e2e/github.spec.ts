@@ -4,6 +4,7 @@
  */
 
 import { expect } from '@playwright/test';
+import { ACK_REPLY_TEXT, DONE_REPLY_TEXT } from '../../comments-constants';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
 import {
@@ -16,7 +17,10 @@ import {
     locateQuickInputWidget,
     openFileInEditor,
     pickQuickPickItem,
+    replyAndResolve,
     replyToCommentThread,
+    replyWithAck,
+    replyWithDone,
     resolveCommentThread,
     test,
     unresolveCommentThread,
@@ -606,5 +610,142 @@ test.describe('GitHub Integration E2E', () => {
                 });
             })
             .toContain('Review comment body');
+    });
+
+    test('Can reply with Ack, Done, and Reply & Resolve buttons', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            {
+                label: 'pr-commit',
+                parents: ['base'],
+                description: 'PR Commit',
+                bookmarks: ['my-feature-branch'],
+                files: {
+                    'file.txt': 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n',
+                },
+            },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.registerPR('my-feature-branch', {
+            id: 'pr_node_id_123',
+            number: 42,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/test-owner/test-repo/pull/42',
+            currentRevision: commits['pr-commit'].commitId,
+            unresolvedComments: 1,
+        });
+
+        github.registerReviewThreads('pr_node_id_123', [
+            {
+                id: 'thread-1',
+                isResolved: false,
+                path: 'file.txt',
+                line: 10,
+                comments: [
+                    {
+                        id: 'c-1',
+                        body: 'Review comment body',
+                        createdAt: '2026-06-30T12:00:00Z',
+                        author: { login: 'reviewer' },
+                    },
+                ],
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row = await waitForLogCommitRow(page, 'PR Commit');
+        const bubble = row.getByTitle('1 Unresolved Comments');
+        await expect(bubble).toBeVisible();
+
+        // Focus and fetch comments
+        await bubble.click();
+
+        // Wait for CommentsManager to parse and populate the threads
+        await waitForCommentThreadsCount(vscode);
+
+        // Open the file in the editor
+        await openFileInEditor(vscode, page, 'file.txt', repo);
+
+        // 1. Test "Ack" button
+        let reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await replyWithAck(reviewWidget);
+
+        // Wait for thread to be resolved & collapsed
+        await waitForThreadState(vscode, 'resolved', 0);
+        await expect(page.locator('.review-widget')).toBeHidden();
+
+        // Scroll editor to top using keyboard
+        await page.locator('.editor-instance .monaco-editor').first().click();
+        await page.keyboard.press('Control+Home');
+
+        // Expand thread to verify UI contains the reply
+        await page.locator('.comment-range-glyph').first().click();
+        reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await expect(reviewWidget).toContainText(ACK_REPLY_TEXT);
+
+        // Unresolve the thread to test the next button
+        await unresolveCommentThread(reviewWidget);
+
+        // Wait for thread to be unresolved
+        await waitForThreadState(vscode, 'unresolved', 1);
+
+        // 2. Test "Done" button
+        reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await replyWithDone(reviewWidget);
+
+        // Wait for thread to be resolved & collapsed
+        await waitForThreadState(vscode, 'resolved', 0);
+        await expect(page.locator('.review-widget')).toBeHidden();
+
+        // Scroll editor to top using keyboard
+        await page.locator('.editor-instance .monaco-editor').first().click();
+        await page.keyboard.press('Control+Home');
+
+        // Expand thread to verify UI contains the reply
+        await page.locator('.comment-range-glyph').first().click();
+        reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await expect(reviewWidget).toContainText(DONE_REPLY_TEXT);
+
+        // Unresolve the thread to test the next button
+        await unresolveCommentThread(reviewWidget);
+
+        // Wait for thread to be unresolved
+        await waitForThreadState(vscode, 'unresolved', 1);
+
+        // 3. Test "Reply & Resolve" button
+        reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await replyAndResolve(page, reviewWidget, 'My custom reply and resolve');
+
+        // Wait for thread to be resolved & collapsed
+        await waitForThreadState(vscode, 'resolved', 0);
+        await expect(page.locator('.review-widget')).toBeHidden();
+
+        // Scroll editor to top using keyboard
+        await page.locator('.editor-instance .monaco-editor').first().click();
+        await page.keyboard.press('Control+Home');
+
+        // Expand thread to verify UI contains the reply
+        await page.locator('.comment-range-glyph').first().click();
+        reviewWidget = await getReviewWidget(page, 'Review comment body');
+        await expect(reviewWidget).toContainText('My custom reply and resolve');
     });
 });

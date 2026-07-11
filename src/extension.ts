@@ -17,7 +17,10 @@ import { advanceBookmarkAndUploadCommand } from './commands/bookmark-advance-upl
 import { deleteBookmarkCommand } from './commands/bookmark-delete';
 import { resolveRepository } from './commands/command-utils';
 import {
+    ackCommentCommand,
     copyUnresolvedCommentsCommand,
+    doneCommentCommand,
+    replyAndResolveCommentCommand,
     replyCommentCommand,
     resolveCommentThreadCommand,
     showCommentsCommand,
@@ -474,6 +477,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.showComments', async (changeId?: string) => {
             await showCommentsCommand(commentsManager, changeId);
+        }),
+        vscode.commands.registerCommand('jj-view.ackComment', async (reply?: vscode.CommentReply) => {
+            await ackCommentCommand(commentsManager, reply);
+        }),
+        vscode.commands.registerCommand('jj-view.doneComment', async (reply?: vscode.CommentReply) => {
+            await doneCommentCommand(commentsManager, reply);
+        }),
+        vscode.commands.registerCommand('jj-view.replyAndResolveComment', async (reply?: vscode.CommentReply) => {
+            await replyAndResolveCommentCommand(commentsManager, reply);
         }),
         vscode.commands.registerCommand('jj-view.replyComment', async (reply?: vscode.CommentReply) => {
             await replyCommentCommand(commentsManager, reply);

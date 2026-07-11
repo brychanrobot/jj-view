@@ -59,7 +59,12 @@ export interface CodeForgeProvider {
     /** Fetch all comment threads for a given change */
     getCommentThreads?(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]>;
     /** Reply to a comment thread */
-    replyToCommentThread?(changeId: string, threadId: string, body: string): Promise<CodeForgeComment>;
+    replyToCommentThread?(
+        changeId: string,
+        threadId: string,
+        body: string,
+        resolved?: boolean,
+    ): Promise<CodeForgeComment>;
     /** Resolve/unresolve a comment thread */
     resolveCommentThread?(changeId: string, threadId: string, resolved: boolean): Promise<void>;
 }

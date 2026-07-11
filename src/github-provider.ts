@@ -623,27 +623,55 @@ export class GitHubProvider implements CodeForgeProvider {
         return threads;
     }
 
-    public async replyToCommentThread(_changeId: string, threadId: string, body: string): Promise<CodeForgeComment> {
+    public async replyToCommentThread(
+        _changeId: string,
+        threadId: string,
+        body: string,
+        resolved?: boolean,
+    ): Promise<CodeForgeComment> {
         const token = await this.getSessionToken();
         if (!token) {
             throw new Error('Not authenticated');
         }
 
-        const query = `
-        mutation($threadId: ID!, $body: String!) {
-            addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
-                comment {
-                    id
-                    body
-                    createdAt
-                    author {
-                        login
-                        avatarUrl
+        const query =
+            resolved !== undefined
+                ? `
+            mutation($threadId: ID!, $body: String!) {
+                addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
+                    comment {
+                        id
+                        body
+                        createdAt
+                        author {
+                            login
+                            avatarUrl
+                        }
+                    }
+                }
+                resolve: ${resolved ? 'resolveReviewThread' : 'unresolveReviewThread'}(input: {threadId: $threadId}) {
+                    thread {
+                        id
+                        isResolved
                     }
                 }
             }
-        }
-        `;
+            `
+                : `
+            mutation($threadId: ID!, $body: String!) {
+                addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
+                    comment {
+                        id
+                        body
+                        createdAt
+                        author {
+                            login
+                            avatarUrl
+                        }
+                    }
+                }
+            }
+            `;
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
         const response = await fetchWithTimeout(apiUrl, 15000, {
