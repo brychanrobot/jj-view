@@ -418,8 +418,9 @@ suite('JJ SCM Provider Integration Test', () => {
         await scmProvider.openMergeEditor(conflictGroup.resourceStates);
 
         // Verify the argument format
-        assert.ok(executeStub.calledOnce, 'Should have called _open.mergeEditor');
-        const args = executeStub.firstCall.args[1] as {
+        const mergeEditorCall = executeStub.getCalls().find((call) => call.args[0] === '_open.mergeEditor');
+        assert.ok(mergeEditorCall, 'Should have called _open.mergeEditor');
+        const args = mergeEditorCall.args[1] as {
             base: vscode.Uri;
             input1: { uri: vscode.Uri };
             input2: { uri: vscode.Uri };
