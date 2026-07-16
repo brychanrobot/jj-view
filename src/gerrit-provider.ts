@@ -79,6 +79,8 @@ interface FetchGerritOptions extends RequestInit {
     timeoutMs?: number;
 }
 
+const AUTH_HEADER_TTL_MS = 5 * 60 * 1000;
+
 export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
     public readonly displayName = 'Gerrit';
@@ -90,6 +92,7 @@ export class GerritProvider implements CodeForgeProvider {
     private gitRoot: string | null = null;
     private authHeader: { name: string; value: string } | undefined;
     private authChecked = false;
+    private lastAuthTime = 0;
 
     private _onDidUpdate = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this._onDidUpdate.event;
@@ -145,10 +148,12 @@ export class GerritProvider implements CodeForgeProvider {
         if (!this.gerritHost || !this.repoRoot) {
             return undefined;
         }
-        if (this.authChecked) {
+        const now = Date.now();
+        if (this.authChecked && now - this.lastAuthTime < AUTH_HEADER_TTL_MS) {
             return this.authHeader;
         }
         this.authChecked = true;
+        this.lastAuthTime = now;
         this.authHeader = await getGerritAuthHeader(this.gerritHost, this.gitRoot, this.outputChannel);
         return this.authHeader;
     }
@@ -177,7 +182,18 @@ export class GerritProvider implements CodeForgeProvider {
 
         const timeout = options?.timeoutMs ?? 15000;
         this.outputChannel?.debug(`[GerritProvider] fetchGerrit: ${finalUrl} (auth: ${!!auth})`);
-        return fetchWithTimeout(finalUrl, timeout, { ...options, headers });
+        const response = await fetchWithTimeout(finalUrl, timeout, { ...options, headers });
+
+        if (response.status === 401 || response.status === 403) {
+            this.outputChannel?.warn(
+                `[GerritProvider] Request to ${finalUrl} failed with status ${response.status}. Invalidating cached auth header.`,
+            );
+            this.authHeader = undefined;
+            this.authChecked = false;
+            this.lastAuthTime = 0;
+        }
+
+        return response;
     }
 
     public getCachedChangeInfo(
@@ -703,6 +719,7 @@ export class GerritProvider implements CodeForgeProvider {
         this.cache.clear();
         this.authHeader = undefined;
         this.authChecked = false;
+        this.lastAuthTime = 0;
         this._onDidUpdate.fire();
     }
 

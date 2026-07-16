@@ -25,6 +25,7 @@ export class FakeGerritServer {
     public url = '';
     public requests: string[] = [];
     public lastHeaders: http.IncomingHttpHeaders | undefined;
+    public failWithStatus: number | undefined;
 
     private nextChangeNumber = 1000;
 
@@ -143,6 +144,12 @@ export class FakeGerritServer {
             const urlStr = req.url || '';
             this.requests.push(urlStr);
             this.lastHeaders = req.headers;
+
+            if (this.failWithStatus) {
+                res.writeHead(this.failWithStatus);
+                res.end('Error');
+                return;
+            }
 
             if (urlStr.includes('/config/server/version')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
