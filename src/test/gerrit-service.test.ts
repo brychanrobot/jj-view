@@ -12,6 +12,7 @@ import { CodeForgeRegistry } from '../code-forge-registry';
 import { CodeForgeService } from '../code-forge-service';
 import { GerritProvider } from '../gerrit-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import * as credentialUtils from '../utils/gerrit-credential-utils';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
 import { accessPrivate, exposePrivate } from './test-utils';
@@ -950,5 +951,101 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(2);
 
         disposable.dispose();
+    });
+
+    describe('GerritProvider Authentication Caching', () => {
+        test('caches auth header and refreshes after TTL', async () => {
+            const authSpy = vi.spyOn(credentialUtils, 'getGerritAuthHeader');
+            vi.useFakeTimers();
+            const provider = new GerritProvider();
+            const priv = exposePrivate<{
+                getAuthHeader(): Promise<{ name: string; value: string } | undefined>;
+                gerritHost?: string;
+                repoRoot?: string;
+                gitRoot?: string | null;
+                lastAuthTime: number;
+            }>(provider);
+
+            priv.gerritHost = 'https://gerrit.example.com';
+            priv.repoRoot = '/path/to/repo';
+            priv.gitRoot = '/path/to/repo/.git';
+
+            // 1. Verify caching works with undefined (no credentials)
+            authSpy.mockResolvedValue(undefined);
+            const h1 = await priv.getAuthHeader();
+            expect(h1).toBeUndefined();
+            expect(authSpy).toHaveBeenCalledTimes(1);
+
+            // Second call should reuse the cached undefined
+            const h2 = await priv.getAuthHeader();
+            expect(h2).toBeUndefined();
+            expect(authSpy).toHaveBeenCalledTimes(1);
+
+            // 2. Advance time past 5 minutes (total 6 minutes) -> should refresh
+            await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+            authSpy.mockResolvedValue({ name: 'Authorization', value: 'Bearer token1' });
+            const h3 = await priv.getAuthHeader();
+            expect(h3).toEqual({ name: 'Authorization', value: 'Bearer token1' });
+            expect(authSpy).toHaveBeenCalledTimes(2);
+
+            // Immediate call should reuse the token1 cache
+            const h4 = await priv.getAuthHeader();
+            expect(h4).toEqual({ name: 'Authorization', value: 'Bearer token1' });
+            expect(authSpy).toHaveBeenCalledTimes(2);
+
+            // 3. Advance time by 4 minutes (less than 5m TTL) -> should still use cache
+            await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+            const h5 = await priv.getAuthHeader();
+            expect(h5).toEqual({ name: 'Authorization', value: 'Bearer token1' });
+            expect(authSpy).toHaveBeenCalledTimes(2);
+
+            // 4. Advance time past 5 minutes (total 10 minutes) -> should refresh
+            await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+            authSpy.mockResolvedValue({ name: 'Authorization', value: 'Bearer token2' });
+            const h6 = await priv.getAuthHeader();
+            expect(h6).toEqual({ name: 'Authorization', value: 'Bearer token2' });
+            expect(authSpy).toHaveBeenCalledTimes(3);
+
+            vi.useRealTimers();
+            authSpy.mockRestore();
+        });
+
+        test.each([401, 403])('invalidates auth header on %i response', async (status) => {
+            const authSpy = vi.spyOn(credentialUtils, 'getGerritAuthHeader');
+            const provider = new GerritProvider();
+            const priv = exposePrivate<{
+                getAuthHeader(): Promise<{ name: string; value: string } | undefined>;
+                fetchGerrit(url: string, options?: unknown): Promise<Response>;
+                gerritHost?: string;
+                repoRoot?: string;
+                gitRoot?: string | null;
+            }>(provider);
+
+            priv.gerritHost = fakeGerritServer.url;
+            priv.repoRoot = repo.path;
+            priv.gitRoot = `${repo.path}/.git`;
+
+            authSpy.mockResolvedValue({ name: 'Authorization', value: 'Bearer token1' });
+
+            // Make the fake Gerrit server return the status code
+            fakeGerritServer.failWithStatus = status;
+
+            // Call fetchGerrit which calls getAuthHeader (so it becomes cached)
+            const resp = await priv.fetchGerrit(`${fakeGerritServer.url}/changes/`);
+            expect(resp.status).toBe(status);
+            expect(authSpy).toHaveBeenCalledTimes(1);
+
+            // Reset the fake server failure status
+            fakeGerritServer.failWithStatus = undefined;
+
+            // Since it returned 401/403, cache should be invalidated.
+            // Next call to getAuthHeader should invoke getGerritAuthHeader again.
+            authSpy.mockResolvedValue({ name: 'Authorization', value: 'Bearer token2' });
+            const h1 = await priv.getAuthHeader();
+            expect(h1).toEqual({ name: 'Authorization', value: 'Bearer token2' });
+            expect(authSpy).toHaveBeenCalledTimes(2);
+
+            authSpy.mockRestore();
+        });
     });
 });
