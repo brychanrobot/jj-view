@@ -547,8 +547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             await refreshCommand(scm);
         }),
         registerWrappedCommand('jj-view.openFile', async (_scm, _jj, ...args) => {
-            const state = args[0] as vscode.SourceControlResourceState | undefined;
-            await openFileCommand(state);
+            await openFileCommand(...args);
         }),
         registerWrappedCommand('jj-view.openChanges', async (_scm, _jj, ...args) => {
             const state = args[0] as JjResourceState | undefined;
