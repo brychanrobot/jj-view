@@ -6,8 +6,10 @@
 import { expect, type Page } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
+    focusSCM,
     openFileInEditor,
     openQuickInputWithShortcut,
+    openScmDiff,
     pickQuickPickItem,
     rightClickAndSelect,
     test,
@@ -102,5 +104,38 @@ test.describe('View File at Revision E2E', () => {
 
         const activeTab = page.getByRole('tab', { name: /f\.txt/, selected: true });
         await expect(activeTab).toBeVisible({ timeout: 10000 });
+    });
+
+    test('Open File in Working Copy via Tab Context Menu', async ({ vscode }) => {
+        await openFileInEditor(vscode, page, 'f.txt');
+        await openQuickInputWithShortcut(page, 'Control+Alt+v');
+        await pickQuickPickItem(page, 'branchA2');
+
+        const revisionTab = page.getByRole('tab', { name: /f\.txt/, selected: true });
+        await expect(revisionTab).toBeVisible({ timeout: 10000 });
+
+        // Verify editor content comes from historical revision (branchA2)
+        const historicalEditor = page.locator('.editor-instance .monaco-editor').first();
+        await expect(historicalEditor).toContainText('branchA2 content', { timeout: 5000 });
+
+        await rightClickAndSelect(page, revisionTab, 'Open File in Working Copy');
+
+        // Verify editor content changes to current working copy content (commit2)
+        const wcEditor = page.locator('.editor-instance .monaco-editor').first();
+        await expect(wcEditor).toContainText('commit2 content', { timeout: 5000 });
+    });
+
+    test('Open File in Working Copy from Diff Tab Context Menu', async () => {
+        await focusSCM(page);
+        await openScmDiff(page, 'f.txt', /commit1/);
+
+        const diffTab = page.getByRole('tab', { name: /f\.txt \(/, selected: true });
+        await expect(diffTab).toBeVisible({ timeout: 10000 });
+
+        await rightClickAndSelect(page, diffTab, 'Open File in Working Copy');
+
+        // Verify editor content switches to working copy content (commit2)
+        const wcEditor = page.locator('.editor-instance .monaco-editor').first();
+        await expect(wcEditor).toContainText('commit2 content', { timeout: 5000 });
     });
 });

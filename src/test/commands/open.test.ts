@@ -7,52 +7,72 @@ import * as vscode from 'vscode';
 import { openChangesCommand, openFileCommand } from '../../commands/open';
 import type { JjResourceState } from '../../scm-resource-state';
 import { createMock } from '../test-utils';
+import { setActiveTextEditor } from '../vscode-mock';
 
-vi.mock('vscode', () => {
-    const uriFactory = (path: string, query: string = '') => ({
-        fsPath: path,
-        path: path,
-        scheme: 'file',
-        query,
-        with: (change: { query?: string }) => uriFactory(path, change.query !== undefined ? change.query : query),
-    });
-
-    return {
-        commands: {
-            executeCommand: vi.fn(),
-        },
-        Uri: {
-            file: (path: string) => uriFactory(path),
-            parse: (path: string) => uriFactory(path),
-        },
-    };
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
 });
 
 describe('openFileCommand', () => {
     afterEach(() => {
         vi.clearAllMocks();
+        setActiveTextEditor(undefined);
     });
 
-    test('does nothing if no resource state', async () => {
-        await openFileCommand(undefined);
+    test('does nothing if no args and no active text editor', async () => {
+        await openFileCommand();
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });
 
-    test('executes vscode.open with resource uri stripped of query params', async () => {
-        // Create a URI that "starts" with a query, although the mock factory default is empty.
-        // We rely on the fact that openFileCommand calls .with({ query: '' })
+    test('executes vscode.open from SourceControlResourceState', async () => {
         const resourceState = createMock<vscode.SourceControlResourceState>({
-            resourceUri: vscode.Uri.file('/foo'),
+            resourceUri: vscode.Uri.parse('file:///foo?jj-revision=@'),
         });
 
         await openFileCommand(resourceState);
 
-        // We expect it to be called with a URI that has empty query
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.open',
             expect.objectContaining({
                 scheme: 'file',
                 path: '/foo',
+                query: '',
+            }),
+        );
+    });
+
+    test('executes vscode.open from a historical URI (jj-view scheme)', async () => {
+        const uri = vscode.Uri.parse('jj-view:///foo/bar.txt?base=c123&side=left');
+
+        await openFileCommand(uri);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.open',
+            expect.objectContaining({
+                scheme: 'file',
+                path: '/foo/bar.txt',
+                query: '',
+            }),
+        );
+    });
+
+    test('executes vscode.open from activeTextEditor fallback when args are empty', async () => {
+        setActiveTextEditor(
+            createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({
+                    uri: vscode.Uri.parse('jj-edit:///baz/qux.ts?revision=rev123'),
+                }),
+            }),
+        );
+
+        await openFileCommand();
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.open',
+            expect.objectContaining({
+                scheme: 'file',
+                path: '/baz/qux.ts',
                 query: '',
             }),
         );
@@ -73,7 +93,6 @@ describe('openChangesCommand', () => {
         const resourceState = createMock<JjResourceState>({
             resourceUri: vscode.Uri.file('/foo'),
             revision: '@',
-            // Missing leftUri and rightUri
         });
 
         await openChangesCommand(resourceState);

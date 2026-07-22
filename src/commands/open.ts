@@ -4,14 +4,17 @@
  */
 import * as vscode from 'vscode';
 import type { JjResourceState } from '../scm-resource-state';
+import { extractFileUri } from './command-utils';
 
-// Opens the file on disk (usually the working copy version).
-// Strips the query parameter to ensure VS Code opens the local file path.
-export async function openFileCommand(resourceState: vscode.SourceControlResourceState | undefined) {
-    if (!resourceState) {
+// Opens the file on disk (working copy version).
+// Extracts the file URI from command arguments (or active text editor),
+// converts the scheme to 'file', and strips query parameters.
+export async function openFileCommand(...args: unknown[]) {
+    const resourceUri = extractFileUri(args);
+    if (!resourceUri) {
         return;
     }
-    const uri = resourceState.resourceUri.with({ query: '' });
+    const uri = resourceUri.with({ scheme: 'file', query: '' });
     await vscode.commands.executeCommand('vscode.open', uri);
 }
 

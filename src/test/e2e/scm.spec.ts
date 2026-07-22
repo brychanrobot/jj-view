@@ -731,7 +731,9 @@ test.describe('SCM Pane E2E', () => {
         await openScmMerge(page, /conflict\.txt/i);
 
         // 4. Open File via inline button -> should open regular editor
-        const openFileIcon = modifiedRow.getByRole('button', { name: 'Open File', exact: true }).first();
+        const openFileIcon = modifiedRow
+            .getByRole('button', { name: 'Open File in Working Copy', exact: true })
+            .first();
         await hoverAndClick(modifiedRow, openFileIcon);
         await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 5000 });
         await expect(page.locator('.monaco-diff-editor')).not.toBeVisible();

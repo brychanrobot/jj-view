@@ -21,6 +21,7 @@ import type { JjScmProvider } from '../jj-scm-provider';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
+import { setActiveTextEditor } from './vscode-mock';
 
 describe('resolveRepository', () => {
     let repo: TestRepo;
@@ -101,13 +102,11 @@ describe('resolveRepository', () => {
 
     it('resolves repository from active text editor when no arguments provided', () => {
         const activeUri = vscode.Uri.file(path.join(repo.path, 'other.txt'));
-        // Set up vscode mock active text editor
-        Object.defineProperty(vscode.window, 'activeTextEditor', {
-            get: () => ({
-                document: { uri: activeUri },
+        setActiveTextEditor(
+            createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({ uri: activeUri }),
             }),
-            configurable: true,
-        });
+        );
 
         const result = resolveRepository([], repoManager, scmProviders);
 
@@ -115,11 +114,7 @@ describe('resolveRepository', () => {
         expect(result?.repo).toBe(resolvedRepo);
         expect(result?.scm).toBe(mockScm);
 
-        // Reset active text editor
-        Object.defineProperty(vscode.window, 'activeTextEditor', {
-            get: () => undefined,
-            configurable: true,
-        });
+        setActiveTextEditor(undefined);
     });
 
     it('resolves repository from active custom jj-commit editor', () => {
@@ -128,12 +123,11 @@ describe('resolveRepository', () => {
             path: '/Commit:%20abc123',
             query: `changeId=abc12345&repoRoot=${encodeURIComponent(repo.path)}`,
         });
-        Object.defineProperty(vscode.window, 'activeTextEditor', {
-            get: () => ({
-                document: { uri: commitUri },
+        setActiveTextEditor(
+            createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({ uri: commitUri }),
             }),
-            configurable: true,
-        });
+        );
 
         const result = resolveRepository([], repoManager, scmProviders);
 
@@ -141,10 +135,7 @@ describe('resolveRepository', () => {
         expect(result?.repo).toBe(resolvedRepo);
         expect(result?.scm).toBe(mockScm);
 
-        Object.defineProperty(vscode.window, 'activeTextEditor', {
-            get: () => undefined,
-            configurable: true,
-        });
+        setActiveTextEditor(undefined);
     });
 
     it('falls back to focused repository when arg and active editor are not in any repository', () => {

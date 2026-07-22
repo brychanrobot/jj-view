@@ -105,7 +105,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Delete Bookmark`: Delete a bookmark.
 - `JJ View: Commit`: Commit the current changes in the working copy (Ctrl+Enter in SCM input).
 - `JJ View: Commit (Prompt)`: Commit the current changes in the working copy, prompting for a description message first.
-- `JJ View: Open File`: Open the file associated with a change.
+- `JJ View: Open File in Working Copy`: Open the file in the working copy.
 - `JJ View: Open Changes`: Open the diff view for a file.
 - `JJ View: Add Workspace`: Create a new `jj` workspace.
 - `JJ View: Forget Workspace`: Forget a workspace without deleting its directory.

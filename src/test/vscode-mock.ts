@@ -3,6 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { vi } from 'vitest';
+import type * as vscode from 'vscode';
+
+let activeTextEditorState: unknown;
+
+/**
+ * Helper to set or reset vscode.window.activeTextEditor in tests without type casting.
+ */
+export function setActiveTextEditor(editor: Partial<vscode.TextEditor> | undefined): void {
+    activeTextEditorState = editor;
+}
 
 /**
  * Helper to parse a URI string into components for MockUri.
@@ -313,6 +323,12 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             },
         },
         window: {
+            get activeTextEditor() {
+                return activeTextEditorState;
+            },
+            set activeTextEditor(editor: unknown) {
+                activeTextEditorState = editor;
+            },
             showErrorMessage: vi.fn(),
             showInformationMessage: vi.fn(),
             showWarningMessage: vi.fn(),

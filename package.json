@@ -305,7 +305,7 @@
             },
             {
                 "command": "jj-view.openFile",
-                "title": "Open File",
+                "title": "Open File in Working Copy",
                 "category": "JJ View",
                 "icon": "$(go-to-file)"
             },
@@ -1030,17 +1030,27 @@
                     "command": "jj-view.completeSquashRevision",
                     "group": "navigation",
                     "when": "resourceFilename == 'SQUASH_MSG'"
+                },
+                {
+                    "command": "jj-view.openFile",
+                    "group": "navigation",
+                    "when": "resourceScheme == 'jj-view' || resourceScheme == 'jj-edit'"
                 }
             ],
             "editor/title/context": [
                 {
                     "command": "jj-view.compareFileWith",
-                    "group": "jj-view",
+                    "group": "jj-view@1",
                     "when": "resourceScheme == 'file'"
                 },
                 {
+                    "command": "jj-view.openFile",
+                    "group": "jj-view@2",
+                    "when": "resourceScheme == 'jj-view' || resourceScheme == 'jj-edit'"
+                },
+                {
                     "command": "jj-view.viewFileAtRevision",
-                    "group": "jj-view",
+                    "group": "jj-view@3",
                     "when": "resourceScheme == 'file'"
                 }
             ],
