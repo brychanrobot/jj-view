@@ -114,6 +114,22 @@ test.describe('Commit Details E2E', () => {
             await expect(details.locator('text=Changed Files (2)')).toBeVisible();
         });
 
+        test('Marks the conflicted file in the file list', async () => {
+            const conflictedRow = await waitForLogCommitRow(page, 'conflicted commit');
+            await conflictedRow.click();
+
+            const shortId = nodes['conflicted-commit'].changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            const details = await getDetailsWebview(page);
+            const conflictedFileRow = details.getByRole('button').filter({ hasText: 'f.txt' });
+            await expect(conflictedFileRow).toHaveCount(1);
+            await expect(conflictedFileRow).toBeVisible();
+            await expect(conflictedFileRow.getByTitle('Conflicted file')).toHaveCount(1);
+        });
+
         test('Save description via button', async () => {
             const featureRow = await waitForLogCommitRow(page, 'add feature');
 
