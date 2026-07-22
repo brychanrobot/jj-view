@@ -275,6 +275,11 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.viewFileAtRevision",
+                "title": "View File at Revision...",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.refresh",
                 "title": "Refresh",
                 "category": "JJ View",
@@ -1032,6 +1037,11 @@
                     "command": "jj-view.compareFileWith",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.viewFileAtRevision",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
                 }
             ],
             "editor/context": [
@@ -1044,11 +1054,21 @@
                     "command": "jj-view.compareFileWith",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.viewFileAtRevision",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
                 }
             ],
             "explorer/context": [
                 {
                     "command": "jj-view.compareFileWith",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.viewFileAtRevision",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
                 }

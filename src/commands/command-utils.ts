@@ -175,6 +175,23 @@ export function extractRevision(args: unknown[]): string | undefined {
     return revs.length > 0 ? revs[0] : undefined;
 }
 
+/**
+ * Extracts a file URI from command arguments (Uri, SCM resource state, or active text editor).
+ */
+export function extractFileUri(args: unknown[]): vscode.Uri | undefined {
+    const firstArg = args[0];
+    if (firstArg instanceof vscode.Uri) {
+        return firstArg;
+    }
+    if (typeof firstArg === 'object' && firstArg !== null && 'resourceUri' in firstArg) {
+        const state = firstArg as { resourceUri: unknown };
+        if (state.resourceUri instanceof vscode.Uri) {
+            return state.resourceUri;
+        }
+    }
+    return vscode.window.activeTextEditor?.document.uri;
+}
+
 export function getErrorMessage(error: unknown): string {
     if (error instanceof Error) {
         return error.message;

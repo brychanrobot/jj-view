@@ -61,6 +61,7 @@ import {
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from './commands/squash-selection';
 import { undoCommand } from './commands/undo';
 import { uploadCommand } from './commands/upload';
+import { viewFileAtRevisionCommand } from './commands/view-file-at-revision';
 import { workspaceAddCommand } from './commands/workspace-add';
 import { workspaceDeleteCommand } from './commands/workspace-delete';
 import { workspaceForgetCommand } from './commands/workspace-forget';
@@ -609,6 +610,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
         registerWrappedCommand('jj-view.compareFileWith', async (_scm, jj, ...args) => {
             await compareFileWithRevisionCommand(jj, outputChannel, ...args);
+        }),
+        registerWrappedCommand('jj-view.viewFileAtRevision', async (_scm, jj, ...args) => {
+            await viewFileAtRevisionCommand(jj, outputChannel, ...args);
         }),
         registerWrappedCommand('jj-view.workspaceAdd', async (scm, jj) => {
             await workspaceAddCommand(scm, jj);

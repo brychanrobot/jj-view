@@ -224,6 +224,7 @@ export async function launchNewVSCode(
             { key: 'ctrl+alt+e', command: 'workbench.files.action.refreshFilesExplorer' },
             { key: 'ctrl+alt+c', command: 'jj-view.compareWithWorkingCopy' },
             { key: 'ctrl+alt+f', command: 'jj-view.compareFileWith' },
+            { key: 'ctrl+alt+v', command: 'jj-view.viewFileAtRevision' },
             { key: 'ctrl+alt+d', command: 'jj-view.deleteBookmark' },
         ],
         null,
