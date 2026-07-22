@@ -5,11 +5,12 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { type ElectronApplication, expect, type Page } from '@playwright/test';
 import { buildGraph, TestRepo } from '../test-repo';
 import {
     clickLogTitleButton,
     clickNotificationButton,
+    expectWindowTitle,
     focusJJLog,
     getLogWebview,
     rightClickAndSelect,
@@ -17,6 +18,50 @@ import {
     waitForLogPill,
     waitForQuickInput,
 } from './e2e-helpers';
+
+interface WaitForNewWindowOptions {
+    app: ElectronApplication;
+    action: () => Promise<void>;
+    errorMessage?: string;
+}
+
+async function waitForNewWindow({
+    app,
+    action,
+    errorMessage = 'Failed to open new workspace window',
+}: WaitForNewWindowOptions): Promise<Page> {
+    let newPage: Page | undefined;
+    await expect(async () => {
+        const [window] = await Promise.all([app.waitForEvent('window', { timeout: 8000 }), action()]);
+        newPage = window;
+    }, errorMessage).toPass({ timeout: 25000 });
+
+    if (!newPage) {
+        throw new Error('New workspace window was not captured');
+    }
+    return newPage;
+}
+
+interface WithNewWindowOptions<T> {
+    app: ElectronApplication;
+    action: () => Promise<void>;
+    callback: (newPage: Page) => Promise<T>;
+    errorMessage?: string;
+}
+
+async function withNewWindow<T>({
+    app,
+    action,
+    callback,
+    errorMessage = 'Failed to open new workspace window',
+}: WithNewWindowOptions<T>): Promise<T> {
+    const newPage = await waitForNewWindow({ app, action, errorMessage });
+    try {
+        return await callback(newPage);
+    } finally {
+        await newPage.close().catch(() => {});
+    }
+}
 
 test.describe('Workspace Management E2E', () => {
     test('Shows workspace labels for multiple workspaces', async ({ vscode }) => {
@@ -63,7 +108,7 @@ test.describe('Workspace Management E2E', () => {
         const workspaceName = `ws-${Date.now()}`;
 
         // Enable notifications for this test so we can click "Open Workspace"
-        const { app, page } = await vscode.openWorkspace(repo, {}, {}, true);
+        const { app, page } = await vscode.openWorkspace(repo, {}, {}, /* showNotifications= */ true);
 
         await focusJJLog(page);
 
@@ -79,29 +124,18 @@ test.describe('Workspace Management E2E', () => {
         await waitForLogPill(page, workspaceName, 'workspace');
 
         // 4. Click "Open Workspace" in the notification and verify a new window opens
-        const openWorkspace = async (): Promise<Page> => {
-            let newPage: Page | undefined;
-            await expect(async () => {
-                const [window] = await Promise.all([
-                    app.waitForEvent('window', { timeout: 8000 }),
-                    clickNotificationButton(page, 'Open Workspace'),
-                ]);
-                newPage = window;
-            }, 'Failed to open new workspace window').toPass({ timeout: 25000 });
+        await withNewWindow({
+            app,
+            action: () => clickNotificationButton(page, 'Open Workspace'),
+            callback: async (newPage) => {
+                // Wait for workbench to load in new window
+                await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
 
-            if (!newPage) {
-                throw new Error('New workspace window was not captured');
-            }
-            return newPage;
-        };
-
-        const newPage = await openWorkspace();
-
-        // Wait for workbench to load in new window
-        await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
-
-        // On Linux, the window title should contain the folder name
-        await expect.poll(async () => await newPage.title(), { timeout: 10000 }).toContain(workspaceName);
+                // Window title should contain the folder name
+                await expectWindowTitle(newPage, workspaceName);
+            },
+            errorMessage: 'Failed to open new workspace window',
+        });
 
         // 5. Verify in jj
         const workspaces = repo.getLog('all()', 'working_copies.map(|w| w.name()).join("\\n")');
@@ -123,7 +157,7 @@ test.describe('Workspace Management E2E', () => {
         const forgetWsPath = path.resolve(repo.path, workspacesRelativeDir, forgetWs);
         const deleteWsPath = path.resolve(repo.path, workspacesRelativeDir, deleteWs);
 
-        const { page } = await vscode.openWorkspace(repo, {}, {}, true);
+        const { page } = await vscode.openWorkspace(repo, {}, {}, /* showNotifications= */ true);
 
         await focusJJLog(page);
 
@@ -166,5 +200,50 @@ test.describe('Workspace Management E2E', () => {
 
         const gone = !fs.existsSync(deleteWsPath);
         expect(gone, `Directory ${deleteWsPath} should be removed after delete`).toBe(true);
+    });
+
+    test('Open Workspace in Current Window via context menu', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+
+        const openWs = 'open-curr-ws';
+        const workspacesRelativeDir = '.workspaces';
+        repo.workspaceAdd(path.join(workspacesRelativeDir, openWs));
+
+        const { page } = await vscode.openWorkspace(repo);
+
+        await focusJJLog(page);
+
+        const openPill = await waitForLogPill(page, openWs, 'workspace');
+
+        await rightClickAndSelect(page, openPill, 'Open in Current Window');
+
+        await expectWindowTitle(page, openWs);
+    });
+
+    test('Open Workspace in New Window via context menu', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+
+        const openWs = 'open-new-ws';
+        const workspacesRelativeDir = '.workspaces';
+        repo.workspaceAdd(path.join(workspacesRelativeDir, openWs));
+
+        const { app, page } = await vscode.openWorkspace(repo, {}, {}, /* showNotifications= */ true);
+
+        await focusJJLog(page);
+
+        const openPill = await waitForLogPill(page, openWs, 'workspace');
+
+        await withNewWindow({
+            app,
+            action: () => rightClickAndSelect(page, openPill, 'Open in New Window'),
+            callback: async (newPage) => {
+                await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
+
+                await expectWindowTitle(newPage, openWs);
+            },
+            errorMessage: 'Failed to open workspace in new window via context menu',
+        });
     });
 });
