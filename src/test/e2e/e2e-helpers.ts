@@ -801,6 +801,27 @@ export async function expectNotificationToast(page: Page, text: string | RegExp,
 }
 
 /**
+ * Polls the window title until it matches/contains the expected string or RegExp.
+ * Gracefully handles execution context unloads during page/frame navigations.
+ */
+export async function expectWindowTitle(page: Page, expected: string | RegExp, timeout = 15000) {
+    const start = Date.now();
+    await expect
+        .poll(
+            async () => {
+                try {
+                    return await page.title();
+                } catch {
+                    return '';
+                }
+            },
+            { timeout },
+        )
+        .toMatch(expected);
+    logPerf('expectWindowTitle', start);
+}
+
+/**
  * Returns the locator for the active QuickInput widget.
  */
 export function locateQuickInputWidget(page: Page): Locator {
