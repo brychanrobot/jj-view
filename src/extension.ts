@@ -43,7 +43,7 @@ import { showMultiFileDiffCommand } from './commands/multi-diff';
 import { newCommand } from './commands/new';
 import { newAfterCommand } from './commands/new-after';
 import { newBeforeCommand } from './commands/new-before';
-import { openChangesCommand, openFileCommand } from './commands/open';
+import { openChangesCommand, openFileCommand, registerOpenSyncTracking } from './commands/open';
 import { registerProcessMonitorCommands } from './commands/process-monitor';
 import { type CommitMenuContext, rebaseOntoSelectedCommand } from './commands/rebase';
 import { redoCommand } from './commands/redo';
@@ -102,6 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const realOutputChannel = vscode.window.createOutputChannel('JJ View', { log: true });
     const outputChannel = new JjOutputChannel(realOutputChannel);
     context.subscriptions.push(realOutputChannel);
+    context.subscriptions.push(registerOpenSyncTracking());
 
     // Get preferred binary path configuration
     const preferredPath = getJjViewConfig<string>('binaryPath');
