@@ -9,7 +9,7 @@ import { encodeJjViewQuery } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractFileUri, promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
-export async function compareFileWithRevisionCommand(
+export async function viewFileAtRevisionCommand(
     jj: JjService,
     outputChannel: JjLoggerChannel,
     ...args: unknown[]
@@ -18,28 +18,27 @@ export async function compareFileWithRevisionCommand(
         const fileUri = extractFileUri(args);
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            vscode.window.showErrorMessage('No workspace file selected for comparison.');
+            vscode.window.showErrorMessage('No workspace file selected.');
             return;
         }
 
         const revision = await promptForRevision(jj, {
-            placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
-            emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
-            revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+            placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
+            emptyPrompt: `View ${path.basename(fileUri.fsPath)} at revision`,
+            revisionQuery: RevisionQuery.visible(),
         });
 
         if (!revision) {
             return;
         }
 
-        const leftUri = fileUri.with({
+        const revisionUri = fileUri.with({
             scheme: 'jj-view',
             query: encodeJjViewQuery({ mode: 'revision', revision }),
         });
 
-        const title = `${path.basename(fileUri.fsPath)} (${revision} ↔ Working Copy)`;
-        await vscode.commands.executeCommand('vscode.diff', leftUri, fileUri, title);
+        await vscode.commands.executeCommand('vscode.open', revisionUri);
     } catch (err: unknown) {
-        await showJjError(err, 'Failed to compare file', jj, outputChannel);
+        await showJjError(err, 'Failed to view file at revision', jj, outputChannel);
     }
 }
