@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.4.0
+
+### Features
+
+- **File Viewer**:
+    - Add command and context menu items to view any workspace file at a specific Jujutsu revision.
+- **Log View**:
+    - Add change description to the tooltip of commit nodes.
+    - Add context menu action to open a workspace folder.
+- **Code Review Comments**:
+    - Add direct reply actions to SCM comment threads.
+    - Add command to copy unresolved code review comments to clipboard.
+- **Gerrit Integration**:
+    - Support authenticated API calls for Gerrit.
+
+### Fixes
+
+- **Gerrit Integration**:
+    - Periodically refresh stale authentication credentials.
+
+### Chores & Testing
+
+- **Testing**:
+    - Add E2E test coverage for workspace log context menu actions.
+    - Avoid binary-utils unit test flakiness.
+    - Resolve intermittent integration test flake in `openMergeEditor`.
+- **CI/CD**:
+    - Upgrade GitHub Actions workflows to latest versions.
+    - Expose compiled extension VSIX in pull requests.
+
 ## 2.3.0
 
 ### Features
