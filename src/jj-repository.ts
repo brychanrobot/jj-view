@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Disposable, Uri } from 'vscode';
+import type * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
@@ -13,9 +13,10 @@ import { JjService } from './jj-service';
 import { RefreshScheduler } from './refresh-scheduler';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
 import { CoalescingQueue } from './utils/coalescing-queue';
+import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
-export class JjRepository implements Disposable {
+export class JjRepository implements vscode.Disposable {
     private readonly _jj: JjService;
     private readonly _watcher: ChangeDetectionManager;
     private readonly _codeForge: CodeForgeService;
@@ -27,7 +28,7 @@ export class JjRepository implements Disposable {
     readonly onDidStatusChange = this._onDidStatusChange.event;
 
     constructor(
-        public readonly rootUri: Uri,
+        public readonly rootUri: vscode.Uri,
         public readonly storePath: string,
         registry: CodeForgeRegistry,
         outputChannel: JjLoggerChannel,
@@ -57,7 +58,10 @@ export class JjRepository implements Disposable {
                     } catch {}
                 },
             },
-            binaryPath,
+            {
+                binaryPath,
+                getConfig: getJjViewConfig,
+            },
         );
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
         this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));

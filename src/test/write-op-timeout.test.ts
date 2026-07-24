@@ -126,7 +126,7 @@ describe('JjService Write Operation Timeout', () => {
         expect(jjService.writeOpCount).toBe(0);
     });
 
-    test('read operation times out after 30 seconds', async () => {
+    test('read operation times out after 120 seconds', async () => {
         let killed = false;
         vi.mocked(cp.execFile).mockImplementation(() => {
             return {
@@ -142,9 +142,9 @@ describe('JjService Write Operation Timeout', () => {
             rejectionError = e;
         });
 
-        await vi.advanceTimersByTimeAsync(31_000);
+        await vi.advanceTimersByTimeAsync(121_000);
 
-        expect(rejectionError?.message).toContain('Read operation timed out after 30s');
+        expect(rejectionError?.message).toContain('Read operation timed out after 120s');
         expect(killed).toBe(true);
     });
 });
