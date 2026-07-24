@@ -11,6 +11,7 @@ import type { CodeForgeRegistry } from './code-forge-registry';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
 import { CoalescingQueue } from './utils/coalescing-queue';
+import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 
 interface DetectedRepoInfo {
@@ -581,7 +582,10 @@ export class JjRepositoryManager implements vscode.Disposable {
 
             const realDir = await fs.realpath(existingDir).catch(() => existingDir);
 
-            const jj = new JjService(realDir, NO_OP_LOGGER, this._binaryPath || 'jj');
+            const jj = new JjService(realDir, NO_OP_LOGGER, {
+                binaryPath: this._binaryPath || 'jj',
+                getConfig: getJjViewConfig,
+            });
             try {
                 const resolvedRoot = await jj.getRepoRoot();
                 const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);

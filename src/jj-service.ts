@@ -28,7 +28,7 @@ export interface JjLogOptions {
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
 const ONE_MINUTE = 60_000;
 const MUTATION_TIMEOUT_MS = ONE_MINUTE;
-const READ_TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 2 * ONE_MINUTE;
 const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -48,7 +48,16 @@ export const NO_OP_LOGGER: JjServiceLogger = {
     debug: () => {},
 };
 
+export type JjServiceConfigProvider = <T>(key: string, defaultValue?: T) => T | undefined;
+
+export interface JjServiceOptions {
+    binaryPath?: string;
+    getConfig?: JjServiceConfigProvider;
+}
+
 export class JjService {
+    public binaryPath: string;
+    private readonly _getConfig?: JjServiceConfigProvider;
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
     private _operationTimeouts = new Map<number, NodeJS.Timeout>();
@@ -60,8 +69,25 @@ export class JjService {
     constructor(
         public readonly workspaceRoot: string,
         public readonly logger: JjServiceLogger,
-        public binaryPath: string = 'jj',
-    ) {}
+        options?: string | JjServiceOptions,
+    ) {
+        if (typeof options === 'string') {
+            this.binaryPath = options;
+        } else {
+            this.binaryPath = options?.binaryPath ?? 'jj';
+            this._getConfig = options?.getConfig;
+        }
+    }
+
+    private getReadTimeoutMs(): number {
+        if (this._getConfig) {
+            const seconds = this._getConfig<number>('readTimeoutSeconds', 120);
+            if (typeof seconds === 'number' && seconds > 0) {
+                return seconds * 1000;
+            }
+        }
+        return READ_TIMEOUT_MS;
+    }
 
     private _repoRoot?: string;
     async getRepoRoot(): Promise<string> {
@@ -244,13 +270,13 @@ export class JjService {
 
         try {
             const { stdout } = await new Promise<{ stdout: string | Buffer }>((resolve, reject) => {
-                const duration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : READ_TIMEOUT_MS);
+                const maxDuration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : this.getReadTimeoutMs());
                 let childProcess: cp.ChildProcess | undefined;
 
                 timeout = setTimeout(() => {
                     timedOut = true;
                     const opType = isMutation ? 'Mutation operation' : 'Read operation';
-                    const timeoutMsg = `${opType} timed out after ${duration / 1000}s`;
+                    const timeoutMsg = `${opType} timed out after ${maxDuration / 1000}s`;
                     this.logger.warn(`[${timeoutMsg}] ${commandStr}`);
                     if (childProcess) {
                         try {
@@ -258,7 +284,7 @@ export class JjService {
                         } catch {}
                     }
                     reject(new Error(timeoutMsg));
-                }, duration);
+                }, maxDuration);
 
                 if (isMutation) {
                     this._operationTimeouts.set(opId, timeout);
@@ -312,8 +338,10 @@ export class JjService {
             const result = typeof stdout === 'string' ? stdout : stdout.toString();
             return shouldTrim ? result.trim() : result;
         } finally {
-            if (isMutation && timeout) {
+            if (timeout) {
                 clearTimeout(timeout);
+            }
+            if (isMutation) {
                 this._operationTimeouts.delete(opId);
             }
         }
