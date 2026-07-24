@@ -28,6 +28,7 @@ export interface JjLogOptions {
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
 const ONE_MINUTE = 60_000;
 const MUTATION_TIMEOUT_MS = ONE_MINUTE;
+const READ_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -239,14 +240,27 @@ export class JjService {
 
         const isMutation = !!options.isMutation;
         let timeout: NodeJS.Timeout | undefined;
+        let timedOut = false;
 
         try {
             const { stdout } = await new Promise<{ stdout: string | Buffer }>((resolve, reject) => {
+                const duration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : READ_TIMEOUT_MS);
+                let childProcess: cp.ChildProcess | undefined;
+
+                timeout = setTimeout(() => {
+                    timedOut = true;
+                    const opType = isMutation ? 'Mutation operation' : 'Read operation';
+                    const timeoutMsg = `${opType} timed out after ${duration / 1000}s`;
+                    this.logger.warn(`[${timeoutMsg}] ${commandStr}`);
+                    if (childProcess) {
+                        try {
+                            childProcess.kill();
+                        } catch {}
+                    }
+                    reject(new Error(timeoutMsg));
+                }, duration);
+
                 if (isMutation) {
-                    const duration = options.timeout ?? MUTATION_TIMEOUT_MS;
-                    timeout = setTimeout(() => {
-                        reject(new Error(`Mutation operation timed out after ${duration / 1000}s`));
-                    }, duration);
                     this._operationTimeouts.set(opId, timeout);
                 }
 
@@ -262,7 +276,10 @@ export class JjService {
                     ...options,
                 };
 
-                cp.execFile(this.binaryPath, allArgs, finalOptions, (err, stdout, stderr) => {
+                childProcess = cp.execFile(this.binaryPath, allArgs, finalOptions, (err, stdout, stderr) => {
+                    if (timedOut) {
+                        return;
+                    }
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                     this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
