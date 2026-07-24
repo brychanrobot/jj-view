@@ -215,6 +215,48 @@ describe('GerritProvider', () => {
             await server.stop();
         });
 
+        test('getCommentThreads fetches comments and drafts from Gerrit', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+            server.registerDrafts(123, {
+                'file.txt': [
+                    {
+                        id: 'draft-1',
+                        in_reply_to: 'comment-1',
+                        line: 10,
+                        message: 'Draft reply',
+                        updated: '2026-06-30T12:05:00Z',
+                        unresolved: true,
+                        author: { name: 'Me', username: 'me' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(1);
+            expect(threads[0].id).toBe('comment-1');
+            expect(threads[0].filePath).toBe('file.txt');
+            expect(threads[0].line).toBe(10);
+            expect(threads[0].isResolved).toBe(false);
+            expect(threads[0].comments).toHaveLength(2);
+            const rootComment = threads[0].comments[0];
+            const draftReply = threads[0].comments[1];
+            expect(rootComment.body).toBe('First comment');
+            expect(rootComment.isDraft).toBe(false);
+            expect(draftReply.body).toBe('Draft reply');
+            expect(draftReply.isDraft).toBe(true);
+        });
+
         test('getCommentThreads fetches comments from Gerrit', async () => {
             server.registerComments(123, {
                 'file.txt': [

@@ -230,25 +230,26 @@ test.describe('Gerrit Integration E2E', () => {
             // Type and submit the reply
             await replyToCommentThread(page, reviewWidget, 'My Gerrit E2E reply');
 
-            // Assert that the fake server receives the review post request (reply)
+            // Assert that the fake server receives the draft post request (reply)
             await expect
                 .poll(() => {
-                    return gerrit.requests.some((req) => req.includes('/review'));
+                    return gerrit.requests.some((req) => req.includes('/drafts'));
                 })
                 .toBe(true);
 
             gerrit.clearRequests();
 
-            // Wait for the reply to be rendered in the UI
+            // Wait for the reply to be rendered in the UI and thread state to settle
             await expect(reviewWidget).toContainText('My Gerrit E2E reply');
+            await page.waitForTimeout(500);
 
             // Resolve the thread
             await resolveCommentThread(reviewWidget);
 
-            // Assert that the fake server receives the review post request (resolve)
+            // Assert that the fake server receives the draft post request (resolve)
             await expect
                 .poll(() => {
-                    return gerrit.requests.some((req) => req.includes('/review'));
+                    return gerrit.requests.some((req) => req.includes('/drafts'));
                 })
                 .toBe(true);
 
@@ -269,10 +270,10 @@ test.describe('Gerrit Integration E2E', () => {
             // Unresolve the thread
             await unresolveCommentThread(reviewWidget2);
 
-            // Assert that the fake server receives the review post request (unresolve)
+            // Assert that the fake server receives the draft post request (unresolve)
             await expect
                 .poll(() => {
-                    return gerrit.requests.some((req) => req.includes('/review'));
+                    return gerrit.requests.some((req) => req.includes('/drafts'));
                 })
                 .toBe(true);
         } finally {

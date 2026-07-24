@@ -21,6 +21,7 @@ export interface FakeGerritComment {
 export class FakeGerritServer {
     public changes = new Map<string, GerritChange>();
     private comments = new Map<number, Record<string, FakeGerritComment[]>>(); // changeNumber -> (filePath -> comments)
+    private drafts = new Map<number, Record<string, FakeGerritComment[]>>(); // changeNumber -> (filePath -> drafts)
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
@@ -53,6 +54,10 @@ export class FakeGerritServer {
 
     public registerComments(changeNumber: number, comments: Record<string, FakeGerritComment[]>) {
         this.comments.set(changeNumber, comments);
+    }
+
+    public registerDrafts(changeNumber: number, drafts: Record<string, FakeGerritComment[]>) {
+        this.drafts.set(changeNumber, drafts);
     }
 
     /**
@@ -162,6 +167,55 @@ export class FakeGerritServer {
                 if (match) {
                     const changeNumber = parseInt(match[1], 10);
                     const list = this.comments.get(changeNumber) || {};
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(`)]}'\n${JSON.stringify(list)}`);
+                    return;
+                }
+            }
+
+            if (urlStr.includes('/drafts')) {
+                const matchPutDraft = urlStr.match(/\/changes\/(\d+)\/revisions\/current\/drafts/);
+                if (matchPutDraft && (req.method === 'PUT' || req.method === 'POST')) {
+                    const changeNumber = parseInt(matchPutDraft[1], 10);
+                    let body = '';
+                    req.on('data', (chunk) => {
+                        body += chunk;
+                    });
+                    req.on('end', () => {
+                        const incoming = JSON.parse(body) as {
+                            path: string;
+                            line?: number;
+                            message?: string;
+                            in_reply_to?: string;
+                            unresolved?: boolean;
+                        };
+
+                        const currentDrafts = this.drafts.get(changeNumber) || {};
+                        const filePath = incoming.path;
+                        currentDrafts[filePath] = currentDrafts[filePath] || [];
+
+                        const newDraft: FakeGerritComment = {
+                            id: `draft-${Date.now()}-${Math.random()}`,
+                            line: incoming.line,
+                            message: incoming.message || '',
+                            updated: new Date().toISOString(),
+                            unresolved: incoming.unresolved,
+                            in_reply_to: incoming.in_reply_to,
+                            author: { name: 'Gerrit User', username: 'gerrit_user' },
+                        };
+                        currentDrafts[filePath].push(newDraft);
+                        this.drafts.set(changeNumber, currentDrafts);
+
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(`)]}'\n${JSON.stringify(newDraft)}`);
+                    });
+                    return;
+                }
+
+                const matchGetDrafts = urlStr.match(/\/changes\/(\d+)\/drafts/);
+                if (matchGetDrafts && req.method === 'GET') {
+                    const changeNumber = parseInt(matchGetDrafts[1], 10);
+                    const list = this.drafts.get(changeNumber) || {};
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(`)]}'\n${JSON.stringify(list)}`);
                     return;
