@@ -78,6 +78,7 @@ export interface CodeForgeComment {
     };
     body: string;
     createdAt: string;
+    isDraft?: boolean;
 }
 
 export interface CodeForgeCommentThread {

@@ -349,6 +349,7 @@ export class CommentsManager implements vscode.Disposable {
                 name: c.author?.name || 'Unknown',
                 iconPath: avatarUri,
             },
+            label: c.isDraft ? 'Draft' : undefined,
             mode: vscode.CommentMode.Preview,
         };
     }

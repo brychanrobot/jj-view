@@ -1434,6 +1434,7 @@ async function expandReplyFormIfNeeded(reviewWidget: Locator) {
     const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
     if (await replyPlaceholderBtn.isVisible()) {
         await replyPlaceholderBtn.click();
+        await expect(reviewWidget.locator('.comment-form .monaco-editor')).toBeVisible({ timeout: 5000 });
     }
 }
 
@@ -1449,6 +1450,7 @@ async function clickCommentButton(reviewWidget: Locator, buttonLabel: string | R
         .filter({ hasText: buttonLabel })
         .first();
     await expect(button).toBeVisible();
+    await reviewWidget.page().waitForTimeout(200);
     await button.click();
     logPerf(perfLabel, start);
 }

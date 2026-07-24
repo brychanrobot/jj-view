@@ -75,11 +75,23 @@ interface GerritCommentGql {
     in_reply_to?: string;
 }
 
+export type GerritCommentWithDraftStatus = GerritCommentGql & {
+    isDraft?: boolean;
+};
+
 interface FetchGerritOptions extends RequestInit {
     timeoutMs?: number;
 }
 
 const AUTH_HEADER_TTL_MS = 5 * 60 * 1000;
+
+function parseGerritJsonResponse<T>(text: string): T {
+    const cleanJson = text.replace(/^\)]}'\n/, '').trim();
+    if (!cleanJson) {
+        return {} as T;
+    }
+    return JSON.parse(cleanJson) as T;
+}
 
 export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
@@ -487,6 +499,60 @@ export class GerritProvider implements CodeForgeProvider {
         return { subcommand: 'gerrit', args: ['upload', '-r', revision] };
     }
 
+    private async fetchMergedCommentsAndDrafts(
+        changeNumber: number,
+        signal?: AbortSignal,
+    ): Promise<Record<string, GerritCommentWithDraftStatus[]>> {
+        if (!this.gerritHost) {
+            return {};
+        }
+
+        const commentsUrl = `${this.gerritHost}/changes/${changeNumber}/comments`;
+        const draftsUrl = `${this.gerritHost}/changes/${changeNumber}/drafts`;
+
+        const [commentsResponse, draftsResponse] = await Promise.all([
+            this.fetchGerrit(commentsUrl, { signal }).catch(() => undefined),
+            this.fetchGerrit(draftsUrl, { signal }).catch(() => undefined),
+        ]);
+
+        if (!commentsResponse?.ok) {
+            throw new Error(`Failed to fetch Gerrit comments: ${commentsResponse?.statusText ?? 'Network error'}`);
+        }
+
+        const commentsText = await commentsResponse.text();
+        const publishedCommentsMap = parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(commentsText);
+
+        let draftsMap: Record<string, GerritCommentGql[]> = {};
+        if (draftsResponse?.ok) {
+            try {
+                const draftsText = await draftsResponse.text();
+                draftsMap = parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(draftsText);
+            } catch (err) {
+                this.outputChannel?.warn(`[GerritProvider] Failed to parse Gerrit draft comments response: ${err}`);
+            }
+        }
+
+        const commentsMap: Record<string, GerritCommentWithDraftStatus[]> = {};
+        const filePaths = new Set([...Object.keys(publishedCommentsMap), ...Object.keys(draftsMap)]);
+
+        for (const filePath of filePaths) {
+            const list1 = (publishedCommentsMap[filePath] || []).map((c) => ({ ...c, isDraft: false }));
+            const list2 = (draftsMap[filePath] || []).map((c) => ({ ...c, isDraft: true }));
+            const seenIds = new Set<string>();
+            const combined: GerritCommentWithDraftStatus[] = [];
+
+            for (const c of [...list1, ...list2]) {
+                if (!seenIds.has(c.id)) {
+                    seenIds.add(c.id);
+                    combined.push(c);
+                }
+            }
+            commentsMap[filePath] = combined;
+        }
+
+        return commentsMap;
+    }
+
     public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
@@ -496,16 +562,7 @@ export class GerritProvider implements CodeForgeProvider {
             return [];
         }
 
-        const url = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const response = await this.fetchGerrit(url, { signal });
-        if (!response.ok) {
-            throw new Error(`Failed to fetch Gerrit comments: ${response.statusText}`);
-        }
-
-        const text = await response.text();
-        const jsonStr = text.replace(/^\)]}'\n/, '');
-        const commentsMap = JSON.parse(jsonStr) as Record<string, GerritCommentGql[]>;
-
+        const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number, signal);
         const threads: CodeForgeCommentThread[] = [];
 
         for (const [filePath, commentsList] of Object.entries(commentsMap)) {
@@ -550,6 +607,7 @@ export class GerritProvider implements CodeForgeProvider {
                         },
                         body: c.message || '',
                         createdAt: c.updated,
+                        isDraft: c.isDraft,
                     })),
                 });
             }
@@ -572,17 +630,11 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Gerrit provider not fully configured');
         }
 
-        // Fetch comments to locate parent file path and line
-        const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const commentsResponse = await this.fetchGerrit(commentsUrl);
-        if (!commentsResponse.ok) {
-            throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
-        }
-        const commentsText = await commentsResponse.text();
-        const commentsMap = JSON.parse(commentsText.replace(/^\)]}'\n/, '')) as Record<string, GerritCommentGql[]>;
+        const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
 
-        let parentComment: GerritCommentGql | undefined;
+        let parentComment: GerritCommentWithDraftStatus | undefined;
         let parentFilePath: string | undefined;
+
         for (const [filePath, comments] of Object.entries(commentsMap)) {
             const found = comments.find((c) => c.id === threadId);
             if (found) {
@@ -596,45 +648,51 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Parent comment thread not found');
         }
 
-        // Post review with comment reply
-        const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
-        const response = await this.fetchGerrit(reviewUrl, {
-            method: 'POST',
+        // Post draft comment reply
+        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/drafts`;
+        const response = await this.fetchGerrit(draftUrl, {
+            method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                drafts: 'KEEP',
-                comments: {
-                    [parentFilePath]: [
-                        {
-                            in_reply_to: threadId,
-                            line: parentComment.line,
-                            message: body,
-                            unresolved: resolved !== undefined ? !resolved : (parentComment.unresolved ?? true),
-                        },
-                    ],
-                },
+                path: parentFilePath,
+                line: parentComment.line,
+                message: body,
+                in_reply_to: threadId,
+                unresolved: resolved !== undefined ? !resolved : (parentComment.unresolved ?? true),
             }),
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to post Gerrit reply: ${response.statusText}`);
+            throw new Error(`Failed to post Gerrit draft reply: ${response.statusText}`);
         }
 
-        // Re-fetch to retrieve the newly posted comment
-        const updatedCommentsResponse = await this.fetchGerrit(commentsUrl);
-        if (!updatedCommentsResponse.ok) {
-            throw new Error('Failed to retrieve updated comments');
+        const responseText = await response.text();
+        if (responseText) {
+            try {
+                const createdDraft = parseGerritJsonResponse<GerritCommentGql>(responseText);
+                if (createdDraft?.id) {
+                    return {
+                        id: createdDraft.id,
+                        author: {
+                            name: createdDraft.author?.name || 'Unknown',
+                            username: createdDraft.author?.username,
+                        },
+                        body: createdDraft.message || body,
+                        createdAt: createdDraft.updated || new Date().toISOString(),
+                        isDraft: true,
+                    };
+                }
+            } catch {
+                // Fallback to re-fetching
+            }
         }
-        const updatedCommentsText = await updatedCommentsResponse.text();
-        const updatedCommentsMap = JSON.parse(updatedCommentsText.replace(/^\)]}'\n/, '')) as Record<
-            string,
-            GerritCommentGql[]
-        >;
 
-        const threadComments = updatedCommentsMap[parentFilePath] || [];
+        // Re-fetch to retrieve the newly posted draft comment
+        const updatedMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
+        const threadComments = updatedMap[parentFilePath] || [];
         const replies = threadComments.filter((c) => c.in_reply_to === threadId || c.id === threadId);
         replies.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
         const newest = replies[0];
@@ -651,6 +709,7 @@ export class GerritProvider implements CodeForgeProvider {
             },
             body: newest.message || '',
             createdAt: newest.updated,
+            isDraft: !!newest.isDraft,
         };
     }
 
@@ -663,17 +722,11 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Gerrit provider not fully configured');
         }
 
-        // Fetch comments to locate parent file path and line
-        const commentsUrl = `${this.gerritHost}/changes/${changeInfo.number}/comments`;
-        const commentsResponse = await this.fetchGerrit(commentsUrl);
-        if (!commentsResponse.ok) {
-            throw new Error(`Failed to fetch comments to locate parent: ${commentsResponse.statusText}`);
-        }
-        const commentsText = await commentsResponse.text();
-        const commentsMap = JSON.parse(commentsText.replace(/^\)]}'\n/, '')) as Record<string, GerritCommentGql[]>;
+        const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
 
-        let parentComment: GerritCommentGql | undefined;
+        let parentComment: GerritCommentWithDraftStatus | undefined;
         let parentFilePath: string | undefined;
+
         for (const [filePath, comments] of Object.entries(commentsMap)) {
             const found = comments.find((c) => c.id === threadId);
             if (found) {
@@ -687,26 +740,20 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Parent comment thread not found');
         }
 
-        // Post review with a resolution reply comment
-        const reviewUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/review`;
-        const response = await this.fetchGerrit(reviewUrl, {
-            method: 'POST',
+        // Post draft resolution reply comment
+        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/drafts`;
+        const response = await this.fetchGerrit(draftUrl, {
+            method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                drafts: 'KEEP',
-                comments: {
-                    [parentFilePath]: [
-                        {
-                            in_reply_to: threadId,
-                            line: parentComment.line,
-                            message: resolved ? 'Resolved' : 'Unresolved',
-                            unresolved: !resolved,
-                        },
-                    ],
-                },
+                path: parentFilePath,
+                line: parentComment.line,
+                message: resolved ? 'Resolved' : 'Unresolved',
+                in_reply_to: threadId,
+                unresolved: !resolved,
             }),
         });
 
