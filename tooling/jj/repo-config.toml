@@ -1,5 +1,5 @@
 [aliases]
-sync = ["util", "exec", "--", "sh", "-c", "jj git fetch && jj rebase -s 'roots(mutable())' -d main@origin --skip-emptied && jj log"]
+sync = ["util", "exec", "--", "sh", "-c", "jj git fetch && jj rebase -s 'roots(mutable())' -d main@origin --skip-emptied && jj log --no-pager"]
 upload = ["util", "exec", "--", "node", "tooling/jj/upload.ts"]
 
 [fix.tools.biome]

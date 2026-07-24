@@ -203,8 +203,12 @@ export class JjScmProvider implements vscode.Disposable {
     private _refreshMutex: Promise<void> = Promise.resolve();
 
     private async updateScmView(event: { reason: string }): Promise<void> {
-        // Chain the refresh execution to ensure serial execution
+        // Chain the refresh execution to ensure serial execution.
+        // Log and swallow any prior rejection so that a failed/timed-out refresh does not permanently stall future refresh calls.
         this._refreshMutex = this._refreshMutex
+            .catch((err) => {
+                this.outputChannel.error(`[ScmProvider] Previous updateScmView failed: ${err}`);
+            })
             .then(async () => {
                 if (this._disposed) {
                     return;
