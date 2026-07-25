@@ -62,6 +62,11 @@
                     "minimum": 1,
                     "description": "Timeout in seconds for read operations executed by the jj service."
                 },
+                "jj-view.showProcessMonitorPanel": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Controls whether the JJ Process Monitor diagnostic view is displayed in the bottom panel."
+                },
                 "jj-view.refreshDebounceMaxMultiplier": {
                     "type": "number",
                     "default": 4,
@@ -502,6 +507,26 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.showProcessMonitor",
+                "title": "Show Process Monitor",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.killProcess",
+                "title": "Kill Specific JJ Process",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.killAllProcesses",
+                "title": "Kill All Running JJ Processes",
+                "category": "JJ View"
+            },
+            {
+                "command": "jj-view.clearProcessHistory",
+                "title": "Clear Process Monitor History",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.hideCommitAction.abandon",
                 "title": "Hide 'Abandon'",
                 "category": "JJ View"
@@ -618,6 +643,18 @@
         ],
         "menus": {
             "commandPalette": [
+                {
+                    "command": "jj-view.killProcess",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.killAllProcesses",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.clearProcessHistory",
+                    "when": "false"
+                },
                 {
                     "command": "jj-view.showComments",
                     "when": "false"
@@ -1122,12 +1159,29 @@
                 }
             ]
         },
+        "viewsContainers": {
+            "panel": [
+                {
+                    "id": "jj-process-monitor-panel",
+                    "title": "JJ Process Monitor",
+                    "icon": "$(pulse)"
+                }
+            ]
+        },
         "views": {
             "scm": [
                 {
                     "id": "jj-view.logView",
                     "name": "JJ Log",
                     "type": "webview"
+                }
+            ],
+            "jj-process-monitor-panel": [
+                {
+                    "id": "jj-view.processMonitorView",
+                    "name": "JJ Process Monitor",
+                    "type": "webview",
+                    "when": "config.jj-view.showProcessMonitorPanel"
                 }
             ]
         }

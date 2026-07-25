@@ -6,6 +6,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import { JjBookmarkSchema, JjLogEntrySchema, JjWorkspaceSchema } from './jj-schemas';
 import {
     BOOKMARK_SCHEMA,
@@ -53,10 +54,12 @@ export type JjServiceConfigProvider<S = never> = <T>(key: string, defaultValue?:
 export interface JjServiceOptions {
     binaryPath?: string;
     getConfig?: JjServiceConfigProvider;
+    processTracker?: JjProcessTracker;
 }
 
 export class JjService {
     public binaryPath: string;
+    public processTracker?: JjProcessTracker;
     private readonly _getConfig?: JjServiceConfigProvider;
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
@@ -76,6 +79,7 @@ export class JjService {
         } else {
             this.binaryPath = options?.binaryPath ?? 'jj';
             this._getConfig = options?.getConfig;
+            this.processTracker = options?.processTracker;
         }
     }
 
@@ -260,9 +264,9 @@ export class JjService {
 
         const start = performance.now();
         const allArgs = [...globalArgs, command, ...args];
-        const displayArgs = [command, ...args].slice(0, 2);
         const prefix = options.label ? `[${options.label}] ` : '';
-        const commandStr = `${prefix}jj ${displayArgs.join(' ')}${[command, ...args].length > 2 ? '...' : ''}`;
+        const fullCommandStr = `jj ${[command, ...args].join(' ')}`;
+        const logSummaryStr = `${prefix}jj ${[command, ...args].slice(0, 2).join(' ')}${[command, ...args].length > 2 ? '...' : ''}`;
 
         const isMutation = !!options.isMutation;
         let timeout: NodeJS.Timeout | undefined;
@@ -272,12 +276,14 @@ export class JjService {
             const { stdout } = await new Promise<{ stdout: string | Buffer }>((resolve, reject) => {
                 const maxDuration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : this.getReadTimeoutMs());
                 let childProcess: cp.ChildProcess | undefined;
+                let trackedProcess: IJjTrackedProcess | undefined;
 
                 timeout = setTimeout(() => {
                     timedOut = true;
                     const opType = isMutation ? 'Mutation operation' : 'Read operation';
                     const timeoutMsg = `${opType} timed out after ${maxDuration / 1000}s`;
-                    this.logger.warn(`[${timeoutMsg}] ${commandStr}`);
+                    this.logger.warn(`[${timeoutMsg}] ${logSummaryStr}`);
+                    trackedProcess?.finish('timed_out', timeoutMsg);
                     if (childProcess) {
                         try {
                             childProcess.kill();
@@ -308,7 +314,7 @@ export class JjService {
                     }
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
-                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${commandStr}`);
+                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${logSummaryStr}`);
 
                     if (err) {
                         const combined: string[] = [];
@@ -323,10 +329,24 @@ export class JjService {
                         if (combined.length > 0) {
                             err.message = combined.join('\n\n');
                         }
+                        trackedProcess?.finish('failed', err, stdout, stderr);
                         reject(err);
                     } else {
+                        trackedProcess?.finish('completed', undefined, stdout, stderr);
                         resolve({ stdout });
                     }
+                });
+
+                // Note: startTrackingProcess is called synchronously right after execFile returns childProcess.
+                // Because Node.js executes synchronously within the current tick of the event loop, the completion
+                // callback passed to execFile will fire asynchronously on a later tick, guaranteeing that trackedProcess
+                // is assigned before trackedProcess?.finish() can be called inside the callback.
+                trackedProcess = this.processTracker?.startTrackingProcess({
+                    command: fullCommandStr,
+                    args: allArgs,
+                    status: 'running',
+                    label: options.label,
+                    childProcess,
                 });
             });
 

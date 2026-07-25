@@ -3,51 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type * as React from 'react';
+import { getRelativeTimeString } from '../utils/time-utils';
+
+export { getRelativeTimeString } from '../utils/time-utils';
 
 export interface PersonInfoProps {
     person?: { name: string; email: string; timestamp: string };
     label: string;
-}
-
-export function getRelativeTimeString(timestamp: string, now: number | null = null): string {
-    const time = new Date(timestamp).getTime();
-    if (Number.isNaN(time)) {
-        return timestamp;
-    }
-
-    // If we assume a year is 365.25 days:
-    const SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60;
-    const SECONDS_PER_MONTH = SECONDS_PER_YEAR / 12;
-
-    const diffMs = (now ?? Date.now()) - time;
-    // This function only works for timestamps in the past.
-    // (We could make it work for timestamps in the future, but that isn't a valid input for now.)
-    if (diffMs < 0) {
-        return timestamp;
-    }
-
-    // Display a single unit of time from seconds to years.
-    const seconds = Math.floor(diffMs / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    const weeks = Math.floor(days / 7);
-    const months = Math.floor(seconds / SECONDS_PER_MONTH);
-    const years = Math.floor(seconds / SECONDS_PER_YEAR);
-    for (const [x, unit] of [
-        [years, 'year'],
-        [months, 'month'],
-        [weeks, 'week'],
-        [days, 'day'],
-        [hours, 'hour'],
-        [minutes, 'minute'],
-        [seconds, 'second'],
-    ] satisfies Array<[number, string]>) {
-        if (x > 0) {
-            return `${x} ${unit}${x > 1 ? 's' : ''} ago`;
-        }
-    }
-    return 'just now';
 }
 
 export function getPersonDisplayStrings(person: { name: string; email: string; timestamp: string }) {

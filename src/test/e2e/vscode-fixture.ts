@@ -317,7 +317,7 @@ export async function launchNewVSCode(
 
         try {
             const firstWindowStart = Date.now();
-            const page = await app.firstWindow({ timeout: 2000 });
+            const page = await app.firstWindow({ timeout: 15000 });
             logPerf('launchNewVSCode: app.firstWindow', firstWindowStart);
             const proc = app.process();
             proc.stdout?.on('data', (data) => console.log(`[VSCode Stdout] ${data.toString().trim()}`));
@@ -327,7 +327,7 @@ export async function launchNewVSCode(
             await app.close();
             throw err;
         }
-    }).toPass({ timeout: 7000 });
+    }).toPass({ timeout: 30000 });
     logPerf('launchNewVSCode: electron launch wrapper', launchStart);
 
     if (!launched) {

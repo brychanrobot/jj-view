@@ -8,6 +8,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from './code-forge-registry';
+import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
 import { CoalescingQueue } from './utils/coalescing-queue';
@@ -59,6 +60,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         private readonly _outputChannel: JjLoggerChannel,
         private readonly _workspaceState: vscode.Memento,
         initialBinaryPath?: string,
+        private readonly _processTracker?: JjProcessTracker,
     ) {
         this._binaryPath = initialBinaryPath;
         this.updateIgnoredPaths();
@@ -585,6 +587,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             const jj = new JjService(realDir, NO_OP_LOGGER, {
                 binaryPath: this._binaryPath || 'jj',
                 getConfig: getJjViewConfig,
+                processTracker: this._processTracker,
             });
             try {
                 const resolvedRoot = await jj.getRepoRoot();
@@ -717,6 +720,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             this._codeForgeRegistry,
             repoOutputChannel,
             this._binaryPath,
+            this._processTracker,
         );
     }
 
