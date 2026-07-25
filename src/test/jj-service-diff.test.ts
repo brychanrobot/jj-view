@@ -171,4 +171,49 @@ describe('JjService Diff Tests', () => {
         expect(content.left).toBe('');
         expect(content.right).toBe('');
     });
+
+    test('getChanges caches results and deduplicates concurrent in-flight requests', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', files: { 'file1.txt': 'initial\n' } },
+            { label: 'child', parents: ['base'], files: { 'file1.txt': 'updated\n', 'file2.txt': 'created\n' } },
+        ]);
+        const commitId = ids.child.commitId;
+
+        // Concurrent calls (thundering herd)
+        const [changes1, changes2] = await Promise.all([
+            jjService.getChanges(commitId),
+            jjService.getChanges(commitId),
+        ]);
+
+        expect(changes1).toEqual(changes2);
+        expect(changes1.length).toBe(2);
+
+        // Subsequent cached call
+        const changes3 = await jjService.getChanges(commitId);
+        expect(changes3).toEqual(changes1);
+    });
+
+    test('getChanges invalidates cache on clearCache or mutation', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', files: { 'test.txt': 'v1\n' } },
+            { label: 'child', parents: ['base'], files: { 'test.txt': 'v2\n' } },
+        ]);
+
+        const initialChanges = await jjService.getChanges(ids.child.changeId);
+        expect(initialChanges.length).toBe(1);
+        expect(initialChanges[0].path).toBe('test.txt');
+
+        // Make mutation in child commit using repo
+        repo.edit(ids.child.changeId);
+        await repo.writeFiles({ 'extra.txt': 'new\n' });
+
+        // Before clearCache / mutation, calling getChanges with cached key without clearCache would return old entries
+        // Running status (which is a mutation in JjService) or explicit clearCache invalidates the cache
+        await jjService.clearCache();
+
+        const updatedChanges = await jjService.getChanges(ids.child.changeId);
+        expect(updatedChanges.length).toBe(2);
+        const paths = updatedChanges.map((c) => c.path).sort();
+        expect(paths).toEqual(['extra.txt', 'test.txt']);
+    });
 });

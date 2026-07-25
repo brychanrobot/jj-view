@@ -67,6 +67,8 @@ export class JjService {
     private _nextOpId = 0;
     private _diffCache = new Map<string, { tempDir: string; expires: number }>();
     private _diffCachePromises = new Map<string, Promise<{ tempDir: string; expires: number }>>();
+    private _changesCache = new Map<string, { entries: JjStatusEntry[]; expires: number }>();
+    private _changesCachePromises = new Map<string, Promise<JjStatusEntry[]>>();
     private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
@@ -735,6 +737,8 @@ export class JjService {
         this._diffCachePromises.clear();
         const keys = Array.from(this._diffCache.keys());
         await Promise.all(keys.map((revision) => this.cleanupDiffCache(revision)));
+        this._changesCachePromises.clear();
+        this._changesCache.clear();
     }
 
     private async cleanupDiffCache(revision: string) {
@@ -1103,6 +1107,38 @@ export class JjService {
     }
 
     async getChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
+        const cacheKey = toRevision ? `${revision}..${toRevision}` : revision;
+
+        const inProgress = this._changesCachePromises.get(cacheKey);
+        if (inProgress) {
+            const entries = await inProgress;
+            return entries.map((e) => ({ ...e }));
+        }
+
+        const cached = this._changesCache.get(cacheKey);
+        if (cached && Date.now() < cached.expires) {
+            return cached.entries.map((e) => ({ ...e }));
+        }
+
+        const fetchPromise = (async () => {
+            const entries = await this._doGetChanges(revision, toRevision);
+            this._changesCache.set(cacheKey, {
+                entries,
+                expires: Date.now() + 5 * 60_000,
+            });
+            return entries;
+        })();
+
+        this._changesCachePromises.set(cacheKey, fetchPromise);
+        try {
+            const entries = await fetchPromise;
+            return entries.map((e) => ({ ...e }));
+        } finally {
+            this._changesCachePromises.delete(cacheKey);
+        }
+    }
+
+    private async _doGetChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
         const args = ['--git'];
         if (toRevision) {
             args.push('--from', revision, '--to', toRevision);
