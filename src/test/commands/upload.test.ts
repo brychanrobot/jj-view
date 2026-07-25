@@ -12,23 +12,15 @@ import { GitHubProvider } from '../../github-provider';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMock, createMockLogOutputChannel, FakeConfigStore } from '../test-utils';
 
-// Mock dependencies
-const mockConfig = {
-    get: vi.fn(),
-};
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
         workspace: {
-            getConfiguration: vi.fn((section) => {
-                if (section === 'jj-view') {
-                    return mockConfig;
-                }
-                return { get: vi.fn() };
-            }),
+            getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         },
     });
 });
@@ -53,7 +45,7 @@ describe('uploadCommand', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
         });
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn() });
-        mockConfig.get.mockReset();
+        fakeConfigStore.clear();
         vi.mocked(vscode.window.showErrorMessage).mockClear();
         vi.mocked(vscode.commands.executeCommand).mockClear();
     });
@@ -85,12 +77,7 @@ describe('uploadCommand', () => {
         repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
         // Setup config to return 'git push' ONLY when queried for 'uploadCommand'
-        mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'uploadCommand') {
-                return 'git push';
-            }
-            return undefined;
-        });
+        fakeConfigStore.set('uploadCommand', 'git push');
 
         await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
 
@@ -118,7 +105,7 @@ describe('uploadCommand', () => {
         repo.gitPush('feature-x');
         repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
 
         await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
 
@@ -146,7 +133,7 @@ describe('uploadCommand', () => {
         repo.gitPush('feature-x');
         repo.bookmarkMove('feature-x', ids.commitB.changeId);
 
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
 
         // This simulates the webview payload: { changeId: 'feature-x' }
         await uploadCommand(scmProvider, jjService, codeForgeService, [{ changeId: 'feature-x' }], mockOutputChannel);
@@ -165,7 +152,7 @@ describe('uploadCommand', () => {
             },
         ]);
 
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
 
         const badProvider = createMock<GitHubProvider>({
             getUploadCommand: () => ({
@@ -216,12 +203,7 @@ describe('uploadCommand', () => {
         ]);
 
         // Use an invalid custom command that will fail
-        mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'uploadCommand') {
-                return 'git push-nonexistent';
-            }
-            return undefined;
-        });
+        fakeConfigStore.set('uploadCommand', 'git push-nonexistent');
 
         const showErrorMessage = vscode.window.showErrorMessage as (
             message: string,
@@ -248,7 +230,7 @@ describe('uploadCommand', () => {
 
         const remoteRepo = await setupRemote();
 
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
 
         const mockAuthManager = createMock<CodeForgeAuthManager>({
             registerProvider: vi.fn(),
@@ -287,7 +269,7 @@ describe('uploadCommand', () => {
             },
         ]);
 
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
 
         const mockAuthManager = createMock<CodeForgeAuthManager>({
             registerProvider: vi.fn(),

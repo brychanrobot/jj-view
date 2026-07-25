@@ -4,12 +4,13 @@
  */
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import { RefreshScheduler } from '../refresh-scheduler';
+import { FakeConfigStore } from './test-utils';
 
-const getConfigurationMock = vi.fn();
+let fakeConfigStore: FakeConfigStore;
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: (...args: unknown[]) => getConfigurationMock(...args),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
     },
     Disposable: class {},
 }));
@@ -22,17 +23,9 @@ describe('RefreshScheduler', () => {
         vi.useFakeTimers();
         refreshFn = vi.fn().mockResolvedValue(undefined);
 
-        // Default config
-        getConfigurationMock.mockReturnValue({
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'refreshDebounceMillis') {
-                    return 100;
-                }
-                if (key === 'refreshDebounceMaxMultiplier') {
-                    return 4;
-                }
-                return defaultValue;
-            },
+        fakeConfigStore = new FakeConfigStore({
+            refreshDebounceMillis: 100,
+            refreshDebounceMaxMultiplier: 4,
         });
 
         scheduler = new RefreshScheduler(refreshFn);
@@ -170,19 +163,6 @@ describe('RefreshScheduler', () => {
     });
 
     test('should read updated base debounce setting dynamically on subsequent triggers', async () => {
-        let currentDebounce = 100;
-        getConfigurationMock.mockImplementation(() => ({
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'refreshDebounceMillis') {
-                    return currentDebounce;
-                }
-                if (key === 'refreshDebounceMaxMultiplier') {
-                    return 4;
-                }
-                return defaultValue;
-            },
-        }));
-
         // First trigger with initial debounce (100ms)
         scheduler.trigger();
         await vi.advanceTimersByTimeAsync(100);
@@ -191,8 +171,8 @@ describe('RefreshScheduler', () => {
         // Wait for scheduler cycle to reset to idle
         await vi.advanceTimersByTimeAsync(200);
 
-        // Update configuration value
-        currentDebounce = 500;
+        // Update configuration value declaratively
+        fakeConfigStore.set('refreshDebounceMillis', 500);
 
         // Second trigger should use updated debounce (500ms)
         scheduler.trigger();
@@ -204,18 +184,10 @@ describe('RefreshScheduler', () => {
     });
 
     test('should read updated max multiplier dynamically on subsequent triggers', async () => {
-        let maxMultiplier = 2;
-        getConfigurationMock.mockImplementation(() => ({
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'refreshDebounceMillis') {
-                    return 100;
-                }
-                if (key === 'refreshDebounceMaxMultiplier') {
-                    return maxMultiplier;
-                }
-                return defaultValue;
-            },
-        }));
+        fakeConfigStore.setAll({
+            refreshDebounceMillis: 100,
+            refreshDebounceMaxMultiplier: 2,
+        });
 
         // 1st trigger: wait 100ms (multiplier starts at 1, max is 2)
         scheduler.trigger();
@@ -228,7 +200,7 @@ describe('RefreshScheduler', () => {
         expect(refreshFn).toHaveBeenCalledTimes(2);
 
         // Update max multiplier dynamically
-        maxMultiplier = 4;
+        fakeConfigStore.set('refreshDebounceMaxMultiplier', 4);
 
         // 3rd trigger during 200ms wait
         scheduler.trigger();

@@ -11,14 +11,21 @@ import { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
 import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
+import {
+    accessPrivate,
+    createMock,
+    createMockLogOutputChannel,
+    exposePrivate,
+    FakeConfigStore,
+    setPrivate,
+} from './test-utils';
+
+const fakeConfigStore = new FakeConfigStore();
 
 // Mock VS Code
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => ({
-            get: vi.fn(),
-        }),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         onDidChangeConfiguration: vi.fn(),
     },
     window: {

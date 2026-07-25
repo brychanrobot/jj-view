@@ -11,16 +11,13 @@ import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { createMock, exposePrivate } from './test-utils';
+import { createMock, exposePrivate, FakeConfigStore } from './test-utils';
 
-// Mock VS Code configuration
-const mockConfig = {
-    get: vi.fn(),
-};
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => mockConfig,
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         onDidChangeConfiguration: vi.fn(),
     },
     Disposable: class {
@@ -65,12 +62,7 @@ describe('Gerrit Sync Verification', () => {
             'probeGerritHost',
         ).mockResolvedValue(true);
 
-        mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'gerrit.host') {
-                return fakeGerritServer.url;
-            }
-            return undefined;
-        });
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
     });
 
     afterEach(async () => {

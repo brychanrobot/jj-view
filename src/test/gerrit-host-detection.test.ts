@@ -8,29 +8,19 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { detectGerritHost, normalizeHostUrl, parseRemoteUrl } from '../utils/gerrit-host-detection';
-import { createMock } from './test-utils';
+import { FakeConfigStore } from './test-utils';
+
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: vi.fn(() => ({
-            get: vi.fn(),
-        })),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
     },
 }));
 
 function mockGerritHostSetting(value: string | undefined): void {
-    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(
-        createMock<vscode.WorkspaceConfiguration>({
-            get: (key: string) => {
-                if (key === 'gerrit.host') {
-                    return value;
-                }
-                return undefined;
-            },
-        }),
-    );
+    fakeConfigStore.set('gerrit.host', value);
 }
 
 describe('Gerrit Host Detection Utilities', () => {

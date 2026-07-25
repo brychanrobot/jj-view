@@ -15,17 +15,14 @@ import { JjService, NO_OP_LOGGER } from '../jj-service';
 import * as credentialUtils from '../utils/gerrit-credential-utils';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { accessPrivate, exposePrivate } from './test-utils';
+import { accessPrivate, exposePrivate, FakeConfigStore } from './test-utils';
 import { asMock } from './vitest-utils';
 
-// Mock VS Code
-const mockConfig = {
-    get: vi.fn(),
-};
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => mockConfig,
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         onDidChangeConfiguration: vi.fn(),
     },
     Disposable: class {
@@ -70,7 +67,7 @@ describe('GerritService Detection', () => {
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
-        mockConfig.get.mockReset();
+        fakeConfigStore.clear();
 
         mockOnDidChangeWindowState = asMock(vscode.window.onDidChangeWindowState);
         mockOnDidChangeWindowState.mockReset();
@@ -114,12 +111,7 @@ describe('GerritService Detection', () => {
     }
 
     test('Detects from extension setting (highest priority)', async () => {
-        mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'gerrit.host') {
-                return 'https://setting-host.com';
-            }
-            return undefined;
-        });
+        fakeConfigStore.set('gerrit.host', 'https://setting-host.com');
 
         service = initService();
         await service.awaitReady();
@@ -212,7 +204,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses prioritizes Description Change-Id', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -233,7 +225,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses prioritizes Link trailer when Change-Id is missing', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -251,7 +243,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses extracts change number from different Link formats', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -284,7 +276,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses prioritizes Change-Id over Link trailer', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -306,7 +298,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses falls back to Computed Change-Id', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -330,7 +322,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores commit SHA if Change-Id logic fails (or just returns undefined)', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -342,7 +334,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses handles invalid JJ Change-Id gracefully', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -361,7 +353,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses updates cache when status changes', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -389,7 +381,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects changes', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -425,7 +417,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses returns false if no changes', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -460,7 +452,7 @@ describe('GerritService Detection', () => {
     test('startPolling preserves cache and fires onDidUpdate', async () => {
         vi.useFakeTimers();
 
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -500,7 +492,7 @@ describe('GerritService Detection', () => {
     });
 
     test('forceRefresh preserves cache and fires onDidUpdate', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -533,7 +525,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses parses changed files', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -569,7 +561,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects extra local files as not synced', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -610,7 +602,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects description mismatch as not synced', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -647,7 +639,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses accepts matching description regardless of whitespace', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -684,7 +676,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Change-Id footer differences', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -720,7 +712,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Link trailer footer differences during sync', async () => {
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -759,7 +751,7 @@ describe('GerritService Detection', () => {
 
     test('requestRefreshWithBackoffs schedules multiple refreshes', async () => {
         vi.useFakeTimers();
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -788,7 +780,7 @@ describe('GerritService Detection', () => {
 
     test('requestRefreshWithBackoffs cancels previous wave when called again', async () => {
         vi.useFakeTimers();
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -810,7 +802,7 @@ describe('GerritService Detection', () => {
         vi.setSystemTime(20000); // Start at t=20s to ensure throttling logic works (20000 > 10000)
 
         // Setup to be enabled
-        mockConfig.get.mockReturnValue(fakeGerritServer.url);
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
 
         // Initialize service
         service = initService();
@@ -857,7 +849,7 @@ describe('GerritService Detection', () => {
         vi.useFakeTimers();
 
         // Start with no config so detection fails
-        mockConfig.get.mockReturnValue(undefined);
+        fakeConfigStore.clear();
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
@@ -911,9 +903,7 @@ describe('GerritService Detection', () => {
 
     test('detectActiveProvider fires onDidUpdate only when host status changes', async () => {
         // Start disabled
-        mockConfig.get.mockImplementation(() => {
-            return undefined;
-        });
+        fakeConfigStore.clear();
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
@@ -928,12 +918,7 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(0);
 
         // Set config so it succeeds
-        mockConfig.get.mockImplementation((key: string) => {
-            if (key === 'gerrit.host') {
-                return fakeGerritServer.url;
-            }
-            return undefined;
-        });
+        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(true);
         expect(updateCount).toBe(1);
@@ -943,9 +928,7 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(1);
 
         // Change config back to undefined, should fire when disabled
-        mockConfig.get.mockImplementation(() => {
-            return undefined;
-        });
+        fakeConfigStore.clear();
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(false);
         expect(updateCount).toBe(2);
