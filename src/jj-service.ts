@@ -18,6 +18,7 @@ import {
 import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
+import { AsyncCache } from './utils/async-cache';
 
 export interface JjLogOptions {
     revision?: string;
@@ -65,10 +66,12 @@ export class JjService {
     private _lastWriteTime = 0;
     private _operationTimeouts = new Map<number, NodeJS.Timeout>();
     private _nextOpId = 0;
-    private _diffCache = new Map<string, { tempDir: string; expires: number }>();
-    private _diffCachePromises = new Map<string, Promise<{ tempDir: string; expires: number }>>();
-    private _changesCache = new Map<string, { entries: JjStatusEntry[]; expires: number }>();
-    private _changesCachePromises = new Map<string, Promise<JjStatusEntry[]>>();
+    private _diffCache = new AsyncCache<string, { tempDir: string; expires: number }>({
+        onEvict: (entry) => fs.rm(entry.tempDir, { recursive: true, force: true }).catch(() => {}),
+    });
+    private _changesCache = new AsyncCache<string, JjStatusEntry[]>({
+        clone: (entries) => entries.map((e) => ({ ...e })),
+    });
     private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
@@ -661,92 +664,51 @@ export class JjService {
      * Extracts all changed files into a temporary directory using a single 'jj diffedit' call.
      */
     async getDiffForRevision(revision: string, force: boolean = false): Promise<{ tempDir: string; expires: number }> {
-        // Check for an in-progress warming operation for this revision
-        if (!force) {
-            const inProgress = this._diffCachePromises.get(revision);
-            if (inProgress) {
-                return inProgress;
-            }
+        if (force) {
+            await this._diffCache.delete(revision);
         }
-
-        const cached = this._diffCache.get(revision);
-        if (cached && !force && Date.now() < cached.expires) {
-            return cached;
-        }
-
-        // Expired or missing: warm the cache
-        const warmingPromise = this._warmDiffCache(revision, cached);
-        this._diffCachePromises.set(revision, warmingPromise);
-        return warmingPromise;
+        return this._diffCache.getOrFetch(revision, () => this._warmDiffCache(revision));
     }
 
-    private async _warmDiffCache(
-        revision: string,
-        oldEntry?: { tempDir: string; expires: number },
-    ): Promise<{ tempDir: string; expires: number }> {
-        try {
-            // Cleanup first if we're forcing or it expired
-            if (oldEntry) {
-                await this.cleanupDiffCache(revision);
-            }
+    private async _warmDiffCache(revision: string): Promise<{ tempDir: string; expires: number }> {
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-bulk-diff-'));
+        const leftDir = path.join(tempDir, 'left');
+        const rightDir = path.join(tempDir, 'right');
 
-            const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-bulk-diff-'));
-            const leftDir = path.join(tempDir, 'left');
-            const rightDir = path.join(tempDir, 'right');
+        try {
+            await fs.mkdir(leftDir, { recursive: true });
+            await fs.mkdir(rightDir, { recursive: true });
+
+            const normalizedScriptPath = this.getScriptPath('batch-diff');
+            const toolName = 'vscode-bulk-capture';
+            const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
+                '$left',
+                '$right',
+                leftDir.split(path.sep).join('/'),
+                rightDir.split(path.sep).join('/'),
+            ]);
 
             try {
-                await fs.mkdir(leftDir, { recursive: true });
-                await fs.mkdir(rightDir, { recursive: true });
-
-                const normalizedScriptPath = this.getScriptPath('batch-diff');
-                const toolName = 'vscode-bulk-capture';
-                const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
-                    '$left',
-                    '$right',
-                    leftDir.split(path.sep).join('/'),
-                    rightDir.split(path.sep).join('/'),
-                ]);
-
-                try {
-                    await this.run(
-                        'diffedit',
-                        ['-r', revision, '--ignore-immutable', '--tool', toolName, ...toolConfig],
-                        { useCachedSnapshot: true, label: `getDiffForRevision ${revision}` },
-                    );
-                } catch {
-                    // Expected exit 1
-                }
-
-                const entry = {
-                    tempDir,
-                    expires: Date.now() + 5 * 60_000,
-                };
-                this._diffCache.set(revision, entry);
-                return entry;
-            } catch (err) {
-                await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-                throw err;
+                await this.run('diffedit', ['-r', revision, '--ignore-immutable', '--tool', toolName, ...toolConfig], {
+                    useCachedSnapshot: true,
+                    label: `getDiffForRevision ${revision}`,
+                });
+            } catch {
+                // Expected exit 1
             }
-        } finally {
-            // Always remove the promise from the map when finished
-            this._diffCachePromises.delete(revision);
+
+            return {
+                tempDir,
+                expires: Date.now() + 5 * 60_000,
+            };
+        } catch (err) {
+            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+            throw err;
         }
     }
 
     async clearCache(): Promise<void> {
-        this._diffCachePromises.clear();
-        const keys = Array.from(this._diffCache.keys());
-        await Promise.all(keys.map((revision) => this.cleanupDiffCache(revision)));
-        this._changesCachePromises.clear();
-        this._changesCache.clear();
-    }
-
-    private async cleanupDiffCache(revision: string) {
-        const cached = this._diffCache.get(revision);
-        if (cached) {
-            this._diffCache.delete(revision);
-            await fs.rm(cached.tempDir, { recursive: true, force: true }).catch(() => {});
-        }
+        await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
     private async runMutation<T>(op: () => Promise<T>): Promise<T> {
@@ -1108,34 +1070,7 @@ export class JjService {
 
     async getChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
         const cacheKey = toRevision ? `${revision}..${toRevision}` : revision;
-
-        const inProgress = this._changesCachePromises.get(cacheKey);
-        if (inProgress) {
-            const entries = await inProgress;
-            return entries.map((e) => ({ ...e }));
-        }
-
-        const cached = this._changesCache.get(cacheKey);
-        if (cached && Date.now() < cached.expires) {
-            return cached.entries.map((e) => ({ ...e }));
-        }
-
-        const fetchPromise = (async () => {
-            const entries = await this._doGetChanges(revision, toRevision);
-            this._changesCache.set(cacheKey, {
-                entries,
-                expires: Date.now() + 5 * 60_000,
-            });
-            return entries;
-        })();
-
-        this._changesCachePromises.set(cacheKey, fetchPromise);
-        try {
-            const entries = await fetchPromise;
-            return entries.map((e) => ({ ...e }));
-        } finally {
-            this._changesCachePromises.delete(cacheKey);
-        }
+        return this._changesCache.getOrFetch(cacheKey, () => this._doGetChanges(revision, toRevision));
     }
 
     private async _doGetChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
