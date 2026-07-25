@@ -44,6 +44,7 @@ import { newCommand } from './commands/new';
 import { newAfterCommand } from './commands/new-after';
 import { newBeforeCommand } from './commands/new-before';
 import { openChangesCommand, openFileCommand } from './commands/open';
+import { registerProcessMonitorCommands } from './commands/process-monitor';
 import { type CommitMenuContext, rebaseOntoSelectedCommand } from './commands/rebase';
 import { redoCommand } from './commands/redo';
 import { refreshCommand } from './commands/refresh';
@@ -75,6 +76,8 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
+import { JjProcessMonitorProvider } from './jj-process-monitor-provider';
+import { JjProcessTracker } from './jj-process-tracker';
 import { JjRepositoryManager } from './jj-repository-manager';
 import { JjScmProvider } from './jj-scm-provider';
 import type { JjService } from './jj-service';
@@ -171,11 +174,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
     );
 
+    const processTracker = new JjProcessTracker();
+    const processStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    processStatusBarItem.command = 'jj-view.showProcessMonitor';
+    context.subscriptions.push(processStatusBarItem);
+
+    context.subscriptions.push(
+        processTracker.onDidChangeProcesses(() => {
+            const metrics = processTracker.getMetrics();
+            if (metrics.activeCount > 0) {
+                processStatusBarItem.text = `$(sync~spin) JJ: ${metrics.activeCount} running`;
+                processStatusBarItem.tooltip = `${metrics.activeCount} JJ process(es) running. Click to open Process Monitor.`;
+                processStatusBarItem.show();
+            } else {
+                processStatusBarItem.hide();
+            }
+        }),
+    );
+
+    registerProcessMonitorCommands(context, processTracker);
+
     const repositoryManager = new JjRepositoryManager(
         codeForgeRegistry,
         outputChannel,
         context.workspaceState,
         resolvedBinaryPath,
+        processTracker,
     );
     context.subscriptions.push(repositoryManager);
 
@@ -344,6 +368,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
+    );
+
+    const processMonitorProvider = new JjProcessMonitorProvider(context.extensionUri, processTracker);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(JjProcessMonitorProvider.viewType, processMonitorProvider),
     );
 
     context.subscriptions.push(

@@ -9,6 +9,7 @@ import type * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
+import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
 import { RefreshScheduler } from './refresh-scheduler';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
@@ -33,6 +34,7 @@ export class JjRepository implements vscode.Disposable {
         registry: CodeForgeRegistry,
         outputChannel: JjLoggerChannel,
         binaryPath?: string,
+        processTracker?: JjProcessTracker,
     ) {
         this._jj = new JjService(
             rootUri.fsPath,
@@ -61,6 +63,7 @@ export class JjRepository implements vscode.Disposable {
             {
                 binaryPath,
                 getConfig: getJjViewConfig,
+                processTracker,
             },
         );
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);

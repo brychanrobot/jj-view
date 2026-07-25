@@ -62,14 +62,17 @@ async function main() {
     });
 
     const webviewCtx = await esbuild.context({
-        entryPoints: ['src/webview/index.tsx'],
+        entryPoints: {
+            index: 'src/webview/index.tsx',
+            'process-monitor': 'src/webview/process-monitor/index.tsx',
+        },
         bundle: true,
         format: 'iife',
         minify: production,
         sourcemap: !production,
         sourcesContent: false,
         platform: 'browser',
-        outfile: 'dist/webview/index.js',
+        outdir: 'dist/webview',
         logLevel: 'silent',
         define: {
             'process.env.NODE_ENV': production ? '"production"' : '"development"',
