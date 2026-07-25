@@ -163,7 +163,7 @@ export async function sendEvaluation(
 }
 
 // Wait for the HTTP-over-IPC socket to be ready
-export async function awaitIpcReady(userDataDir: string, timeout = 15000): Promise<void> {
+export async function waitForIpcReady(userDataDir: string, timeout = 15000): Promise<void> {
     const ipcPath = getIpcPath(userDataDir);
     const start = Date.now();
     let attempts = 0;
@@ -183,7 +183,7 @@ export async function awaitIpcReady(userDataDir: string, timeout = 15000): Promi
                 },
             );
             if (res && res.result === 'success') {
-                logPerf('awaitIpcReady', start, /* prefix= */ undefined, `(attempts: ${attempts})`);
+                logPerf('waitForIpcReady', start, /* prefix= */ undefined, `(attempts: ${attempts})`);
                 return;
             }
         } catch {
@@ -356,42 +356,75 @@ export async function launchNewVSCode(
     return { ...launched, userDataDir: finalUserDataDir };
 }
 
+/**
+ * Dismisses any blocking save or conflict confirmation dialogs on a VS Code window.
+ */
+async function dismissWindowDialogs(win: Page): Promise<void> {
+    if (win.isClosed()) {
+        return;
+    }
+
+    const dialog = win.locator('.monaco-dialog-box').filter({ visible: true }).first();
+    const isDialogVisible = await dialog.isVisible().catch(() => false);
+    if (!isDialogVisible) {
+        return;
+    }
+
+    const dontSave = dialog.getByRole('button', { name: /don['’]t save/i }).first();
+    if (await dontSave.isVisible().catch(() => false)) {
+        await dontSave.click().catch(() => {});
+        return;
+    }
+
+    const closeWithConflicts = dialog.getByRole('button', { name: /close.*conflict/i }).first();
+    if (await closeWithConflicts.isVisible().catch(() => false)) {
+        await closeWithConflicts.click().catch(() => {});
+    }
+}
+
+/**
+ * Gracefully shuts down the VS Code application instance.
+ *
+ * Initiates window closure, continuously handles any blocking modal dialogs
+ * (e.g., unsaved changes or conflict warnings) during shutdown, and enforces a
+ * 5-second deadline. If the application fails to exit within 5 seconds, it issues
+ * a SIGKILL signal to prevent worker teardown timeouts in CI.
+ */
 export async function closeApp(context: VSCodeContext) {
     let closed = false;
-    const closePromise = context.app.close().then(() => {
-        closed = true;
-    });
 
-    try {
-        while (!closed) {
-            try {
-                const windows = context.app.windows();
-                for (const win of windows) {
-                    if (win.isClosed()) {
-                        continue;
-                    }
-                    const dialog = win.locator('.monaco-dialog-box').filter({ visible: true }).first();
-                    if (await dialog.isVisible()) {
-                        const dontSave = dialog.getByRole('button', { name: /don['’]t save/i }).first();
-                        if (await dontSave.isVisible()) {
-                            await dontSave.click();
-                        } else {
-                            const closeWithConflicts = dialog.getByRole('button', { name: /close.*conflict/i }).first();
-                            if (await closeWithConflicts.isVisible()) {
-                                await closeWithConflicts.click();
-                            }
-                        }
-                    }
-                }
-            } catch {
-                // ignore
+    // Initiate background app closure
+    context.app
+        .close()
+        .then(() => {
+            closed = true;
+        })
+        .catch(() => {});
+
+    const timeoutMs = 5000;
+    const start = Date.now();
+
+    // Poll open windows to automatically dismiss any blocking confirmation dialogs until closed or timed out
+    while (!closed && Date.now() - start < timeoutMs) {
+        try {
+            const windows = context.app.windows();
+            for (const win of windows) {
+                await dismissWindowDialogs(win);
             }
-            await new Promise((resolve) => setTimeout(resolve, 20));
+        } catch {
+            // Ignore errors while querying windows during app shutdown
         }
-    } catch {
-        // ignore
+        await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    await closePromise;
+
+    // Fallback: force-kill the process if it failed to close gracefully within the 5s deadline
+    if (!closed) {
+        try {
+            context.app.process()?.kill('SIGKILL');
+        } catch {
+            // Ignore errors if process is already dead
+        }
+    }
 }
 
 type SharedWorkerContext = VSCodeContext & {
@@ -450,7 +483,7 @@ export class VSCodeWorker {
         };
 
         const launched = await launchNewVSCode(workspacePath, {}, env, false, userDataDir);
-        await awaitIpcReady(userDataDir);
+        await waitForIpcReady(userDataDir);
 
         globalActiveContext = {
             ...launched,
@@ -541,8 +574,8 @@ export class VSCodeWorker {
         logPerf('getContext: launchNewVSCode', launchStart);
 
         const ipcReadyStart = Date.now();
-        await awaitIpcReady(userDataDir);
-        logPerf('getContext: awaitIpcReady', ipcReadyStart);
+        await waitForIpcReady(userDataDir);
+        logPerf('getContext: waitForIpcReady', ipcReadyStart);
 
         globalActiveContext = {
             ...launched,
@@ -562,6 +595,9 @@ export class VSCodeWorker {
         extraEnv: Record<string, string | undefined>,
         showNotifications: boolean,
     ): Promise<VSCodeContext> {
+        // Ensure IPC socket is ready (in case VS Code window was reloaded by a previous test)
+        await waitForIpcReady(context.userDataDir, 5000);
+
         // 1. Update the settings first (under the new context/notifications config)
         const startSettings = Date.now();
         await this.updateSettings(context, extraSettings, showNotifications);
@@ -644,8 +680,16 @@ export class VSCodeWorker {
     }
 
     async cleanup(): Promise<void> {
-        // No-op: We preserve the VS Code instance across sequential spec files run by this worker process.
-        // The process-level exit handlers will clean up the application and user data directory.
+        if (globalActiveContext) {
+            const ctx = globalActiveContext;
+            globalActiveContext = undefined;
+            try {
+                await closeApp(ctx);
+            } catch {}
+            try {
+                fs.rmSync(ctx.userDataDir, { recursive: true, force: true });
+            } catch {}
+        }
     }
 
     private async updateWorkspaceFolders(context: VSCodeContext, repo: { path: string }): Promise<void> {
