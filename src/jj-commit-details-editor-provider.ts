@@ -4,6 +4,7 @@
  */
 import * as vscode from 'vscode';
 import { createJjResourceState } from './scm-resource-state';
+import { getJjViewConfig } from './utils/config-utils';
 import { formatCommitTitle } from './utils/jj-utils';
 
 export class JjCommitDocument implements vscode.CustomDocument {
@@ -76,12 +77,13 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                     continue;
                 }
 
-                const config = vscode.workspace.getConfiguration('jj-view', state?.document.repoRoot);
-                const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-                const logTheme = config.get<string>('logTheme', 'default');
-                const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
-                const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
-                const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
+                const scope = state?.document.repoRoot;
+                const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1, scope) ?? 1;
+                const logTheme = getJjViewConfig<string>('logTheme', 'default', scope) ?? 'default';
+                const titleWidthRuler = getJjViewConfig<number>('commit.titleWidthRuler', undefined, scope);
+                const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', undefined, scope);
+                const formatDescriptionOnSave =
+                    getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope) ?? false;
 
                 const logPromise = repo.jj.getLog({ revision: changeId });
                 const changesPromise = repo.jj.getChanges(changeId).catch(() => null);
@@ -245,12 +247,13 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             enableCommandUris: true,
         };
 
-        const config = vscode.workspace.getConfiguration('jj-view', document.repoRoot);
-        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const logTheme = config.get<string>('logTheme', 'default');
-        const titleWidthRuler = config.get<number>('commit.titleWidthRuler');
-        const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler');
-        const formatDescriptionOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
+        const scope = document.repoRoot;
+        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1, scope) ?? 1;
+        const logTheme = getJjViewConfig<string>('logTheme', 'default', scope) ?? 'default';
+        const titleWidthRuler = getJjViewConfig<number>('commit.titleWidthRuler', undefined, scope);
+        const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', undefined, scope);
+        const formatDescriptionOnSave =
+            getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope) ?? false;
         const repo = this.getRepositoryForRoot(document.repoRoot);
         if (!repo) {
             this._repositoryManager.outputChannel.info(
@@ -493,8 +496,7 @@ export async function openCommitDetails(
     isDivergent?: boolean,
     changeIdOffset?: number,
 ): Promise<void> {
-    const config = vscode.workspace.getConfiguration('jj-view');
-    const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+    const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
     const title = formatCommitTitle(
         {
             change_id: changeId,

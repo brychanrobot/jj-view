@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getJjViewConfig } from '../utils/config-utils';
 import { getErrorMessage } from './command-utils';
 
 /**
@@ -18,8 +19,7 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
         const mainRoot = await jj.getMainWorkspaceRoot();
 
         // 2. Get workspaces location from config
-        const config = vscode.workspace.getConfiguration('jj-view');
-        let workspacesLocation = config.get<string>('workspacesLocation', '.workspaces');
+        let workspacesLocation = getJjViewConfig<string>('workspacesLocation', '.workspaces') ?? '.workspaces';
 
         // Resolve relative paths against the main repo root
         if (!path.isAbsolute(workspacesLocation)) {

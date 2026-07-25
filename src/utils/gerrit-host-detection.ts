@@ -5,8 +5,8 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as vscode from 'vscode';
 import type { GitRemote } from '../code-forge-provider';
+import { getJjViewConfig } from './config-utils';
 import { getGitConfig } from './gerrit-credential-utils';
 import type { JjLoggerChannel } from './output-channel';
 
@@ -35,7 +35,7 @@ export function normalizeHostUrl(hostUrl: string): string {
  */
 function getHostFromSettings(outputChannel?: JjLoggerChannel): string | undefined {
     outputChannel?.debug('[GerritDetector] Checking VS Code settings for jj-view.gerrit.host...');
-    const settingHost = vscode.workspace.getConfiguration('jj-view').get<string>('gerrit.host')?.trim();
+    const settingHost = getJjViewConfig<string>('gerrit.host')?.trim();
     if (settingHost) {
         if (settingHost.toLowerCase() === 'true' || settingHost.toLowerCase() === 'false') {
             outputChannel?.debug(

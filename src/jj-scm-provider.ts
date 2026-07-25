@@ -20,6 +20,7 @@ import { JjService } from './jj-service';
 import type { JjLogEntry, JjStatusEntry } from './jj-types';
 import type { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { createJjResourceState, type JjResourceState } from './scm-resource-state';
+import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
@@ -219,9 +220,8 @@ export class JjScmProvider implements vscode.Disposable {
                 const start = performance.now();
                 try {
                     // 1. Fetch data in parallel for performance
-                    const config = vscode.workspace.getConfiguration('jj-view');
-                    const maxMutableAncestors = config.get<number>('maxMutableAncestors', 10);
-                    const openDiffOnClick = config.get<boolean>('openDiffOnClick', true);
+                    const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
+                    const openDiffOnClick = getJjViewConfig<boolean>('openDiffOnClick', true) ?? true;
                     const limit = maxMutableAncestors + 1;
 
                     // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
@@ -351,8 +351,7 @@ export class JjScmProvider implements vscode.Disposable {
                     this._workingCopyStatuses.clear();
 
                     if (currentEntry) {
-                        const config = vscode.workspace.getConfiguration('jj-view');
-                        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+                        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
                         const shortId = formatDisplayChangeId(
                             currentEntry.change_id,
                             currentEntry.change_id_shortest,
@@ -409,8 +408,7 @@ export class JjScmProvider implements vscode.Disposable {
                     for (let i = 0; i < ancestorsToDisplay.length; i++) {
                         const { entry: ancestorEntry, prefix, isMutable, canSquash } = ancestorsToDisplay[i];
 
-                        const config = vscode.workspace.getConfiguration('jj-view');
-                        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
+                        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
                         const shortId = formatDisplayChangeId(
                             ancestorEntry.change_id,
                             ancestorEntry.change_id_shortest,

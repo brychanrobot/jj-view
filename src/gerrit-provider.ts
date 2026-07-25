@@ -14,6 +14,7 @@ import type {
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
+import { getJjViewConfig } from './utils/config-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 import { getGerritAuthHeader, resolveGitRoot } from './utils/gerrit-credential-utils';
 import { detectGerritHost } from './utils/gerrit-host-detection';
@@ -112,7 +113,7 @@ export class GerritProvider implements CodeForgeProvider {
     constructor(private outputChannel?: JjLoggerChannel) {}
 
     public async detect(repoRoot: string, remotes: GitRemote[]): Promise<boolean> {
-        const binaryPath = vscode.workspace.getConfiguration('jj-view').get<string>('binaryPath') || 'jj';
+        const binaryPath = getJjViewConfig<string>('binaryPath', 'jj') || 'jj';
         const gitRoot = await resolveGitRoot(repoRoot, binaryPath);
 
         if (this.repoRoot !== repoRoot) {

@@ -14,6 +14,7 @@ import type {
 } from './code-forge-provider';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
+import { getJjViewConfig } from './utils/config-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
@@ -111,7 +112,7 @@ export class GitLabProvider implements CodeForgeProvider {
     }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
-        const preferredHost = vscode.workspace.getConfiguration('jj-view').get<string>('gitlab.host')?.trim();
+        const preferredHost = getJjViewConfig<string>('gitlab.host')?.trim();
 
         const remotePriority = (name: string): number => {
             const lower = name.toLowerCase();
