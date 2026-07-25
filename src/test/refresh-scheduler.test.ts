@@ -5,14 +5,11 @@
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import { RefreshScheduler } from '../refresh-scheduler';
 
-// Hoisted mock for vscode
 const getConfigurationMock = vi.fn();
-const onDidChangeConfigurationMock = vi.fn();
 
 vi.mock('vscode', () => ({
     workspace: {
         getConfiguration: (...args: unknown[]) => getConfigurationMock(...args),
-        onDidChangeConfiguration: (...args: unknown[]) => onDidChangeConfigurationMock(...args),
     },
     Disposable: class {},
 }));
@@ -170,5 +167,80 @@ describe('RefreshScheduler', () => {
 
         await vi.advanceTimersByTimeAsync(100);
         expect(refreshFn).toHaveBeenCalledTimes(2);
+    });
+
+    test('should read updated base debounce setting dynamically on subsequent triggers', async () => {
+        let currentDebounce = 100;
+        getConfigurationMock.mockImplementation(() => ({
+            get: (key: string, defaultValue: unknown) => {
+                if (key === 'refreshDebounceMillis') {
+                    return currentDebounce;
+                }
+                if (key === 'refreshDebounceMaxMultiplier') {
+                    return 4;
+                }
+                return defaultValue;
+            },
+        }));
+
+        // First trigger with initial debounce (100ms)
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+
+        // Wait for scheduler cycle to reset to idle
+        await vi.advanceTimersByTimeAsync(200);
+
+        // Update configuration value
+        currentDebounce = 500;
+
+        // Second trigger should use updated debounce (500ms)
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(400);
+        expect(refreshFn).toHaveBeenCalledTimes(2);
+    });
+
+    test('should read updated max multiplier dynamically on subsequent triggers', async () => {
+        let maxMultiplier = 2;
+        getConfigurationMock.mockImplementation(() => ({
+            get: (key: string, defaultValue: unknown) => {
+                if (key === 'refreshDebounceMillis') {
+                    return 100;
+                }
+                if (key === 'refreshDebounceMaxMultiplier') {
+                    return maxMultiplier;
+                }
+                return defaultValue;
+            },
+        }));
+
+        // 1st trigger: wait 100ms (multiplier starts at 1, max is 2)
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+
+        // 2nd trigger during 200ms wait
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(200);
+        expect(refreshFn).toHaveBeenCalledTimes(2);
+
+        // Update max multiplier dynamically
+        maxMultiplier = 4;
+
+        // 3rd trigger during 200ms wait
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(200);
+        expect(refreshFn).toHaveBeenCalledTimes(3);
+
+        // 4th trigger: should take 300ms to fire
+        scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(200);
+        expect(refreshFn).toHaveBeenCalledTimes(3);
+
+        await vi.advanceTimersByTimeAsync(100);
+        expect(refreshFn).toHaveBeenCalledTimes(4);
     });
 });
