@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import { DirectoryWatcher } from './directory-watcher';
 import type { JjService } from './jj-service';
 import { Poller } from './poller';
+import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
 export class ChangeDetectionManager implements vscode.Disposable {
@@ -139,8 +140,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         if (this._disposed) {
             return;
         }
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const mode = config.get<'polling' | 'watch'>('fileWatcherMode', 'polling');
+        const mode = getJjViewConfig<'polling' | 'watch'>('fileWatcherMode', 'polling') ?? 'polling';
         this.outputChannel.debug(`[ChangeDetectionManager] File watcher mode: ${mode}`);
 
         const modeChanged = this._fileWatcherMode !== mode;

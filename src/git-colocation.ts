@@ -5,6 +5,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
+import { getJjViewConfig, getWorkspaceConfig, updateJjViewConfig } from './utils/config-utils';
 
 let hasRun = false;
 
@@ -33,16 +34,14 @@ export async function checkGitColocation(jj: JjService): Promise<void> {
         return;
     }
 
-    const gitConfig = vscode.workspace.getConfiguration('git');
-    const isGitEnabled = gitConfig.get<boolean>('enabled') !== false;
+    const isGitEnabled = getWorkspaceConfig<boolean>('git', 'enabled') !== false;
     const isGitExtensionPresent = !!vscode.extensions.getExtension('vscode.git');
 
     if (!isGitEnabled || !isGitExtensionPresent) {
         return;
     }
 
-    const jjViewConfig = vscode.workspace.getConfiguration('jj-view');
-    const isSuppressed = jjViewConfig.get<boolean>('suppressGitColocationWarning') === true;
+    const isSuppressed = getJjViewConfig<boolean>('suppressGitColocationWarning') === true;
 
     if (isSuppressed) {
         return;
@@ -59,6 +58,6 @@ export async function checkGitColocation(jj: JjService): Promise<void> {
     if (result === disableAction) {
         await vscode.commands.executeCommand('workbench.action.openSettings', 'git.enabled');
     } else if (result === ignoreAction) {
-        await jjViewConfig.update('suppressGitColocationWarning', true, vscode.ConfigurationTarget.Global);
+        await updateJjViewConfig('suppressGitColocationWarning', true, vscode.ConfigurationTarget.Global);
     }
 }

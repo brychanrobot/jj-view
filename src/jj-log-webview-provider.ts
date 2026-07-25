@@ -11,6 +11,7 @@ import { JjContextKey } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
+import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
@@ -145,9 +146,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 this.outputChannel?.info('[JjLogWebviewProvider] View became visible, re-rendering');
                 this._renderCommits(this._cachedCommits);
             } else {
-                const config = vscode.workspace.getConfiguration('jj-view');
-                const currentTheme = config.get<string>('logTheme', 'default');
-                const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
+                const currentTheme = getJjViewConfig<string>('logTheme', 'default') ?? 'default';
+                const graphLabelAlignment = getJjViewConfig<string>('graphLabelAlignment', 'aligned') ?? 'aligned';
                 const hiddenActions = this._getHiddenActions();
                 webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
                     view: 'graph',
@@ -161,9 +161,8 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const initialTheme = config.get<string>('logTheme', 'default');
-        const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
+        const initialTheme = getJjViewConfig<string>('logTheme', 'default') ?? 'default';
+        const graphLabelAlignment = getJjViewConfig<string>('graphLabelAlignment', 'aligned') ?? 'aligned';
         const hiddenActions = this._getHiddenActions();
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, {
             view: 'graph',
@@ -432,10 +431,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private _renderCommits(commits: JjLogEntry[]) {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const minChangeIdLength = config.get<number>('minChangeIdLength', 1);
-        const logTheme = config.get<string>('logTheme', 'default');
-        const graphLabelAlignment = config.get<string>('graphLabelAlignment', 'aligned');
+        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+        const logTheme = getJjViewConfig<string>('logTheme', 'default') ?? 'default';
+        const graphLabelAlignment = getJjViewConfig<string>('graphLabelAlignment', 'aligned') ?? 'aligned';
 
         const cf = this._codeForge;
         if (cf?.isEnabled) {

@@ -82,6 +82,7 @@ import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import type { JjResourceState } from './scm-resource-state';
 import { resolveJjBinary } from './utils/binary-utils';
+import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 import { JjOutputChannel } from './utils/output-channel';
 
@@ -100,8 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(realOutputChannel);
 
     // Get preferred binary path configuration
-    const config = vscode.workspace.getConfiguration('jj-view');
-    const preferredPath = config.get<string>('binaryPath');
+    const preferredPath = getJjViewConfig<string>('binaryPath');
     let resolvedBinaryPath: string | undefined;
     try {
         resolvedBinaryPath = await resolveJjBinary(preferredPath, workspaceRoot);
@@ -111,8 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Configure configurations update listener
     const updateBinaryPath = async () => {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        const preferredPath = config.get<string>('binaryPath');
+        const preferredPath = getJjViewConfig<string>('binaryPath');
 
         let resolvedPath: string | undefined;
         let errorMessage: string | undefined;
@@ -144,7 +143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     };
 
     const setOpenDiffOnClickContext = () => {
-        const value = vscode.workspace.getConfiguration('jj-view').get<boolean>('openDiffOnClick', true);
+        const value = getJjViewConfig<boolean>('openDiffOnClick', true);
         vscode.commands.executeCommand('setContext', JjContextKey.OpenDiffOnClick, value);
     };
     setOpenDiffOnClickContext();

@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { CodeForgeService } from '../code-forge-service';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getJjViewConfig } from '../utils/config-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
@@ -17,8 +18,7 @@ export async function uploadCommand(
     outputChannel: JjLoggerChannel,
 ): Promise<void> {
     const revision = extractRevision(args);
-    const config = vscode.workspace.getConfiguration('jj-view');
-    const customCommand = config.get<string>('uploadCommand');
+    const customCommand = getJjViewConfig<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
         let subcommand = '';

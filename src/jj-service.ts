@@ -48,7 +48,7 @@ export const NO_OP_LOGGER: JjServiceLogger = {
     debug: () => {},
 };
 
-export type JjServiceConfigProvider = <T>(key: string, defaultValue?: T) => T | undefined;
+export type JjServiceConfigProvider<S = never> = <T>(key: string, defaultValue?: T, scope?: S) => T | undefined;
 
 export interface JjServiceOptions {
     binaryPath?: string;

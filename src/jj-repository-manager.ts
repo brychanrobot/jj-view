@@ -1092,8 +1092,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * - 'openEditors': only register on-demand when files are opened.
      */
     private getAutoRepositoryDetectionConfig(): boolean | string {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        return config.get<boolean | string>('autoRepositoryDetection', true);
+        return getJjViewConfig<boolean | string>('autoRepositoryDetection', true) ?? true;
     }
 
     /**
@@ -1102,8 +1101,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @returns An array of path strings configured to scan.
      */
     private getScanRepositoriesConfig(): string[] {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        return config.get<string[]>('scanRepositories', []);
+        return getJjViewConfig<string[]>('scanRepositories', []) ?? [];
     }
 
     /**
@@ -1112,8 +1110,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @returns An array of path strings configured to ignore.
      */
     private getIgnoredRepositoriesConfig(): string[] {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        return config.get<string[]>('ignoredRepositories', []);
+        return getJjViewConfig<string[]>('ignoredRepositories', []) ?? [];
     }
 
     /**

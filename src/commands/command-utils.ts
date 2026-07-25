@@ -11,6 +11,7 @@ import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
+import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitDescription } from '../utils/format-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 
@@ -242,7 +243,7 @@ export async function promptForRevision(
         ...options,
     };
 
-    const maxMutableAncestors = vscode.workspace.getConfiguration('jj-view').get<number>('maxMutableAncestors', 10);
+    const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
     const limit = maxMutableAncestors + 1;
 
     try {
@@ -421,13 +422,13 @@ export async function maybeFormatDescriptionOnSave(
     scmProvider: JjScmProvider,
     revision: string = '@',
 ): Promise<string> {
-    const config = vscode.workspace.getConfiguration('jj-view', scmProvider.repo?.rootUri);
-    const formatOnSave = config.get<boolean>('commit.formatDescriptionOnSave', false);
+    const scope = scmProvider.repo?.rootUri;
+    const formatOnSave = getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope);
     if (!formatOnSave) {
         return description;
     }
 
-    const bodyWidthRuler = config.get<number>('commit.bodyWidthRuler', 72);
+    const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', 72, scope) ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
     if (revision === '@') {

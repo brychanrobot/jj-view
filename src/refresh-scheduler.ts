@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import { getJjViewConfig } from './utils/config-utils';
 
 export class RefreshScheduler implements vscode.Disposable {
     private _debounceTimer: NodeJS.Timeout | undefined;
@@ -22,16 +23,14 @@ export class RefreshScheduler implements vscode.Disposable {
     constructor(
         private refreshCallback: (options: { forceSnapshot: boolean; reason?: string }) => void | Promise<void>,
     ) {
-        const config = vscode.workspace.getConfiguration('jj-view');
-        this._baseDebounce = config.get<number>('refreshDebounceMillis', 100);
-        this._maxMultiplier = config.get<number>('refreshDebounceMaxMultiplier', 4);
+        this._baseDebounce = getJjViewConfig<number>('refreshDebounceMillis', 100) ?? 100;
+        this._maxMultiplier = getJjViewConfig<number>('refreshDebounceMaxMultiplier', 4) ?? 4;
 
         // Listen for configuration changes
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('jj-view')) {
-                const newConfig = vscode.workspace.getConfiguration('jj-view');
-                this._baseDebounce = newConfig.get<number>('refreshDebounceMillis', 100);
-                this._maxMultiplier = newConfig.get<number>('refreshDebounceMaxMultiplier', 4);
+                this._baseDebounce = getJjViewConfig<number>('refreshDebounceMillis', 100) ?? 100;
+                this._maxMultiplier = getJjViewConfig<number>('refreshDebounceMaxMultiplier', 4) ?? 4;
             }
         });
     }

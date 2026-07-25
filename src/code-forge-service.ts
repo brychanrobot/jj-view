@@ -8,6 +8,7 @@ import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
+import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 import { TimerBucket } from './utils/timer-bucket';
 
@@ -182,7 +183,7 @@ export class CodeForgeService implements vscode.Disposable {
         try {
             const remotes = await this.jjService.getGitRemotes();
             const repoRoot = await this.jjService.getRepoRoot();
-            const preferredId = vscode.workspace.getConfiguration('jj-view').get<string>('codeForge.provider');
+            const preferredId = getJjViewConfig<string>('codeForge.provider');
 
             let detectedProvider: CodeForgeProvider | undefined;
 
