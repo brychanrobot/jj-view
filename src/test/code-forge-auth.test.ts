@@ -5,14 +5,14 @@
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { type AuthResult, CodeForgeAuthManager } from '../code-forge-auth';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMock, createMockLogOutputChannel, FakeConfigStore } from './test-utils';
+
+const fakeConfigStore = new FakeConfigStore();
 
 // Mock VS Code
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => ({
-            get: vi.fn(),
-        }),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
     },
     window: {
         showWarningMessage: vi.fn(),

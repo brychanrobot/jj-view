@@ -9,13 +9,20 @@ import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider
 import { GitLabProvider } from '../gitlab-provider';
 import type { CodeForgeChangeInfo } from '../jj-types';
 import { FakeGitLabServer } from './helpers/fake-gitlab-server';
-import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
+import {
+    accessPrivate,
+    createMock,
+    createMockLogOutputChannel,
+    exposePrivate,
+    FakeConfigStore,
+    setPrivate,
+} from './test-utils';
+
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: () => ({
-            get: vi.fn(),
-        }),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         onDidChangeConfiguration: vi.fn(),
     },
     window: {

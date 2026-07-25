@@ -7,8 +7,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { NO_OP_LOGGER } from '../jj-service';
+import { FakeConfigStore } from './test-utils';
 
-const mockConfigStore = new Map<string, unknown>();
+const fakeConfigStore = new FakeConfigStore();
 let mockConfigListener: ((e: { affectsConfiguration(section: string): boolean }) => void) | undefined;
 let mockWindowStateListener: ((e: { focused: boolean }) => void) | undefined;
 
@@ -17,11 +18,7 @@ vi.mock('vscode', async () => {
     return createVscodeMock({
         workspace: {
             workspaceFolders: [{ uri: { fsPath: '/root' } }],
-            getConfiguration: vi.fn().mockReturnValue({
-                get: vi.fn().mockImplementation((key: string, defaultValue: unknown) => {
-                    return mockConfigStore.has(key) ? mockConfigStore.get(key) : defaultValue;
-                }),
-            }),
+            getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
             onDidChangeConfiguration: vi.fn().mockImplementation((listener) => {
                 mockConfigListener = listener;
                 return { dispose: vi.fn() };
@@ -91,7 +88,7 @@ describe('CodeForgeService Tests', () => {
     let jjService2: JjService;
 
     beforeEach(() => {
-        mockConfigStore.clear();
+        fakeConfigStore.clear();
         registry = new CodeForgeRegistry();
 
         repo1 = new TestRepo();
@@ -263,7 +260,7 @@ describe('CodeForgeService Tests', () => {
         registry.register({ id: 'provider-b', create: () => providerB });
 
         // Set preferred provider setting
-        mockConfigStore.set('codeForge.provider', 'provider-b');
+        fakeConfigStore.set('codeForge.provider', 'provider-b');
 
         const service = new CodeForgeService(repo1.path, jjService1, registry);
         await service.awaitReady();
@@ -272,7 +269,7 @@ describe('CodeForgeService Tests', () => {
         expect(service.activeProvider).toBe(providerB);
 
         // Reset preferred setting
-        mockConfigStore.delete('codeForge.provider');
+        fakeConfigStore.clear();
 
         service.dispose();
     });

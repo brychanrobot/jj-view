@@ -8,21 +8,28 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import type { ChangeStatusRequest } from '../code-forge-provider';
 import { GerritProvider } from '../gerrit-provider';
 import type { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
-import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
+import {
+    accessPrivate,
+    createMock,
+    createMockLogOutputChannel,
+    exposePrivate,
+    FakeConfigStore,
+    setPrivate,
+} from './test-utils';
+
+let fakeConfigStore = new FakeConfigStore();
 
 // Mock VS Code
 vi.mock('vscode', () => ({
     workspace: {
-        getConfiguration: vi.fn(() => ({
-            get: vi.fn(),
-        })),
+        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
         onDidChangeConfiguration: vi.fn(),
     },
     Disposable: class {
@@ -68,19 +75,14 @@ describe('GerritProvider', () => {
     let mockOutputChannel: vscode.LogOutputChannel;
 
     beforeEach(() => {
+        fakeConfigStore = new FakeConfigStore();
         mockJjService = createMock<JjService>({});
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
         provider = new GerritProvider(mockOutputChannel);
     });
 
     test('detect trims and checks for blank gerrit.host setting', async () => {
-        const getMock = vi.fn().mockReturnValue('   '); // whitespace only
-        vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({
-            get: getMock,
-            has: vi.fn(),
-            update: vi.fn(),
-            inspect: vi.fn(),
-        } as unknown as vscode.WorkspaceConfiguration);
+        fakeConfigStore.set('gerrit.host', '   '); // whitespace only
 
         // With blank host, should fall back to checking .gitreview/remotes and return false since they don't exist
         const result = await provider.detect('/root', []);
@@ -94,18 +96,7 @@ describe('GerritProvider', () => {
         cp.execSync(`git init --bare "${gitRoot}"`);
         cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "git-config-host.example.com"`);
 
-        // Mock workspace config to return undefined for gerrit.host
-        vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
-            get: (key: string) => {
-                if (key === 'binaryPath') {
-                    return 'jj';
-                }
-                return undefined;
-            },
-            has: vi.fn(),
-            update: vi.fn(),
-            inspect: vi.fn(),
-        } as unknown as vscode.WorkspaceConfiguration);
+        fakeConfigStore.set('binaryPath', 'jj');
 
         setPrivate(provider, 'repoRoot', tempRepoDir);
         setPrivate(provider, 'gitRoot', gitRoot);

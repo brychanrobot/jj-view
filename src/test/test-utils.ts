@@ -115,3 +115,72 @@ export class CallbackWaiter<T = void> {
         return (value: T) => this.recordCall(value);
     }
 }
+
+/**
+ * A stateful fake implementation of configuration for tests without relying on a mocking framework.
+ *
+ * Example usage:
+ * ```ts
+ * const config = new FakeConfigStore({
+ *     refreshDebounceMillis: 100,
+ *     refreshDebounceMaxMultiplier: 4,
+ * });
+ *
+ * // Use with vscode.workspace.getConfiguration mock/fake:
+ * getConfigurationMock.mockImplementation(() => config.toWorkspaceConfiguration());
+ *
+ * // Or pass provider directly to JjService or helpers:
+ * const jjService = new JjService({ getConfig: config.provider });
+ *
+ * // Dynamically update config during tests:
+ * config.set('refreshDebounceMillis', 500);
+ * ```
+ */
+export class FakeConfigStore {
+    private readonly _store: Map<string, unknown>;
+
+    constructor(initialConfig: Record<string, unknown> = {}) {
+        this._store = new Map(Object.entries(initialConfig));
+    }
+
+    get<T>(key: string, defaultValue?: T): T | undefined {
+        if (this._store.has(key)) {
+            return this._store.get(key) as T;
+        }
+        return defaultValue;
+    }
+
+    set(key: string, value: unknown): void {
+        this._store.set(key, value);
+    }
+
+    setAll(values: Record<string, unknown>): void {
+        for (const [k, v] of Object.entries(values)) {
+            this._store.set(k, v);
+        }
+    }
+
+    clear(): void {
+        this._store.clear();
+    }
+
+    get provider(): <T>(key: string, defaultValue?: T) => T | undefined {
+        return <T>(key: string, defaultValue?: T) => this.get<T>(key, defaultValue);
+    }
+
+    toWorkspaceConfiguration() {
+        return {
+            get: <T>(key: string, defaultValue?: T): T | undefined => this.get<T>(key, defaultValue),
+            has: (key: string): boolean => this._store.has(key),
+            inspect: <T>(key: string) => ({
+                key,
+                defaultValue: undefined,
+                globalValue: this._store.get(key) as T | undefined,
+                workspaceValue: undefined,
+            }),
+            update: async (key: string, value: unknown): Promise<void> => {
+                this._store.set(key, value);
+            },
+        };
+    }
+}
