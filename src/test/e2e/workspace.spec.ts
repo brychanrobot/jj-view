@@ -219,6 +219,7 @@ test.describe('Workspace Management E2E', () => {
         await rightClickAndSelect(page, openPill, 'Open in Current Window');
 
         await expectWindowTitle(page, openWs);
+        vscode.requestReset();
     });
 
     test('Open Workspace in New Window via context menu', async ({ vscode }) => {
@@ -235,15 +236,19 @@ test.describe('Workspace Management E2E', () => {
 
         const openPill = await waitForLogPill(page, openWs, 'workspace');
 
-        await withNewWindow({
-            app,
-            action: () => rightClickAndSelect(page, openPill, 'Open in New Window'),
-            callback: async (newPage) => {
-                await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
+        try {
+            await withNewWindow({
+                app,
+                action: () => rightClickAndSelect(page, openPill, 'Open in New Window'),
+                callback: async (newPage) => {
+                    await expect(newPage.locator('.monaco-workbench')).toBeVisible({ timeout: 15000 });
 
-                await expectWindowTitle(newPage, openWs);
-            },
-            errorMessage: 'Failed to open workspace in new window via context menu',
-        });
+                    await expectWindowTitle(newPage, openWs);
+                },
+                errorMessage: 'Failed to open workspace in new window via context menu',
+            });
+        } finally {
+            vscode.requestReset();
+        }
     });
 });

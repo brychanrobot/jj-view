@@ -84,6 +84,7 @@ export interface VSCodeFixture {
     app?: ElectronApplication;
     page?: Page;
     userDataDir: string;
+    requestReset(): void;
     openWorkspace(
         repo: { path: string },
         extraSettings?: Record<string, unknown>,
@@ -1087,13 +1088,21 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
         return this.activeContext;
     }
 
+    requestReset(): void {
+        if (globalActiveContext) {
+            globalActiveContext.needsReset = true;
+        }
+    }
+
     async cleanupAfterTest() {
         const start = Date.now();
         if (this.activeContext) {
             try {
                 const windows = this.activeContext.app.windows();
+                let hadAuxiliaryWindow = false;
                 for (const win of windows) {
                     if (win !== this.activeContext.page && !win.isClosed()) {
+                        hadAuxiliaryWindow = true;
                         // Start closing the window asynchronously
                         const closePromise = win.close();
 
@@ -1120,6 +1129,9 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                             () => {},
                         );
                     }
+                }
+                if (hadAuxiliaryWindow) {
+                    this.requestReset();
                 }
             } catch {
                 // Ignore errors closing auxiliary windows
