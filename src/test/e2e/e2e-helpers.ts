@@ -1430,11 +1430,15 @@ export async function getReviewWidget(page: Page, expectedText?: string): Promis
 /**
  * Expands the comment reply input form if it is not already visible.
  */
-async function expandReplyFormIfNeeded(reviewWidget: Locator) {
+async function expandReplyFormIfNeeded(reviewWidget: Locator, force = false) {
     const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
-    if (await replyPlaceholderBtn.isVisible()) {
+    const formActions = reviewWidget.locator('.form-actions');
+
+    const needsExpansion = force || (await replyPlaceholderBtn.isVisible()) || !(await formActions.isVisible());
+    if (needsExpansion) {
+        await expect(replyPlaceholderBtn).toBeVisible({ timeout: 5000 });
         await replyPlaceholderBtn.click();
-        await expect(reviewWidget.locator('.comment-form .monaco-editor')).toBeVisible({ timeout: 5000 });
+        await expect(formActions).toBeVisible({ timeout: 5000 });
     }
 }
 
@@ -1449,7 +1453,14 @@ async function clickCommentButton(reviewWidget: Locator, buttonLabel: string | R
         .locator('.form-actions button, .form-actions [role="button"]')
         .filter({ hasText: buttonLabel })
         .first();
-    await expect(button).toBeVisible();
+
+    try {
+        await expect(button).toBeVisible({ timeout: 2000 });
+    } catch {
+        await expandReplyFormIfNeeded(reviewWidget, true);
+        await expect(button).toBeVisible({ timeout: 5000 });
+    }
+
     await reviewWidget.page().waitForTimeout(200);
     await button.click();
     logPerf(perfLabel, start);
@@ -1469,7 +1480,13 @@ async function submitTypedCommentReply(
     await expandReplyFormIfNeeded(reviewWidget);
 
     const editor = reviewWidget.locator('.comment-form .monaco-editor');
-    await expect(editor).toBeVisible();
+    try {
+        await expect(editor).toBeVisible({ timeout: 2000 });
+    } catch {
+        await expandReplyFormIfNeeded(reviewWidget, true);
+        await expect(editor).toBeVisible({ timeout: 5000 });
+    }
+
     await editor.click();
     await page.keyboard.type(text);
 
@@ -1477,7 +1494,14 @@ async function submitTypedCommentReply(
         .locator('.form-actions button, .form-actions [role="button"]')
         .filter({ hasText: buttonLabel })
         .first();
-    await expect(button).toBeVisible();
+
+    try {
+        await expect(button).toBeVisible({ timeout: 2000 });
+    } catch {
+        await expandReplyFormIfNeeded(reviewWidget, true);
+        await expect(button).toBeVisible({ timeout: 5000 });
+    }
+
     await button.click();
     logPerf(perfLabel, start);
 }

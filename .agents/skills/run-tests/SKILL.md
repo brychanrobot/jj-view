@@ -119,20 +119,28 @@ You MUST run individual test cases when writing a new test or debugging a broken
   *(Note: You can find the `<artifact-directory-path>` in the conversation details/metadata, e.g., `<appDataDir>/brain/<conversation-id>`)*
   This will place failure screenshots directly into your artifact folder, making them instantly available for the `view_file` tool.
 
-### 4. Debugging E2E Tests (Automatic Failure Diagnostics)
+### 4. Debugging E2E Tests (Automatic Failure Diagnostics & Artifact Parsing)
 
 **Purpose:** When locators fail in E2E tests, it's often due to the complex, nested structure of VS Code. Playwright is configured to automatically dump the visual and DOM state on failure.
 
-**Diagnostic Outputs:**
-Whenever an E2E test fails, the test runner automatically saves two diagnostic files in the output directory:
+**Diagnostic Outputs & Failure Script:**
+Whenever an E2E test fails, the test runner automatically saves two diagnostic files in `test-results/` and `playwright-report/`:
 1. **Screenshot:** `test-failure.png` showing the visual editor/workspace state.
 2. **DOM HTML:** `test-failure.html` containing the complete DOM structure (including shadow roots and iframes).
 
-You can directly read the automatically generated `test-failure.html` using the `view_file` tool to inspect selectors and find elements at the time of the failure.
+**Parsing Failure Artifacts:**
+Run `pnpm test:failures` after any E2E test run to immediately list all failed spec files, error stack traces, and direct `file://` links to screenshot images and DOM HTML files:
+```bash
+pnpm test:failures
+```
+
+You MUST use `pnpm test:failures` after test runs to identify failure artifact paths, and use `view_file` to inspect the exact `test-failure.png` screenshot images and `test-failure.html` DOM dumps to diagnose root causes visually.
 
 ## Mandatory Debugging Practice
 
 When writing a new test or investigating a failure:
 
-1. **Never** run the full test suite over and over.
-2. **Always** apply the filtering commands listed above to restrict execution to the single test case or file you are working on. This drastically speeds up the feedback loop and simplifies debugging output.
+1. **Never** run the full test suite over and over without filtering.
+2. **Always** apply the filtering commands listed above to restrict execution to the single test case or file you are working on during development.
+3. **Always** run `pnpm test:failures` when test failures occur, inspect all `test-failure.png` screenshots using `view_file`, and address root causes empirically.
+
