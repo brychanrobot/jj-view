@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.5.0
+
+### Features
+
+- **Process Monitor**:
+    - Introduce process tracker and diagnostic panel to monitor running Jujutsu background operations.
+- **File Viewer**:
+    - Add option to open files directly in the active working copy from history and diff views.
+
+### Fixes
+
+- **Gerrit Integration**:
+    - Save comments and thread resolutions as draft comments.
+- **Background Operations & Refresh**:
+    - Recover gracefully from read operation timeouts, mutex rejections, and ensure pending timers are cleared upon completion during repository refreshes.
+
+### Performance
+
+- **Repository Service**:
+    - Memoize working copy file change queries to speed up status updates.
+
+### Chores & Testing
+
+- **Repository Service**:
+    - Generalize caching strategy across services using a unified `AsyncCache` utility.
+- **Configuration**:
+    - Standardize workspace setting lookups using central configuration utilities.
+    - Dynamically evaluate refresh scheduler debounce configuration.
+- **Testing**:
+    - Introduce `FakeConfigStore` utility to simplify configuration stubs in unit tests.
+    - Improve E2E test worker teardown stability and socket reload handling.
+
 ## 2.4.0
 
 ### Features
