@@ -384,19 +384,17 @@ test.describe('SCM Pane E2E', () => {
             await expect(rightEditor).toContainText('edited from diff', { timeout: 1000 });
         }).toPass({ timeout: 5000 });
 
-        // Save and ensure JJ picks it up.
-        // Ensure focus before save
-        await rightEditor.click();
-        await page.keyboard.press('Control+s');
-
         // Verify file content on disk and in jj using toPass polling
         await expect(async () => {
+            await rightEditor.click();
+            await page.keyboard.press('Control+S');
+
             const diskContent = fs.readFileSync(path.join(repo.path, 'file2.txt'), 'utf8').trim();
             expect(diskContent).toBe('edited from diff');
 
             const content = repo.getFileContent('@', 'file2.txt').trim();
             expect(content).toBe('edited from diff');
-        }).toPass({ timeout: 10000, intervals: [50, 100, 250, 500] });
+        }).toPass({ timeout: 10000, intervals: [100, 250, 500] });
 
         // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
         await focusSCM(page);
@@ -406,17 +404,19 @@ test.describe('SCM Pane E2E', () => {
 
         await expect(async () => {
             expect(repo.getParents('@').length).toBe(1);
-        }).toPass({ timeout: 5000 });
+            expect(repo.getDiffSummary('@')).toBe('');
+        }).toPass({ timeout: 10000 });
         // Now we have initial -> wc_commit -> new_wc
         // Modify file3.txt in the new working copy
         repo.writeFile('file3.txt', 'new mod3');
 
-        // Click the SCM refresh button
+        // Click the SCM refresh button and wait for file3.txt to appear in SCM Working Copy
         const refreshButton = page.getByRole('button', { name: 'Refresh' }).first();
-        await refreshButton.click();
-
-        // Wait for file3.txt to appear in SCM Working Copy
-        const newWcFileRow = await expectFileInScmGroup(page, /Working Copy/i, 'file3.txt');
+        let newWcFileRow!: Locator;
+        await expect(async () => {
+            await refreshButton.click();
+            newWcFileRow = await expectFileInScmGroup(page, /Working Copy/i, 'file3.txt', { timeout: 1000 });
+        }).toPass({ timeout: 10000 });
 
         // Hover to reveal inline actions
         await newWcFileRow.hover();
@@ -497,8 +497,8 @@ test.describe('SCM Pane E2E', () => {
         await focusSCM(page);
 
         // 3. Squash File to Child (Pull from Ancestor)
-        // Groups are expanded by default, so f2.txt is already visible.
-        await clickScmAction(page, /f2\.txt/, SCM_ACTIONS.SquashFilesIntoChild);
+        const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
+        await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
 
         // Assert via repo that f2.txt from ancestor was moved to working copy
         // and the UI SCM tree has refreshed to reflect the new state.
