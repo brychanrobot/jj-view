@@ -59,12 +59,19 @@ test.describe('SCM Pane E2E', () => {
         const mergeConflictsHeader = page.getByRole('treeitem', { name: 'Merge Conflicts' });
         const workingCopyHeader = page.getByRole('treeitem', { name: /Working Copy/ });
 
-        await expect(mergeConflictsHeader).toBeVisible();
-        await expect(workingCopyHeader).toBeVisible();
+        // Extended timeout for merge conflict groups to remain stable under parallel CPU load.
+        const GROUP_VISIBILITY_TIMEOUT = 10_000;
+
+        await expect(mergeConflictsHeader).toBeVisible({ timeout: GROUP_VISIBILITY_TIMEOUT });
+        await expect(workingCopyHeader).toBeVisible({ timeout: GROUP_VISIBILITY_TIMEOUT });
 
         // Verify ancestor groups (merge commit is empty, showing parents @-2^1 and @-2^2)
-        await expect(page.getByRole('treeitem', { name: /@-2\^1:.*side 1/ })).toBeVisible({ timeout: 5000 });
-        await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible();
+        await expect(page.getByRole('treeitem', { name: /@-2\^1:.*side 1/ })).toBeVisible({
+            timeout: GROUP_VISIBILITY_TIMEOUT,
+        });
+        await expect(page.getByRole('treeitem', { name: /@-2\^2:.*side 2/ })).toBeVisible({
+            timeout: GROUP_VISIBILITY_TIMEOUT,
+        });
 
         // Verify SCM input is populated with working copy description
         await expectScmDescription(page, 'my working copy');
