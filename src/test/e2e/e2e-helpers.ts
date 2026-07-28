@@ -495,7 +495,7 @@ export async function hoverAndClick(row: Locator, button: Locator) {
         await row.hover();
         // Wait for the button to be visible because VS Code renders inline actions on hover
         await expect(button).toBeVisible({ timeout: 1000 });
-        await button.click({ force: true });
+        await button.click();
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
     logPerf('hoverAndClick', start);
 }
@@ -519,9 +519,12 @@ export const SCM_ACTIONS = {
 /**
  * Robustly clicks an inline action button on an SCM tree item (row or group) by its title.
  */
-export async function clickScmAction(page: Page, rowName: string | RegExp, actionTitle: string) {
+export async function clickScmAction(page: Page, rowName: string | RegExp | Locator, actionTitle: string) {
     const start = Date.now();
-    const row = page.getByRole('treeitem', { name: rowName }).first();
+    const row =
+        typeof rowName === 'string' || rowName instanceof RegExp
+            ? page.getByRole('treeitem', { name: rowName }).first()
+            : rowName;
     await expect(row).toBeVisible({ timeout: 5000 });
 
     const iconMap: Record<string, string> = {
@@ -691,6 +694,52 @@ export async function expectScmDescription(page: Page, expected: string | RegExp
 }
 
 /**
+ * Safely converts a string into a valid XPath 1.0 string literal,
+ * handling single quotes, double quotes, or both using XPath `concat()`.
+ */
+export function escapeXPathString(str: string): string {
+    if (!str.includes('"')) {
+        return `"${str}"`;
+    }
+    if (!str.includes("'")) {
+        return `'${str}'`;
+    }
+    const parts = str.split('"');
+    const concatArgs: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+        if (parts[i].length > 0) {
+            concatArgs.push(`"${parts[i]}"`);
+        }
+        if (i < parts.length - 1) {
+            concatArgs.push(`'"'`);
+        }
+    }
+    return `concat(${concatArgs.join(', ')})`;
+}
+
+/**
+ * Converts a text string or RegExp pattern into a plain search substring for XPath matching.
+ *
+ * Supported RegExp pattern shapes:
+ * - Literals and escaped regex symbols (e.g. /file\.txt/i -> "file.txt")
+ * - Simple wildcards and alternation (e.g. /@-1:.*side 1/ -> "side 1")
+ *
+ * Complex patterns (e.g. lookarounds or nested groups) are reduced to their longest
+ * plain-text string fragment.
+ */
+export function toPlainSearchString(pattern: string | RegExp): string {
+    if (typeof pattern === 'string') {
+        return pattern;
+    }
+    const plain = pattern.source.replace(/\\([.*+?^${}()|[\]\\])/g, '$1').replace(/[\^$]/g, '');
+    const parts = plain
+        .split(/\.\*|\.\+|\?|\|/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+    return parts.sort((a, b) => b.length - a.length)[0] || plain;
+}
+
+/**
  * Locates an SCM tree item, optionally matching a parent group name.
  */
 export async function getScmItemLocator(
@@ -699,46 +748,23 @@ export async function getScmItemLocator(
     groupName?: string | RegExp,
 ): Promise<Locator> {
     const start = Date.now();
-    let result: Locator;
+    const fileStr = toPlainSearchString(fileName);
+    const fileLiteral = escapeXPathString(fileStr);
+    const fileMatch = `contains(@aria-label, ${fileLiteral}) or contains(., ${fileLiteral})`;
+
+    let xpath: string;
     if (groupName) {
-        const allItems = await page.getByRole('treeitem').all();
-        let groupIdx = -1;
-        const groupNamePattern = groupName instanceof RegExp ? groupName : new RegExp(groupName, 'i');
-        const fileNamePattern = fileName instanceof RegExp ? fileName : new RegExp(fileName, 'i');
+        const groupStr = toPlainSearchString(groupName);
+        const groupLiteral = escapeXPathString(groupStr);
+        const groupMatch = `contains(@aria-label, ${groupLiteral}) or contains(., ${groupLiteral})`;
+        const precedingGroupHeader = `(preceding-sibling::div[@role="treeitem"][@aria-level="1"])[last()][${groupMatch}]`;
 
-        for (let i = 0; i < allItems.length; i++) {
-            const label = (await allItems[i].getAttribute('aria-label')) || '';
-            if (groupNamePattern.test(label)) {
-                groupIdx = i;
-                break;
-            }
-        }
-
-        if (groupIdx === -1) {
-            throw new Error(`Group "${groupName}" not found`);
-        }
-
-        let foundItem: Locator | undefined;
-        for (let i = groupIdx + 1; i < allItems.length; i++) {
-            const label = (await allItems[i].getAttribute('aria-label')) || '';
-            const level = await allItems[i].getAttribute('aria-level');
-
-            if (fileNamePattern.test(label)) {
-                foundItem = allItems[i];
-                break;
-            }
-
-            if (level === '1') {
-                throw new Error(`File "${fileName}" not found in group "${groupName}"`);
-            }
-        }
-        if (!foundItem) {
-            throw new Error(`File "${fileName}" not found in group "${groupName}"`);
-        }
-        result = foundItem;
+        xpath = `//div[@role="treeitem"][@aria-level="2"][${fileMatch}][${precedingGroupHeader}]`;
     } else {
-        result = page.getByRole('treeitem', { name: fileName }).first();
+        xpath = `//div[@role="treeitem"][@aria-level="2"][${fileMatch}]`;
     }
+
+    const result = page.locator(`xpath=${xpath}`).first();
     logPerf('getScmItemLocator', start);
     return result;
 }
@@ -750,17 +776,13 @@ export async function expectFileInScmGroup(
     page: Page,
     groupNamePattern: RegExp | string,
     fileNamePattern: RegExp | string,
+    options: { timeout?: number } = {},
 ): Promise<Locator> {
     const start = Date.now();
-    let locator: Locator | undefined;
-    await expect(async () => {
-        locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
-        await expect(locator).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 15000 });
+    const locator = await getScmItemLocator(page, fileNamePattern, groupNamePattern);
+    const timeout = options.timeout ?? 10000;
+    await expect(locator).toBeVisible({ timeout });
     logPerf('expectFileInScmGroup', start);
-    if (!locator) {
-        throw new Error(`File "${fileNamePattern}" not found in group "${groupNamePattern}"`);
-    }
     return locator;
 }
 
