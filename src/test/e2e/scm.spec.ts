@@ -6,26 +6,24 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, type Locator } from '@playwright/test';
-import { buildGraph, TestRepo } from '../test-repo';
+import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import {
     clickContextMenuItem,
     clickScmAction,
-    entry,
     expectFileInScmGroup,
     expectScmDescription,
-    expectTree,
     focusSCM,
     hoverAndClick,
     openScmDiff,
     openScmFile,
     openScmMerge,
     pickQuickPickItem,
-    ROOT_ID,
     SCM_ACTIONS,
     selectLine,
     setScmDescription,
     test,
     waitForTab,
+    waitForTree,
 } from './e2e-helpers';
 
 test.describe('SCM Pane E2E', () => {
@@ -116,11 +114,11 @@ test.describe('SCM Pane E2E', () => {
         await newButton.click();
 
         // Wait for UI to reflect empty input box and tree to update
-        await expectTree(repo, [
+        await waitForTree(repo, [
             expect.stringMatching(new RegExp(`^@ [a-z0-9]+ \\[${prevWcId}\\] \\(empty\\)$`)),
-            entry(prevWcId, '(empty)', initialId),
-            entry(initialId, 'Updated description explicitly', workspaceRootId),
-            entry(workspaceRootId, '(empty)', ROOT_ID),
+            { changeId: prevWcId, description: '(empty)', parents: initialId },
+            { changeId: initialId, description: 'Updated description explicitly', parents: workspaceRootId },
+            { changeId: workspaceRootId, description: '(empty)', parents: ROOT_ID },
         ]);
     });
 

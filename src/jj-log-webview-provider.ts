@@ -251,27 +251,19 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 case 'moveBookmark':
-                    if (this.jj) {
-                        await this.jj.moveBookmark(data.payload.bookmark, data.payload.targetChangeId);
-                        await vscode.commands.executeCommand('jj-view.refresh');
-                    }
+                    await this.handleMoveBookmark(data.payload);
                     break;
                 case 'rebaseCommit':
-                    if (this.jj) {
-                        try {
-                            await withDelayedProgress(
-                                'Rebasing...',
-                                this.jj.rebase(
-                                    data.payload.sourceChangeId,
-                                    data.payload.targetChangeId,
-                                    data.payload.mode,
-                                ),
-                            );
-                            await vscode.commands.executeCommand('jj-view.refresh');
-                        } catch (err) {
-                            await showJjError(err, 'Failed to rebase', this.jj, this.outputChannel);
-                        }
-                    }
+                    await this.handleRebaseCommit(data.payload);
+                    break;
+                case 'squashCommit':
+                    await this.handleSquashCommit(data.payload);
+                    break;
+                case 'duplicateCommit':
+                    await this.handleDuplicateCommit(data.payload);
+                    break;
+                case 'mergeCommit':
+                    await this.handleMergeCommit(data.payload);
                     break;
                 case 'upload':
                     await vscode.commands.executeCommand('jj-view.upload', data.payload);
@@ -543,6 +535,79 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 <script nonce="${nonce}" src="${scriptUri}"></script>
             </body>
             </html>`;
+    }
+
+    private async executeJjMutation(
+        progressTitle: string,
+        failureMessage: string,
+        operation: (jj: JjService) => Promise<unknown>,
+    ): Promise<void> {
+        if (!this.jj) {
+            return;
+        }
+        try {
+            await withDelayedProgress(progressTitle, operation(this.jj));
+            await vscode.commands.executeCommand('jj-view.refresh');
+        } catch (err) {
+            await showJjError(err, failureMessage, this.jj, this.outputChannel);
+        }
+    }
+
+    private async handleMoveBookmark(payload: { bookmark: string; targetChangeId: string }): Promise<void> {
+        if (!payload?.bookmark || !payload?.targetChangeId) {
+            return;
+        }
+        return this.executeJjMutation('Moving bookmark...', 'Failed to move bookmark', (jj) =>
+            jj.moveBookmark(payload.bookmark, payload.targetChangeId),
+        );
+    }
+
+    private async handleRebaseCommit(payload: {
+        sourceChangeId: string;
+        targetChangeId: string;
+        mode: 'source' | 'revision';
+    }): Promise<void> {
+        if (!payload?.sourceChangeId || !payload?.targetChangeId || payload.sourceChangeId === payload.targetChangeId) {
+            return;
+        }
+        return this.executeJjMutation('Rebasing...', 'Failed to rebase', (jj) =>
+            jj.rebase(payload.sourceChangeId, payload.targetChangeId, payload.mode),
+        );
+    }
+
+    private async handleSquashCommit(payload: {
+        sourceChangeId: string;
+        targetChangeId: string;
+        mode: 'into' | 'onto';
+    }): Promise<void> {
+        if (!payload?.sourceChangeId || !payload?.targetChangeId || payload.sourceChangeId === payload.targetChangeId) {
+            return;
+        }
+        const options =
+            payload.mode === 'onto'
+                ? { ontoRevision: payload.targetChangeId }
+                : { intoRevision: payload.targetChangeId };
+        return this.executeJjMutation('Squashing...', 'Failed to squash', (jj) =>
+            jj.squashRevision({ revision: payload.sourceChangeId, ...options }),
+        );
+    }
+
+    private async handleDuplicateCommit(payload: { sourceChangeId: string; targetChangeId?: string }): Promise<void> {
+        if (!payload?.sourceChangeId || payload.sourceChangeId === payload.targetChangeId) {
+            return;
+        }
+        return this.executeJjMutation('Duplicating...', 'Failed to duplicate', (jj) =>
+            jj.duplicate(payload.sourceChangeId, payload.targetChangeId ? { onto: payload.targetChangeId } : {}),
+        );
+    }
+
+    private async handleMergeCommit(payload: { sourceChangeId: string; targetChangeId: string }): Promise<void> {
+        if (!payload?.sourceChangeId || !payload?.targetChangeId || payload.sourceChangeId === payload.targetChangeId) {
+            return;
+        }
+        return this.executeJjMutation('Creating merge commit...', 'Failed to create merge commit', (jj) =>
+            jj.new({ parents: [payload.sourceChangeId, payload.targetChangeId] }),
+        );
     }
 }
 

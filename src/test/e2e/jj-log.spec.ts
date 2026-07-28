@@ -4,20 +4,18 @@
  */
 
 import { expect } from '@playwright/test';
-import { buildGraph, TestRepo } from '../test-repo';
+import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import {
     clickLogAction,
     dragAndDrop,
-    entry,
-    expectTree,
     focusJJLog,
     getLogWebview,
     pickQuickPickItem,
-    ROOT_ID,
     test,
     triggerRefresh,
     waitForLogCommitRow,
     waitForLogPill,
+    waitForTree,
     waitForWebviewCommitRemoved,
     waitForWebviewWorkingCopy,
 } from './e2e-helpers';
@@ -106,27 +104,35 @@ test.describe('JJ Log Pane E2E', () => {
         }).toPass({ timeout: 5000 });
 
         // Verify full tree: [merge, wc, side_branch, initial, dummy]
-        await expect(async () => {
-            const mergeChangeId = repo.getChangeId('@');
-            await expectTree(repo, [
-                `@ ${entry(mergeChangeId, '(empty)', [nodes.side_branch.changeId, nodes.wc.changeId])}`,
-                entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
-                entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
-                entry(nodes.initial.changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID),
-            ]);
-        }).toPass();
+        const mergeChangeId = repo.getChangeId('@');
+        await waitForTree(repo, [
+            {
+                isWorkingCopy: true,
+                changeId: mergeChangeId,
+                description: '(empty)',
+                parents: [nodes.side_branch.changeId, nodes.wc.changeId],
+            },
+            { changeId: nodes.wc.changeId, description: 'working tree', parents: nodes.initial.changeId },
+            { changeId: nodes.side_branch.changeId, description: 'side branch', parents: nodes.initial.changeId },
+            { changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
+        ]);
 
         // 2. Undo
         const undoAction = page.getByRole('button', { name: 'Undo' }).first();
         await undoAction.click();
 
         // Assert the merge change was undone accurately
-        await expectTree(repo, [
-            `@ ${entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId)}`,
-            entry(nodes.side_branch.changeId, 'side branch', nodes.initial.changeId),
-            entry(nodes.initial.changeId, 'initial setup', dummyId),
-            entry(dummyId, '(empty)', ROOT_ID),
+        await waitForTree(repo, [
+            {
+                isWorkingCopy: true,
+                changeId: nodes.wc.changeId,
+                description: 'working tree',
+                parents: nodes.initial.changeId,
+            },
+            { changeId: nodes.side_branch.changeId, description: 'side branch', parents: nodes.initial.changeId },
+            { changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
         ]);
     });
 
@@ -167,17 +173,13 @@ test.describe('JJ Log Pane E2E', () => {
         repo.writeFile('child.txt', 'child content');
 
         // Tree: [new_child(@), wc, branch, initial, dummy]
-        // Order: child is newest head, wc is other head.
-        await expect(async () => {
-            const childId = repo.getChangeId('@');
-            await expectTree(repo, [
-                `@ ${entry(childId, '(empty)', nodes.branch.changeId)}`,
-                entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
-                entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-                entry(nodes.initial.changeId, 'initial setup', dummyId),
-                entry(dummyId, '(empty)', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: childId, description: '(empty)', parents: nodes.branch.changeId },
+            { changeId: nodes.wc.changeId, description: 'working tree', parents: nodes.branch.changeId },
+            { changeId: nodes.branch.changeId, description: 'branch commit', parents: nodes.initial.changeId },
+            { changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
+        ]);
         await waitForWebviewWorkingCopy(page, childId);
 
         // 2. Prepare for squash: move working copy away from the new child
@@ -185,12 +187,12 @@ test.describe('JJ Log Pane E2E', () => {
         await clickLogAction(page, { changeId: initialId }, 'Edit Commit');
 
         // Tree is the same commits, just @ moved. Order: [child, wc, branch, initial, dummy]
-        await expectTree(repo, [
-            entry(childId, '(empty)', nodes.branch.changeId),
-            entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
-            entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
-            entry(dummyId, '(empty)', ROOT_ID),
+        await waitForTree(repo, [
+            { changeId: childId, description: '(empty)', parents: nodes.branch.changeId },
+            { changeId: nodes.wc.changeId, description: 'working tree', parents: nodes.branch.changeId },
+            { changeId: nodes.branch.changeId, description: 'branch commit', parents: nodes.initial.changeId },
+            { isWorkingCopy: true, changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
         ]);
         await waitForWebviewWorkingCopy(page, initialId);
 
@@ -198,11 +200,11 @@ test.describe('JJ Log Pane E2E', () => {
         await clickLogAction(page, { changeId: childId }, 'Squash');
 
         // After squash: child is gone. branch has its changes.
-        await expectTree(repo, [
-            entry(nodes.wc.changeId, 'working tree', nodes.branch.changeId),
-            entry(nodes.branch.changeId, 'branch commit', nodes.initial.changeId),
-            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
-            entry(dummyId, '(empty)', ROOT_ID),
+        await waitForTree(repo, [
+            { changeId: nodes.wc.changeId, description: 'working tree', parents: nodes.branch.changeId },
+            { changeId: nodes.branch.changeId, description: 'branch commit', parents: nodes.initial.changeId },
+            { isWorkingCopy: true, changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
         ]);
         await waitForWebviewCommitRemoved(page, childId);
 
@@ -211,10 +213,10 @@ test.describe('JJ Log Pane E2E', () => {
 
         // After abandon branch: branch is gone. wc (child of branch) becomes child of initial.
         // Tree: [wc, initial(@)]
-        await expectTree(repo, [
-            entry(nodes.wc.changeId, 'working tree', nodes.initial.changeId),
-            `@ ${entry(nodes.initial.changeId, 'initial setup', dummyId)}`,
-            entry(dummyId, '(empty)', ROOT_ID),
+        await waitForTree(repo, [
+            { changeId: nodes.wc.changeId, description: 'working tree', parents: nodes.initial.changeId },
+            { isWorkingCopy: true, changeId: nodes.initial.changeId, description: 'initial setup', parents: dummyId },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
         ]);
         await waitForWebviewCommitRemoved(page, branchId);
     });
@@ -257,6 +259,126 @@ test.describe('JJ Log Pane E2E', () => {
             const parents = repo.getParents(nodes.source.changeId);
             expect(parents).toContain(nodes.target.changeId);
         }).toPass({ timeout: 10000 });
+    });
+
+    test('Drag and Drop Commit with s key squashes source into target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const dummyId = repo.getChangeId('@');
+        const nodes = await buildGraph(repo, [
+            { label: 'target', description: 'target commit', files: { 'target.txt': 'base' } },
+            {
+                label: 'source',
+                parents: ['target'],
+                description: 'source commit',
+                files: { 'source.txt': 'mod' },
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
+        const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
+
+        await dragAndDrop(page, { source: sourceRow, target: targetRow, key: 's' });
+
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: nodes.target.changeId },
+            {
+                changeId: nodes.target.changeId,
+                description: 'target commit',
+                parents: dummyId,
+                files: { 'target.txt': 'base', 'source.txt': 'mod' },
+            },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
+        ]);
+    });
+
+    test('Drag and Drop Commit with Shift+s key squashes source onto target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const dummyId = repo.getChangeId('@');
+        const nodes = await buildGraph(repo, [
+            { label: 'target', description: 'target commit', files: { 'target.txt': 'base' } },
+            {
+                label: 'source',
+                parents: ['root()'],
+                description: 'source commit',
+                files: { 'source.txt': 'mod' },
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
+        const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
+
+        await dragAndDrop(page, { source: sourceRow, target: targetRow, key: 'Shift+s' });
+
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: ROOT_ID },
+            {
+                changeId: '*',
+                description: 'source commit',
+                parents: nodes.target.changeId,
+                files: { 'source.txt': 'mod' },
+            },
+            {
+                changeId: nodes.target.changeId,
+                description: 'target commit',
+                parents: dummyId,
+                files: { 'target.txt': 'base' },
+            },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
+        ]);
+    });
+
+    test('Drag and Drop Commit with d key duplicates source onto target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const dummyId = repo.getChangeId('@');
+        const nodes = await buildGraph(repo, [
+            { label: 'target', description: 'target commit', files: { 'target.txt': 'base' } },
+            {
+                label: 'source',
+                parents: ['root()'],
+                description: 'source to duplicate',
+                files: { 'source.txt': 'mod' },
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const sourceRow = await waitForLogCommitRow(page, { changeId: nodes.source.changeId });
+        const targetRow = await waitForLogCommitRow(page, { changeId: nodes.target.changeId });
+
+        await dragAndDrop(page, { source: sourceRow, target: targetRow, key: 'd' });
+
+        await waitForTree(repo, [
+            {
+                changeId: '*',
+                description: 'source to duplicate',
+                parents: nodes.target.changeId,
+                files: { 'source.txt': 'mod' },
+            },
+            {
+                isWorkingCopy: true,
+                changeId: nodes.source.changeId,
+                description: 'source to duplicate',
+                parents: ROOT_ID,
+                files: { 'source.txt': 'mod' },
+            },
+            {
+                changeId: nodes.target.changeId,
+                description: 'target commit',
+                parents: dummyId,
+                files: { 'target.txt': 'base' },
+            },
+            { changeId: dummyId, description: '(empty)', parents: ROOT_ID },
+        ]);
     });
 
     test('Delete Bookmark (Command Palette/Quick Pick Flow)', async ({ vscode }) => {

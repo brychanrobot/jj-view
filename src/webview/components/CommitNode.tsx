@@ -8,6 +8,7 @@ import React from 'react';
 import type { ActionPayload, CommitAction, JjBookmark, JjLogEntry } from '../../jj-types';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { computeCommitActions } from '../utils/commit-utils';
+import type { DragActionModifier } from '../utils/drag-modifiers';
 import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
 import { IconButton } from './IconButton';
 
@@ -23,6 +24,7 @@ interface CommitNodeProps {
     hasImmutableSelection: boolean;
     idDisplayLength: number;
     hiddenActions?: Set<CommitAction>;
+    activeModifier?: DragActionModifier;
 }
 
 export const CommitNode: React.FC<CommitNodeProps> = ({
@@ -34,6 +36,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     hasImmutableSelection,
     idDisplayLength,
     hiddenActions = new Set(),
+    activeModifier,
 }) => {
     const isImmutable = commit.is_immutable || false;
     const isCurrentWorkingCopy = commit.is_current_working_copy;
@@ -100,12 +103,11 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
     // 2. Drop Logic (Additive)
     if (isOver) {
         const activeType = active?.data?.current?.type;
-        // Only show row outline for commit drops (rebase).
+        // Only show row outline for commit drops.
         // Bookmarks show a specific ghost pill instead.
         if (activeType === 'commit') {
-            // Use box-shadow 'inset' to create a border effect that renders reliably over backgrounds
-            // Using list.activeSelectionForeground often ensures high contrast
-            outline = '2px dashed var(--vscode-list-activeSelectionForeground)';
+            const dropColor = activeModifier?.accentColor || 'var(--vscode-list-activeSelectionForeground)';
+            outline = `2px dashed ${dropColor}`;
         }
     }
 
@@ -411,6 +413,23 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                         {commit.tags?.map((tag: string) => (
                             <TagPill key={tag} tag={tag} />
                         ))}
+
+                        {isOver && active?.data?.current?.type === 'commit' && (
+                            <span
+                                style={{
+                                    backgroundColor: activeModifier?.accentColor || 'var(--vscode-charts-blue)',
+                                    color: 'var(--vscode-editor-background, #fff)',
+                                    fontSize: '0.8em',
+                                    fontWeight: 'bold',
+                                    padding: '1px 6px',
+                                    borderRadius: '3px',
+                                    marginLeft: '8px',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                {activeModifier?.badgeText || 'Drop here'}
+                            </span>
+                        )}
 
                         {isOver &&
                             active?.data?.current?.type === 'bookmark' &&

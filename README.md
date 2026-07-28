@@ -12,8 +12,12 @@ Visualize your `jj` repo history with a clear, interactive graph.
 - **Inspect Changes**: Click on any node to view details and diffs.
 - **Context Actions**: Right-click nodes to perform actions like editing, squashing, or abandoning changes.
 - **Drag & Drop Workflows**:
-    - **Rebase Source**: Drag a commit onto another to rebase it (and its children) onto the target.
-    - **Rebase Revision**: Hold `Ctrl` (or `⌘` on macOS) while dragging to rebase only the specific revision.
+    - **Rebase Branch (default)**: Drag a commit onto another to rebase the source commit and all of its descendants onto the target.
+    - **Rebase Revision**: Press `R` while dragging to rebase only the specific revision.
+    - **Squash Into**: Press `S` while dragging to squash the source commit into the target commit.
+    - **Squash Onto**: Press `Shift+S` while dragging to create a new commit containing the source's changes on top of the target commit.
+    - **Duplicate Onto**: Press `D` while dragging to duplicate the source commit on top of the target commit.
+    - **Merge Revisions**: Press `M` while dragging to create a new revision that merges both commits (setting both the source and target commits as parents).
     - **Move Bookmarks**: Drag bookmark pills from one commit to another to move them.
 - **Selection**:
     - **Multi-Select**: `Ctrl+Click` (or `⌘+Click`) to select multiple commits.

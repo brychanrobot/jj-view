@@ -779,6 +779,7 @@ export class JjService {
      * @param options.paths Files to squash. If empty, squashes all changes in the revision.
      * @param options.revision The revision to squash from.
      * @param options.intoRevision The revision to squash into.
+     * @param options.ontoRevision Target revision to squash onto (creating a new commit on top of destination).
      * @param options.message New description for the destination revision.
      * @param options.useDestinationMessage If true, keeps the destination revision's description.
      */
@@ -787,17 +788,33 @@ export class JjService {
             paths?: string[];
             revision?: string;
             intoRevision?: string;
+            ontoRevision?: string;
             message?: string;
             useDestinationMessage?: boolean;
         } = {},
     ): Promise<void> {
-        const { paths = [], revision, intoRevision, message, useDestinationMessage } = options;
+        const { paths = [], revision, intoRevision, ontoRevision, message, useDestinationMessage } = options;
+        if (intoRevision && ontoRevision) {
+            throw new Error('Cannot specify both intoRevision and ontoRevision.');
+        }
+        if (revision && (revision === intoRevision || revision === ontoRevision)) {
+            throw new Error('Cannot squash revision into or onto itself.');
+        }
         const args: string[] = [];
         const relativePaths = paths.map((p) => this.toRelative(p));
 
-        if (revision && intoRevision) {
+        if (ontoRevision) {
+            // Squash onto target (creating a new commit on top of ontoRevision)
+            if (revision) {
+                args.push('--from', revision);
+            }
+            args.push('--onto', ontoRevision);
+        } else if (intoRevision) {
             // Squash from one revision into another
-            args.push('--from', revision, '--into', intoRevision);
+            if (revision) {
+                args.push('--from', revision);
+            }
+            args.push('--into', intoRevision);
         } else if (revision) {
             // Squash this revision into its parent
             args.push('-r', revision);
@@ -835,8 +852,13 @@ export class JjService {
         return this.run('rebase', args, { isMutation: true, label: 'rebase' });
     }
 
-    async duplicate(revision: string): Promise<string> {
-        return this.run('duplicate', [revision], { isMutation: true, label: 'duplicate' });
+    async duplicate(revision: string, options: { onto?: string } = {}): Promise<string> {
+        const args: string[] = [];
+        if (options.onto) {
+            args.push('-o', options.onto);
+        }
+        args.push(revision);
+        return this.run('duplicate', args, { isMutation: true, label: 'duplicate' });
     }
 
     async abandon(revisions: string | string[]): Promise<string> {
