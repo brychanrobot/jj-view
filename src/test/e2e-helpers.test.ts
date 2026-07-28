@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { escapeXPathString, toPlainSearchString } from './e2e/e2e-helpers';
+import { ensureTextRegex, escapeXPathString, toPlainSearchString } from './e2e/e2e-helpers';
 
 describe('e2e-helpers XPath & Regex Utilities', () => {
     describe('escapeXPathString', () => {
@@ -38,6 +38,48 @@ describe('e2e-helpers XPath & Regex Utilities', () => {
         it('extracts longest substring from wildcard or alternation regex patterns', () => {
             expect(toPlainSearchString(/@-1:.*side 1/)).toBe('side 1');
             expect(toPlainSearchString(/\[tag\]/)).toBe('[tag]');
+        });
+    });
+
+    describe('ensureTextRegex', () => {
+        it('returns RegExp instances unchanged', () => {
+            const regex = /custom-pattern/i;
+            expect(ensureTextRegex(regex)).toBe(regex);
+        });
+
+        it('converts simple single-word strings into literal matching regexes', () => {
+            const regex = ensureTextRegex('hello');
+            expect(regex.test('hello')).toBe(true);
+            expect(regex.test('say hello world')).toBe(true);
+            expect(regex.test('world')).toBe(false);
+        });
+
+        it('handles multi-word strings with varied whitespace and permits arbitrary text between words', () => {
+            const regex = ensureTextRegex('  first   second \t third  ');
+            expect(regex.test('first second third')).toBe(true);
+            expect(regex.test('first\nsecond\nthird')).toBe(true);
+            expect(regex.test('first word second test third')).toBe(true);
+            expect(regex.test('first third')).toBe(false);
+        });
+
+        it('fully escapes regex special characters and preserves literal semantics', () => {
+            const specialString = 'a+b*c? (test) [bar] ^start $end';
+            const regex = ensureTextRegex(specialString);
+            expect(regex.test('a+b*c? (test) [bar] ^start $end')).toBe(true);
+            expect(regex.test('abc (test) [bar] ^start $end')).toBe(false);
+            expect(regex.test('a+b*c? test bar start end')).toBe(false);
+        });
+
+        it('defines explicit behavior for empty or whitespace-only strings', () => {
+            const emptyRegex = ensureTextRegex('');
+            expect(emptyRegex.source).toBe('(?:)');
+            expect(emptyRegex.test('')).toBe(true);
+            expect(emptyRegex.test('any content')).toBe(true);
+
+            const whitespaceRegex = ensureTextRegex('   \t \n  ');
+            expect(whitespaceRegex.source).toBe('(?:)');
+            expect(whitespaceRegex.test('')).toBe(true);
+            expect(whitespaceRegex.test('any content')).toBe(true);
         });
     });
 });

@@ -677,19 +677,43 @@ export async function setScmDescription(page: Page, description: string, vscode?
 }
 
 /**
+ * Ensures the given text pattern or `RegExp` is returned as a `RegExp`.
+ *
+ * - If `expected` is already a `RegExp`, it is returned unchanged.
+ * - If `expected` is a `string`, it is converted into a pattern that matches
+ *   whitespace-separated words across line wraps in VS Code UI editors.
+ */
+export function ensureTextRegex(expected: string | RegExp): RegExp {
+    if (expected instanceof RegExp) {
+        return expected;
+    }
+
+    // Split input into words and escape special regex control characters in each word
+    const words = expected
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    // Join words with '.*' so line breaks and editor wrapping between words still match
+    return new RegExp(words.join('.*'), 's');
+}
+
+/**
  * Asserts that the SCM input row contains the expected description.
  * Handles VS Code's text wrapping/concatenation.
  */
 export async function expectScmDescription(page: Page, expected: string | RegExp) {
     const start = Date.now();
     const scmInputRow = page.getByRole('treeitem', { name: 'Source Control Input' }).first();
-    if (expected instanceof RegExp) {
-        await expect(scmInputRow).toHaveText(expected);
-    } else {
-        const words = expected.trim().split(/\s+/).filter(Boolean);
-        const regexPattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
-        await expect(scmInputRow).toHaveText(new RegExp(regexPattern));
-    }
+    const regex = ensureTextRegex(expected);
+
+    await expect(async () => {
+        await expect(scmInputRow.locator('.monaco-editor')).toHaveText(regex, { timeout: 1000 });
+    }, `Failed waiting for SCM description to match "${expected}"`).toPass({
+        timeout: 15000,
+        intervals: [100, 250, 500],
+    });
     logPerf('expectScmDescription', start);
 }
 
