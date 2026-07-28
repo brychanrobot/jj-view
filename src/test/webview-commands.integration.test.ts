@@ -336,8 +336,157 @@ suite('Webview Commands End-to-End Integration Test', () => {
             },
         });
 
-        // 4. Verify B's parent is now A
+        // Verify B's parent is now A
         const parents = repo.getParents(idB);
         assert.strictEqual(parents[0], idA, 'B should be rebased onto A');
+    });
+
+    test('Squash commit (into) squashes source into target', async () => {
+        repo.describe('Target A');
+        const idA = repo.getChangeId('@');
+
+        repo.new([idA]);
+        repo.describe('Source B');
+        const idB = repo.getChangeId('@');
+
+        await messageHandler({
+            type: 'squashCommit',
+            payload: {
+                sourceChangeId: idB,
+                targetChangeId: idA,
+                mode: 'into',
+            },
+        });
+
+        const logOutput = repo.log();
+        assert.ok(logOutput.includes('Target A'), 'Target A should exist');
+        assert.ok(!logOutput.includes(idB), 'Source B changeId should be abandoned');
+    });
+
+    test('Squash commit (onto) squashes source onto target (creating commit on top of target)', async () => {
+        repo.describe('Target A');
+        const idA = repo.getChangeId('@');
+
+        repo.new(['root()']);
+        repo.describe('Source B');
+        const idB = repo.getChangeId('@');
+
+        await messageHandler({
+            type: 'squashCommit',
+            payload: {
+                sourceChangeId: idB,
+                targetChangeId: idA,
+                mode: 'onto',
+            },
+        });
+
+        const logOutput = repo.log();
+        assert.ok(logOutput.includes('Target A'), 'Target A should exist');
+    });
+
+    test('Duplicate commit duplicates onto target', async () => {
+        repo.describe('Target A');
+        const idA = repo.getChangeId('@');
+
+        repo.new(['root()']);
+        repo.describe('Source B');
+        const idB = repo.getChangeId('@');
+
+        await messageHandler({
+            type: 'duplicateCommit',
+            payload: {
+                sourceChangeId: idB,
+                targetChangeId: idA,
+            },
+        });
+
+        const logOutput = repo.log();
+        assert.ok(logOutput.includes('Source B'), 'Duplicated commit should exist');
+    });
+
+    test('Merge commit creates revision with both parents', async () => {
+        repo.describe('Parent A');
+        const idA = repo.getChangeId('@');
+
+        repo.new(['root()']);
+        repo.describe('Parent B');
+        const idB = repo.getChangeId('@');
+
+        await messageHandler({
+            type: 'mergeCommit',
+            payload: {
+                sourceChangeId: idB,
+                targetChangeId: idA,
+            },
+        });
+
+        const parents = repo.getParents('@');
+        assert.strictEqual(parents.length, 2, 'New working copy should have 2 parents');
+        assert.ok(parents.includes(idA), 'Should include Parent A');
+        assert.ok(parents.includes(idB), 'Should include Parent B');
+    });
+
+    test('Squash commit (into) with identical source and target is a no-op', async () => {
+        repo.describe('Commit A');
+        const idA = repo.getChangeId('@');
+        const initialLog = repo.log();
+
+        await messageHandler({
+            type: 'squashCommit',
+            payload: {
+                sourceChangeId: idA,
+                targetChangeId: idA,
+                mode: 'into',
+            },
+        });
+
+        const finalLog = repo.log();
+        assert.strictEqual(
+            finalLog,
+            initialLog,
+            'Repo log should remain unchanged for squashCommit with identical source and target',
+        );
+    });
+
+    test('Duplicate commit with identical source and target is a no-op', async () => {
+        repo.describe('Source A');
+        const idA = repo.getChangeId('@');
+        const initialLog = repo.log();
+
+        await messageHandler({
+            type: 'duplicateCommit',
+            payload: {
+                sourceChangeId: idA,
+                targetChangeId: idA,
+            },
+        });
+
+        const finalLog = repo.log();
+        assert.strictEqual(
+            finalLog,
+            initialLog,
+            'Repo log should remain unchanged for duplicateCommit with identical source and target',
+        );
+    });
+
+    test('Merge commit with missing sourceChangeId is a no-op', async () => {
+        repo.describe('Target A');
+        const idA = repo.getChangeId('@');
+        const initialLog = repo.log();
+
+        await messageHandler({
+            type: 'mergeCommit',
+            payload: {
+                sourceChangeId: '',
+                targetChangeId: idA,
+            },
+        });
+
+        const finalLog = repo.log();
+        assert.strictEqual(
+            finalLog,
+            initialLog,
+            'Repo log should remain unchanged for mergeCommit with missing sourceChangeId',
+        );
     });
 });

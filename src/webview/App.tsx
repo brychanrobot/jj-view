@@ -19,6 +19,7 @@ import { BookmarkPill } from './components/Bookmark';
 import { CommitDetails } from './components/CommitDetails';
 import { CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
+import { useDragModifiers } from './hooks/useDragModifiers';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
@@ -62,7 +63,7 @@ const App: React.FC = () => {
 
     // Drag State
     const [activeDragItem, setActiveDragItem] = React.useState<DragItem | null>(null);
-    const [isCtrlPressed, setIsCtrlPressed] = React.useState(false);
+    const { activeModifier, resetKeys } = useDragModifiers();
 
     // Configure sensors with activation constraint to prevent accidental drags on click
     const sensors = useSensors(
@@ -81,10 +82,6 @@ const App: React.FC = () => {
 
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') {
-                setIsCtrlPressed(true);
-            }
-
             // Escape to deselect
             if (e.key === 'Escape') {
                 setSelectedCommitIds(new Set());
@@ -97,18 +94,11 @@ const App: React.FC = () => {
                 });
             }
         };
-        const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') {
-                setIsCtrlPressed(false);
-            }
-        };
 
         window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
 
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
         };
     }, []);
 
@@ -302,75 +292,86 @@ const App: React.FC = () => {
         setActiveDragItem(event.active.data.current as DragItem);
     };
 
+    const handleDragCancel = () => {
+        setActiveDragItem(null);
+        resetKeys();
+    };
+
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         setActiveDragItem(null);
 
-        if (!over || active.id === over.id || !active.data.current || !over.data.current) {
-            return;
-        }
+        try {
+            if (!over || active.id === over.id || !active.data.current || !over.data.current) {
+                return;
+            }
 
-        const activeType = (active.data.current as DragItem).type;
+            const activeType = (active.data.current as DragItem).type;
 
-        if (activeType === 'bookmark') {
-            // bookmark-NAME -> NAME
-            const bookmarkName = (active.data.current as DragItem & { type: 'bookmark' }).name;
-            const bookmarkRemote = (active.data.current as DragItem & { type: 'bookmark' }).remote;
-            // commit-ID -> ID
-            const targetChangeId = over.data.current.changeId;
+            if (activeType === 'bookmark') {
+                // bookmark-NAME -> NAME
+                const bookmarkName = (active.data.current as DragItem & { type: 'bookmark' }).name;
+                const bookmarkRemote = (active.data.current as DragItem & { type: 'bookmark' }).remote;
+                // commit-ID -> ID
+                const targetChangeId = over.data.current.changeId;
 
-            // Optimistic Update
-            setCommits((prevCommits) => {
-                // Check if move is actually needed (and find source)
-                const sourceCommit = prevCommits.find((c) =>
-                    c.bookmarks?.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote),
-                );
+                // Optimistic Update
+                setCommits((prevCommits) => {
+                    // Check if move is actually needed (and find source)
+                    const sourceCommit = prevCommits.find((c) =>
+                        c.bookmarks?.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote),
+                    );
 
-                if (!sourceCommit || sourceCommit.change_id === targetChangeId) {
-                    return prevCommits;
+                    if (!sourceCommit || sourceCommit.change_id === targetChangeId) {
+                        return prevCommits;
+                    }
+
+                    return prevCommits.map((commit) => {
+                        let newBookmarks = commit.bookmarks || [];
+
+                        // Remove from source
+                        if (newBookmarks.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote)) {
+                            newBookmarks = newBookmarks.filter(
+                                (b) => !(b.name === bookmarkName && b.remote === bookmarkRemote),
+                            );
+                        }
+
+                        // Add to target
+                        if (commit.change_id === targetChangeId) {
+                            newBookmarks = [...newBookmarks, { name: bookmarkName, remote: bookmarkRemote }];
+                        }
+
+                        // Return new object if changed
+                        if (newBookmarks !== commit.bookmarks) {
+                            const updated = { ...commit, bookmarks: newBookmarks };
+                            return updated;
+                        }
+                        return commit;
+                    });
+                });
+
+                // Send to extension
+                vscode.postMessage({
+                    type: 'moveBookmark',
+                    payload: { bookmark: bookmarkName, targetChangeId },
+                });
+            } else if (activeType === 'commit') {
+                if (over.data.current.type !== 'commit') {
+                    return;
+                }
+                const sourceChangeId = (active.data.current as DragItem & { type: 'commit' }).changeId;
+                const targetChangeId = (over.data.current as { changeId?: string }).changeId;
+
+                // Self-target drop safeguard or invalid target
+                if (!targetChangeId || sourceChangeId === targetChangeId) {
+                    return;
                 }
 
-                return prevCommits.map((commit) => {
-                    let newBookmarks = commit.bookmarks || [];
-
-                    // Remove from source
-                    if (newBookmarks.some((b) => b.name === bookmarkName && b.remote === bookmarkRemote)) {
-                        newBookmarks = newBookmarks.filter(
-                            (b) => !(b.name === bookmarkName && b.remote === bookmarkRemote),
-                        );
-                    }
-
-                    // Add to target
-                    if (commit.change_id === targetChangeId) {
-                        newBookmarks = [...newBookmarks, { name: bookmarkName, remote: bookmarkRemote }];
-                    }
-
-                    // Return new object if changed
-                    if (newBookmarks !== commit.bookmarks) {
-                        const updated = { ...commit, bookmarks: newBookmarks };
-                        return updated;
-                    }
-                    return commit;
-                });
-            });
-
-            // Send to extension
-            vscode.postMessage({
-                type: 'moveBookmark',
-                payload: { bookmark: bookmarkName, targetChangeId },
-            });
-        } else if (activeType === 'commit') {
-            const sourceChangeId = (active.data.current as DragItem & { type: 'commit' }).changeId;
-            const targetChangeId = over.data.current.changeId;
-
-            // Detect modifier keys from the activator event or our state
-            // Prefer tracking state for consistency with UI
-            const mode = isCtrlPressed ? 'revision' : 'source';
-
-            vscode.postMessage({
-                type: 'rebaseCommit',
-                payload: { sourceChangeId, targetChangeId, mode },
-            });
+                const message = activeModifier.buildMessagePayload(sourceChangeId, targetChangeId);
+                vscode.postMessage(message);
+            }
+        } finally {
+            resetKeys();
         }
     };
 
@@ -419,6 +420,7 @@ const App: React.FC = () => {
                 collisionDetection={pointerWithin}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
             >
                 {/* biome-ignore lint/a11y/noStaticElementInteractions: Background click to deselect is a common pattern in graph views */}
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: Escape key handles keyboard deselection separately */}
@@ -446,6 +448,7 @@ const App: React.FC = () => {
                         graphLabelAlignment={graphLabelAlignment}
                         theme={theme}
                         hiddenActions={hiddenActions}
+                        activeModifier={activeModifier}
                     />
                 </div>
                 {/*
@@ -469,7 +472,7 @@ const App: React.FC = () => {
                         ) : activeDragItem.type === 'commit' ? (
                             <CommitDragPreview
                                 commit={activeDragItem}
-                                isCtrlPressed={isCtrlPressed}
+                                activeModifier={activeModifier}
                                 minChangeIdLength={minChangeIdLength}
                             />
                         ) : null

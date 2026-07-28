@@ -4,14 +4,11 @@
  */
 
 import { expect, type Page } from '@playwright/test';
-import { buildGraph, type CommitId, TestRepo } from '../test-repo';
+import { buildGraph, type CommitId, ROOT_ID, TestRepo } from '../test-repo';
 import {
-    entry,
     expectModifiedFiles,
-    expectTree,
     focusJJLog,
     getLogWebview,
-    ROOT_ID,
     rightClickAndSelect,
     selectCommits,
     test,
@@ -20,6 +17,7 @@ import {
     waitForLogCommitRow,
     waitForLogPill,
     waitForTab,
+    waitForTree,
 } from './e2e-helpers';
 
 test.describe('JJ Log Context Menu E2E', () => {
@@ -70,11 +68,11 @@ test.describe('JJ Log Context Menu E2E', () => {
         const commit2Row = await waitForLogCommitRow(page, 'commit2');
         await rightClickAndSelect(page, commit2Row, 'Abandon');
 
-        await expectTree(repo, [
-            `@ ${entry('*', '(empty)', initialId)}`,
-            entry(commit1Id, 'commit1', initialId),
-            entry(initialId, 'initial', dummyId),
-            entry(dummyId, 'dummy', ROOT_ID),
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
         ]);
         // Undo — the button is a header action on the JJ Log pane
         const undoBtn = page.getByRole('button', { name: 'Undo' }).first();
@@ -82,11 +80,11 @@ test.describe('JJ Log Context Menu E2E', () => {
         await undoBtn.click();
 
         // After undo, commit2 should be restored as the working copy
-        await expectTree(repo, [
-            `@ ${entry(commit2Id, 'commit2', initialId)}`,
-            entry(commit1Id, 'commit1', initialId),
-            entry(initialId, 'initial', dummyId),
-            entry(dummyId, 'dummy', ROOT_ID),
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
         ]);
     });
 
@@ -103,15 +101,13 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         // After "New Before" initial:
         // root -> dummyId -> middle (@) -> initial -> {commit1, commit2}
-        await expect(async () => {
-            await expectTree(repo, [
-                entry(commit2Id, 'commit2', initialId),
-                entry(commit1Id, 'commit1', initialId),
-                entry(initialId, 'initial', '*'),
-                `@ ${entry('*', '(empty)', dummyId)}`,
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: '*' },
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('Multi-select Abandon', async () => {
@@ -127,10 +123,10 @@ test.describe('JJ Log Context Menu E2E', () => {
         // Right click commit 1 and abandon
         await rightClickAndSelect(page, commit1Row, 'Abandon');
 
-        await expectTree(repo, [
-            `@ ${entry('*', '(empty)', initialId)}`,
-            entry(initialId, 'initial', dummyId),
-            entry(dummyId, 'dummy', ROOT_ID),
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
         ]);
     });
 
@@ -154,15 +150,13 @@ test.describe('JJ Log Context Menu E2E', () => {
         // After "New Before" on multi-select [commit2, commit1]: a new empty commit
         // is inserted before both (as their new parent), and @ moves there.
         // Tree: root -> dummyId -> initial -> middle (@) -> {commit1, commit2}
-        await expect(async () => {
-            await expectTree(repo, [
-                entry(commit1Id, 'commit1', '*'),
-                entry(commit2Id, 'commit2', '*'),
-                `@ ${entry('*', '(empty)', initialId)}`,
-                entry(initialId, 'initial', dummyId),
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { changeId: commit1Id, description: 'commit1', parents: '*' },
+            { changeId: commit2Id, description: 'commit2', parents: '*' },
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('New After (Single)', async () => {
@@ -180,15 +174,13 @@ test.describe('JJ Log Context Menu E2E', () => {
 
         // After "New After" initial:
         // root -> dummyId -> initial -> middle (@) -> {commit1, commit2}
-        await expect(async () => {
-            await expectTree(repo, [
-                entry(commit1Id, 'commit1', '*'),
-                entry(commit2Id, 'commit2', '*'),
-                `@ ${entry('*', '(empty)', initialId)}`,
-                entry(initialId, 'initial', dummyId),
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { changeId: commit1Id, description: 'commit1', parents: '*' },
+            { changeId: commit2Id, description: 'commit2', parents: '*' },
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('Multi-select New After', async () => {
@@ -223,19 +215,17 @@ test.describe('JJ Log Context Menu E2E', () => {
         // is inserted after both (as their new child).
         // Then child1 and child2 are rebased on top of the new commit.
         // Tree: root -> dummyId -> initial -> {commit1, commit2} -> middle (@) -> {child1, child2}
-        await expect(async () => {
-            await expectTree(repo, [
-                entry(child1Id, 'child1', '*'),
-                entry(child2Id, 'child2', '*'),
-                expect.stringMatching(
-                    new RegExp(`^@ [a-z0-9]+ \\[(${commit1Id},${commit2Id}|${commit2Id},${commit1Id})\\] \\(empty\\)$`),
-                ),
-                entry(commit2Id, 'commit2', initialId),
-                entry(commit1Id, 'commit1', initialId),
-                entry(initialId, 'initial', dummyId),
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { changeId: child1Id, description: 'child1', parents: '*' },
+            { changeId: child2Id, description: 'child2', parents: '*' },
+            expect.stringMatching(
+                new RegExp(`^@ [a-z0-9]+ \\[(${commit1Id},${commit2Id}|${commit2Id},${commit1Id})\\] \\(empty\\)$`),
+            ),
+            { changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('Edit', async () => {
@@ -267,12 +257,12 @@ test.describe('JJ Log Context Menu E2E', () => {
         const commit1Id = nodes.commit1.changeId;
         const initialId = nodes.initial.changeId;
 
-        await expectTree(repo, [
+        await waitForTree(repo, [
             expect.stringMatching(new RegExp(`^[a-z0-9]+ \\[${initialId}\\] commit1$`)),
-            `@ ${entry(commit2Id, 'commit2', initialId)}`,
-            entry(commit1Id, 'commit1', initialId),
-            entry(initialId, 'initial', dummyId),
-            entry(dummyId, 'dummy', ROOT_ID),
+            { isWorkingCopy: true, changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
         ]);
     });
 
@@ -291,15 +281,13 @@ test.describe('JJ Log Context Menu E2E', () => {
         await rightClickAndSelect(page, commit1Row, 'New Merge Change');
 
         // Verification: a new merge commit should be created
-        await expect(async () => {
-            await expectTree(repo, [
-                `@ ${entry('*', '(empty)', [commit1Id, commit2Id])}`,
-                entry(commit2Id, 'commit2', initialId),
-                entry(commit1Id, 'commit1', initialId),
-                entry(initialId, 'initial', dummyId),
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { isWorkingCopy: true, changeId: '*', description: '(empty)', parents: [commit1Id, commit2Id] },
+            { changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: commit1Id, description: 'commit1', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('Rebase onto Selected', async () => {
@@ -315,14 +303,12 @@ test.describe('JJ Log Context Menu E2E', () => {
         await rightClickAndSelect(page, commit1Row, 'Rebase onto Selected');
 
         // Verification: commit1 should now be a child of commit2
-        await expect(async () => {
-            await expectTree(repo, [
-                entry(commit1Id, 'commit1', commit2Id),
-                `@ ${entry(commit2Id, 'commit2', initialId)}`,
-                entry(initialId, 'initial', dummyId),
-                entry(dummyId, 'dummy', ROOT_ID),
-            ]);
-        }).toPass();
+        await waitForTree(repo, [
+            { changeId: commit1Id, description: 'commit1', parents: commit2Id },
+            { isWorkingCopy: true, changeId: commit2Id, description: 'commit2', parents: initialId },
+            { changeId: initialId, description: 'initial', parents: dummyId },
+            { changeId: dummyId, description: 'dummy', parents: ROOT_ID },
+        ]);
     });
 
     test('Delete Bookmark', async () => {

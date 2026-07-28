@@ -7,7 +7,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, type Locator } from '@playwright/test';
 import type { Frame, Page } from 'playwright';
-import type { TestRepo } from '../test-repo';
+import { type ExpectedTreeItem, expectTree, type TestRepo } from '../test-repo';
+
+export type { ExpectedTreeItem, TestRepo, TreeEntrySpec } from '../test-repo';
+
 import { logPerf } from './perf-logger';
 import {
     type VSCodeContext as FixtureVSCodeContext,
@@ -292,59 +295,24 @@ export async function getLogWebview(page: Page, timeout: number = 30000): Promis
 }
 
 /**
- * Asserts that the repo log matches the expected structure.
+ * Waits for the repo log tree to match the expected structure, polling until it passes or times out.
  */
-export async function expectTree(repo: TestRepo, expected: unknown[]) {
+export async function waitForTree(
+    repo: TestRepo,
+    expected: ExpectedTreeItem[],
+    options?: { timeout?: number },
+): Promise<void> {
+    const timeout = options?.timeout ?? 10000;
     const start = Date.now();
-    let lastActual: string[] = [];
-    let iterations = 0;
-    try {
-        await expect
-            .poll(
-                async () => {
-                    iterations++;
-                    // Output format: [@] change_id [parent1,parent2] description
-                    const log = repo.getLog(
-                        'all()',
-                        'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"',
-                    );
-                    const actual = log
-                        .split('\n')
-                        .filter((l) => l.trim())
-                        .filter((line) => !line.startsWith('zzzzzzzz'));
-                    lastActual = actual;
-                    return actual;
-                },
-                {
-                    timeout: 10000,
-                    message: 'Tree mismatch',
-                    intervals: [20, 50, 100, 250, 500],
-                },
-            )
-            .toEqual(
-                expected.map((e) => {
-                    if (typeof e === 'string' && e.includes('*')) {
-                        // Escape regex characters except for our * wildcard
-                        const escaped = e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
-                        return expect.stringMatching(new RegExp(`^${escaped}$`));
-                    }
-                    return e;
-                }),
-            );
-    } catch (e: unknown) {
-        const formatTree = (tree: unknown[]) => tree.map((line) => `  ${String(line)}`).join('\n');
-        if (e instanceof Error) {
-            e.message = `${e.message}\n\nExpected Tree:\n${formatTree(expected)}\n\nActual Tree:\n${formatTree(lastActual)}`;
-        }
-        throw e;
-    }
-    logPerf('expectTree', start, /* prefix= */ undefined, `(iterations: ${iterations})`);
-}
 
-/** Helper to format an entry for expectTree */
-export function entry(changeId: string, description: string, parents?: string | string[]): string {
-    const p = Array.isArray(parents) ? parents.join(',') : parents || '';
-    return `${changeId} [${p}] ${description}`;
+    await expect(async () => {
+        expectTree(repo, expected);
+    }).toPass({
+        timeout,
+        intervals: [20, 50, 100, 250, 500],
+    });
+
+    logPerf('waitForTree', start);
 }
 
 /**
@@ -444,8 +412,8 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
 /**
  * Simulates a drag and drop action between two locators.
  */
-export async function dragAndDrop(page: Page, options: { source: Locator; target: Locator }) {
-    const { source, target } = options;
+export async function dragAndDrop(page: Page, options: { source: Locator; target: Locator; key?: string }) {
+    const { source, target, key } = options;
     await source.scrollIntoViewIfNeeded();
     await target.scrollIntoViewIfNeeded();
 
@@ -459,12 +427,19 @@ export async function dragAndDrop(page: Page, options: { source: Locator; target
         throw new Error('Could not get bounding box for target locator');
     }
 
+    const keys = key ? key.split('+') : [];
+    for (const k of keys) {
+        await page.keyboard.down(k);
+    }
     await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
         steps: 10,
     });
     await page.mouse.up();
+    for (const k of keys.reverse()) {
+        await page.keyboard.up(k);
+    }
 }
 
 /**

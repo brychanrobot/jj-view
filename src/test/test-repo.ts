@@ -6,6 +6,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { match, P } from 'ts-pattern';
 
 const tempDirs = new Set<string>();
 const testXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-xdg-'));
@@ -532,6 +533,153 @@ export class TestRepo {
             ops.push({ id, description });
         }
         return ops;
+    }
+
+    expectTree(expected: ExpectedTreeItem[]): void {
+        expectTree(this, expected);
+    }
+}
+
+export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+
+export interface TreeEntrySpec {
+    changeId?: string;
+    description: string;
+    parents?: string | string[];
+    files?: Record<string, string>;
+    isWorkingCopy?: boolean;
+}
+
+export interface CustomAsymmetricMatcher {
+    asymmetricMatch?(other: string): boolean;
+    [key: string]: string | boolean | RegExp | ((other: string) => boolean) | undefined;
+}
+
+export type ExpectedTreeItem = string | TreeEntrySpec | RegExp | CustomAsymmetricMatcher;
+
+function matchesLine(exp: ExpectedTreeItem, act: string): boolean {
+    return match(exp)
+        .with(P.string, (str) => {
+            if (str.includes('*')) {
+                const escaped = str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[a-z0-9]+');
+                return new RegExp(`^${escaped}$`).test(act);
+            }
+            return act === str;
+        })
+        .with(P.instanceOf(RegExp), (r) => r.test(act))
+        .with(
+            P.when((val): val is CustomAsymmetricMatcher =>
+                Boolean(
+                    val &&
+                        typeof val === 'object' &&
+                        'asymmetricMatch' in val &&
+                        typeof (val as CustomAsymmetricMatcher).asymmetricMatch === 'function',
+                ),
+            ),
+            (matcher) => matcher.asymmetricMatch?.(act) ?? false,
+        )
+        .otherwise(() => String(exp) === act);
+}
+
+function getExpectedLine(item: ExpectedTreeItem): ExpectedTreeItem {
+    return match(item)
+        .with(P.string, (s) => s)
+        .with(P.instanceOf(RegExp), (r) => r)
+        .with({ description: P.string }, (spec) => {
+            const changeId = spec.changeId ?? '*';
+            const p = Array.isArray(spec.parents) ? spec.parents.join(',') : spec.parents || '';
+            const prefix = spec.isWorkingCopy ? '@ ' : '';
+            return `${prefix}${changeId} [${p}] ${spec.description}`;
+        })
+        .otherwise(() => item);
+}
+
+function fetchActualTree(repo: TestRepo): string[] {
+    const template =
+        'if(current_working_copy, "@ ", "") ++ change_id ++ " [" ++ parents.map(|p| p.change_id()).join(",") ++ "] " ++ if(description, description.first_line(), "(empty)") ++ "\\n"';
+    const log = repo.getLog('all()', template);
+    return log
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && !l.startsWith('zzzzzzzz'));
+}
+
+function verifyTreeLines(expectedLines: ExpectedTreeItem[], actualLines: string[]): void {
+    if (actualLines.length !== expectedLines.length) {
+        throw new Error(`Length mismatch: expected ${expectedLines.length} lines, got ${actualLines.length}`);
+    }
+
+    for (let i = 0; i < expectedLines.length; i++) {
+        const exp = expectedLines[i];
+        const act = actualLines[i];
+        if (!matchesLine(exp, act)) {
+            throw new Error(`Line ${i} mismatch: expected "${String(exp)}", got "${act}"`);
+        }
+    }
+}
+
+function verifyEntryFiles(repo: TestRepo, item: ExpectedTreeItem, actualLine: string): void {
+    const files = match(item)
+        .with({ files: P.select(P.not(P.nullish)) }, (f) => f)
+        .otherwise(() => undefined);
+
+    if (!files) {
+        return;
+    }
+
+    const matchResult = actualLine.match(/^(?:@\s+)?([a-z0-9]+)\s+\[/);
+    const actualChangeId = matchResult
+        ? matchResult[1]
+        : match(item)
+              .with({ changeId: P.select(P.string) }, (id) => id)
+              .otherwise(() => undefined);
+
+    if (!actualChangeId || actualChangeId === '*') {
+        return;
+    }
+
+    for (const [filePath, expectedContent] of Object.entries(files)) {
+        const actualContent = repo.getFileContent(actualChangeId, filePath);
+        if (actualContent !== expectedContent) {
+            throw new Error(
+                `File content mismatch for ${filePath} at change ${actualChangeId}: expected "${expectedContent}", got "${actualContent}"`,
+            );
+        }
+    }
+}
+
+function formatTreeLine(item: ExpectedTreeItem): string {
+    return match(item)
+        .with(P.string, (s) => s)
+        .with(P.instanceOf(RegExp), (r) => String(r))
+        .with({ description: P.string }, (spec) => {
+            const changeId = spec.changeId ?? '*';
+            const p = Array.isArray(spec.parents) ? spec.parents.join(',') : spec.parents || '';
+            const prefix = spec.isWorkingCopy ? '@ ' : '';
+            return `${prefix}${changeId} [${p}] ${spec.description}`;
+        })
+        .otherwise((val) => String(val));
+}
+
+/**
+ * Asserts that the repo log matches the expected structure, and optionally verifies file contents.
+ */
+export function expectTree(repo: TestRepo, expected: ExpectedTreeItem[]): void {
+    const expectedLines = expected.map(getExpectedLine);
+    const actualLines = fetchActualTree(repo);
+
+    try {
+        verifyTreeLines(expectedLines, actualLines);
+
+        for (let i = 0; i < expected.length; i++) {
+            verifyEntryFiles(repo, expected[i], actualLines[i]);
+        }
+    } catch (err: unknown) {
+        const lastError = err as Error;
+        const formatTree = (tree: ExpectedTreeItem[]) => tree.map((line) => `  ${formatTreeLine(line)}`).join('\n');
+        throw new Error(
+            `expectTree failed (${lastError.message})\n\nExpected Tree:\n${formatTree(expectedLines)}\n\nActual Tree:\n${formatTree(actualLines)}`,
+        );
     }
 }
 

@@ -505,6 +505,53 @@ log = "none()"
         expect(rootContent).toBe('new content');
     });
 
+    test('squash command --from --onto creates a new commit on top of specified target', async () => {
+        // Setup: Root -> A -> B
+        const ids = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'A', parents: ['root'], description: 'A' },
+            {
+                label: 'B',
+                parents: ['root'],
+                description: 'B changes',
+                files: { 'onto-file.txt': 'onto content' },
+            },
+        ]);
+        const aId = ids.A.changeId;
+        const bId = ids.B.changeId;
+
+        // Squash B onto A (creates a new commit with A as parent)
+        await jjService.squashRevision({ revision: bId, ontoRevision: aId });
+
+        // Get the newly created commit on top of A
+        const children = repo.getChildren(aId);
+        expect(children.length).toBeGreaterThan(0);
+        const newCommitId = children[0];
+
+        // Verify the file content was preserved in the new commit on top of A
+        const newCommitContent = repo.getFileContent(newCommitId, 'onto-file.txt');
+        expect(newCommitContent).toBe('onto content');
+
+        // Verify its parent is A
+        const parents = repo.getParents(newCommitId);
+        expect(parents).toContain(aId);
+    });
+
+    test('squashRevision throws error when revision equals intoRevision or ontoRevision', async () => {
+        await expect(jjService.squashRevision({ revision: 'rev1', intoRevision: 'rev1' })).rejects.toThrow(
+            'Cannot squash revision into or onto itself.',
+        );
+        await expect(jjService.squashRevision({ revision: 'rev1', ontoRevision: 'rev1' })).rejects.toThrow(
+            'Cannot squash revision into or onto itself.',
+        );
+    });
+
+    test('squashRevision throws error when both intoRevision and ontoRevision are specified', async () => {
+        await expect(
+            jjService.squashRevision({ revision: 'rev1', intoRevision: 'rev2', ontoRevision: 'rev3' }),
+        ).rejects.toThrow('Cannot specify both intoRevision and ontoRevision.');
+    });
+
     test('squash without paths squashes entire commit', async () => {
         // Setup: Parent -> Child
         await buildGraph(repo, [
@@ -828,6 +875,29 @@ log = "none()"
         const logs = repo.getLog('all()', 'change_id ++ " " ++ description').split('\n');
         const duplicates = logs.filter((l) => l.includes('original'));
         expect(duplicates.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('duplicate command with onto creates copy with target as parent', async () => {
+        repo.describe('target-parent');
+        const targetId = repo.getChangeId('@');
+        repo.new(['root()']);
+        repo.describe('to-duplicate');
+        const sourceId = repo.getChangeId('@');
+
+        await jjService.duplicate(sourceId, { onto: targetId });
+
+        const logs = repo.getLog('all()', 'change_id ++ " " ++ description').split('\n');
+        const duplicates = logs.filter((l) => l.includes('to-duplicate'));
+        expect(duplicates.length).toBeGreaterThanOrEqual(2);
+
+        // Find the duplicate changeId (not equal to sourceId)
+        const duplicateEntry = duplicates.find((l) => !l.startsWith(sourceId));
+        expect(duplicateEntry).toBeDefined();
+        if (duplicateEntry) {
+            const dupChangeId = duplicateEntry.split(' ')[0];
+            const parents = repo.getParents(dupChangeId);
+            expect(parents).toContain(targetId);
+        }
     });
 
     test('abandon command removes revision', async () => {

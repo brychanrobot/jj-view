@@ -15,6 +15,7 @@ import {
     ROW_HEIGHT_NORMAL,
 } from '../layout-constants';
 import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
+import type { DragActionModifier } from '../utils/drag-modifiers';
 import { CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
 
@@ -26,6 +27,7 @@ interface CommitGraphProps {
     graphLabelAlignment?: string;
     theme?: string;
     hiddenActions?: Set<CommitAction>;
+    activeModifier?: DragActionModifier;
 }
 
 export const CommitGraph: React.FC<CommitGraphProps> = ({
@@ -36,6 +38,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     graphLabelAlignment = 'aligned',
     theme = 'default',
     hiddenActions,
+    activeModifier,
 }) => {
     // Total graph width calculation
     // Dynamic sizing based on font
@@ -191,6 +194,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                                 hasImmutableSelection={hasImmutableSelection}
                                 idDisplayLength={maxShortestIdLength}
                                 hiddenActions={hiddenActions}
+                                activeModifier={activeModifier}
                             />
                         </div>
                     );
