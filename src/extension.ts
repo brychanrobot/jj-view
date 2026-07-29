@@ -179,18 +179,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     processStatusBarItem.command = 'jj-view.showProcessMonitor';
     context.subscriptions.push(processStatusBarItem);
 
-    context.subscriptions.push(
-        processTracker.onDidChangeProcesses(() => {
-            const metrics = processTracker.getMetrics();
-            if (metrics.activeCount > 0) {
-                processStatusBarItem.text = `$(sync~spin) JJ: ${metrics.activeCount} running`;
-                processStatusBarItem.tooltip = `${metrics.activeCount} JJ process(es) running. Click to open Process Monitor.`;
-                processStatusBarItem.show();
-            } else {
-                processStatusBarItem.hide();
-            }
-        }),
-    );
+    const updateProcessStatusBar = () => {
+        const showProcessMonitor = vscode.workspace
+            .getConfiguration('jj-view')
+            .get<boolean>('showProcessMonitorPanel', false);
+        const metrics = processTracker.getMetrics();
+        if (showProcessMonitor && metrics.activeCount > 0) {
+            processStatusBarItem.text = `$(sync~spin) JJ: ${metrics.activeCount} running`;
+            processStatusBarItem.tooltip = `${metrics.activeCount} JJ process(es) running. Click to open Process Monitor.`;
+            processStatusBarItem.show();
+        } else {
+            processStatusBarItem.hide();
+        }
+    };
+
+    context.subscriptions.push(processTracker.onDidChangeProcesses(updateProcessStatusBar));
 
     registerProcessMonitorCommands(context, processTracker);
 
@@ -208,6 +211,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (e.affectsConfiguration('jj-view.showProcessMonitorPanel')) {
+                updateProcessStatusBar();
+            }
             if (e.affectsConfiguration('jj-view.binaryPath')) {
                 await updateBinaryPath();
                 await repositoryManager.scanForRepositories();
