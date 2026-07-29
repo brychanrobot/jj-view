@@ -52,9 +52,9 @@ export function createJjResourceState(
             : openDiffOnClick || isDeleted
               ? diffCommand
               : {
-                    command: 'vscode.open',
+                    command: 'jj-view.openFile',
                     title: 'Open File',
-                    arguments: [resourceUri.with({ query: '' })],
+                    arguments: [{ resourceUri, rightUri, revision }],
                 };
 
     const flags: string[] = [];

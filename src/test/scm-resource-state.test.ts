@@ -131,7 +131,7 @@ describe('createJjResourceState', () => {
                 openDiffOnClick: false,
                 inConflictGroup: false,
             });
-            expect(stateOpen.command?.command).toBe('vscode.open');
+            expect(stateOpen.command?.command).toBe('jj-view.openFile');
         });
 
         it('routes to diff command if openDiffOnClick is true', () => {
@@ -152,14 +152,17 @@ describe('createJjResourceState', () => {
             expect(state.command?.command).toBe('vscode.diff');
         });
 
-        it('routes to vscode.open with query stripped if openDiffOnClick is false and not deleted', () => {
+        it('routes to open file wrapper if openDiffOnClick is false and not deleted', () => {
             const state = createJjResourceState(entry, 'rev123', root, {
                 openDiffOnClick: false,
             });
 
-            expect(state.command?.command).toBe('vscode.open');
-            expect(state.command?.arguments?.[0].path).toBe('/root/file.txt');
-            expect(state.command?.arguments?.[0].query).toBe('');
+            expect(state.command?.command).toBe('jj-view.openFile');
+            expect(state.command?.arguments?.[0]).toEqual({
+                resourceUri: state.resourceUri,
+                rightUri: state.rightUri,
+                revision: 'rev123',
+            });
         });
     });
 

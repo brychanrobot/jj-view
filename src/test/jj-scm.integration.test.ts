@@ -170,13 +170,18 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok(command, 'Resource state should have a command');
         assert.strictEqual(
             command.command,
-            'vscode.open',
-            'Command should be vscode.open when openDiffOnClick is false',
+            'jj-view.openFile',
+            'Command should be jj-view.openFile when openDiffOnClick is false',
         );
         assert.strictEqual(command.arguments?.length, 1, 'Open command should have 1 argument');
-        const openUri = command.arguments?.[0] as vscode.Uri;
-        assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
-        assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
+        const openArg = command.arguments?.[0] as JjResourceState;
+        assert.strictEqual(
+            normalize(openArg.resourceUri.fsPath),
+            normalize(filePath),
+            'Open resource URI should be the file path',
+        );
+        assert.ok(openArg.rightUri, 'Open command should include rightUri');
+        assert.strictEqual(normalize(openArg.rightUri.fsPath), normalize(filePath), 'rightUri should be the file path');
 
         const { diffTitle } = resourceState as JjResourceState;
         assert.ok(diffTitle, 'diffTitle should be set');
