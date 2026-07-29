@@ -420,6 +420,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         scmProviders.set(repo.rootUri.fsPath, scmProvider);
         activeScmSubscriptions.set(repo.rootUri.fsPath, composite);
 
+        if (
+            !logWebviewProvider.repository ||
+            repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath
+        ) {
+            logWebviewProvider.updateRepository(repo).catch((err) => {
+                outputChannel.error(`[Extension] Failed to update webview repository: ${err}`);
+            });
+        }
+
         // Fire and forget: check if we should warn about git colocation
         checkGitColocation(repo.jj).catch((e) =>
             outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}: ${e}`),
@@ -439,7 +448,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     repositoryManager.onDidChangeFocusedRepository((repo) => {
         focusedRepoActiveProviderSub?.dispose();
         if (repo) {
-            logWebviewProvider.updateRepository(repo);
+            logWebviewProvider.updateRepository(repo).catch((err) => {
+                outputChannel.error(`[Extension] Failed to update webview repository: ${err}`);
+            });
             const scm = scmProviders.get(repo.rootUri.fsPath);
             if (scm) {
                 vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scm.parentMutable);

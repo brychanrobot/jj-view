@@ -4,8 +4,10 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
+import type { CodeForgeService } from '../code-forge-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import type { JjRepository } from '../jj-repository';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -44,22 +46,26 @@ suite('Webview Initialization Integration Test', () => {
     let provider: JjLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
+    let testContext: Awaited<ReturnType<typeof createTestRepositoryContext>>;
+    let commitDetailsProvider: JjCommitDetailsEditorProvider;
+    let extensionUri: vscode.Uri;
+    let outputChannel: ReturnType<typeof createMockLogOutputChannel>;
 
     setup(async () => {
         repo = new TestRepo();
         await repo.init();
 
-        const outputChannel = createMockLogOutputChannel({
+        outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const extensionUri = vscode.Uri.file(__dirname);
-        const context = await createTestRepositoryContext(repo.path, outputChannel);
-        disposables.push(context);
+        extensionUri = vscode.Uri.file(__dirname);
+        testContext = await createTestRepositoryContext(repo.path, outputChannel);
+        disposables.push(testContext);
 
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, context.repositoryManager);
+        commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, testContext.repositoryManager);
         provider = new JjLogWebviewProvider(
             extensionUri,
-            context.repository,
+            testContext.repository,
             commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
@@ -141,5 +147,119 @@ suite('Webview Initialization Integration Test', () => {
         assert.ok(htmlAfter.includes('window.vscodeInitialData ='), 'HTML should contain initial data');
         assert.ok(htmlAfter.includes(id2), 'HTML should contain the commit ID from the cache');
         assert.ok(htmlAfter.includes('Test Commit 2'), 'HTML should contain the description from the cache');
+    });
+
+    test('repository getter returns undefined until updateRepository is called', async () => {
+        const unattachedProvider = new JjLogWebviewProvider(
+            extensionUri,
+            /* repo */ undefined,
+            commitDetailsProvider,
+            /* onSelectionChange */ () => {},
+            createMock<vscode.ExtensionContext>({
+                globalState: createMock<vscode.ExtensionContext['globalState']>({
+                    get: () => [],
+                    update: () => Promise.resolve(),
+                    setKeysForSync: () => {},
+                }),
+            }),
+            outputChannel,
+        );
+
+        assert.strictEqual(unattachedProvider.repository, undefined, 'repository should initially be undefined');
+
+        await unattachedProvider.updateRepository(testContext.repository);
+        assert.strictEqual(
+            unattachedProvider.repository,
+            testContext.repository,
+            'repository should be updated after updateRepository call',
+        );
+    });
+
+    test('updateRepository does not block on pending CodeForge detection', async () => {
+        let resolveDetection!: () => void;
+        const pendingDetection = new Promise<void>((resolve) => {
+            resolveDetection = resolve;
+        });
+
+        const mockRepo = createMock<JjRepository>({
+            rootUri: vscode.Uri.file('/tmp/slow-repo'),
+            isValid: async () => true,
+            jj: testContext.repository.jj,
+            codeForge: createMock<CodeForgeService>({
+                onDidUpdate: () => ({ dispose: () => {} }),
+                detectActiveProvider: () => pendingDetection,
+            }),
+        });
+
+        const unattachedProvider = new JjLogWebviewProvider(
+            extensionUri,
+            /* repo */ undefined,
+            commitDetailsProvider,
+            /* onSelectionChange */ () => {},
+            createMock<vscode.ExtensionContext>({
+                globalState: createMock<vscode.ExtensionContext['globalState']>({
+                    get: () => [],
+                    update: () => Promise.resolve(),
+                    setKeysForSync: () => {},
+                }),
+            }),
+            outputChannel,
+        );
+
+        let completed = false;
+        const updatePromise = unattachedProvider.updateRepository(mockRepo).then(() => {
+            completed = true;
+        });
+
+        await updatePromise;
+        assert.strictEqual(completed, true, 'updateRepository should complete without awaiting detectActiveProvider');
+        assert.strictEqual(unattachedProvider.repository, mockRepo);
+
+        resolveDetection();
+    });
+
+    test('updateRepository logs and ignores detectActiveProvider errors', async () => {
+        const rejectingDetectionError = new Error('cf failed');
+        let loggedError: unknown;
+        const mockOutputChannel = createMockLogOutputChannel({
+            error: (msg: string) => {
+                loggedError = msg;
+            },
+        });
+
+        const mockRepo = createMock<JjRepository>({
+            rootUri: vscode.Uri.file('/tmp/reject-repo'),
+            isValid: async () => true,
+            jj: testContext.repository.jj,
+            codeForge: createMock<CodeForgeService>({
+                onDidUpdate: () => ({ dispose: () => {} }),
+                detectActiveProvider: () => Promise.reject(rejectingDetectionError),
+            }),
+        });
+
+        const unattachedProvider = new JjLogWebviewProvider(
+            extensionUri,
+            /* repo */ undefined,
+            commitDetailsProvider,
+            /* onSelectionChange */ () => {},
+            createMock<vscode.ExtensionContext>({
+                globalState: createMock<vscode.ExtensionContext['globalState']>({
+                    get: () => [],
+                    update: () => Promise.resolve(),
+                    setKeysForSync: () => {},
+                }),
+            }),
+            mockOutputChannel,
+        );
+
+        await unattachedProvider.updateRepository(mockRepo);
+        // Allow microtasks to execute the background catch handler
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        assert.strictEqual(unattachedProvider.repository, mockRepo);
+        assert.ok(
+            typeof loggedError === 'string' && loggedError.includes('Code forge detection failed'),
+            'outputChannel.error should be called when detectActiveProvider rejects',
+        );
     });
 });

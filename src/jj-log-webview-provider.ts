@@ -92,6 +92,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    public get repository(): JjRepository | undefined {
+        return this._repo;
+    }
+
     public get jj(): JjService | undefined {
         return this._repo?.jj;
     }
@@ -109,7 +113,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         const cf = this._codeForge;
         if (cf) {
             this._codeForgeDisposable = cf.onDidUpdate(() => this.refreshCodeForge());
-            await cf.detectActiveProvider(true);
+            cf.detectActiveProvider(true).catch((e) =>
+                this.outputChannel?.error(`[JjLogWebviewProvider] Code forge detection failed: ${e}`),
+            );
         }
         this._updateTitle();
         await this.refresh('repoChanged');
@@ -360,12 +366,21 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     return;
                 }
 
+                const targetRepoPath = this._repo.rootUri.fsPath;
                 // Default jj log (usually local heads/roots)
                 const logStart = performance.now();
                 commits = await jj.getLog({
                     omitChanges: true,
                     includeNearestVisibleAncestors: true,
                 });
+
+                if (this._repo?.rootUri.fsPath !== targetRepoPath) {
+                    this.outputChannel?.info(
+                        `[JjLogWebviewProvider] Repository changed during log fetch (was ${targetRepoPath}, now ${this._repo?.rootUri.fsPath}). Discarding stale log entries.`,
+                    );
+                    return;
+                }
+
                 const logDuration = performance.now() - logStart;
                 this.outputChannel?.info(
                     `[JjLogWebviewProvider] jj log took ${logDuration.toFixed(0)}ms, found ${commits.length} commits`,

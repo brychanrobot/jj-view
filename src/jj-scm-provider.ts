@@ -201,346 +201,324 @@ export class JjScmProvider implements vscode.Disposable {
         return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
     }
 
-    private _refreshMutex: Promise<void> = Promise.resolve();
-
     private async updateScmView(event: { reason: string }): Promise<void> {
-        // Chain the refresh execution to ensure serial execution.
-        // Log and swallow any prior rejection so that a failed/timed-out refresh does not permanently stall future refresh calls.
-        this._refreshMutex = this._refreshMutex
-            .catch((err) => {
-                this.outputChannel.error(`[ScmProvider] Previous updateScmView failed: ${err}`);
-            })
-            .then(async () => {
-                if (this._disposed) {
-                    return;
+        if (this._disposed) {
+            return;
+        }
+        const reasonStr = event.reason ? ` (reason: ${event.reason})` : '';
+        const msg = `Updating JJ Scm${reasonStr}...`;
+        this.outputChannel.info(msg);
+        const start = performance.now();
+        try {
+            // 1. Fetch data in parallel for performance
+            const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
+            const openDiffOnClick = getJjViewConfig<boolean>('openDiffOnClick', true) ?? true;
+            const limit = maxMutableAncestors + 1;
+
+            // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
+            const bulkLogPromise = this.jj
+                .getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
+                .then((commitIds) => Promise.all(commitIds.map((id) => this.jj.getLog({ revision: id }))));
+
+            const [bulkLogEntries, children, conflictedPaths] = await Promise.all([
+                bulkLogPromise,
+                this.jj.getChildren('@'),
+                this.jj.getConflictedFiles(),
+            ]);
+
+            const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
+
+            // Extract current entry from bulk log (it should be the first one with is_current_working_copy or just the first entry)
+            const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
+            this._currentEntry = currentEntry;
+            const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
+
+            let parentMutable = false;
+            const hasChild = children.length > 0;
+
+            if (currentEntry) {
+                const parentRefs = currentEntry.parents;
+
+                if (parentRefs && parentRefs.length > 0) {
+                    const firstParent = parentRefs[0];
+                    parentMutable = !firstParent.is_immutable;
                 }
-                const reasonStr = event.reason ? ` (reason: ${event.reason})` : '';
-                const msg = `Updating JJ Scm${reasonStr}...`;
-                this.outputChannel.info(msg);
-                const start = performance.now();
-                try {
-                    // 1. Fetch data in parallel for performance
-                    const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
-                    const openDiffOnClick = getJjViewConfig<boolean>('openDiffOnClick', true) ?? true;
-                    const limit = maxMutableAncestors + 1;
+            }
 
-                    // Chain getLog directly off getLogIds so it runs concurrently with getChildren and getConflictedFiles
-                    const bulkLogPromise = this.jj
-                        .getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
-                        .then((commitIds) => Promise.all(commitIds.map((id) => this.jj.getLog({ revision: id }))));
+            this._parentMutable = parentMutable;
+            this._hasChild = hasChild;
 
-                    const [bulkLogEntries, children, conflictedPaths] = await Promise.all([
-                        bulkLogPromise,
-                        this.jj.getChildren('@'),
-                        this.jj.getConflictedFiles(),
-                    ]);
+            if (currentEntry) {
+                const desc = currentEntry.description ? currentEntry.description.trim() : '';
+                const commitId = currentEntry.change_id;
 
-                    const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
+                // Update input box if:
+                // 1. It's empty
+                // 2. We switched to a different commit (context switch)
+                // 3. The value matches what we last populated (no user edits)
+                if (
+                    this._sourceControl.inputBox.value === '' ||
+                    this._lastKnownCommitId !== commitId ||
+                    this._sourceControl.inputBox.value === this._lastKnownDescription
+                ) {
+                    this._sourceControl.inputBox.value = desc;
+                    this._lastKnownDescription = desc;
+                    this._lastKnownCommitId = commitId;
+                }
+            }
 
-                    // Extract current entry from bulk log (it should be the first one with is_current_working_copy or just the first entry)
-                    const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
-                    this._currentEntry = currentEntry;
-                    const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
+            if (this.isFocused()) {
+                await vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, parentMutable);
+                await vscode.commands.executeCommand('setContext', JjContextKey.HasChild, hasChild);
+            }
 
-                    let parentMutable = false;
-                    const hasChild = children.length > 0;
+            // 2. Find Mutable Ancestors (traverse graph)
+            let currentFocus = currentEntry;
+            let ancestorDepth = 1;
+            const ancestorsToDisplay: {
+                entry: JjLogEntry;
+                prefix: string;
+                isMutable: boolean;
+                canSquash: boolean;
+            }[] = [];
 
-                    if (currentEntry) {
-                        const parentRefs = currentEntry.parents;
-
-                        if (parentRefs && parentRefs.length > 0) {
-                            const firstParent = parentRefs[0];
-                            parentMutable = !firstParent.is_immutable;
-                        }
+            if (currentFocus) {
+                while (currentFocus && ancestorsToDisplay.length < maxMutableAncestors) {
+                    if (!currentFocus.parents || currentFocus.parents.length === 0) {
+                        break;
                     }
 
-                    this._parentMutable = parentMutable;
-                    this._hasChild = hasChild;
+                    // For the prefix, we use @-1, @-2. For merge parents, @-1^1, @-1^2 etc.
+                    const isMerge = currentFocus.parents.length > 1;
 
-                    if (currentEntry) {
-                        const desc = currentEntry.description ? currentEntry.description.trim() : '';
-                        const commitId = currentEntry.change_id;
-
-                        // Update input box if:
-                        // 1. It's empty
-                        // 2. We switched to a different commit (context switch)
-                        // 3. The value matches what we last populated (no user edits)
-                        if (
-                            this._sourceControl.inputBox.value === '' ||
-                            this._lastKnownCommitId !== commitId ||
-                            this._sourceControl.inputBox.value === this._lastKnownDescription
-                        ) {
-                            this._sourceControl.inputBox.value = desc;
-                            this._lastKnownDescription = desc;
-                            this._lastKnownCommitId = commitId;
-                        }
-                    }
-
-                    if (this.isFocused()) {
-                        await vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, parentMutable);
-                        await vscode.commands.executeCommand('setContext', JjContextKey.HasChild, hasChild);
-                    }
-
-                    // 2. Find Mutable Ancestors (traverse graph)
-                    let currentFocus = currentEntry;
-                    let ancestorDepth = 1;
-                    const ancestorsToDisplay: {
-                        entry: JjLogEntry;
-                        prefix: string;
-                        isMutable: boolean;
-                        canSquash: boolean;
-                    }[] = [];
-
-                    if (currentFocus) {
-                        while (currentFocus && ancestorsToDisplay.length < maxMutableAncestors) {
-                            if (!currentFocus.parents || currentFocus.parents.length === 0) {
-                                break;
-                            }
-
-                            // For the prefix, we use @-1, @-2. For merge parents, @-1^1, @-1^2 etc.
-                            const isMerge = currentFocus.parents.length > 1;
-
-                            // Get all parent entries from the bulk map
-                            const parentEntries = currentFocus.parents.map((parent) => {
-                                return bulkLogMap.get(parent.commit_id);
-                            });
-
-                            for (let i = 0; i < parentEntries.length; i++) {
-                                const parentEntry = parentEntries[i];
-                                if (!parentEntry || parentEntry.is_immutable) {
-                                    continue;
-                                }
-
-                                const prefix = isMerge ? `@-${ancestorDepth}^${i + 1}` : `@-${ancestorDepth}`;
-
-                                const canSquash =
-                                    !parentEntry.is_immutable &&
-                                    parentEntry.parents !== undefined &&
-                                    parentEntry.parents.length > 0 &&
-                                    !parentEntry.parents[0].is_immutable;
-
-                                ancestorsToDisplay.push({
-                                    entry: parentEntry,
-                                    prefix,
-                                    isMutable: !parentEntry.is_immutable,
-                                    canSquash,
-                                });
-                            }
-
-                            // Stop traversing if it's a merge commit
-                            if (isMerge) {
-                                break;
-                            }
-
-                            // Move to the single parent for the next iteration
-                            const singleParentEntry = parentEntries[0];
-                            if (!singleParentEntry || singleParentEntry.is_immutable) {
-                                break; // Stop if the parent is immutable or not found
-                            }
-
-                            currentFocus = singleParentEntry;
-                            ancestorDepth++;
-                        }
-                    }
-
-                    // 3. Update Working Copy Group & Collect Decorations
-                    const decorationMap = new Map<string, JjStatusEntry>();
-
-                    // Working Copy Changes
-                    const changes = currentEntry?.changes || [];
-                    this._workingCopyStatuses.clear();
-
-                    if (currentEntry) {
-                        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
-                        const shortId = formatDisplayChangeId(
-                            currentEntry.change_id,
-                            currentEntry.change_id_shortest,
-                            minChangeIdLength,
-                        );
-                        this._workingCopyGroup.label = `Working Copy - ${shortId}`;
-                    } else {
-                        this._workingCopyGroup.label = 'Working Copy';
-                    }
-
-                    const wcFlags = [ScmContextValue.GroupAllowShowMultiFileDiff, ScmContextValue.GroupAllowAbandon];
-                    if (currentEntry) {
-                        if (canAbsorbCommit(currentEntry)) {
-                            wcFlags.push(ScmContextValue.GroupAllowAbsorb);
-                        }
-                        if (canSquashCommit(currentEntry)) {
-                            wcFlags.push(ScmContextValue.GroupAllowSquash);
-                        }
-                    }
-                    this._workingCopyGroup.contextValue = wcFlags.join(' ');
-
-                    // Working copy items are squashable if the parent is mutable
-                    this._workingCopyGroup.resourceStates = changes.map((c) => {
-                        const state = this.toResourceState(c, currentEntry?.change_id || '@', {
-                            squashable: parentMutable,
-                            multipleAncestors: ancestorsToDisplay.length > 1,
-                            openDiffOnClick,
-                            hasChild,
-                        });
-                        decorationMap.set(state.resourceUri.toString(), c);
-                        this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
-                        return state;
+                    // Get all parent entries from the bulk map
+                    const parentEntries = currentFocus.parents.map((parent) => {
+                        return bulkLogMap.get(parent.commit_id);
                     });
 
-                    // 4. Update Conflict Group (conflictedPaths fetched above)
-                    this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
-                        const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
-                        const state = this.toResourceState(entry, currentEntry?.change_id || '@', {
-                            openDiffOnClick,
-                            inConflictGroup: true,
-                        });
-                        decorationMap.set(state.resourceUri.toString(), entry);
-                        return state;
-                    });
-
-                    // 5. Update Parent Groups
-                    // Dispose excess parent groups
-                    while (this._parentGroups.length > ancestorsToDisplay.length) {
-                        const group = this._parentGroups.pop();
-                        group?.dispose();
-                    }
-
-                    // Populate the SCM groups
-                    for (let i = 0; i < ancestorsToDisplay.length; i++) {
-                        const { entry: ancestorEntry, prefix, isMutable, canSquash } = ancestorsToDisplay[i];
-
-                        const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
-                        const shortId = formatDisplayChangeId(
-                            ancestorEntry.change_id,
-                            ancestorEntry.change_id_shortest,
-                            minChangeIdLength,
-                        );
-                        const desc = ancestorEntry.description?.trim() || '(no description)';
-                        const subject = desc.split('\n', 1 /* limit */)[0].trim();
-                        const label = `${prefix}: ${shortId} - ${subject}`;
-
-                        // Reuse existing group or create new one
-                        let group: vscode.SourceControlResourceGroup;
-                        const groupFlags = [
-                            ScmContextValue.GroupAllowShowMultiFileDiff,
-                            ScmContextValue.GroupAllowShowDetails,
-                        ];
-                        if (isMutableCommit(ancestorEntry)) {
-                            groupFlags.push(ScmContextValue.GroupAllowEdit);
-                        }
-                        if (canSquashCommit(ancestorEntry)) {
-                            groupFlags.push(ScmContextValue.GroupAllowSquash);
-                        }
-                        const contextValue = groupFlags.join(' ');
-
-                        if (i < this._parentGroups.length) {
-                            group = this._parentGroups[i];
-                            group.label = label;
-                            group.contextValue = contextValue;
-                        } else {
-                            const groupId = `ancestor-${i}`;
-                            group = this._sourceControl.createResourceGroup(groupId, label);
-                            group.hideWhenEmpty = false;
-                            group.contextValue = contextValue;
-                            this._parentGroups.push(group);
+                    for (let i = 0; i < parentEntries.length; i++) {
+                        const parentEntry = parentEntries[i];
+                        if (!parentEntry || parentEntry.is_immutable) {
+                            continue;
                         }
 
-                        const parentChanges = ancestorEntry.changes || [];
-                        group.resourceStates = parentChanges.map((c: JjStatusEntry) => {
-                            // Level i ancestor has (ancestorsToDisplay.length - 1 - i) mutable ancestors below it.
-                            const remainingAncestors = ancestorsToDisplay.length - 1 - i;
-                            const state = this.toResourceState(c, ancestorEntry.change_id, {
-                                editable: isMutable,
-                                squashable: canSquash,
-                                multipleAncestors: remainingAncestors > 0,
-                                openDiffOnClick,
-                            });
-                            decorationMap.set(state.resourceUri.toString(), c);
-                            return state;
+                        const prefix = isMerge ? `@-${ancestorDepth}^${i + 1}` : `@-${ancestorDepth}`;
+
+                        const canSquash =
+                            !parentEntry.is_immutable &&
+                            parentEntry.parents !== undefined &&
+                            parentEntry.parents.length > 0 &&
+                            !parentEntry.parents[0].is_immutable;
+
+                        ancestorsToDisplay.push({
+                            entry: parentEntry,
+                            prefix,
+                            isMutable: !parentEntry.is_immutable,
+                            canSquash,
                         });
                     }
 
-                    // Update Decoration
-                    this.decorationProvider.updateScmAndTrackedStatus(decorationMap);
-
-                    // Update SCM Count - Only count Working Copy changes
-                    // VS Code sums all groups by default if count is not set, so we must set it explicitly.
-                    this._sourceControl.count = this._workingCopyGroup.resourceStates.length;
-                } catch (e: unknown) {
-                    const err = e as { message?: string };
-                    if (JjService.isIndexLockError(e)) {
-                        const repoRoot = await this.jj.getRepoRoot();
-                        const lockPath = path.join(repoRoot, '.git', 'index.lock');
-                        const DELETE_LOCK = 'Delete Lock File';
-                        vscode.window
-                            .showErrorMessage(
-                                `jj failed: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`,
-                                DELETE_LOCK,
-                                'Show Log',
-                            )
-                            .then(async (selection) => {
-                                if (selection === DELETE_LOCK) {
-                                    try {
-                                        await fs.unlink(lockPath);
-                                        this.outputChannel.info(`[Info] Deleted lock file at ${lockPath}`);
-                                        await this.refresh({ forceSnapshot: true, reason: 'lock file deleted' });
-                                    } catch (unlinkErr) {
-                                        this.outputChannel.error(
-                                            `[Error] Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
-                                        );
-                                        vscode.window.showErrorMessage(
-                                            `Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
-                                        );
-                                    }
-                                } else if (selection === 'Show Log') {
-                                    this.outputChannel.show();
-                                }
-                            });
-                    } else if (
-                        err.message &&
-                        ((err.message.includes('Object') && err.message.includes('not found')) ||
-                            err.message.includes('No such file or directory'))
-                    ) {
-                        this.outputChannel.error(
-                            `[${this.repo.rootUri.fsPath}] Ignored transient error during refresh: ${getErrorMessage(e)}`,
-                        );
-                    } else {
-                        this.outputChannel.error(
-                            `[${this.repo.rootUri.fsPath}] Error refreshing JJ SCM: ${getErrorMessage(e)}`,
-                        );
-                        console.error(`Error refreshing JJ SCM for ${this.repo.rootUri.fsPath}:`, e);
+                    // Stop traversing if it's a merge commit
+                    if (isMerge) {
+                        break;
                     }
-                } finally {
-                    if (!this._disposed) {
-                        const duration = performance.now() - start;
-                        try {
-                            this.outputChannel.info(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
-                        } catch {
-                            // Ignore channel closed errors
-                        }
-                        this._onDidChangeStatus.fire();
 
-                        // Invalidate caches once state is fully updated to ensure
-                        // that when VS Code re-queries, it sees the most up-to-date state.
-                        this.viewFileSystemProvider?.invalidateCache();
-                        this.editProvider?.invalidateCache();
-
-                        // Re-assigning quickDiffProvider is a known workaround to force
-                        // VS Code to re-evaluate provideOriginalResource for all open editors.
-                        this._sourceControl.quickDiffProvider = this;
-
-                        await this._diffTabCleaner.closeInvalidDiffEditors();
+                    // Move to the single parent for the next iteration
+                    const singleParentEntry = parentEntries[0];
+                    if (!singleParentEntry || singleParentEntry.is_immutable) {
+                        break; // Stop if the parent is immutable or not found
                     }
+
+                    currentFocus = singleParentEntry;
+                    ancestorDepth++;
                 }
-            })
-            .catch((err) => {
+            }
+
+            // 3. Update Working Copy Group & Collect Decorations
+            const decorationMap = new Map<string, JjStatusEntry>();
+
+            // Working Copy Changes
+            const changes = currentEntry?.changes || [];
+            this._workingCopyStatuses.clear();
+
+            if (currentEntry) {
+                const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+                const shortId = formatDisplayChangeId(
+                    currentEntry.change_id,
+                    currentEntry.change_id_shortest,
+                    minChangeIdLength,
+                );
+                this._workingCopyGroup.label = `Working Copy - ${shortId}`;
+            } else {
+                this._workingCopyGroup.label = 'Working Copy';
+            }
+
+            const wcFlags = [ScmContextValue.GroupAllowShowMultiFileDiff, ScmContextValue.GroupAllowAbandon];
+            if (currentEntry) {
+                if (canAbsorbCommit(currentEntry)) {
+                    wcFlags.push(ScmContextValue.GroupAllowAbsorb);
+                }
+                if (canSquashCommit(currentEntry)) {
+                    wcFlags.push(ScmContextValue.GroupAllowSquash);
+                }
+            }
+            this._workingCopyGroup.contextValue = wcFlags.join(' ');
+
+            // Working copy items are squashable if the parent is mutable
+            this._workingCopyGroup.resourceStates = changes.map((c) => {
+                const state = this.toResourceState(c, currentEntry?.change_id || '@', {
+                    squashable: parentMutable,
+                    multipleAncestors: ancestorsToDisplay.length > 1,
+                    openDiffOnClick,
+                    hasChild,
+                });
+                decorationMap.set(state.resourceUri.toString(), c);
+                this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
+                return state;
+            });
+
+            // 4. Update Conflict Group (conflictedPaths fetched above)
+            this._conflictGroup.resourceStates = conflictedPaths.map((path) => {
+                const entry: JjStatusEntry = { path, status: 'modified', conflicted: true };
+                const state = this.toResourceState(entry, currentEntry?.change_id || '@', {
+                    openDiffOnClick,
+                    inConflictGroup: true,
+                });
+                decorationMap.set(state.resourceUri.toString(), entry);
+                return state;
+            });
+
+            // 5. Update Parent Groups
+            // Dispose excess parent groups
+            while (this._parentGroups.length > ancestorsToDisplay.length) {
+                const group = this._parentGroups.pop();
+                group?.dispose();
+            }
+
+            // Populate the SCM groups
+            for (let i = 0; i < ancestorsToDisplay.length; i++) {
+                const { entry: ancestorEntry, prefix, isMutable, canSquash } = ancestorsToDisplay[i];
+
+                const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+                const shortId = formatDisplayChangeId(
+                    ancestorEntry.change_id,
+                    ancestorEntry.change_id_shortest,
+                    minChangeIdLength,
+                );
+                const desc = ancestorEntry.description?.trim() || '(no description)';
+                const subject = desc.split('\n', 1 /* limit */)[0].trim();
+                const label = `${prefix}: ${shortId} - ${subject}`;
+
+                // Reuse existing group or create new one
+                let group: vscode.SourceControlResourceGroup;
+                const groupFlags = [ScmContextValue.GroupAllowShowMultiFileDiff, ScmContextValue.GroupAllowShowDetails];
+                if (isMutableCommit(ancestorEntry)) {
+                    groupFlags.push(ScmContextValue.GroupAllowEdit);
+                }
+                if (canSquashCommit(ancestorEntry)) {
+                    groupFlags.push(ScmContextValue.GroupAllowSquash);
+                }
+                const contextValue = groupFlags.join(' ');
+
+                if (i < this._parentGroups.length) {
+                    group = this._parentGroups[i];
+                    group.label = label;
+                    group.contextValue = contextValue;
+                } else {
+                    const groupId = `ancestor-${i}`;
+                    group = this._sourceControl.createResourceGroup(groupId, label);
+                    group.hideWhenEmpty = false;
+                    group.contextValue = contextValue;
+                    this._parentGroups.push(group);
+                }
+
+                const parentChanges = ancestorEntry.changes || [];
+                group.resourceStates = parentChanges.map((c: JjStatusEntry) => {
+                    // Level i ancestor has (ancestorsToDisplay.length - 1 - i) mutable ancestors below it.
+                    const remainingAncestors = ancestorsToDisplay.length - 1 - i;
+                    const state = this.toResourceState(c, ancestorEntry.change_id, {
+                        editable: isMutable,
+                        squashable: canSquash,
+                        multipleAncestors: remainingAncestors > 0,
+                        openDiffOnClick,
+                    });
+                    decorationMap.set(state.resourceUri.toString(), c);
+                    return state;
+                });
+            }
+
+            // Update Decoration
+            this.decorationProvider.updateScmAndTrackedStatus(decorationMap);
+
+            // Update SCM Count - Only count Working Copy changes
+            // VS Code sums all groups by default if count is not set, so we must set it explicitly.
+            this._sourceControl.count = this._workingCopyGroup.resourceStates.length;
+        } catch (e: unknown) {
+            const err = e as { message?: string };
+            if (JjService.isIndexLockError(e)) {
+                const repoRoot = await this.jj.getRepoRoot();
+                const lockPath = path.join(repoRoot, '.git', 'index.lock');
+                const DELETE_LOCK = 'Delete Lock File';
+                vscode.window
+                    .showErrorMessage(
+                        `jj failed: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`,
+                        DELETE_LOCK,
+                        'Show Log',
+                    )
+                    .then(async (selection) => {
+                        if (selection === DELETE_LOCK) {
+                            try {
+                                await fs.unlink(lockPath);
+                                this.outputChannel.info(`[Info] Deleted lock file at ${lockPath}`);
+                                await this.refresh({ forceSnapshot: true, reason: 'lock file deleted' });
+                            } catch (unlinkErr) {
+                                this.outputChannel.error(
+                                    `[Error] Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
+                                );
+                                vscode.window.showErrorMessage(
+                                    `Failed to delete lock file: ${getErrorMessage(unlinkErr)}`,
+                                );
+                            }
+                        } else if (selection === 'Show Log') {
+                            this.outputChannel.show();
+                        }
+                    });
+            } else if (
+                err.message &&
+                ((err.message.includes('Object') && err.message.includes('not found')) ||
+                    err.message.includes('No such file or directory'))
+            ) {
+                this.outputChannel.error(
+                    `[${this.repo.rootUri.fsPath}] Ignored transient error during refresh: ${getErrorMessage(e)}`,
+                );
+            } else {
+                this.outputChannel.error(
+                    `[${this.repo.rootUri.fsPath}] Error refreshing JJ SCM: ${getErrorMessage(e)}`,
+                );
+                console.error(`Error refreshing JJ SCM for ${this.repo.rootUri.fsPath}:`, e);
+            }
+        } finally {
+            if (!this._disposed) {
+                const duration = performance.now() - start;
                 try {
-                    this.outputChannel.info(`[ScmProvider] Refresh mutex encountered unhandled rejection: ${err}`);
+                    this.outputChannel.info(`JJ SCM refresh took ${duration.toFixed(0)}ms`);
                 } catch {
                     // Ignore channel closed errors
                 }
-            });
+                this._onDidChangeStatus.fire();
 
-        return this._refreshMutex;
+                // Invalidate caches once state is fully updated to ensure
+                // that when VS Code re-queries, it sees the most up-to-date state.
+                this.viewFileSystemProvider?.invalidateCache();
+                this.editProvider?.invalidateCache();
+
+                // Re-assigning quickDiffProvider is a known workaround to force
+                // VS Code to re-evaluate provideOriginalResource for all open editors.
+                this._sourceControl.quickDiffProvider = this;
+
+                await this._diffTabCleaner.closeInvalidDiffEditors();
+            }
+        }
     }
 
     async abandon(revisions: string[]) {
@@ -576,7 +554,6 @@ export class JjScmProvider implements vscode.Disposable {
         }
         const r = resourceStates[0];
         const uri = r.resourceUri;
-        // const relativePath = vscode.workspace.asRelativePath(uri);
 
         try {
             const encodedPath = encodeURIComponent(uri.fsPath);

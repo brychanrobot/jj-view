@@ -84,10 +84,10 @@ export class RefreshScheduler implements vscode.Disposable {
                     await this.refreshCallback({ forceSnapshot, reason: reasons || undefined });
                 } catch (e) {
                     console.error('Refresh failed in scheduler:', e);
+                } finally {
+                    // Resolve all waiting promises
+                    this._resolvePending();
                 }
-
-                // Resolve all waiting promises
-                this._resolvePending();
 
                 this._multiplier = Math.min(this._multiplier + 1, this._maxMultiplier);
                 this._scheduleNextRun();
