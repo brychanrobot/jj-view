@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.1
+
+### Fixes
+
+- **Process Monitor**:
+    - Ensure status bar indicator respects `jj-view.showProcessMonitorPanel` setting and configuration changes.
+
+### Chores & Testing
+
+- **Testing**:
+    - Improve SCM integration test stability and tree item locators.
+
 ## 2.5.0
 
 ### Features
