@@ -215,4 +215,25 @@ describe('RefreshScheduler', () => {
         await vi.advanceTimersByTimeAsync(100);
         expect(refreshFn).toHaveBeenCalledTimes(4);
     });
+
+    test('should resolve pending promise and recover when refreshCallback rejects', async () => {
+        refreshFn.mockRejectedValueOnce(new Error('Refresh error'));
+
+        const promise = scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(refreshFn).toHaveBeenCalledTimes(1);
+        await expect(promise).resolves.toBeUndefined();
+
+        // Advance timers for quiet period so scheduler resets to idle state
+        await vi.advanceTimersByTimeAsync(200);
+
+        // Next trigger should execute normally
+        refreshFn.mockResolvedValueOnce(undefined);
+        const promise2 = scheduler.trigger();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(refreshFn).toHaveBeenCalledTimes(2);
+        await expect(promise2).resolves.toBeUndefined();
+    });
 });
