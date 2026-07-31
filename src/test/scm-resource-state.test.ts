@@ -143,8 +143,8 @@ describe('createJjResourceState', () => {
             expect(state.command?.arguments).toEqual([state.leftUri, state.rightUri, 'file.txt (rev123)']);
         });
 
-        it('routes to diff command if status is deleted/removed, even if openDiffOnClick is false', () => {
-            const deletedEntry: JjStatusEntry = { path: 'file.txt', status: 'removed' };
+        it('routes to diff command if status is deleted, even if openDiffOnClick is false', () => {
+            const deletedEntry: JjStatusEntry = { path: 'file.txt', status: 'deleted' };
             const state = createJjResourceState(deletedEntry, 'rev123', root, {
                 openDiffOnClick: false,
             });
@@ -164,8 +164,8 @@ describe('createJjResourceState', () => {
     });
 
     describe('Decorations', () => {
-        it('sets strikeThrough for removed entries', () => {
-            const entry: JjStatusEntry = { path: 'file.txt', status: 'removed' };
+        it('sets strikeThrough for deleted entries', () => {
+            const entry: JjStatusEntry = { path: 'file.txt', status: 'deleted' };
             const state = createJjResourceState(entry, 'rev123', root);
             expect(state.decorations?.strikeThrough).toBe(true);
         });

@@ -67,7 +67,7 @@ export function createDiffUris(
     });
 
     let rightUri: vscode.Uri;
-    const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
+    const isDeleted = entry.status === 'deleted';
     if (isDeleted) {
         rightUri = vscode.Uri.from({
             scheme: 'jj-view',

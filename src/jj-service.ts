@@ -6,10 +6,21 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { z } from 'zod';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
-import { JjBookmarkSchema, JjLogEntrySchema, JjWorkspaceSchema } from './jj-schemas';
+import {
+    ChangesAndStatsOutputSchema,
+    type DiffStatEntry,
+    JjBookmarkSchema,
+    type JjFileChange,
+    JjFileChangeSchema,
+    type JjFileChangeWithStats,
+    JjLogEntrySchema,
+    JjWorkspaceSchema,
+} from './jj-schemas';
 import {
     BOOKMARK_SCHEMA,
+    buildDiffFileSchema,
     buildLogTemplate,
     CHANGE_ID_EXPR,
     LOG_ENTRY_SCHEMA,
@@ -382,25 +393,7 @@ export class JjService {
             useCachedSnapshot: true,
             label: 'getBookmarks',
         });
-        const trimmed = output.trim();
-        if (!trimmed) {
-            return [];
-        }
-        try {
-            const jsonListString = `[${trimmed.replace(/\r?\n/g, ',')}]`;
-            const parsed = JSON.parse(jsonListString);
-            const validation = JjBookmarkSchema.array().safeParse(parsed);
-            if (!validation.success) {
-                this.logger.error(
-                    `Failed to validate bookmarks JSON: ${validation.error.message}. Raw output: ${output}`,
-                );
-                return [];
-            }
-            return validation.data;
-        } catch (e) {
-            this.logger.error(`Failed to parse bookmarks JSON: ${e}. Raw output: ${output}`);
-            return [];
-        }
+        return this._parseJsonLines(output, JjBookmarkSchema, 'getBookmarks');
     }
 
     async moveBookmark(name: string, toRevision: string): Promise<string> {
@@ -447,34 +440,10 @@ export class JjService {
         }
 
         const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
-        const entries: JjLogEntry[] = [];
-        const visibleIds = new Set<string>();
-
-        for (const line of output.trim().split('\n')) {
-            if (!line) {
-                continue;
-            }
-            const jsonStart = line.indexOf('{');
-            if (jsonStart === -1) {
-                continue;
-            }
-            const jsonPart = line.substring(jsonStart);
-            try {
-                const parsed = JSON.parse(jsonPart);
-                const validation = JjLogEntrySchema.safeParse(parsed);
-                if (!validation.success) {
-                    console.error(`Failed to validate log entry: ${validation.error.message}`, line);
-                    continue;
-                }
-                const entry = validation.data;
-                entries.push(entry);
-                visibleIds.add(entry.change_id);
-            } catch (e) {
-                console.error('Failed to parse log entry:', line, e);
-            }
-        }
+        const entries = this._parseJsonLines(output, JjLogEntrySchema, 'getLog');
 
         if (includeNearestVisibleAncestors) {
+            const visibleIds = new Set<string>(entries.map((e) => e.change_id));
             await this._resolveNearestVisibleAncestors(entries, visibleIds, revision);
         }
 
@@ -978,26 +947,7 @@ export class JjService {
             useCachedSnapshot: true,
             label: 'getWorkspaces',
         });
-        const infos: JjWorkspace[] = [];
-        for (const line of output.split('\n')) {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                continue;
-            }
-            try {
-                const parsed = JSON.parse(trimmed);
-                const validation = JjWorkspaceSchema.safeParse(parsed);
-                if (!validation.success) {
-                    console.error(`Failed to validate workspace info: ${validation.error.message}`, line);
-                    continue;
-                }
-                const info = validation.data;
-                infos.push(info);
-            } catch (e) {
-                console.error('Failed to parse workspace info line:', line, e);
-            }
-        }
-        return infos;
+        return this._parseJsonLines(output, JjWorkspaceSchema, 'getWorkspaces');
     }
 
     async getWorkspaceRoot(workspaceName?: string): Promise<string> {
@@ -1090,88 +1040,107 @@ export class JjService {
         return this.run('status', [], { isMutation: true, useCachedSnapshot: false, label: 'status' });
     }
 
-    async getChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
-        const cacheKey = toRevision ? `${revision}..${toRevision}` : revision;
-        return this._changesCache.getOrFetch(cacheKey, () => this._doGetChanges(revision, toRevision));
+    async getChanges(revision: string): Promise<JjFileChangeWithStats[]> {
+        return this._changesCache.getOrFetch(revision, () => this._doGetChanges(revision));
     }
 
-    private async _doGetChanges(revision: string, toRevision?: string): Promise<JjStatusEntry[]> {
-        const args = ['--git'];
-        if (toRevision) {
-            args.push('--from', revision, '--to', toRevision);
-        } else {
-            args.push('-r', revision);
-        }
-        const output = await this.run('diff', args, { useCachedSnapshot: true, label: 'getChanges' });
-        const entries: JjStatusEntry[] = [];
+    /**
+     * Retrieves the file changes between two revisions (`fromRevision` and `toRevision`).
+     */
+    async getChangesBetween(fromRevision: string, toRevision: string): Promise<JjFileChange[]> {
+        const cacheKey = `${fromRevision}..${toRevision}`;
+        return this._changesCache.getOrFetch(cacheKey, () => this._doGetChangesBetween(fromRevision, toRevision));
+    }
 
-        const lines = output.split('\n');
-        let currentEntry: JjStatusEntry | null = null;
-        let isHeader = true;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            if (line.startsWith('diff --git')) {
-                if (currentEntry) {
-                    entries.push(currentEntry);
-                }
-                currentEntry = { path: '', status: 'modified', additions: 0, deletions: 0 };
-                isHeader = true;
-                const parts = line.split(' ');
-                if (parts.length >= 4) {
-                    const bPath = parts[parts.length - 1];
-                    currentEntry.path = bPath.startsWith('b/') ? bPath.substring(2) : bPath;
-                }
-                continue;
-            }
-
-            if (!currentEntry) {
-                continue;
-            }
-
-            if (isHeader) {
-                if (line.startsWith('new file mode') || line.startsWith('--- /dev/null')) {
-                    currentEntry.status = 'added';
-                } else if (line.startsWith('deleted file mode') || line.startsWith('+++ /dev/null')) {
-                    currentEntry.status = 'deleted';
-                } else if (line.startsWith('rename from ')) {
-                    currentEntry.status = 'renamed';
-                    currentEntry.oldPath = line.substring('rename from '.length).trim();
-                } else if (line.startsWith('rename to')) {
-                    currentEntry.path = line.substring('rename to '.length).trim();
-                } else if (line.startsWith('+++ b/')) {
-                    currentEntry.path = line.substring('+++ b/'.length).trim();
-                    isHeader = false;
-                } else if (line.startsWith('--- a/') && currentEntry.status === 'deleted') {
-                    currentEntry.path = line.substring('--- a/'.length).trim();
-                } else if (line.startsWith('@@')) {
-                    isHeader = false;
-                }
-            }
-
-            if (!isHeader) {
-                if (line.startsWith('+') && !line.startsWith('+++')) {
-                    currentEntry.additions = (currentEntry.additions || 0) + 1;
-                } else if (line.startsWith('-') && !line.startsWith('---')) {
-                    currentEntry.deletions = (currentEntry.deletions || 0) + 1;
-                }
-            }
-        }
-
-        if (currentEntry) {
-            entries.push(currentEntry);
-        }
-
-        entries.forEach((e) => {
-            if (e.path.startsWith('"') && e.path.endsWith('"')) {
-                try {
-                    e.path = JSON.parse(e.path);
-                } catch (_) {}
-            }
+    private async _doGetChanges(revision: string): Promise<JjFileChangeWithStats[]> {
+        const combinedTemplate = buildLogTemplate({
+            changes: {
+                type: 'array',
+                expr: 'self.diff().files()',
+                itemSchema: buildDiffFileSchema('item'),
+            },
+            stats: {
+                type: 'array',
+                expr: 'self.diff().stat().files()',
+                itemSchema: {
+                    path: { type: 'json', expr: 'item.path().display()' },
+                    additions: { type: 'raw', expr: 'item.lines_added()' },
+                    deletions: { type: 'raw', expr: 'item.lines_removed()' },
+                },
+            },
         });
 
-        return entries;
+        const output = await this.run('log', ['-r', revision, '--no-graph', '-T', combinedTemplate], {
+            useCachedSnapshot: true,
+            label: 'getChanges',
+        });
+        const entries = this._parseJsonLines(output, ChangesAndStatsOutputSchema, 'getChanges');
+        if (entries.length === 0) {
+            return [];
+        }
+
+        if (entries.length > 1) {
+            this.logger.warn(
+                `Expected single commit for revision '${revision}' in getChanges, but got ${entries.length} entries.`,
+            );
+        }
+
+        const { changes, stats } = entries[0];
+        const statsMap = new Map<string, DiffStatEntry>(stats.map((s) => [s.path, s]));
+
+        return changes.map((c) => {
+            const stat = statsMap.get(c.path);
+            return {
+                ...c,
+                additions: stat?.additions ?? 0,
+                deletions: stat?.deletions ?? 0,
+            };
+        });
+    }
+
+    private async _doGetChangesBetween(fromRevision: string, toRevision: string): Promise<JjFileChange[]> {
+        const diffTemplate = buildLogTemplate(buildDiffFileSchema('self'));
+
+        const output = await this.run('diff', ['-T', diffTemplate, '--from', fromRevision, '--to', toRevision], {
+            useCachedSnapshot: true,
+            label: 'getChangesBetween',
+        });
+
+        return this._parseJsonLines(output, JjFileChangeSchema, 'getChangesBetween');
+    }
+
+    private _parseJsonLines<T>(output: string, schema: z.ZodType<T>, label: string): T[] {
+        const items: T[] = [];
+        let parseErrorCount = 0;
+
+        for (const line of output.trim().split('\n')) {
+            if (!line) {
+                continue;
+            }
+            const jsonStart = line.indexOf('{');
+            if (jsonStart === -1) {
+                continue;
+            }
+            try {
+                const parsed = JSON.parse(line.substring(jsonStart));
+                const validation = schema.safeParse(parsed);
+                if (validation.success) {
+                    items.push(validation.data);
+                } else {
+                    parseErrorCount++;
+                    this.logger.debug(`Failed to validate ${label} entry: ${validation.error.message} (line: ${line})`);
+                }
+            } catch (e) {
+                parseErrorCount++;
+                this.logger.debug(`Failed to parse ${label} entry (line: ${line}): ${e}`);
+            }
+        }
+
+        if (parseErrorCount > 0) {
+            this.logger.warn(`Encountered ${parseErrorCount} invalid JSON entries while parsing ${label} output.`);
+        }
+
+        return items;
     }
 
     async getWorkingCopyChanges(): Promise<JjStatusEntry[]> {

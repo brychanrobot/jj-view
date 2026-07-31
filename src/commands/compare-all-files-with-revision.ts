@@ -33,7 +33,7 @@ export async function compareAllFilesWithRevisionCommand(
         await withDelayedProgress(
             `Comparing ${rev} with all files...`,
             (async (): Promise<void> => {
-                const changes = await jj.getChanges(rev, '@');
+                const changes = await jj.getChangesBetween(rev, '@');
 
                 if (changes.length === 0) {
                     vscode.window.showInformationMessage(`No differences found between ${rev} and working copy.`);

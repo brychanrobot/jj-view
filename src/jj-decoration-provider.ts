@@ -66,7 +66,6 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                     new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
                 );
             case 'deleted':
-            case 'removed':
                 return new vscode.FileDecoration(
                     'D',
                     'Deleted',

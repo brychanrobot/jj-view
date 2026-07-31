@@ -703,7 +703,6 @@ function getFileIcon(status: string): string {
         case 'added':
         case 'copied':
             return 'diff-added';
-        case 'removed':
         case 'deleted':
             return 'diff-removed';
         case 'modified':
@@ -720,7 +719,6 @@ function getFileColor(status: string): string {
         case 'added':
         case 'copied':
             return 'var(--vscode-gitDecoration-addedResourceForeground)';
-        case 'removed':
         case 'deleted':
             return 'var(--vscode-gitDecoration-deletedResourceForeground)';
         case 'modified':

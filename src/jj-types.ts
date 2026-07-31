@@ -7,12 +7,23 @@ import type {
     CodeForgeChangeInfo,
     CommitParent,
     JjBookmark,
+    JjFileChange,
+    JjFileChangeWithStats,
     JjLogEntry,
     JjStatusEntry,
     JjWorkspace,
 } from './jj-schemas';
 
-export type { CodeForgeChangeInfo, CommitParent, JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace };
+export type {
+    CodeForgeChangeInfo,
+    CommitParent,
+    JjBookmark,
+    JjFileChange,
+    JjFileChangeWithStats,
+    JjLogEntry,
+    JjStatusEntry,
+    JjWorkspace,
+};
 
 export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload';
 
