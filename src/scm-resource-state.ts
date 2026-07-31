@@ -32,7 +32,7 @@ export function createJjResourceState(
     const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, options);
 
     const openDiffOnClick = options.openDiffOnClick ?? true;
-    const isDeleted = entry.status === 'removed' || entry.status === 'deleted';
+    const isDeleted = entry.status === 'deleted';
 
     const diffTitle = `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
 
@@ -86,7 +86,7 @@ export function createJjResourceState(
         diffTitle,
         decorations: {
             faded: false,
-            strikeThrough: entry.status === 'removed',
+            strikeThrough: entry.status === 'deleted',
         },
         contextValue,
         revision,

@@ -77,10 +77,10 @@ describe('createDiffUris', () => {
         expect(rightUri.query).toContain('side=right');
     });
 
-    it('handles removed files in working copy correctly', () => {
+    it('handles deleted files in working copy correctly', () => {
         const entry: JjStatusEntry = {
             path: 'deleted.txt',
-            status: 'removed',
+            status: 'deleted',
         };
         const revision = '@';
 
@@ -91,7 +91,7 @@ describe('createDiffUris', () => {
         expect(leftUri.query).toContain(`base=${ENCODED_AT}`);
         expect(leftUri.query).toContain('side=left');
 
-        // DESIRED FIX: Removed files in working copy should use jj-view scheme for right side
+        // Removed files in working copy should use jj-view scheme for right side
         // to avoid "File not found" errors in VS Code.
         expect(rightUri.scheme).toBe('jj-view');
         expect(rightUri.path).toBe('/root/deleted.txt');
@@ -99,23 +99,10 @@ describe('createDiffUris', () => {
         expect(rightUri.query).toContain('side=right');
     });
 
-    it('handles deleted status in working copy correctly', () => {
+    it('handles deleted files in ancestors correctly', () => {
         const entry: JjStatusEntry = {
             path: 'deleted.txt',
             status: 'deleted',
-        };
-        const revision = '@';
-
-        const { rightUri } = createDiffUris(entry, revision, root);
-
-        expect(rightUri.scheme).toBe('jj-view');
-        expect(rightUri.query).toContain('side=right');
-    });
-
-    it('handles removed files in ancestors correctly', () => {
-        const entry: JjStatusEntry = {
-            path: 'deleted.txt',
-            status: 'removed',
         };
         const revision = 'rev1';
 

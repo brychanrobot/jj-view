@@ -17,7 +17,24 @@ export type JjTemplateField =
     | { type: 'stringArray'; expr: string; itemExpr: string } // Array of simple strings
     | { type: 'rawArray'; expr: string; itemExpr: string } // Array of raw values (booleans, numbers)
     | { type: 'object'; fields: Record<string, JjTemplateField> } // Nested object
-    | { type: 'nullable'; expr: string; valueExpr: string }; // Nullable with if()
+    | { type: 'nullable'; expr: string; valueExpr: string } // Nullable with if()
+    | { type: 'optionalField'; where: string; valueExpr: string }; // Conditionally included object field
+
+function buildObjectFields(fields: Record<string, JjTemplateField>): string {
+    const parts: string[] = [];
+    const entries = Object.entries(fields);
+    for (let i = 0; i < entries.length; i++) {
+        const [key, field] = entries[i];
+        if (field.type === 'optionalField') {
+            const prefix = i === 0 ? `"\\"${key}\\": "` : `", \\"${key}\\": "`;
+            parts.push(`if(${field.where}, ${prefix} ++ ${field.valueExpr}, "")`);
+        } else {
+            const prefix = i === 0 ? `"\\"${key}\\": "` : `", \\"${key}\\": "`;
+            parts.push(`${prefix} ++ ${buildTemplateExpr(field)}`);
+        }
+    }
+    return parts.join(' ++ ');
+}
 
 function buildTemplateExpr(field: JjTemplateField): string {
     switch (field.type) {
@@ -30,11 +47,7 @@ function buildTemplateExpr(field: JjTemplateField): string {
         case 'timestamp':
             return `"\\"" ++ ${field.expr}.local().format("%Y-%m-%dT%H:%M:%S%:z") ++ "\\""`;
         case 'array': {
-            // Generate item template from itemSchema
-            const itemParts = Object.entries(field.itemSchema).map(([key, itemField]) => {
-                return `"\\"${key}\\": " ++ ${buildTemplateExpr(itemField)}`;
-            });
-            const itemTemplate = `"{" ++ ${itemParts.join(' ++ ", " ++ ')} ++ "}"`;
+            const itemTemplate = `"{" ++ ${buildObjectFields(field.itemSchema)} ++ "}"`;
             return `"[" ++ ${field.expr}.map(|item| ${itemTemplate}).join(",") ++ "]"`;
         }
         case 'stringArray':
@@ -42,25 +55,41 @@ function buildTemplateExpr(field: JjTemplateField): string {
         case 'rawArray':
             return `"[" ++ ${field.expr}.map(|item| ${field.itemExpr}).join(",") ++ "]"`;
         case 'object': {
-            const parts = Object.entries(field.fields).map(
-                ([key, value]) => `"\\"${key}\\": " ++ ${buildTemplateExpr(value)}`,
-            );
-            return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}"`;
+            return `"{" ++ ${buildObjectFields(field.fields)} ++ "}"`;
         }
         case 'nullable':
             return `if(${field.expr}, "\\"" ++ ${field.valueExpr} ++ "\\"", "null")`;
+        case 'optionalField':
+            return `if(${field.where}, ${field.valueExpr}, "null")`;
     }
 }
 
 export function buildLogTemplate(schema: Record<string, JjTemplateField>): string {
-    const parts = Object.entries(schema).map(([key, field]) => {
-        return `"\\"${key}\\": " ++ ${buildTemplateExpr(field)}`;
-    });
-    return `"{" ++ ${parts.join(' ++ ", " ++ ')} ++ "}\\n"`;
+    return `"{" ++ ${buildObjectFields(schema)} ++ "}\\n"`;
 }
 export const CHANGE_ID_EXPR = 'if(divergent || hidden, change_id ++ "/" ++ change_offset, change_id)';
 export const CHANGE_ID_ITEM_EXPR =
     'if(item.divergent() || item.hidden(), item.change_id() ++ "/" ++ item.change_offset(), item.change_id())';
+
+/**
+ * Common schema fields for a single file diff entry (path, oldPath, status, conflicted).
+ * @param varName The template variable name ('item' when iterating over self.diff().files(), or 'self' for jj diff -T).
+ */
+export function buildDiffFileSchema(varName: 'item' | 'self'): Record<string, JjTemplateField> {
+    return {
+        path: { type: 'json', expr: `${varName}.path().display()` },
+        oldPath: {
+            type: 'optionalField',
+            where: `${varName}.status() == "renamed" || ${varName}.status() == "copied"`,
+            valueExpr: `${varName}.source().path().display().escape_json()`,
+        },
+        status: {
+            type: 'raw',
+            expr: `if(${varName}.status() == "removed", "\\"deleted\\"", ${varName}.status().escape_json())`,
+        },
+        conflicted: { type: 'raw', expr: `${varName}.target().conflict()` },
+    };
+}
 
 // Schema for JjLogEntry - defines how to serialize each field
 export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
@@ -121,12 +150,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     changes: {
         type: 'array',
         expr: 'self.diff().files()',
-        itemSchema: {
-            path: { type: 'json', expr: 'item.path().display()' },
-            oldPath: { type: 'json', expr: 'item.source().path().display()' },
-            status: { type: 'string', expr: 'item.status()' },
-            conflicted: { type: 'raw', expr: 'item.target().conflict()' },
-        },
+        itemSchema: buildDiffFileSchema('item'),
     },
 };
 

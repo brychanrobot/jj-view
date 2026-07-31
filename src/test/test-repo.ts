@@ -338,6 +338,7 @@ export class TestRepo {
     moveFile(oldPath: string, newPath: string) {
         const fullOldPath = path.join(this.path, oldPath);
         const fullNewPath = path.join(this.path, newPath);
+        fs.mkdirSync(path.dirname(fullNewPath), { recursive: true });
         fs.renameSync(fullOldPath, fullNewPath);
         this.snapshot();
     }

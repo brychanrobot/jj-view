@@ -30,21 +30,54 @@ export const CommitParentSchema = z.object({
 });
 export type CommitParent = z.infer<typeof CommitParentSchema>;
 
-export const JjStatusEntrySchema = z.object({
+/**
+ * Normalizes backslashes in relative file paths to POSIX forward slashes.
+ */
+export function normalizePath(val: unknown): unknown {
+    if (typeof val === 'string') {
+        return val.replace(/\\/g, '/');
+    }
+    return val;
+}
+
+export const NormalizedPathSchema = z.preprocess(normalizePath, z.string());
+
+export const JjFileChangeSchema = z.object({
     /** The relative path of the file modified. */
-    path: z.string(),
+    path: NormalizedPathSchema,
     /** The old path if the file was renamed or copied. */
-    oldPath: z.string().optional(),
+    oldPath: NormalizedPathSchema.optional(),
     /** The operation type performed on the file. */
-    status: z.enum(['modified', 'added', 'removed', 'renamed', 'copied', 'deleted']),
+    status: z.enum(['modified', 'added', 'renamed', 'copied', 'deleted']),
+    /** Whether the file is currently conflicted. */
+    conflicted: z.boolean().optional(),
+});
+export type JjFileChange = z.infer<typeof JjFileChangeSchema>;
+
+export const JjFileChangeWithStatsSchema = JjFileChangeSchema.extend({
     /** The number of added lines. */
     additions: z.number().optional(),
     /** The number of deleted lines. */
     deletions: z.number().optional(),
-    /** Whether the file is currently conflicted. */
-    conflicted: z.boolean().optional(),
 });
-export type JjStatusEntry = z.infer<typeof JjStatusEntrySchema>;
+export type JjFileChangeWithStats = z.infer<typeof JjFileChangeWithStatsSchema>;
+
+/** Legacy alias for JjFileChangeWithStats */
+export const JjStatusEntrySchema = JjFileChangeWithStatsSchema;
+export type JjStatusEntry = JjFileChangeWithStats;
+
+export const DiffStatEntrySchema = z.object({
+    path: NormalizedPathSchema,
+    additions: z.number().default(0),
+    deletions: z.number().default(0),
+});
+export type DiffStatEntry = z.infer<typeof DiffStatEntrySchema>;
+
+export const ChangesAndStatsOutputSchema = z.object({
+    changes: z.array(JjFileChangeSchema).default([]),
+    stats: z.array(DiffStatEntrySchema).default([]),
+});
+export type ChangesAndStatsOutput = z.infer<typeof ChangesAndStatsOutputSchema>;
 
 /**
  * Metadata retrieved from a code forge about a specific Change/PR.

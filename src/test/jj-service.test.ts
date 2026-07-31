@@ -1322,7 +1322,7 @@ log = "none()"
         expect(modified?.status).toBe('modified');
 
         expect(deleted).toBeDefined();
-        expect(deleted?.status).toBe('removed');
+        expect(deleted?.status).toBe('deleted');
     });
 
     test('moveBookmark moves bookmark to revision', async () => {
