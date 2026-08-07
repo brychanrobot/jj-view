@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
 import { getRevisionFromUri } from '../uri-utils';
-import { showJjError } from './command-utils';
+import { promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
 interface LineChange {
     readonly originalStartLineNumber: number;
@@ -71,7 +71,7 @@ export async function squashHunkIntoParentCommand(
     const revision = getRevisionFromUri(uri) || '@';
 
     try {
-        await jj.squashSelectionIntoParent(relPath, ranges, revision);
+        await jj.squashSelectionIntoAncestor(relPath, ranges, revision);
         vscode.window.showInformationMessage('Squashed hunk into parent.');
 
         await scmProvider.refresh({ reason: 'after squash hunk into parent' });
@@ -109,11 +109,59 @@ export async function squashSelectionIntoParentCommand(
     const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
 
     try {
-        await jj.squashSelectionIntoParent(relPath, ranges, revision);
+        await jj.squashSelectionIntoAncestor(relPath, ranges, revision);
         vscode.window.showInformationMessage(`Squashed selection from ${revision} into parent.`);
     } catch (e: unknown) {
         await showJjError(e, 'Failed to squash selection', jj, scmProvider.outputChannel);
     } finally {
         await scmProvider.refresh({ reason: 'after squash selection into parent' });
+    }
+}
+
+/**
+ * Command to squash selected lines from a diff editor into a chosen ancestor.
+ */
+export async function squashSelectionIntoAncestorCommand(
+    scmProvider: JjScmProvider,
+    jj: JjService,
+    editor: vscode.TextEditor,
+) {
+    if (!editor) {
+        return;
+    }
+
+    const docUri = editor.document.uri;
+    const fsPath = docUri.fsPath;
+    const relPath = path.relative(jj.workspaceRoot, fsPath);
+
+    const revision = getRevisionFromUri(docUri) || '@';
+
+    let selectedAncestorRev: string | undefined;
+    try {
+        selectedAncestorRev = await promptForRevision(jj, {
+            placeHolder: 'Select which ancestor to squash into',
+            emptyPrompt: 'Enter ancestor revision',
+            revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+        });
+    } catch (e: unknown) {
+        await showJjError(e, 'Failed to squash selection into ancestor', jj, scmProvider.outputChannel);
+        return;
+    }
+
+    if (!selectedAncestorRev) {
+        return;
+    }
+
+    const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
+
+    try {
+        await jj.squashSelectionIntoAncestor(relPath, ranges, revision, selectedAncestorRev);
+        vscode.window.showInformationMessage(
+            `Squashed selection from ${revision} into ${selectedAncestorRev.substring(0, 8)}.`,
+        );
+    } catch (e: unknown) {
+        await showJjError(e, 'Failed to squash selection into ancestor', jj, scmProvider.outputChannel);
+    } finally {
+        await scmProvider.refresh({ reason: 'after squash selection into ancestor' });
     }
 }

@@ -1150,7 +1150,7 @@ log = "none()"
 
         const ranges = [{ startLine: 0, endLine: 1 }];
 
-        await jjService.squashSelectionIntoParent(fileName, ranges);
+        await jjService.squashSelectionIntoAncestor(fileName, ranges);
 
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe(content);
@@ -1162,7 +1162,7 @@ log = "none()"
         expect(diff).toBe('');
     });
 
-    test('squashSelectionIntoParent moves subset of changes', async () => {
+    test('squashSelectionIntoAncestor moves subset of changes into the parent', async () => {
         const fileName = 'partial.txt';
 
         repo.writeFile(fileName, 'line1\nline2\nline3\n');
@@ -1179,7 +1179,7 @@ log = "none()"
         // Select 'mod1' (line 1, index 0)
         const ranges = [{ startLine: 0, endLine: 0 }];
 
-        await jjService.squashSelectionIntoParent(fileName, ranges);
+        await jjService.squashSelectionIntoAncestor(fileName, ranges);
 
         // Verify Parent Content
         const parentContent = await jjService.getFileContent(fileName, '@-');
@@ -1190,7 +1190,7 @@ log = "none()"
         expect(childContent).toBe('mod1\nline2\nmod3\n');
     });
 
-    test('squashSelectionIntoParent moves deletion', async () => {
+    test('squashSelectionIntoAncestor moves deletion into the parent', async () => {
         const fileName = 'deletion.txt';
 
         // Parent
@@ -1204,14 +1204,14 @@ log = "none()"
         // Select the deletion (approximate range covering the area)
         const ranges = [{ startLine: 1, endLine: 2 }];
 
-        await jjService.squashSelectionIntoParent(fileName, ranges);
+        await jjService.squashSelectionIntoAncestor(fileName, ranges);
 
         // Parent should now have deleted the line
         const parentContent = await jjService.getFileContent(fileName, '@-');
         expect(parentContent).toBe('keep\n');
     });
 
-    test('squashSelectionIntoParent moves selected lines and PRESERVES others in a stack', async () => {
+    test('squashSelectionIntoAncestor moves selected lines and PRESERVES others in a stack', async () => {
         // Setup: Grandparent -> Parent -> Child
         const ids = await buildGraph(repo, [
             { label: 'grandparent', description: 'grandparent', files: { 'file.txt': 'line 0\n' } },
@@ -1240,7 +1240,7 @@ log = "none()"
         expect(initialChildDiff).toContain('+line 3');
 
         // Target: We want to move 'line 2' from Child to Parent, but keep 'line 3' in child.
-        await jjService.squashSelectionIntoParent('file.txt', [{ startLine: 2, endLine: 2 }], childId);
+        await jjService.squashSelectionIntoAncestor('file.txt', [{ startLine: 2, endLine: 2 }], childId);
 
         // After move:
         // Parent should have 'line 0\nline 1\nline 2\n'

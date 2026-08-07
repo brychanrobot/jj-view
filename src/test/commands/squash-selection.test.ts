@@ -5,11 +5,16 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../../commands/squash-selection';
+import {
+    squashHunkIntoParentCommand,
+    squashSelectionIntoAncestorCommand,
+    squashSelectionIntoParentCommand,
+} from '../../commands/squash-selection';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 // Mock VS Code
 vi.mock('vscode', async () => {
@@ -51,6 +56,7 @@ describe('squash-selection commands', () => {
     describe('squashHunkIntoParentCommand', () => {
         test('squashes hunk based on index', async () => {
             const fileName = 'file.txt';
+            // Keep the parent and child edits in separate hunks so jj can merge them cleanly.
             const ids = await buildGraph(repo, [
                 {
                     label: 'root',
@@ -250,6 +256,71 @@ describe('squash-selection commands', () => {
             // Parent (root) should have the modification
             const parentContent = repo.getFileContent(ids.root.changeId, fileName);
             expect(parentContent).toBe('line1\nmodified2\nline3\n');
+        });
+    });
+
+    describe('squashSelectionIntoAncestorCommand', () => {
+        test('squashes the selected change into a chosen grandparent', async () => {
+            const fileName = 'file.txt';
+            const ids = await buildGraph(repo, [
+                {
+                    label: 'grandparent',
+                    files: {
+                        [fileName]: 'line1\ngrandparent2\nline3\nline4\nline5\nline6\nline7\nline8\n',
+                    },
+                },
+                {
+                    label: 'parent',
+                    parents: ['grandparent'],
+                    files: {
+                        [fileName]: 'line1\nparent2\nline3\nline4\nline5\nline6\nline7\nline8\n',
+                    },
+                },
+                {
+                    label: 'child',
+                    parents: ['parent'],
+                    files: {
+                        [fileName]: 'line1\nparent2\nline3\nline4\nline5\nline6\nline7\nchild8\n',
+                    },
+                    isCurrentWorkingCopy: true,
+                },
+            ]);
+
+            const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
+            resetMockQuickPick(mockQuickPick);
+
+            let acceptCallback: () => void = () => {};
+            vi.mocked(mockQuickPick.onDidAccept).mockImplementation((callback) => {
+                acceptCallback = callback;
+                return { dispose: () => {} };
+            });
+            vi.mocked(mockQuickPick.show).mockImplementation(() => {
+                acceptCallback();
+            });
+            setSelectedItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
+            setActiveItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
+
+            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+                query: `jj-revision=${ids.child.changeId}`,
+            });
+            const mockEditor = createMock<vscode.TextEditor>({
+                document: createMock<vscode.TextDocument>({ uri }),
+                selections: [new vscode.Selection(new vscode.Position(7, 0), new vscode.Position(7, 10))],
+            });
+
+            await squashSelectionIntoAncestorCommand(scmProvider, jj, mockEditor);
+
+            expect(repo.getFileContent(ids.grandparent.changeId, fileName)).toBe(
+                'line1\ngrandparent2\nline3\nline4\nline5\nline6\nline7\nchild8\n',
+            );
+            // The ancestor squash rebases descendants while preserving their diffs.
+            expect(repo.getFileContent(ids.parent.changeId, fileName)).toBe(
+                'line1\nparent2\nline3\nline4\nline5\nline6\nline7\nchild8\n',
+            );
+            expect(repo.getFileContent('@', fileName)).toBe(
+                'line1\nparent2\nline3\nline4\nline5\nline6\nline7\nchild8\n',
+            );
+            expect(scmProvider.refresh).toHaveBeenCalled();
         });
     });
 });
