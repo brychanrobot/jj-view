@@ -1273,6 +1273,19 @@ log = "none()"
         expect(conflictedFiles).toEqual(['conflict.txt']);
     });
 
+    test('getConflictedFiles accepts a revision', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', description: 'base', files: { 'conflict file.txt': 'base\n' } },
+            { label: 'left', parents: ['base'], description: 'left', files: { 'conflict file.txt': 'left\n' } },
+            { label: 'right', parents: ['base'], description: 'right', files: { 'conflict file.txt': 'right\n' } },
+            { label: 'merge', parents: ['left', 'right'], description: 'merge', isCurrentWorkingCopy: true },
+            { label: 'after-merge', parents: ['merge'], description: 'after merge' },
+        ]);
+
+        const conflictedFiles = await jjService.getConflictedFiles(ids.merge.changeId);
+        expect(conflictedFiles).toEqual(['conflict file.txt']);
+    });
+
     test('getConflictParts returns correct parts', async () => {
         const fileName = 'conflict.txt';
         await buildGraph(repo, [

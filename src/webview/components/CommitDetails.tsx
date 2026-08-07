@@ -660,6 +660,18 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                                 >
                                     {file.path}
                                 </span>
+                                {file.conflicted && (
+                                    <span
+                                        className="codicon codicon-warning"
+                                        role="img"
+                                        title="Conflicted file"
+                                        aria-label="Conflicted file"
+                                        style={{
+                                            marginLeft: '8px',
+                                            color: 'var(--vscode-gitDecoration-conflictingResourceForeground)',
+                                        }}
+                                    ></span>
+                                )}
                                 <span
                                     style={{
                                         marginLeft: 'auto',

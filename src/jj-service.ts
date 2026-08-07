@@ -991,19 +991,20 @@ export class JjService {
         await this.run('new', [revision], { isMutation: true, label: 'resolve' });
     }
 
-    async getConflictedFiles(): Promise<string[]> {
+    async getConflictedFiles(revision?: string): Promise<string[]> {
         try {
-            const output = await this.run('resolve', ['--list'], {
+            const template = '"[" ++ conflicted_files.map(|file| file.path().display().escape_json()).join(",") ++ "]"';
+            const output = await this.run('log', ['--no-graph', '-r', revision ?? '@', '-T', template], {
                 useCachedSnapshot: true,
                 label: 'getConflictedFiles',
             });
-            return output
-                .split('\n')
-                .map((line) => line.trim())
-                .filter((line) => line.length > 0)
-                .map((line) => line.split(/\s+/)[0]);
+            const parsed: unknown = JSON.parse(output);
+            if (!Array.isArray(parsed) || !parsed.every((path): path is string => typeof path === 'string')) {
+                return [];
+            }
+            return parsed;
         } catch {
-            // No conflicts at this revision
+            // Conflict metadata is optional; callers can continue without it.
             return [];
         }
     }

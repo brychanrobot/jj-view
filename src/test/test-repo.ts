@@ -10,8 +10,11 @@ import { match, P } from 'ts-pattern';
 
 const tempDirs = new Set<string>();
 const testXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-xdg-'));
+const testAppDataHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-appdata-'));
 tempDirs.add(testXdgConfigHome);
+tempDirs.add(testAppDataHome);
 process.env.XDG_CONFIG_HOME = testXdgConfigHome;
+process.env.APPDATA = testAppDataHome;
 
 function writeDefaultConfig(xdgDir: string) {
     const configDir = path.join(xdgDir, 'jj');
@@ -75,7 +78,7 @@ export class TestRepo {
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
     private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
-        const env = { ...process.env, JJ_CONFIG: '' };
+        const env = { ...process.env, APPDATA: testAppDataHome, JJ_CONFIG: '' };
         const jjBinary = 'jj';
         try {
             const output = cp.execFileSync(jjBinary, ['--quiet', ...args], {
@@ -148,7 +151,7 @@ export class TestRepo {
 
             if (commands.length > 0) {
                 const cmd = commands.join(' && ');
-                const env = { ...process.env, JJ_CONFIG: '' };
+                const env = { ...process.env, APPDATA: testAppDataHome, JJ_CONFIG: '' };
                 cp.execSync(cmd, { cwd: this.path, env, stdio: 'ignore' });
             }
         } else {
@@ -170,7 +173,7 @@ export class TestRepo {
     }
 
     init() {
-        const env = { ...process.env, JJ_CONFIG: '' };
+        const env = { ...process.env, APPDATA: testAppDataHome, JJ_CONFIG: '' };
         const jjBinary = 'jj';
         cp.execFileSync(jjBinary, ['--quiet', 'git', 'init'], {
             cwd: this.path,

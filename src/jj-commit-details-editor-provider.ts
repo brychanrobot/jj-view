@@ -3,9 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import type { JjStatusEntry } from './jj-types';
 import { createJjResourceState } from './scm-resource-state';
 import { getJjViewConfig } from './utils/config-utils';
 import { formatCommitTitle } from './utils/jj-utils';
+
+export function mergeFileConflictStatus(filesWithStats: JjStatusEntry[], conflictedPaths: string[]): JjStatusEntry[] {
+    if (conflictedPaths.length === 0) {
+        return filesWithStats;
+    }
+
+    const conflictedPathSet = new Set(conflictedPaths);
+    const mergedFiles = filesWithStats.map((file) => {
+        const isConflicted = conflictedPathSet.delete(file.path);
+        return isConflicted ? { ...file, conflicted: true } : file;
+    });
+
+    for (const path of conflictedPathSet) {
+        mergedFiles.push({ path, status: 'modified', conflicted: true });
+    }
+
+    return mergedFiles;
+}
 
 export class JjCommitDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
@@ -87,8 +106,9 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
                 const logPromise = repo.jj.getLog({ revision: changeId });
                 const changesPromise = repo.jj.getChanges(changeId).catch(() => null);
+                const conflictedFilesPromise = repo.jj.getConflictedFiles(changeId);
 
-                const logs = await logPromise;
+                const [logs, conflictedFilesForRevision] = await Promise.all([logPromise, conflictedFilesPromise]);
                 if (logs.length === 0) {
                     panels.forEach((p) => {
                         p.dispose();
@@ -97,8 +117,12 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                 }
 
                 const log = logs[0];
+                const conflictedFiles = [
+                    ...(log.changes || []).filter((file) => file.conflicted).map((file) => file.path),
+                    ...conflictedFilesForRevision,
+                ];
                 const rawFilesWithStats = await changesPromise;
-                const filesWithStats = rawFilesWithStats || log.changes || [];
+                const filesWithStats = mergeFileConflictStatus(rawFilesWithStats || log.changes || [], conflictedFiles);
 
                 for (const panel of panels) {
                     panel.webview.postMessage({
@@ -266,16 +290,21 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         try {
             const logPromise = repo.jj.getLog({ revision: document.changeId });
             const changesPromise = repo.jj.getChanges(document.changeId).catch(() => null);
+            const conflictedFilesPromise = repo.jj.getConflictedFiles(document.changeId);
 
-            const logs = await logPromise;
+            const [logs, conflictedFilesForRevision] = await Promise.all([logPromise, conflictedFilesPromise]);
             if (logs.length === 0) {
                 panel.dispose();
                 return;
             }
 
             const log = logs[0];
+            const conflictedFiles = [
+                ...(log.changes || []).filter((file) => file.conflicted).map((file) => file.path),
+                ...conflictedFilesForRevision,
+            ];
             const rawFilesWithStats = await changesPromise;
-            const filesWithStats = rawFilesWithStats || log.changes || [];
+            const filesWithStats = mergeFileConflictStatus(rawFilesWithStats || log.changes || [], conflictedFiles);
 
             const initialDescription = (log.description || '').trim();
             const initialData = {
