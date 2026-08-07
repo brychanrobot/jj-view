@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.6.0
+
+### Features
+
+- **Drag & Drop**:
+    - Add keyboard modifier shortcuts during drag and drop in log view (`R` to rebase revision, `S` to squash into, `Shift+S` to squash onto, `D` to duplicate onto, `M` to merge).
+    - Display an active key hint matrix overlay in drag preview.
+
+### Fixes
+
+- **Commit Details Editor**:
+    - Fix handling of file paths containing spaces in commit detail views.
+- **Background Operations & Refresh**:
+    - Prevent nested queue deadlocks during SCM updates and ensure scheduler error recovery.
+- **Code Forge Integration**:
+    - Make Code Forge detection non-blocking to prevent multi-repository workspace initialization hangs.
+
 ## 2.5.1
 
 ### Fixes
