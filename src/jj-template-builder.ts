@@ -10,7 +10,7 @@
 
 export type JjTemplateField =
     | { type: 'string'; expr: string } // Output as quoted string: "value"
-    | { type: 'json'; expr: string } // Output with escape_json(): value.escape_json()
+    | { type: 'json'; expr: string } // Output with json(): json(value)
     | { type: 'raw'; expr: string } // Output as-is (for booleans, numbers)
     | { type: 'timestamp'; expr: string } // Format as ISO timestamp
     | { type: 'array'; expr: string; itemSchema: Record<string, JjTemplateField> } // Array with generated item template
@@ -41,7 +41,7 @@ function buildTemplateExpr(field: JjTemplateField): string {
         case 'string':
             return `"\\"" ++ ${field.expr} ++ "\\""`;
         case 'json':
-            return `${field.expr}.escape_json()`;
+            return `json(${field.expr})`;
         case 'raw':
             return field.expr;
         case 'timestamp':
@@ -81,11 +81,11 @@ export function buildDiffFileSchema(varName: 'item' | 'self'): Record<string, Jj
         oldPath: {
             type: 'optionalField',
             where: `${varName}.status() == "renamed" || ${varName}.status() == "copied"`,
-            valueExpr: `${varName}.source().path().display().escape_json()`,
+            valueExpr: `json(${varName}.source().path().display())`,
         },
         status: {
             type: 'raw',
-            expr: `if(${varName}.status() == "removed", "\\"deleted\\"", ${varName}.status().escape_json())`,
+            expr: `if(${varName}.status() == "removed", "\\"deleted\\"", json(${varName}.status()))`,
         },
         conflicted: { type: 'raw', expr: `${varName}.target().conflict()` },
     };
@@ -131,7 +131,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
     working_copies: {
         type: 'rawArray',
         expr: 'working_copies',
-        itemExpr: 'item.name().escape_json()',
+        itemExpr: 'json(item.name())',
     },
     is_empty: { type: 'raw', expr: 'empty' },
     is_divergent: { type: 'raw', expr: 'divergent' },
