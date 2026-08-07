@@ -350,6 +350,12 @@
                 "icon": "$(trash)"
             },
             {
+                "command": "jj-view.abandonDescendants",
+                "title": "Abandon Descendants",
+                "category": "JJ View",
+                "icon": "$(trash)"
+            },
+            {
                 "command": "jj-view.edit",
                 "title": "Edit",
                 "category": "JJ View",
@@ -859,9 +865,14 @@
                     "group": "4_changes@2"
                 },
                 {
+                    "command": "jj-view.abandonDescendants",
+                    "when": "webviewSection == 'commit' && jj.canAbandon",
+                    "group": "4_changes@3"
+                },
+                {
                     "command": "jj-view.absorb",
                     "when": "webviewSection == 'commit' && jj.canAbsorb",
-                    "group": "4_changes@3"
+                    "group": "4_changes@4"
                 },
                 {
                     "command": "jj-view.upload",
@@ -1004,23 +1015,28 @@
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowAbandon\\b/"
                 },
                 {
-                    "command": "jj-view.squashRevisionIntoAncestor",
+                    "command": "jj-view.abandonDescendants",
                     "group": "inline@3",
-                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowAbandon\\b/"
                 },
                 {
-                    "command": "jj-view.squashRevisionIntoParent",
+                    "command": "jj-view.squashRevisionIntoAncestor",
                     "group": "inline@4",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
                 },
                 {
-                    "command": "jj-view.showDetails",
+                    "command": "jj-view.squashRevisionIntoParent",
                     "group": "inline@5",
+                    "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/"
+                },
+                {
+                    "command": "jj-view.showDetails",
+                    "group": "inline@6",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowShowDetails\\b/"
                 },
                 {
                     "command": "jj-view.edit",
-                    "group": "inline@6",
+                    "group": "inline@7",
                     "when": "scmResourceGroupState =~ /\\bjj\\.group\\.allowEdit\\b/"
                 }
             ],

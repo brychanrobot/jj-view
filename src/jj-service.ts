@@ -872,6 +872,39 @@ export class JjService {
     }
 
     /**
+     * Returns mutable descendants of the given revision, excluding the revision itself.
+     *
+     * Uses the revset `(revision:: ~ revision) & mutable()` to ensure the root
+     * is excluded at the query level.
+     */
+    async getDescendants(revision: string): Promise<{ changeId: string; description: string }[]> {
+        try {
+            const output = await this.run(
+                'log',
+                [
+                    '-r',
+                    `(${revision}:: ~ ${revision}) & mutable()`,
+                    '--no-graph',
+                    '-T',
+                    'change_id.shortest() ++ "\\t" ++ description.first_line() ++ "\\n"',
+                ],
+                { useCachedSnapshot: true, label: 'getDescendants' },
+            );
+            return output
+                .trim()
+                .split('\n')
+                .filter((line) => line.length > 0)
+                .map((line) => {
+                    const [changeId, ...descParts] = line.split('\t');
+                    return { changeId, description: descParts.join('\t') };
+                });
+        } catch (e) {
+            console.error('Failed to query descendants for', revision, e);
+            return [];
+        }
+    }
+
+    /**
      * Checks which of the provided paths are tracked by jj.
      * @param paths An array of workspace-relative paths to check.
      * @returns A subset of the input `paths` that are tracked. Note that for

@@ -10,6 +10,7 @@ import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import { CodeForgeRegistry } from './code-forge-registry';
 import type { CodeForgeService } from './code-forge-service';
 import { abandonCommand } from './commands/abandon';
+import { abandonDescendantsCommand } from './commands/abandon-descendants';
 import { absorbCommand } from './commands/absorb';
 import { setBookmarkCommand } from './commands/bookmark';
 import { advanceBookmarkCommand } from './commands/bookmark-advance';
@@ -557,6 +558,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(
         registerWrappedCommand('jj-view.abandon', async (scm, jj, ...args) => {
             await abandonCommand(scm, jj, args);
+        }),
+        registerWrappedCommand('jj-view.abandonDescendants', async (scm, jj, ...args) => {
+            await abandonDescendantsCommand(scm, jj, args);
         }),
         registerWrappedCommand('jj-view.restore', async (scm, jj, ...args) => {
             const states = args as vscode.SourceControlResourceState[];
