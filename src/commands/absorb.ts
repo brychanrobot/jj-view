@@ -5,11 +5,12 @@
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getFsPathFromUri } from '../uri-utils';
 import { collectResourceStates, extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 
 export async function absorbCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
 
     const fromRevision = extractRevisions(args)[0];
 

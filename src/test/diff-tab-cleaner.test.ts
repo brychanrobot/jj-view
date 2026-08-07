@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { DiffTabCleaner } from '../diff-tab-cleaner';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { getFsPathFromUri } from '../uri-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
 
@@ -42,7 +43,8 @@ describe('Diff Tab Cleaner', () => {
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
         const belongsToRepo = (uri: vscode.Uri) => {
-            const normalizedUri = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+            const fsPath = getFsPathFromUri(uri);
+            const normalizedUri = fsPath.replace(/\\/g, '/').toLowerCase();
             const normalizedRepo = repo.path.replace(/\\/g, '/').toLowerCase();
             return normalizedUri.startsWith(normalizedRepo);
         };
@@ -60,20 +62,20 @@ describe('Diff Tab Cleaner', () => {
             const repoRoot = repo.path;
             const uri1 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repoRoot}/src/file1.ts`,
-                query: 'base=rev123&side=left',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=rev123&side=left`,
             });
             const uri2 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repoRoot}/src/file1.ts`,
-                query: 'base=rev123&side=right',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=rev123&side=right`,
             });
 
             // Tab belonging to another repo
             const uriOther = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: '/other/repo/src/file.ts',
-                query: 'base=rev456&side=left',
+                path: '/src/file.ts',
+                fragment: 'root=%2Fother%2Frepo&base=rev456&side=left',
             });
 
             const tab1 = {
@@ -102,13 +104,13 @@ describe('Diff Tab Cleaner', () => {
             const repoRoot = repo.path;
             const uri1 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repoRoot}/src/file1.ts`,
-                query: 'base=@&side=left',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=@&side=left`,
             });
             const uri2 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repoRoot}/src/file1.ts`,
-                query: 'base=@-&side=right',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=@-&side=right`,
             });
 
             const tab = {
@@ -270,13 +272,13 @@ describe('Diff Tab Cleaner', () => {
 
             const uri1 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repo.path}/src/file1.ts`,
-                query: `base=${validRev}&side=left`,
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repo.path)}&base=${validRev}&side=left`,
             });
             const uri2 = vscode.Uri.from({
                 scheme: 'jj-view',
-                path: `${repo.path}/src/file1.ts`,
-                query: `base=${invalidRev}&side=left`,
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repo.path)}&base=${invalidRev}&side=left`,
             });
 
             const tab1 = {

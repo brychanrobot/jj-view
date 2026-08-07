@@ -4,6 +4,7 @@
  */
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getFsPathFromUri } from '../uri-utils';
 import { collectResourceStates, showJjError, withDelayedProgress } from './command-utils';
 
 export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
@@ -17,7 +18,7 @@ export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, 
     for (const state of resourceStates) {
         const rev = state.revision || '@';
         const list = statesByRevision.get(rev) || [];
-        list.push(state.resourceUri.fsPath);
+        list.push(getFsPathFromUri(state.resourceUri));
         statesByRevision.set(rev, list);
     }
 

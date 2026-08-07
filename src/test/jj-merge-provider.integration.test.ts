@@ -65,19 +65,19 @@ suite('JJ Merge Provider Integration Test', () => {
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            query: `path=${encodedPath}&part=base`,
+            fragment: `path=${encodedPath}&part=base`,
         });
         const leftUri = fileUri.with({
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            query: `path=${encodedPath}&part=left`,
+            fragment: `path=${encodedPath}&part=left`,
         });
         const rightUri = fileUri.with({
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            query: `path=${encodedPath}&part=right`,
+            fragment: `path=${encodedPath}&part=right`,
         });
 
         // Open documents using VS Code API
@@ -126,7 +126,7 @@ suite('JJ Merge Provider Integration Test', () => {
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            query: `path=${encodedPath}&part=base`,
+            fragment: `path=${encodedPath}&part=base`,
         });
 
         const doc = await vscode.workspace.openTextDocument(baseUri);

@@ -5,7 +5,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
-import { encodeJjViewQuery } from '../uri-utils';
+import { createRevisionUri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
@@ -48,18 +48,9 @@ export async function compareAllFilesWithRevisionCommand(
                     const leftPath = entry.oldPath || entry.path;
                     const rightPath = entry.path;
 
-                    const leftUri = vscode.Uri.file(path.join(jj.workspaceRoot, leftPath)).with({
-                        scheme: 'jj-view',
-                        query: isAdded
-                            ? encodeJjViewQuery({ mode: 'revision', revision: 'none' })
-                            : encodeJjViewQuery({ mode: 'revision', revision: rev }),
-                    });
-
+                    const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
                     const rightUri = isDeleted
-                        ? vscode.Uri.file(path.join(jj.workspaceRoot, rightPath)).with({
-                              scheme: 'jj-view',
-                              query: encodeJjViewQuery({ mode: 'revision', revision: 'none' }),
-                          })
+                        ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
                         : vscode.Uri.file(path.join(jj.workspaceRoot, rightPath));
 
                     resources.push([leftUri, rightUri]);

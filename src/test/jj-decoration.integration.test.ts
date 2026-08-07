@@ -6,6 +6,7 @@ import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { toFileUri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMockLogOutputChannel } from './test-utils';
@@ -91,14 +92,14 @@ suite('JJ Decoration Integration Test', () => {
         assert.ok(parentGroups.length > 0, 'Should have parent group');
 
         const parentResource = parentGroups[0].resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(filePath),
         );
         assert.ok(parentResource, 'Should find resource in parent group');
 
-        // Verify URI has query (Crucial for decoration separation)
+        // Verify URI has fragment (Crucial for decoration separation)
         assert.ok(
-            parentResource.resourceUri.query.includes('jj-revision='),
-            'Parent resource URI should have revision query',
+            parentResource.resourceUri.fragment.includes('jj-revision='),
+            'Parent resource URI should have revision fragment',
         );
 
         // Check Decoration based on THAT specific URI
@@ -182,11 +183,11 @@ suite('JJ Decoration Integration Test', () => {
     test('Decorations handle Force-Tracked Ignored Files', async () => {
         // Create a file that is tracked FIRST
         repo.writeFile('force_tracked.txt', 'tracked content');
-        await scmProvider.refresh(); // Snapshots and tracks it
+        await scmProvider.refresh({ forceSnapshot: true }); // Snapshots and tracks it
 
         // Now add it to .gitignore
         repo.writeFile('.gitignore', 'force_tracked.txt\n');
-        await scmProvider.refresh(); // Snapshots .gitignore, but force_tracked.txt is ALREADY tracked
+        await scmProvider.refresh({ forceSnapshot: true }); // Snapshots .gitignore, but force_tracked.txt is ALREADY tracked
 
         const uri = vscode.Uri.file(path.join(repo.path, 'force_tracked.txt'));
         const trackedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
@@ -198,7 +199,7 @@ suite('JJ Decoration Integration Test', () => {
         // Because it was modified in the Working Copy (or Added), it should show up explicitly, BUT let's commit it so it has NO explicit status.
         repo.describe('commit force tracked');
         repo.new();
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const committedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
             uri,

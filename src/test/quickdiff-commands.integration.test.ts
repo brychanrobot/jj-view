@@ -61,7 +61,10 @@ suite('Quick Diff Commands Integration Test', () => {
         context.subscriptions.push(jjViewProviderDisposable);
 
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
-            return uri.with({ scheme: uniqueScheme, query: 'base=@&side=left' });
+            return uri.with({
+                scheme: uniqueScheme,
+                fragment: `base=@&side=left&root=${encodeURIComponent(canonicalPath)}`,
+            });
         };
 
         // Await the initial refresh to ensure state is ready before tests start

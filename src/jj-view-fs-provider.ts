@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { decodeJjViewQuery } from './uri-utils';
+import { decodeJjViewQuery, getFsPathFromUri } from './uri-utils';
 
 /**
  * A FileSystemProvider that provides read-only access to "original" file content
  * for diff views and gutter decorations.
  *
- * Uses the jj-view scheme: jj-view:///path/to/file?base=<revision>&side=<left|right>
+ * Uses the jj-view scheme: jj-view:///relative/path#root=<repoRoot>&base=<revision>&side=<left|right>
  */
 export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
     private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
@@ -58,27 +58,27 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
+        const filePath = getFsPathFromUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
             this._repositoryManager.outputChannel.info(
-                `[JjViewFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${uri.fsPath})`,
+                `[JjViewFileSystemProvider] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${filePath})`,
             );
-            throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${uri.fsPath}`);
+            throw vscode.FileSystemError.Unavailable(`No Jujutsu repository found for: ${filePath}`);
         }
 
         try {
-            const query = decodeJjViewQuery(uri.query);
+            const query = decodeJjViewQuery(uri);
 
             if (query.mode === 'revision') {
                 try {
-                    const content = await repo.jj.getFileContent(uri.fsPath, query.revision);
+                    const content = await repo.jj.getFileContent(filePath, query.revision);
                     return Buffer.from(content, 'utf8');
                 } catch {
                     return new Uint8Array();
                 }
             }
 
-            const filePath = uri.fsPath;
             const cacheKey = `${query.base}|${filePath}`;
 
             let content = this._cache.get(cacheKey);

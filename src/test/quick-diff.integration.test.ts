@@ -54,7 +54,7 @@ suite('Quick Diff Integration Test', () => {
 
         // Override provideOriginalResource to return the test scheme
         scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
-            return uri.with({ scheme: 'jj-view-test', query: 'base=@&side=left' });
+            return uri.with({ scheme: 'jj-view-test', fragment: 'base=@&side=left' });
         };
 
         // Await the initial refresh to ensure state is ready before tests start

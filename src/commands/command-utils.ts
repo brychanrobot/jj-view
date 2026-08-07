@@ -11,6 +11,7 @@ import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
+import { getFsPathFromUri, getUriParams } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitDescription } from '../utils/format-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
@@ -84,7 +85,7 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
     // De-duplicate by fsPath
     const unique = new Map<string, JjResourceState>();
     for (const state of resourceStates) {
-        unique.set(state.resourceUri.fsPath, state);
+        unique.set(getFsPathFromUri(state.resourceUri), state);
     }
 
     return Array.from(unique.values());
@@ -514,7 +515,7 @@ export function resolveRepository(
         if (activeEditor) {
             const docUri = activeEditor.document.uri;
             if (docUri.scheme === 'jj-commit') {
-                const query = new URLSearchParams(docUri.query);
+                const query = getUriParams(docUri);
                 const repoRoot = query.get('repoRoot');
                 if (repoRoot) {
                     uri = vscode.Uri.file(decodeURIComponent(repoRoot));

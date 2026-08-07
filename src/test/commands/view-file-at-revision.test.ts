@@ -60,8 +60,8 @@ describe('viewFileAtRevisionCommand', () => {
         if (call) {
             const targetUri = call[1] as vscode.Uri;
             expect(targetUri.scheme).toBe('jj-view');
-            expect(targetUri.query).toBe('revision=main');
-            expect(targetUri.fsPath).toBe(fileUri.fsPath);
+            expect(targetUri.fragment).toContain('revision=main');
+            expect(targetUri.path).toBe('/file1.txt');
         }
     });
 });

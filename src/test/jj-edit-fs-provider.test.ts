@@ -7,6 +7,7 @@ import { createVscodeMock } from './vscode-mock';
 
 vi.mock('vscode', () => createVscodeMock());
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
@@ -22,8 +23,17 @@ describe('JjEditFileSystemProvider', () => {
     let onDidChangeFileFired: vscode.FileChangeEvent[][] = [];
 
     function getUri(filename: string, revision: string | null = '@') {
-        const absolutePath = path.join(repo.path, filename);
-        return vscode.Uri.parse(`jj-edit://${absolutePath}${revision ? `?revision=${revision}` : ''}`);
+        const relPath = filename.startsWith('/') ? filename : `/${filename}`;
+        const fragmentParams = new URLSearchParams();
+        fragmentParams.set('root', repo.path);
+        if (revision) {
+            fragmentParams.set('revision', revision);
+        }
+        return vscode.Uri.from({
+            scheme: 'jj-edit',
+            path: relPath,
+            fragment: fragmentParams.toString(),
+        });
     }
 
     beforeEach(async () => {
@@ -184,12 +194,12 @@ describe('JjEditFileSystemProvider', () => {
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt?revision=@');
+        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
     });
 
     it('writeFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt?revision=@');
+        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.writeFile(outsideUri, Buffer.from('content'))).rejects.toThrowError(
             'No Jujutsu repository found',
         );
@@ -200,5 +210,41 @@ describe('JjEditFileSystemProvider', () => {
         expect(() => provider.createDirectory()).toThrow('jj-edit is file-only');
         expect(() => provider.delete()).toThrow('jj-edit does not support delete');
         expect(() => provider.rename()).toThrow('jj-edit does not support rename');
+    });
+
+    it('readFile for revision @ reads from disk when present and falls back to jj content when missing', async () => {
+        const uri = getUri('file.txt', '@');
+
+        // Write directly to disk without committing
+        const diskPath = path.join(repo.path, 'file.txt');
+        fs.writeFileSync(diskPath, 'uncommitted disk text\n', 'utf-8');
+
+        const diskContent = await provider.readFile(uri);
+        expect(Buffer.from(diskContent).toString('utf8')).toBe('uncommitted disk text\n');
+
+        // Remove file from disk to test fallback to jj.getFileContent
+        fs.unlinkSync(diskPath);
+        const fallbackContent = await provider.readFile(uri);
+        expect(Buffer.from(fallbackContent).toString('utf8')).toBe('hello\n');
+    });
+
+    it('writeFile for revision @ writes directly to filesystem on disk', async () => {
+        const uri = getUri('file.txt', '@');
+        const diskPath = path.join(repo.path, 'file.txt');
+
+        await provider.writeFile(uri, Buffer.from('written to disk directly\n', 'utf-8'));
+
+        expect(fs.readFileSync(diskPath, 'utf-8')).toBe('written to disk directly\n');
+    });
+
+    it('reconstructs absolute path from relative path URI with root fragment', async () => {
+        const relUri = vscode.Uri.from({
+            scheme: 'jj-edit',
+            path: '/file.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=@`,
+        });
+
+        const content = await provider.readFile(relUri);
+        expect(Buffer.from(content).toString('utf8')).toBe('hello\n');
     });
 });

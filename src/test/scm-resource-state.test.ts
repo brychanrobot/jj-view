@@ -2,9 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { JjStatusEntry } from '../jj-types';
 import { createJjResourceState } from '../scm-resource-state';
+import './vitest-utils';
 
 // Mock vscode
 vi.mock('vscode', async () => {
@@ -23,10 +25,10 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.resourceUri.path).toBe('/root/file.txt');
+            expect(state.resourceUri.path).toBe('/file.txt');
             expect(state.revision).toBe('rev123');
-            expect(state.leftUri?.path).toBe('/root/file.txt');
-            expect(state.rightUri?.path).toBe('/root/file.txt');
+            expect(state.leftUri?.path).toBe('/file.txt');
+            expect(state.rightUri?.path).toBe('/file.txt');
         });
 
         it('uses oldPath as leftPath for renamed entries', () => {
@@ -37,8 +39,8 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.leftUri?.path).toBe('/root/old-file.txt');
-            expect(state.rightUri?.path).toBe('/root/new-file.txt');
+            expect(state.leftUri?.path).toBe('/old-file.txt');
+            expect(state.rightUri?.path).toBe('/new-file.txt');
         });
 
         it('uses oldPath as leftPath for copied entries', () => {
@@ -49,8 +51,8 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.leftUri?.path).toBe('/root/old-file.txt');
-            expect(state.rightUri?.path).toBe('/root/new-file.txt');
+            expect(state.leftUri?.path).toBe('/old-file.txt');
+            expect(state.rightUri?.path).toBe('/new-file.txt');
         });
 
         it('uses jj-edit scheme for editable non-working-copy rightUri', () => {
@@ -63,7 +65,7 @@ describe('createJjResourceState', () => {
             });
 
             expect(state.rightUri?.scheme).toBe('jj-edit');
-            expect(state.rightUri?.query).toBe('revision=rev123');
+            expect(state.rightUri?.fragment).toContain('revision=rev123');
         });
 
         it('uses jj-view scheme for non-editable non-working-copy rightUri', () => {
@@ -76,7 +78,7 @@ describe('createJjResourceState', () => {
             });
 
             expect(state.rightUri?.scheme).toBe('jj-view');
-            expect(state.rightUri?.query).toContain('side=right');
+            expect(state.rightUri?.fragment).toContain('side=right');
         });
     });
 
@@ -158,7 +160,7 @@ describe('createJjResourceState', () => {
             });
 
             expect(state.command?.command).toBe('vscode.open');
-            expect(state.command?.arguments?.[0].path).toBe('/root/file.txt');
+            expect(state.command?.arguments?.[0].fsPath).toBeSameFsPath(path.resolve(root, 'file.txt'));
             expect(state.command?.arguments?.[0].query).toBe('');
         });
     });

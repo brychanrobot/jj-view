@@ -61,21 +61,17 @@ describe('compareFileWithRevisionCommand', () => {
                   call[0],
                   {
                       scheme: (call[1] as vscode.Uri).scheme,
-                      query: (call[1] as vscode.Uri).query,
+                      fragment: (call[1] as vscode.Uri).fragment,
                   },
                   call[2],
                   call[3],
               ]
             : null;
 
-        expect(simplifiedCall).toEqual([
-            'vscode.diff',
-            {
-                scheme: 'jj-view',
-                query: 'revision=main',
-            },
-            fileUri,
-            'file1.txt (main ↔ Working Copy)',
-        ]);
+        expect(simplifiedCall?.[0]).toBe('vscode.diff');
+        expect(simplifiedCall?.[1].scheme).toBe('jj-view');
+        expect(simplifiedCall?.[1].fragment).toContain('revision=main');
+        expect(simplifiedCall?.[2]).toEqual(fileUri);
+        expect(simplifiedCall?.[3]).toBe('file1.txt (main ↔ Working Copy)');
     });
 });

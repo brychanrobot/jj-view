@@ -295,7 +295,7 @@ export async function launchNewVSCode(
         }
     }
 
-    const env = { ...process.env } as { [key: string]: string };
+    const env = { ...process.env, NODE_NO_WARNINGS: '1' } as { [key: string]: string };
     for (const key in extraEnv) {
         const val = extraEnv[key];
         if (val === undefined) {
@@ -322,7 +322,25 @@ export async function launchNewVSCode(
             logPerf('launchNewVSCode: app.firstWindow', firstWindowStart);
             const proc = app.process();
             proc.stdout?.on('data', (data) => console.log(`[VSCode Stdout] ${data.toString().trim()}`));
-            proc.stderr?.on('data', (data) => console.error(`[VSCode Stderr] ${data.toString().trim()}`));
+            proc.stderr?.on('data', (data) => {
+                const lines = data.toString().split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.length === 0) {
+                        continue;
+                    }
+                    if (
+                        trimmed.includes('Unknown channel: agentHostClientProxy') ||
+                        trimmed.includes('DeprecationWarning') ||
+                        trimmed.includes('Use `exe --trace-deprecation') ||
+                        trimmed.includes('CodeWindow: failed to load') ||
+                        trimmed.includes('DEP0169')
+                    ) {
+                        continue;
+                    }
+                    console.error(`[VSCode Stderr] ${trimmed}`);
+                }
+            });
             launched = { app, page };
         } catch (err) {
             await app.close();

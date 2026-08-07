@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { WebviewToHostMessageSchema } from './common/ipc-schemas';
 import { createWebviewRpcDispatcher } from './common/webview-rpc-dispatcher';
 import { createJjResourceState } from './scm-resource-state';
+import { getUriParams } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { formatCommitTitle } from './utils/jj-utils';
 
@@ -215,8 +216,8 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         _openContext: vscode.CustomDocumentOpenContext,
         _token: vscode.CancellationToken,
     ): Promise<JjCommitDocument> {
-        // URI format: jj-commit://commit/Commit:%20<shortId>?changeId=<changeId>&repoRoot=<repoRoot>
-        const urlParams = new URLSearchParams(uri.query);
+        // URI format: jj-commit://commit/Commit:%20<shortId>#changeId=<changeId>&repoRoot=<repoRoot>
+        const urlParams = getUriParams(uri);
         const changeId = urlParams.get('changeId') || '';
         const repoRootPath = urlParams.get('repoRoot');
         const repoRoot = repoRootPath ? vscode.Uri.file(repoRootPath) : undefined;
@@ -509,7 +510,7 @@ export async function openCommitDetails(
         scheme: 'jj-commit',
         authority: 'commit',
         path: `/${title}`,
-        query: `changeId=${changeId}&repoRoot=${encodeURIComponent(workspaceRoot)}`,
+        fragment: `changeId=${changeId}&repoRoot=${encodeURIComponent(workspaceRoot)}`,
     });
 
     await closeOtherCommitDetailsTabs(uri, workspaceRoot);
@@ -534,7 +535,7 @@ export async function closeOtherCommitDetailsTabs(
         }
 
         try {
-            const query = new URLSearchParams(tab.input.uri.query);
+            const query = getUriParams(tab.input.uri);
             const tabRepoRoot = query.get('repoRoot');
             return !tabRepoRoot || tabRepoRoot === workspaceRoot;
         } catch {

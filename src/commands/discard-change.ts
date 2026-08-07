@@ -56,32 +56,39 @@ export async function discardChangeCommand(
         const originalDoc = await vscode.workspace.openTextDocument(originalUri);
         const modifiedDoc = await vscode.workspace.openTextDocument(uri);
 
+        const getSafeRange = (
+            doc: vscode.TextDocument,
+            startLine1Based: number,
+            endLine1Based: number,
+        ): vscode.Range => {
+            const lineCount = doc.lineCount;
+            if (lineCount === 0) {
+                return new vscode.Range(0, 0, 0, 0);
+            }
+            const startLine = Math.max(0, Math.min(startLine1Based - 1, lineCount - 1));
+            const endLine = Math.max(0, Math.min(endLine1Based - 1, lineCount - 1));
+
+            const startPos = new vscode.Position(startLine, 0);
+            const endLineObj = doc.lineAt(endLine);
+            const endPos = endLineObj.rangeIncludingLineBreak.end;
+
+            return new vscode.Range(startPos, endPos);
+        };
+
         // Calculate Original Range
         let originalTextStr = '';
         if (change.originalEndLineNumber >= change.originalStartLineNumber) {
-            const startLine = change.originalStartLineNumber - 1;
-            const endLine = change.originalEndLineNumber - 1;
-
-            const startPos = new vscode.Position(startLine, 0);
-            const endLineObj = originalDoc.lineAt(endLine);
-            const endPos = endLineObj.rangeIncludingLineBreak.end;
-
-            originalTextStr = originalDoc.getText(new vscode.Range(startPos, endPos));
+            originalTextStr = originalDoc.getText(
+                getSafeRange(originalDoc, change.originalStartLineNumber, change.originalEndLineNumber),
+            );
         }
 
         // Calculate Modified Range
         let modifiedRange: vscode.Range;
         if (change.modifiedEndLineNumber >= change.modifiedStartLineNumber) {
-            const startLine = change.modifiedStartLineNumber - 1;
-            const endLine = change.modifiedEndLineNumber - 1;
-
-            const startPos = new vscode.Position(startLine, 0);
-            const endLineObj = modifiedDoc.lineAt(endLine);
-            const endPos = endLineObj.rangeIncludingLineBreak.end;
-
-            modifiedRange = new vscode.Range(startPos, endPos);
+            modifiedRange = getSafeRange(modifiedDoc, change.modifiedStartLineNumber, change.modifiedEndLineNumber);
         } else {
-            const insertLine = Math.min(change.modifiedStartLineNumber, modifiedDoc.lineCount);
+            const insertLine = Math.max(0, Math.min(change.modifiedStartLineNumber, modifiedDoc.lineCount));
             modifiedRange = new vscode.Range(insertLine, 0, insertLine, 0);
         }
 

@@ -20,6 +20,14 @@ import { JjService } from './jj-service';
 import type { JjLogEntry, JjStatusEntry } from './jj-types';
 import type { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { createJjResourceState, type JjResourceState } from './scm-resource-state';
+import {
+    encodeJjViewQuery,
+    getFsPathFromUri,
+    getRepoRelativePath,
+    getRevisionFromUri,
+    getUriParams,
+    toFileUri,
+} from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -110,7 +118,7 @@ export class JjScmProvider implements vscode.Disposable {
         this.disposables.push(
             vscode.workspace.onDidSaveTextDocument(async (doc) => {
                 if (doc.uri.scheme === 'jj-merge-output') {
-                    const query = new URLSearchParams(doc.uri.query);
+                    const query = getUriParams(doc.uri);
                     const fsPath = query.get('path');
                     if (fsPath) {
                         try {
@@ -373,7 +381,8 @@ export class JjScmProvider implements vscode.Disposable {
                     hasChild,
                 });
                 decorationMap.set(state.resourceUri.toString(), c);
-                this._workingCopyStatuses.set(state.resourceUri.fsPath, c);
+                decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), c);
+                this._workingCopyStatuses.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), c);
                 return state;
             });
 
@@ -385,6 +394,7 @@ export class JjScmProvider implements vscode.Disposable {
                     inConflictGroup: true,
                 });
                 decorationMap.set(state.resourceUri.toString(), entry);
+                decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), entry);
                 return state;
             });
 
@@ -530,7 +540,7 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     async restore(resourceStates: vscode.SourceControlResourceState[]) {
-        const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+        const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
         await this.jj.restore(paths);
         await this.repo.refresh();
     }
@@ -556,32 +566,33 @@ export class JjScmProvider implements vscode.Disposable {
         const uri = r.resourceUri;
 
         try {
-            const encodedPath = encodeURIComponent(uri.fsPath);
+            const fsPath = getFsPathFromUri(uri);
+            const encodedPath = encodeURIComponent(fsPath);
 
             // Create virtual URIs for each part - use relative path so VS Code doesn't try to read root
-            const relativePath = vscode.workspace.asRelativePath(uri);
+            const relativePath = vscode.workspace.asRelativePath(toFileUri(uri));
             const virtualPath = path.posix.join('/', relativePath); // Ensure specific path format
 
             const baseUri = uri.with({
                 scheme: 'jj-merge-output',
                 authority: 'jj-merge',
                 path: virtualPath,
-                query: `path=${encodedPath}&part=base`,
+                fragment: `path=${encodedPath}&part=base`,
             });
             const leftUri = uri.with({
                 scheme: 'jj-merge-output',
                 authority: 'jj-merge',
                 path: virtualPath,
-                query: `path=${encodedPath}&part=left`,
+                fragment: `path=${encodedPath}&part=left`,
             });
             const rightUri = uri.with({
                 scheme: 'jj-merge-output',
                 authority: 'jj-merge',
                 path: virtualPath,
-                query: `path=${encodedPath}&part=right`,
+                fragment: `path=${encodedPath}&part=right`,
             });
             // Output is the real file
-            const outputUri = uri;
+            const outputUri = toFileUri(uri);
             const args = {
                 base: baseUri, // base is a plain URI, not an object
                 input1: { uri: leftUri, title: 'Side 1' },
@@ -608,20 +619,22 @@ export class JjScmProvider implements vscode.Disposable {
     }
 
     provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
-        const statusEntry = this._workingCopyStatuses.get(uri.fsPath);
+        const relativePath = getRepoRelativePath(uri, this.jj.workspaceRoot);
+        const statusEntry = this._workingCopyStatuses.get(relativePath);
         if (!statusEntry || statusEntry.status === 'added') {
             return undefined;
         }
 
-        const query = new URLSearchParams(uri.query);
-        const revision = query.get('jj-revision') || '@';
+        const revision = getRevisionFromUri(uri) || '@';
 
-        let originalUri = uri;
-        if (statusEntry.oldPath) {
-            originalUri = vscode.Uri.file(path.join(this.jj.workspaceRoot, statusEntry.oldPath));
-        }
+        const leftPath = statusEntry.oldPath || statusEntry.path;
+        const relPath = leftPath.startsWith('/') ? leftPath : `/${leftPath}`;
 
-        return originalUri.with({ scheme: 'jj-view', query: `base=${revision}&side=left` });
+        return vscode.Uri.from({
+            scheme: 'jj-view',
+            path: relPath,
+            fragment: encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),
+        });
     }
 
     get sourceControl(): vscode.SourceControl {

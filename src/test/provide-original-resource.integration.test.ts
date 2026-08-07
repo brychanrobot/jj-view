@@ -93,7 +93,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
         assert.ok(originalUri, 'Should return a URI for modified files');
         assert.strictEqual(originalUri.scheme, 'jj-view', 'Scheme should be jj-view');
 
-        const query = new URLSearchParams(originalUri.query);
+        const query = new URLSearchParams(originalUri.fragment);
         assert.strictEqual(query.get('base'), '@', 'Base should be @ by default');
         assert.strictEqual(query.get('side'), 'left', 'Side should be left');
     });

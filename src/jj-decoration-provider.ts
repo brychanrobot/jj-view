@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
 import type { JjStatusEntry } from './jj-types';
@@ -39,13 +40,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         this._onDidChangeFileDecorations.fire(undefined);
     }
 
-    private getScmStatusDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-        const uriString = uri.toString();
-        const scmStatus = this.scmStatusDecorations.get(uriString);
-        if (!scmStatus) {
-            return undefined;
-        }
-
+    private createFileDecoration(scmStatus: JjStatusEntry): vscode.FileDecoration | undefined {
         const { status, conflicted } = scmStatus;
 
         if (conflicted) {
@@ -88,9 +83,30 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         }
     }
 
+    private getScmStatusDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+        if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
+            const scmStatus = this.scmStatusDecorations.get(uri.toString());
+            if (scmStatus) {
+                return this.createFileDecoration(scmStatus);
+            }
+        }
+
+        const relativePath = this.getWorkspaceRelativePath(uri);
+        if (!relativePath) {
+            return undefined;
+        }
+        const key = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+        const scmStatus = this.scmStatusDecorations.get(key) || this.scmStatusDecorations.get(uri.toString());
+        return scmStatus ? this.createFileDecoration(scmStatus) : undefined;
+    }
+
     private getWorkspaceRelativePath(uri: vscode.Uri): string | undefined {
         if (!this.workspaceRoot) {
             return undefined;
+        }
+        if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
+            const rel = uri.path;
+            return rel.startsWith('/') ? rel.substring(1) : rel;
         }
 
         const normalizedFsPath = uri.fsPath.replace(/\\/g, '/');
@@ -337,16 +353,24 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
     private updateScmStatusDecorations(scmStatusDecorations: Map<string, JjStatusEntry>) {
         const changedUris: vscode.Uri[] = [];
 
+        const relativeKeyToUri = (key: string): vscode.Uri => {
+            if (key.startsWith('file:') || key.startsWith('jj-edit:') || key.startsWith('jj-view:')) {
+                return vscode.Uri.parse(key);
+            }
+            const relKey = key.replace(/^[/\\]+/, '');
+            return vscode.Uri.file(path.join(this.workspaceRoot, relKey));
+        };
+
         // Compare old and new SCM status
         for (const [key, newEntry] of scmStatusDecorations.entries()) {
             const oldEntry = this.scmStatusDecorations.get(key);
             if (!oldEntry || oldEntry.status !== newEntry.status || oldEntry.conflicted !== newEntry.conflicted) {
-                changedUris.push(vscode.Uri.parse(key));
+                changedUris.push(relativeKeyToUri(key));
             }
         }
         for (const key of this.scmStatusDecorations.keys()) {
             if (!scmStatusDecorations.has(key)) {
-                changedUris.push(vscode.Uri.parse(key));
+                changedUris.push(relativeKeyToUri(key));
             }
         }
 

@@ -4,6 +4,7 @@
  */
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
+import { getUriParams } from './uri-utils';
 
 /**
  * Content provider for merge editor inputs.
@@ -19,7 +20,7 @@ export class JjMergeContentProvider implements vscode.TextDocumentContentProvide
     constructor(private jjService: JjService) {}
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-        const query = new URLSearchParams(uri.query);
+        const query = getUriParams(uri);
         const fsPath = query.get('path');
         const part = query.get('part'); // 'base', 'left', 'right'
 

@@ -22,7 +22,7 @@ export function setActiveTextEditor(editor: Partial<vscode.TextEditor> | undefin
  * - "/foo/bar.txt" -> scheme="file", path="/foo/bar.txt", query=""
  * - "file:///foo/bar.txt#frag" -> scheme="file", path="/foo/bar.txt", query=""
  */
-function parseUriString(uriString: string): { scheme: string; path: string; query: string } {
+function parseUriString(uriString: string): { scheme: string; path: string; query: string; fragment: string } {
     let scheme = 'file';
     let rest = uriString;
 
@@ -32,9 +32,11 @@ function parseUriString(uriString: string): { scheme: string; path: string; quer
         rest = schemeMatch[2];
     }
 
-    // Strip fragment
+    // Parse fragment
     const hashIndex = rest.indexOf('#');
+    let fragment = '';
     if (hashIndex !== -1) {
+        fragment = rest.substring(hashIndex + 1);
         rest = rest.substring(0, hashIndex);
     }
 
@@ -54,7 +56,7 @@ function parseUriString(uriString: string): { scheme: string; path: string; quer
         // Fallback
     }
 
-    return { scheme, path: decodedPath, query };
+    return { scheme, path: decodedPath, query, fragment };
 }
 
 /**
@@ -174,6 +176,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             public scheme: string = 'file',
             public query: string = '',
             public path: string = fsPath,
+            public fragment: string = '',
         ) {
             if (process.platform === 'win32') {
                 this.fsPath = this.fsPath.replace(/\//g, '\\');
@@ -196,22 +199,34 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         static file(fsPath: string) {
             return new MockUri(fsPath);
         }
-        static from(components: { scheme: string; path: string; query?: string }) {
-            return new MockUri(components.path, components.scheme, components.query || '', components.path);
+        static from(components: { scheme: string; path: string; query?: string; fragment?: string }) {
+            return new MockUri(
+                components.path,
+                components.scheme,
+                components.query || '',
+                components.path,
+                components.fragment || '',
+            );
         }
         static parse(uriString: string) {
             const parsed = parseUriString(uriString);
-            return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path);
+            return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path, parsed.fragment);
         }
         static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
             const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
             return new MockUri(combined, base.scheme, '', combined);
         }
         toString() {
-            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}`;
+            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}${this.fragment ? `#${this.fragment}` : ''}`;
         }
-        with(change: { scheme?: string; query?: string }) {
-            return new MockUri(this.fsPath, change.scheme ?? this.scheme, change.query ?? this.query, this.path);
+        with(change: { scheme?: string; query?: string; fragment?: string }) {
+            return new MockUri(
+                this.fsPath,
+                change.scheme ?? this.scheme,
+                change.query ?? this.query,
+                this.path,
+                change.fragment ?? this.fragment,
+            );
         }
     }
 

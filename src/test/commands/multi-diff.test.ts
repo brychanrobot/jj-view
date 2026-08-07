@@ -64,13 +64,13 @@ describe('showMultiFileDiffCommand', () => {
 
         // Original (left) should reference parent revision
         expect(original.scheme).toBe('jj-view');
-        expect(original.query).toContain(`base=${changeId}`);
-        expect(original.query).toContain('side=left');
+        expect(original.fragment).toContain(`base=${changeId}`);
+        expect(original.fragment).toContain('side=left');
         expect(original.path).toContain(FILE_NAME);
 
         // Modified (right) should use jj-edit scheme (editable for mutable commits)
         expect(modified.scheme).toBe('jj-edit');
-        expect(modified.query).toContain(`revision=${changeId}`);
+        expect(modified.fragment).toContain(`revision=${changeId}`);
         expect(modified.path).toContain(FILE_NAME);
     });
 
@@ -89,7 +89,7 @@ describe('showMultiFileDiffCommand', () => {
         // Modified side should use change ID, not '@', with jj-edit scheme
         const modified = tuples[0][2];
         expect(modified.scheme).toBe('jj-edit');
-        expect(modified.query).toContain(`revision=${changeId}`);
+        expect(modified.fragment).toContain(`revision=${changeId}`);
     });
 
     it('works with Webview Context payload', async () => {

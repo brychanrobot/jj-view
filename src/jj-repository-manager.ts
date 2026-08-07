@@ -11,6 +11,7 @@ import type { CodeForgeRegistry } from './code-forge-registry';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
+import { getFsPathFromUri, getUriParams } from './uri-utils';
 import { CoalescingQueue } from './utils/coalescing-queue';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
@@ -901,19 +902,18 @@ export class JjRepositoryManager implements vscode.Disposable {
     }
 
     private getPathForUri(uri: vscode.Uri): string {
-        let rawPath = uri.fsPath;
         if (uri.scheme === 'jj-commit') {
             try {
-                const query = new URLSearchParams(uri.query);
+                const query = getUriParams(uri);
                 const repoRoot = query.get('repoRoot');
                 if (repoRoot) {
-                    rawPath = decodeURIComponent(repoRoot);
+                    return decodeURIComponent(repoRoot);
                 }
             } catch {
                 // Ignore parsing errors
             }
         }
-        return rawPath;
+        return getFsPathFromUri(uri);
     }
 
     private async isUriInWorkspaceFolder(uri: vscode.Uri): Promise<boolean> {

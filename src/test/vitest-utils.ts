@@ -3,9 +3,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Mock } from 'vitest';
-import { vi } from 'vitest';
-import type * as vscode from 'vscode';
+import * as path from 'node:path';
+import { expect, type Mock, vi } from 'vitest';
+import * as vscode from 'vscode';
+
+expect.extend({
+    toBeSameFsPath(received: unknown, expected: unknown) {
+        if (typeof received !== 'string' || typeof expected !== 'string') {
+            return {
+                pass: false,
+                message: () => `expected string paths, but received ${typeof received} and ${typeof expected}`,
+            };
+        }
+        const normReceived = vscode.Uri.file(path.resolve(received)).fsPath;
+        const normExpected = vscode.Uri.file(path.resolve(expected)).fsPath;
+        const pass = normReceived === normExpected;
+        return {
+            pass,
+            message: () =>
+                `expected path "${received}" ${this.isNot ? 'not to equal' : 'to equal'} "${expected}"\nReceived normalized: "${normReceived}"\nExpected normalized: "${normExpected}"`,
+        };
+    },
+});
+
+declare module 'vitest' {
+    interface Assertion {
+        toBeSameFsPath(expected: string): void;
+    }
+    interface AsymmetricMatchersContaining {
+        toBeSameFsPath(expected: string): void;
+    }
+}
 
 export function resetMockQuickPick(mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>) {
     mockQuickPick.value = '';
