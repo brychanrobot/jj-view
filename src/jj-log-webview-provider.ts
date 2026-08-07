@@ -13,6 +13,7 @@ import { JjContextKey } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
+import { getUriParams } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -286,7 +287,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                                     let isForCurrentRepo = true;
                                     if (this._repo) {
                                         try {
-                                            const query = new URLSearchParams(tab.input.uri.query);
+                                            const query = getUriParams(tab.input.uri);
                                             const repoRoot = query.get('repoRoot');
                                             if (repoRoot && repoRoot !== this._repo.rootUri.fsPath) {
                                                 isForCurrentRepo = false;

@@ -5,7 +5,7 @@
 import type * as vscode from 'vscode';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjStatusEntry } from './jj-types';
-import { createDiffUris } from './uri-utils';
+import { createDiffUris, toFileUri } from './uri-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
     leftUri?: vscode.Uri;
@@ -54,7 +54,7 @@ export function createJjResourceState(
               : {
                     command: 'vscode.open',
                     title: 'Open File',
-                    arguments: [resourceUri.with({ query: '' })],
+                    arguments: [toFileUri(resourceUri)],
                 };
 
     const flags: string[] = [];

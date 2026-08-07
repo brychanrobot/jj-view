@@ -121,7 +121,7 @@ describe('resolveRepository', () => {
         const commitUri = vscode.Uri.from({
             scheme: 'jj-commit',
             path: '/Commit:%20abc123',
-            query: `changeId=abc12345&repoRoot=${encodeURIComponent(repo.path)}`,
+            fragment: `changeId=abc12345&repoRoot=${encodeURIComponent(repo.path)}`,
         });
         setActiveTextEditor(
             createMock<vscode.TextEditor>({

@@ -17,6 +17,7 @@ import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
+import { toFileUri } from '../uri-utils';
 import {
     createTestRepositoryContext,
     stubCommand,
@@ -93,7 +94,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.strictEqual(workingCopyGroup.resourceStates.length, 1);
 
         const resourceState = workingCopyGroup.resourceStates[0];
-        assert.strictEqual(normalize(resourceState.resourceUri.fsPath), normalize(filePath));
+        assert.strictEqual(normalize(toFileUri(resourceState.resourceUri).fsPath), normalize(filePath));
         assert.ok((resourceState.contextValue as string).includes(ScmContextValue.ResourceAllowRestore));
     });
 
@@ -116,7 +117,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(filePath),
         );
 
         assert.ok(resourceState, 'Should find resource state for modified file');
@@ -129,7 +130,7 @@ suite('JJ SCM Provider Integration Test', () => {
         const [leftUri, rightUri] = command.arguments;
         assert.strictEqual((leftUri as vscode.Uri).scheme, 'jj-view', 'Left URI scheme should be jj-view');
         assert.strictEqual(
-            normalize((rightUri as vscode.Uri).fsPath),
+            normalize(toFileUri(rightUri as vscode.Uri).fsPath),
             normalize(filePath),
             'Right URI should be the file path',
         );
@@ -162,7 +163,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(filePath),
         );
         assert.ok(resourceState, 'Should find resource state for modified file');
 
@@ -185,11 +186,15 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok(leftUri && rightUri, 'leftUri and rightUri should be set');
 
         assert.strictEqual(leftUri.scheme, 'jj-view', 'left URI scheme should be jj-view');
-        assert.strictEqual(normalize(rightUri.fsPath), normalize(filePath), 'right URI should be the file path');
+        assert.strictEqual(
+            normalize(toFileUri(rightUri).fsPath),
+            normalize(filePath),
+            'right URI should be the file path',
+        );
 
         // Deleted files should still open the diff editor even when openDiffOnClick is false
         const deletedState = workingCopyGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(deletedFilePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(deletedFilePath),
         );
         assert.ok(deletedState, 'Should find resource state for deleted file');
         assert.strictEqual(
@@ -221,7 +226,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok(parentGroup.resourceStates.length > 0);
 
         const resourceState = parentGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(filePath),
         );
         assert.ok(resourceState, 'Parent resource should be visible');
         assert.ok((resourceState.contextValue as string).includes(ScmContextValue.ResourceAllowRestore));
@@ -231,16 +236,16 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.ok(command);
         const [leftUri, rightUri] = command.arguments as vscode.Uri[];
 
-        const params = new URLSearchParams(leftUri.query);
+        const params = new URLSearchParams(leftUri.fragment);
         assert.ok(params.get('base'), 'Left query should have base param');
         assert.strictEqual(params.get('side'), 'left', 'Left query should have side=left');
 
         if (rightUri.scheme === 'jj-edit') {
-            const rightParams = new URLSearchParams(rightUri.query);
+            const rightParams = new URLSearchParams(rightUri.fragment);
             assert.ok(rightParams.get('revision'), 'Right query should have revision param for jj-edit');
         } else {
             assert.strictEqual(rightUri.scheme, 'jj-view', 'Right URI scheme should be jj-view if not jj-edit');
-            const rightParams = new URLSearchParams(rightUri.query);
+            const rightParams = new URLSearchParams(rightUri.fragment);
             assert.ok(rightParams.get('base'), 'Right query should have base param for jj-view');
             assert.strictEqual(rightParams.get('side'), 'right', 'Right query should have side=right');
         }
@@ -462,7 +467,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         const workingCopyGroup = accessPrivate(scmProvider, '_workingCopyGroup') as vscode.SourceControlResourceGroup;
         const resourceState = workingCopyGroup.resourceStates.find(
-            (r) => normalize(r.resourceUri.fsPath) === normalize(filePath),
+            (r) => normalize(toFileUri(r.resourceUri).fsPath) === normalize(filePath),
         );
 
         if (!resourceState) {

@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { getFsPathFromUri } from '../uri-utils';
 import {
     collectResourceStates,
     extractRevision,
@@ -19,7 +20,7 @@ import {
  */
 export async function squashFilesIntoParentCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
 
     if (paths.length === 0) {
         return;
@@ -43,7 +44,7 @@ export async function squashFilesIntoParentCommand(scmProvider: JjScmProvider, j
  */
 export async function squashFilesIntoAncestorCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
 
     if (paths.length === 0) {
         return;
@@ -76,7 +77,7 @@ export async function squashFilesIntoAncestorCommand(scmProvider: JjScmProvider,
  */
 export async function squashFilesIntoChildCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
     const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => r.resourceUri.fsPath);
+    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
 
     if (paths.length === 0) {
         return;

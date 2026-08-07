@@ -5,7 +5,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
-import { encodeJjViewQuery } from '../uri-utils';
+import { createRevisionUri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractFileUri, promptForRevision, RevisionQuery, showJjError } from './command-utils';
 
@@ -32,10 +32,7 @@ export async function viewFileAtRevisionCommand(
             return;
         }
 
-        const revisionUri = fileUri.with({
-            scheme: 'jj-view',
-            query: encodeJjViewQuery({ mode: 'revision', revision }),
-        });
+        const revisionUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
 
         await vscode.commands.executeCommand('vscode.open', revisionUri);
     } catch (err: unknown) {

@@ -40,7 +40,7 @@ describe('showDetailsCommand', () => {
             'vscode.openWith',
             expect.objectContaining({
                 scheme: 'jj-commit',
-                query: expect.stringContaining(`changeId=${changeId}`),
+                fragment: expect.stringContaining(`changeId=${changeId}`),
             }),
             'jj-view.commitDetailsEditor',
         );
@@ -61,7 +61,7 @@ describe('showDetailsCommand', () => {
             'vscode.openWith',
             expect.objectContaining({
                 scheme: 'jj-commit',
-                query: expect.stringContaining(`changeId=${changeId}`),
+                fragment: expect.stringContaining(`changeId=${changeId}`),
             }),
             'jj-view.commitDetailsEditor',
         );
@@ -75,7 +75,7 @@ describe('showDetailsCommand', () => {
             'vscode.openWith',
             expect.objectContaining({
                 scheme: 'jj-commit',
-                query: expect.stringContaining(`changeId=${changeId}`),
+                fragment: expect.stringContaining(`changeId=${changeId}`),
             }),
             'jj-view.commitDetailsEditor',
         );

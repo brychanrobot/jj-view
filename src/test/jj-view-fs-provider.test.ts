@@ -48,7 +48,7 @@ describe('JjViewFileSystemProvider', () => {
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-view:///outside/file.txt?revision=@');
+        const outsideUri = vscode.Uri.parse('jj-view:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
     });
 
@@ -67,8 +67,8 @@ describe('JjViewFileSystemProvider', () => {
 
         const uri = vscode.Uri.from({
             scheme: 'jj-view',
-            path: `${repo.path}/f.txt`,
-            query: `revision=${nodes.chainA.changeId}`,
+            path: '/f.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.chainA.changeId}`,
         });
 
         const bytes = await provider.readFile(uri);

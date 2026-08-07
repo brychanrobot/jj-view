@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-import { getRevisionFromUri } from '../uri-utils';
+import { getFsPathFromUri, getRevisionFromUri } from '../uri-utils';
 import { showJjError } from './command-utils';
 
 interface LineChange {
@@ -67,7 +67,7 @@ export async function squashHunkIntoParentCommand(
     }
 
     const ranges = [{ startLine, endLine }];
-    const relPath = path.relative(jj.workspaceRoot, uri.fsPath);
+    const relPath = path.relative(jj.workspaceRoot, getFsPathFromUri(uri));
     const revision = getRevisionFromUri(uri) || '@';
 
     try {
@@ -100,7 +100,7 @@ export async function squashSelectionIntoParentCommand(
     }
 
     const docUri = editor.document.uri;
-    const fsPath = docUri.fsPath;
+    const fsPath = getFsPathFromUri(docUri);
     const relPath = path.relative(jj.workspaceRoot, fsPath);
 
     const revision = getRevisionFromUri(docUri) || '@';

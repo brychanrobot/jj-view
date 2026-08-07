@@ -105,7 +105,7 @@ describe('discardChangeCommand', () => {
         repo = new TestRepo();
         repo.init();
         scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: (uri: vscode.Uri) => uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }),
+            provideOriginalResource: (uri: vscode.Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }),
         });
         mockDocuments.clear();
     });
@@ -157,7 +157,7 @@ describe('discardChangeCommand', () => {
 
         const provideOriginalResourceMock = vi
             .fn()
-            .mockImplementation((uri: vscode.Uri) => uri.with({ scheme: 'jj-view', query: 'base=@&side=left' }));
+            .mockImplementation((uri: vscode.Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }));
         scmProvider = createMock<JjScmProvider>({
             provideOriginalResource: provideOriginalResourceMock,
         });

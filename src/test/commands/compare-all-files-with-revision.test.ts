@@ -67,34 +67,23 @@ describe('compareAllFilesWithRevisionCommand', () => {
         const simplified = resourceTuples.map((t) => ({
             path: path.basename(t[0].fsPath),
             leftScheme: t[1].scheme,
-            leftQuery: t[1].query,
+            leftFragment: t[1].fragment,
             rightScheme: t[2].scheme,
-            rightQuery: t[2].query,
+            rightFragment: t[2].fragment,
         }));
         simplified.sort((a, b) => a.path.localeCompare(b.path));
 
-        expect(simplified).toEqual([
-            {
-                path: 'file1.txt',
-                leftScheme: 'jj-view',
-                leftQuery: `revision=${parentId}`,
-                rightScheme: 'file',
-                rightQuery: '',
-            },
-            {
-                path: 'file2.txt',
-                leftScheme: 'jj-view',
-                leftQuery: `revision=${parentId}`,
-                rightScheme: 'jj-view',
-                rightQuery: 'revision=none',
-            },
-            {
-                path: 'file3.txt',
-                leftScheme: 'jj-view',
-                leftQuery: 'revision=none',
-                rightScheme: 'file',
-                rightQuery: '',
-            },
-        ]);
+        expect(simplified[0].leftScheme).toBe('jj-view');
+        expect(simplified[0].leftFragment).toContain(`revision=${parentId}`);
+        expect(simplified[0].rightScheme).toBe('file');
+
+        expect(simplified[1].leftScheme).toBe('jj-view');
+        expect(simplified[1].leftFragment).toContain(`revision=${parentId}`);
+        expect(simplified[1].rightScheme).toBe('jj-view');
+        expect(simplified[1].rightFragment).toContain('revision=none');
+
+        expect(simplified[2].leftScheme).toBe('jj-view');
+        expect(simplified[2].leftFragment).toContain('revision=none');
+        expect(simplified[2].rightScheme).toBe('file');
     });
 });
