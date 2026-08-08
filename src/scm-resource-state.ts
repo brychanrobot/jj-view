@@ -5,11 +5,11 @@
 import type * as vscode from 'vscode';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjStatusEntry } from './jj-types';
-import { createDiffUris, toFileUri } from './uri-utils';
+import { createDiffUris, toFileUri, type Uri } from './uri-utils';
 
 export interface JjResourceState extends vscode.SourceControlResourceState {
-    leftUri?: vscode.Uri;
-    rightUri?: vscode.Uri;
+    leftUri?: Uri;
+    rightUri?: Uri;
     diffTitle?: string;
     revision: string;
 }

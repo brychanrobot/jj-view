@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../../commands/discard-change';
 import type { JjScmProvider } from '../../jj-scm-provider';
+import { Uri } from '../../uri-utils';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -86,8 +88,8 @@ vi.mock('vscode', () => {
             applyEdit: vi.fn().mockResolvedValue(true),
         },
         WorkspaceEdit: class {
-            private edits: Array<{ uri: vscode.Uri; range: vscode.Range; text: string }> = [];
-            replace(uri: vscode.Uri, range: vscode.Range, text: string) {
+            private edits: Array<{ uri: Uri; range: vscode.Range; text: string }> = [];
+            replace(uri: Uri, range: vscode.Range, text: string) {
                 this.edits.push({ uri, range, text });
             }
             getEdits() {
@@ -105,7 +107,7 @@ describe('discardChangeCommand', () => {
         repo = new TestRepo();
         repo.init();
         scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: (uri: vscode.Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }),
+            provideOriginalResource: (uri: Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }),
         });
         mockDocuments.clear();
     });
@@ -118,10 +120,10 @@ describe('discardChangeCommand', () => {
         const fileName = 'invalid.txt';
         repo.writeFile(fileName, 'content\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // Test with null uri
-        await discardChangeCommand(scmProvider, null as unknown as vscode.Uri, [], 0);
+        await discardChangeCommand(scmProvider, null as unknown as Uri, [], 0);
         expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
 
         // Test with invalid index
@@ -137,7 +139,7 @@ describe('discardChangeCommand', () => {
         const fileName = 'validate.txt';
         repo.writeFile(fileName, 'content\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // Invalid change object (missing properties)
         const invalidChanges = [{ originalStartLineNumber: 1 }];
@@ -153,11 +155,11 @@ describe('discardChangeCommand', () => {
         repo.new();
         repo.writeFile(fileName, 'modified\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         const provideOriginalResourceMock = vi
             .fn()
-            .mockImplementation((uri: vscode.Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }));
+            .mockImplementation((uri: Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }));
         scmProvider = createMock<JjScmProvider>({
             provideOriginalResource: provideOriginalResourceMock,
         });
@@ -180,7 +182,7 @@ describe('discardChangeCommand', () => {
         const fileName = 'error.txt';
         repo.writeFile(fileName, 'content\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // Mock provideOriginalResource to return null
         scmProvider = createMock<JjScmProvider>({
@@ -211,7 +213,7 @@ describe('discardChangeCommand', () => {
         repo.new();
         repo.writeFile(fileName, 'keep\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // LineChange for a deletion: modifiedEndLineNumber < modifiedStartLineNumber
         const changes = [
@@ -236,7 +238,7 @@ describe('discardChangeCommand', () => {
         repo.new();
         repo.writeFile(fileName, 'line1\nline2\n');
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // LineChange for an addition: originalEndLineNumber < originalStartLineNumber
         const changes = [

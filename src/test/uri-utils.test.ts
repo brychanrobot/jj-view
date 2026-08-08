@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
 import type { JjStatusEntry } from '../jj-types';
 import {
     createDiffUris,
@@ -13,6 +13,7 @@ import {
     getRevisionFromUri,
     toFileUri,
     toForwardSlash,
+    Uri,
 } from '../uri-utils';
 import './vitest-utils';
 
@@ -227,54 +228,54 @@ describe('getFsPathFromUri and toFileUri', () => {
 
 describe('getRevisionFromUri', () => {
     it('returns undefined for URIs without revision parameters', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt');
+        const uri = Uri.file('/path/to/file.txt');
         expect(getRevisionFromUri(uri)).toBeUndefined();
     });
 
     it('extracts revision from jj-revision parameter', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: 'jj-revision=rev123',
         });
         expect(getRevisionFromUri(uri)).toBe('rev123');
     });
 
     it('extracts revision from revision parameter (jj-edit style)', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: 'revision=edit-rev',
         });
         expect(getRevisionFromUri(uri)).toBe('edit-rev');
     });
 
     it('extracts revision from base parameter (jj-view style)', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: 'base=view-rev&side=right',
         });
         expect(getRevisionFromUri(uri)).toBe('view-rev');
     });
 
     it('prioritizes jj-revision over others', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: 'jj-revision=primary&revision=secondary&base=tertiary',
         });
         expect(getRevisionFromUri(uri)).toBe('primary');
     });
 
     it('prioritizes revision over base', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: 'revision=secondary&base=tertiary',
         });
         expect(getRevisionFromUri(uri)).toBe('secondary');
     });
 
     it('returns undefined for empty fragment', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: '',
         });
         expect(getRevisionFromUri(uri)).toBeUndefined();
     });
 
     it('strips leading # or ? from fragment/query strings', () => {
-        const uri = vscode.Uri.file('/path/to/file.txt').with({
+        const uri = Uri.file('/path/to/file.txt').with({
             fragment: '#jj-revision=rev123',
         });
         expect(getRevisionFromUri(uri)).toBe('rev123');
@@ -283,7 +284,7 @@ describe('getRevisionFromUri', () => {
 
 describe('getFsPathFromUri edge cases', () => {
     it('supports repoRoot as fallback for root parameter', () => {
-        const uri = vscode.Uri.from({
+        const uri = Uri.from({
             scheme: 'jj-view',
             path: '/src/file.ts',
             query: 'repoRoot=%2Fworkspace%2Frepo',
@@ -292,7 +293,7 @@ describe('getFsPathFromUri edge cases', () => {
     });
 
     it('strips leading # or ? in fragment/query', () => {
-        const uri = vscode.Uri.from({
+        const uri = Uri.from({
             scheme: 'jj-view',
             path: '/src/file.ts',
             fragment: '#root=%2Fworkspace%2Frepo',
@@ -304,7 +305,7 @@ describe('getFsPathFromUri edge cases', () => {
         const root = '/workspace/repo';
         const fsPath = path.resolve(root, 'src/sub/file.ts');
 
-        const fileUri = vscode.Uri.file(fsPath).with({
+        const fileUri = Uri.file(fsPath).with({
             scheme: 'jj-view',
             fragment: `root=${encodeURIComponent(root)}&revision=main`,
         });
@@ -317,7 +318,7 @@ describe('getFsPathFromUri edge cases', () => {
         const root = 'C:\\Workspace\\Repo';
         const fsPath = 'c:\\workspace\\repo\\src\\sub\\file.ts';
 
-        const uri = vscode.Uri.file(fsPath).with({
+        const uri = Uri.file(fsPath).with({
             scheme: 'jj-view',
             fragment: `root=${encodeURIComponent(root)}&revision=main`,
         });

@@ -14,6 +14,7 @@ import {
 } from '../../commands/squash-revision';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
@@ -36,7 +37,7 @@ vi.mock('vscode', async () => {
             textDocuments: [],
         },
         TabInputText: class MockTabInputText {
-            constructor(public uri: vscode.Uri) {}
+            constructor(public uri: Uri) {}
         },
     });
 });
@@ -154,7 +155,7 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        const mockDoc = createMock<vscode.TextDocument>({ uri: vscode.Uri.file('/tmp/SQUASH_MSG') });
+        const mockDoc = createMock<vscode.TextDocument>({ uri: Uri.file('/tmp/SQUASH_MSG') });
         vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(mockDoc);
 
         await squashRevisionIntoParentCommand(scmProvider, jj, []);
@@ -192,7 +193,7 @@ describe('squashRevisionIntoParentCommand', () => {
         });
 
         // Since both p2 and child have descriptions, it should open editor
-        const mockDoc = createMock<vscode.TextDocument>({ uri: vscode.Uri.file('/tmp/SQUASH_MSG') });
+        const mockDoc = createMock<vscode.TextDocument>({ uri: Uri.file('/tmp/SQUASH_MSG') });
         vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(mockDoc);
 
         await squashRevisionIntoParentCommand(scmProvider, jj, [childChangeId]);
@@ -292,7 +293,7 @@ describe('squashRevisionIntoParentCommand', () => {
             detail: ids.p2.commitId,
             label: 'Parent 2',
         });
-        const mockDoc = createMock<vscode.TextDocument>({ uri: vscode.Uri.file('/tmp/SQUASH_MSG') });
+        const mockDoc = createMock<vscode.TextDocument>({ uri: Uri.file('/tmp/SQUASH_MSG') });
         vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(mockDoc);
 
         await squashRevisionIntoParentCommand(scmProvider, jj, []);
@@ -359,7 +360,7 @@ describe('squashRevisionIntoParentCommand', () => {
         fs.writeFileSync(msgPath, 'New combined description\n\n# Comment');
 
         // Mock open editor
-        const msgUri = vscode.Uri.file(msgPath);
+        const msgUri = Uri.file(msgPath);
         const mockDoc = createMock<vscode.TextDocument>({
             uri: msgUri,
             isDirty: false,
@@ -442,7 +443,7 @@ describe('squashRevisionIntoParentCommand', () => {
         fs.writeFileSync(msgPath, 'JJ: comment only');
 
         // Mock open editor
-        const msgUri = vscode.Uri.file(msgPath);
+        const msgUri = Uri.file(msgPath);
         const mockDoc = createMock<vscode.TextDocument>({
             uri: msgUri,
             isDirty: false,

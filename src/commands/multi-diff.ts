@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
-import { createDiffUris } from '../uri-utils';
+import { createDiffUris, type Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
@@ -35,7 +36,7 @@ export async function showMultiFileDiffCommand(
                     return;
                 }
 
-                const resources: [vscode.Uri, vscode.Uri][] = [];
+                const resources: [Uri, Uri][] = [];
                 for (const entry of changes) {
                     const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
                     resources.push([leftUri, rightUri]);

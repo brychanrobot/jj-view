@@ -2,11 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock, createMockLogOutputChannel } from './test-utils';
@@ -26,7 +28,7 @@ suite('Webview Selection Integration Test', () => {
             messageHandler = handler;
             return { dispose: () => {} };
         },
-        asWebviewUri: (uri: vscode.Uri) => uri,
+        asWebviewUri: (uri: Uri) => uri,
         cspSource: '',
         postMessage: async () => {
             return true;
@@ -49,7 +51,7 @@ suite('Webview Selection Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        const extensionUri = vscode.Uri.file(__dirname); // Mock URI
+        const extensionUri = Uri.file(__dirname); // Mock URI
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });

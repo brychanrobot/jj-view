@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { z } from 'zod';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
 const SquashMetaSchema = z.object({
@@ -227,7 +229,7 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
 
         // Close the editor if it's still open
         const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-        const targetFsPath = vscode.Uri.file(msgPath).fsPath;
+        const targetFsPath = Uri.file(msgPath).fsPath;
         const tab = tabs.find((t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath === targetFsPath);
         if (tab) {
             await vscode.window.tabGroups.close(tab);

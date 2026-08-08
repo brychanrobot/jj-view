@@ -6,8 +6,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { match } from 'ts-pattern';
-import * as vscode from 'vscode';
+import { URI, Utils } from 'vscode-uri';
 import type { JjStatusEntry } from './jj-types';
+
+export type Uri = URI;
+export const Uri = Object.assign(URI, {
+    joinPath: Utils.joinPath,
+});
 
 export type JjViewQuery =
     | { mode: 'diff'; root?: string; base: string; side: 'left' | 'right' }
@@ -37,14 +42,14 @@ function stripPrefix(str: string | undefined): string {
 /**
  * Helper to parse URL parameters from a URI, checking fragment first with query fallback.
  */
-export function getUriParams(uri: vscode.Uri): URLSearchParams {
+export function getUriParams(uri: Uri): URLSearchParams {
     const fragmentStr = stripPrefix(uri.fragment);
     const queryStr = stripPrefix(uri.query);
     const combinedStr = fragmentStr && queryStr ? `${fragmentStr}&${queryStr}` : fragmentStr || queryStr;
     return new URLSearchParams(combinedStr);
 }
 
-export function decodeJjViewQuery(uri: vscode.Uri): JjViewQuery {
+export function decodeJjViewQuery(uri: Uri): JjViewQuery {
     const params = getUriParams(uri);
     const root = params.get('root') || params.get('repoRoot') || undefined;
     const revision = params.get('revision');
@@ -76,7 +81,7 @@ function normalizePath(p: string): string {
     return process.platform === 'win32' || isWinDrive ? norm.toLowerCase() : norm;
 }
 
-export function getFsPathFromUri(uri: vscode.Uri): string {
+export function getFsPathFromUri(uri: Uri): string {
     const params = getUriParams(uri);
     const root = params.get('root') || params.get('repoRoot');
     if (root) {
@@ -96,7 +101,7 @@ export function createDiffUris(
     revision: string,
     root: string,
     options: { editable?: boolean; workingCopyChangeId?: string } = {},
-): { leftUri: vscode.Uri; rightUri: vscode.Uri; resourceUri: vscode.Uri } {
+): { leftUri: Uri; rightUri: Uri; resourceUri: Uri } {
     const isCurrentWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
     const relPath = entry.path.startsWith('/') ? entry.path : `/${entry.path}`;
 
@@ -106,7 +111,7 @@ export function createDiffUris(
         leftRelPath = entry.oldPath.startsWith('/') ? entry.oldPath : `/${entry.oldPath}`;
     }
 
-    const leftUri = vscode.Uri.from({
+    const leftUri = Uri.from({
         scheme: 'jj-view',
         path: leftRelPath,
         fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
@@ -117,16 +122,16 @@ export function createDiffUris(
     resourceParams.set('jj-revision', revision);
     resourceParams.set('revision', isCurrentWorkingCopy ? '@' : revision);
 
-    const resourceUri = vscode.Uri.from({
+    const resourceUri = Uri.from({
         scheme: options.editable || isCurrentWorkingCopy ? 'jj-edit' : 'jj-view',
         path: relPath,
         fragment: resourceParams.toString(),
     });
 
-    let rightUri: vscode.Uri;
+    let rightUri: Uri;
     const isDeleted = entry.status === 'deleted';
     if (isDeleted) {
-        rightUri = vscode.Uri.from({
+        rightUri = Uri.from({
             scheme: 'jj-view',
             path: relPath,
             fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
@@ -134,7 +139,7 @@ export function createDiffUris(
     } else if (isCurrentWorkingCopy || options.editable) {
         rightUri = resourceUri;
     } else {
-        rightUri = vscode.Uri.from({
+        rightUri = Uri.from({
             scheme: 'jj-view',
             path: relPath,
             fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
@@ -148,7 +153,7 @@ export function createDiffUris(
  * Extract a revision ID from a URI query or fragment.
  * Handles jj-revision (SCM resource), revision (jj-edit), and base (jj-view diff).
  */
-export function getRevisionFromUri(uri: vscode.Uri): string | undefined {
+export function getRevisionFromUri(uri: Uri): string | undefined {
     const params = getUriParams(uri);
     return params.get('jj-revision') || params.get('revision') || params.get('base') || undefined;
 }
@@ -156,14 +161,14 @@ export function getRevisionFromUri(uri: vscode.Uri): string | undefined {
 /**
  * Checks if a URI uses a Jujutsu-specific scheme.
  */
-export function isJjScheme(uri: vscode.Uri): boolean {
+export function isJjScheme(uri: Uri): boolean {
     return uri.scheme === 'jj-view' || uri.scheme === 'jj-edit';
 }
 
 /**
  * Creates a jj-view URI for viewing a file at a specific revision.
  */
-export function createRevisionUri(root: string, filePath: string, revision: string): vscode.Uri {
+export function createRevisionUri(root: string, filePath: string, revision: string): Uri {
     const normRoot = toForwardSlash(root);
     const normFile = toForwardSlash(filePath);
     let relativePath = filePath;
@@ -176,7 +181,7 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
 
     const posixRel = toForwardSlash(relativePath);
     const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
-    return vscode.Uri.from({
+    return Uri.from({
         scheme: 'jj-view',
         path: relPathStr,
         fragment: encodeJjViewQuery({ mode: 'revision', root, revision }),
@@ -187,15 +192,15 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
  * Converts a URI (which may be a custom scheme or contain fragment parameters)
  * into a standard file scheme URI pointing to the underlying workspace file.
  */
-export function toFileUri(uri: vscode.Uri): vscode.Uri {
-    return vscode.Uri.file(getFsPathFromUri(uri));
+export function toFileUri(uri: Uri): Uri {
+    return Uri.file(getFsPathFromUri(uri));
 }
 
 /**
  * Gets the relative path of a URI within the repository root.
  * Normalizes leading slash.
  */
-export function getRepoRelativePath(uri: vscode.Uri, root: string): string {
+export function getRepoRelativePath(uri: Uri, root: string): string {
     if (uri.scheme === 'file') {
         let canonicalRoot = root;
         let canonicalPath = uri.fsPath;

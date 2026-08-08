@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { compareFileWithRevisionCommand } from '../../commands/compare-file-with-revision';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { TestRepo } from '../test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
@@ -37,7 +38,7 @@ describe('compareFileWithRevisionCommand', () => {
 
     it('opens vscode.diff comparing right clicked file', async () => {
         repo.writeFile('file1.txt', 'content');
-        const fileUri = vscode.Uri.file(`${repo.path}/file1.txt`);
+        const fileUri = Uri.file(`${repo.path}/file1.txt`);
 
         const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
         resetMockQuickPick(mockQuickPick);
@@ -60,8 +61,8 @@ describe('compareFileWithRevisionCommand', () => {
             ? [
                   call[0],
                   {
-                      scheme: (call[1] as vscode.Uri).scheme,
-                      fragment: (call[1] as vscode.Uri).fragment,
+                      scheme: (call[1] as Uri).scheme,
+                      fragment: (call[1] as Uri).fragment,
                   },
                   call[2],
                   call[3],

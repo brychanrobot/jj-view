@@ -10,6 +10,7 @@ import * as parcelWatcher from '@parcel/watcher';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LogOutputChannel } from 'vscode';
 import { DirectoryWatcher } from '../directory-watcher';
+import { Uri } from '../uri-utils';
 import { createMockLogOutputChannel } from './test-utils';
 
 vi.mock('vscode', async () => {
@@ -230,7 +231,7 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
             'Open README',
         );
         expect(openExternalMock).toHaveBeenCalledWith(
-            vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
+            Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
         );
     });
 });

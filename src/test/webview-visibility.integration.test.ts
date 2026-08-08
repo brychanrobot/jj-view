@@ -2,11 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjLogEntry } from '../jj-types';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -24,7 +26,7 @@ function createMockWebviewView() {
         options: {},
         html: '',
         onDidReceiveMessage: () => ({ dispose: () => {} }),
-        asWebviewUri: (uri: vscode.Uri) => uri,
+        asWebviewUri: (uri: Uri) => uri,
         cspSource: '',
         postMessage: async (message: unknown) => {
             sentMessages.push(message as UpdateMessage);
@@ -61,7 +63,7 @@ suite('Webview Visibility Integration Test', () => {
         repo = new TestRepo();
         await repo.init();
 
-        const extensionUri = vscode.Uri.file(__dirname);
+        const extensionUri = Uri.file(__dirname);
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });

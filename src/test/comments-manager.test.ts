@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { Uri } from '../uri-utils';
 // sort-imports-ignore
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -135,10 +136,10 @@ describe('CommentsManager Tests', () => {
 
         // Register the real repository
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: vscode.Uri.file(testRepo.path),
+            uri: Uri.file(testRepo.path),
         });
-        const realRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(testRepo.path));
-        repositoryManager.tryAutoSwitch(vscode.Uri.file(testRepo.path));
+        const realRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        repositoryManager.tryAutoSwitch(Uri.file(testRepo.path));
 
         if (realRepo) {
             await realRepo.codeForge.detectActiveProvider(true);
@@ -375,7 +376,7 @@ describe('CommentsManager Tests', () => {
         ];
         provider.setThreads(threads);
 
-        const parseSpy = vi.spyOn(vscode.Uri, 'parse').mockImplementationOnce(() => {
+        const parseSpy = vi.spyOn(Uri, 'parse').mockImplementationOnce(() => {
             throw new Error('Invalid URI');
         });
 

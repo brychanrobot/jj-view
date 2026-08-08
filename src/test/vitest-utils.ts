@@ -5,7 +5,8 @@
 
 import * as path from 'node:path';
 import { expect, type Mock, vi } from 'vitest';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+import { Uri } from '../uri-utils';
 
 expect.extend({
     toBeSameFsPath(received: unknown, expected: unknown) {
@@ -15,8 +16,8 @@ expect.extend({
                 message: () => `expected string paths, but received ${typeof received} and ${typeof expected}`,
             };
         }
-        const normReceived = vscode.Uri.file(path.resolve(received)).fsPath;
-        const normExpected = vscode.Uri.file(path.resolve(expected)).fsPath;
+        const normReceived = Uri.file(path.resolve(received)).fsPath;
+        const normExpected = Uri.file(path.resolve(expected)).fsPath;
         const pass = normReceived === normExpected;
         return {
             pass,

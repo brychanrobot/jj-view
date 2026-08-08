@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
+import { Uri } from './uri-utils';
 
 export class CommentsManager implements vscode.Disposable {
     private commentController: vscode.CommentController;
@@ -335,10 +337,10 @@ export class CommentsManager implements vscode.Disposable {
      * Maps a CodeForge provider comment to a VS Code comment structure.
      */
     private mapToVscodeComment(c: CodeForgeComment): vscode.Comment {
-        let avatarUri: vscode.Uri | undefined;
+        let avatarUri: Uri | undefined;
         if (c.author?.avatarUrl) {
             try {
-                avatarUri = vscode.Uri.parse(c.author.avatarUrl);
+                avatarUri = Uri.parse(c.author.avatarUrl);
             } catch {
                 // Ignore malformed avatar URIs
             }
@@ -359,7 +361,7 @@ export class CommentsManager implements vscode.Disposable {
      * updating comments, position, and resolution state.
      */
     private syncCommentThread(thread: CodeForgeCommentThread, activeRepoPath: string): vscode.CommentThread {
-        const fileUri = vscode.Uri.file(path.join(activeRepoPath, thread.filePath ?? ''));
+        const fileUri = Uri.file(path.join(activeRepoPath, thread.filePath ?? ''));
         const line = Math.max(0, (thread.line ?? 1) - 1);
         const range = new vscode.Range(line, 0, line, 0);
 

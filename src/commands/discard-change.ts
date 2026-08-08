@@ -2,8 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { Uri } from '../uri-utils';
 import { showJjError } from './command-utils';
 
 export interface LineChange {
@@ -28,12 +30,7 @@ export function isLineChangeArray(changes: unknown): changes is LineChange[] {
     });
 }
 
-export async function discardChangeCommand(
-    scmProvider: JjScmProvider,
-    uri: vscode.Uri,
-    changes: unknown,
-    index: number,
-) {
+export async function discardChangeCommand(scmProvider: JjScmProvider, uri: Uri, changes: unknown, index: number) {
     if (
         !uri ||
         !changes ||
@@ -49,7 +46,7 @@ export async function discardChangeCommand(
 
     try {
         const originalUri = await scmProvider.provideOriginalResource(uri);
-        if (!originalUri || !(originalUri instanceof vscode.Uri)) {
+        if (!originalUri || !Uri.isUri(originalUri)) {
             throw new Error('Could not determine original resource');
         }
 

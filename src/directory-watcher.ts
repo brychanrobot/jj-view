@@ -2,8 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { type AsyncSubscription, type BackendType, type Event, subscribe } from '@parcel/watcher';
 import * as vscode from 'vscode';
+import { Uri } from './uri-utils';
 import { isWatchmanAvailable } from './utils/binary-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
@@ -96,7 +98,7 @@ export class DirectoryWatcher implements vscode.Disposable {
                         .then((selection) => {
                             if (selection === 'Open README') {
                                 vscode.env.openExternal(
-                                    vscode.Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
+                                    Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
                                 );
                             }
                         });

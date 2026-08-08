@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -27,6 +28,7 @@ import {
     getRevisionFromUri,
     getUriParams,
     toFileUri,
+    Uri,
 } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
@@ -87,7 +89,7 @@ export class JjScmProvider implements vscode.Disposable {
         );
         this.decorationProvider = new JjDecorationProvider(this.jj, workspaceRoot);
 
-        const belongsToRepo = (uri: vscode.Uri) => {
+        const belongsToRepo = (uri: Uri) => {
             return this.repositoryManager.getRepositoryForUri(uri) === this.repo;
         };
         this._diffTabCleaner = new DiffTabCleaner(this.jj, belongsToRepo, this.outputChannel);
@@ -618,7 +620,7 @@ export class JjScmProvider implements vscode.Disposable {
         });
     }
 
-    provideOriginalResource(uri: vscode.Uri): vscode.ProviderResult<vscode.Uri> {
+    provideOriginalResource(uri: Uri): vscode.ProviderResult<Uri> {
         const relativePath = getRepoRelativePath(uri, this.jj.workspaceRoot);
         const statusEntry = this._workingCopyStatuses.get(relativePath);
         if (!statusEntry || statusEntry.status === 'added') {
@@ -630,7 +632,7 @@ export class JjScmProvider implements vscode.Disposable {
         const leftPath = statusEntry.oldPath || statusEntry.path;
         const relPath = leftPath.startsWith('/') ? leftPath : `/${leftPath}`;
 
-        return vscode.Uri.from({
+        return Uri.from({
             scheme: 'jj-view',
             path: relPath,
             fragment: encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../../commands/compare-all-files-with-revision';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { Uri } from '../../uri-utils';
 import { buildGraph, TestRepo } from '../test-repo';
 
 vi.mock('vscode', async () => {
@@ -62,7 +63,7 @@ describe('compareAllFilesWithRevisionCommand', () => {
         );
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        const resourceTuples = call?.[2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const resourceTuples = call?.[2] as [Uri, Uri, Uri][];
 
         const simplified = resourceTuples.map((t) => ({
             path: path.basename(t[0].fsPath),

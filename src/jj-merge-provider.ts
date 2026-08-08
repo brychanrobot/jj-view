@@ -2,16 +2,17 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
-import { getUriParams } from './uri-utils';
+import { getUriParams, type Uri } from './uri-utils';
 
 /**
  * Content provider for merge editor inputs.
  * Provides base, left (ours), and right (theirs) content for conflicted files.
  */
 export class JjMergeContentProvider implements vscode.TextDocumentContentProvider {
-    private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
+    private _onDidChange = new vscode.EventEmitter<Uri>();
     readonly onDidChange = this._onDidChange.event;
 
     // Cache to avoid re-running jj resolve for same file
@@ -19,7 +20,7 @@ export class JjMergeContentProvider implements vscode.TextDocumentContentProvide
 
     constructor(private jjService: JjService) {}
 
-    async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    async provideTextDocumentContent(uri: Uri): Promise<string> {
         const query = getUriParams(uri);
         const fsPath = query.get('path');
         const part = query.get('part'); // 'base', 'left', 'right'
@@ -56,7 +57,7 @@ export class JjMergeContentProvider implements vscode.TextDocumentContentProvide
         }
     }
 
-    update(uri: vscode.Uri) {
+    update(uri: Uri) {
         this._onDidChange.fire(uri);
     }
 

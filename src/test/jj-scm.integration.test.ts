@@ -17,7 +17,7 @@ import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
-import { toFileUri } from '../uri-utils';
+import { toFileUri, Uri } from '../uri-utils';
 import {
     createTestRepositoryContext,
     stubCommand,
@@ -38,7 +38,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
     // Helper to normalize paths for Windows using robust URI comparison
     function normalize(p: string): string {
-        return vscode.Uri.file(p).toString();
+        return Uri.file(p).toString();
     }
 
     setup(async () => {
@@ -128,9 +128,9 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.strictEqual(command.arguments?.length, 3, 'Diff command should have 3 arguments');
 
         const [leftUri, rightUri] = command.arguments;
-        assert.strictEqual((leftUri as vscode.Uri).scheme, 'jj-view', 'Left URI scheme should be jj-view');
+        assert.strictEqual((leftUri as Uri).scheme, 'jj-view', 'Left URI scheme should be jj-view');
         assert.strictEqual(
-            normalize(toFileUri(rightUri as vscode.Uri).fsPath),
+            normalize(toFileUri(rightUri as Uri).fsPath),
             normalize(filePath),
             'Right URI should be the file path',
         );
@@ -175,7 +175,7 @@ suite('JJ SCM Provider Integration Test', () => {
             'Command should be vscode.open when openDiffOnClick is false',
         );
         assert.strictEqual(command.arguments?.length, 1, 'Open command should have 1 argument');
-        const openUri = command.arguments?.[0] as vscode.Uri;
+        const openUri = command.arguments?.[0] as Uri;
         assert.strictEqual(normalize(openUri.fsPath), normalize(filePath), 'Open URI should be the file path');
         assert.strictEqual(openUri.query, '', 'Open URI should have no query string');
 
@@ -234,7 +234,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         const { command } = resourceState;
         assert.ok(command);
-        const [leftUri, rightUri] = command.arguments as vscode.Uri[];
+        const [leftUri, rightUri] = command.arguments as Uri[];
 
         const params = new URLSearchParams(leftUri.fragment);
         assert.ok(params.get('base'), 'Left query should have base param');
@@ -352,7 +352,7 @@ suite('JJ SCM Provider Integration Test', () => {
             },
         ]);
 
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+        const document = await vscode.workspace.openTextDocument(Uri.file(filePath));
         const editor = await vscode.window.showTextDocument(document);
 
         await scmProvider.refresh({ forceSnapshot: true });
@@ -425,23 +425,23 @@ suite('JJ SCM Provider Integration Test', () => {
         const mergeEditorCall = executeStub.getCalls().find((call) => call.args[0] === '_open.mergeEditor');
         assert.ok(mergeEditorCall, 'Should have called _open.mergeEditor');
         const args = mergeEditorCall.args[1] as {
-            base: vscode.Uri;
-            input1: { uri: vscode.Uri };
-            input2: { uri: vscode.Uri };
-            output: vscode.Uri;
+            base: Uri;
+            input1: { uri: Uri };
+            input2: { uri: Uri };
+            output: Uri;
         };
 
         // CRITICAL: base must be a plain URI, not an object
-        assert.ok(args.base instanceof vscode.Uri, 'base should be a plain Uri, not an object');
+        assert.ok(Uri.isUri(args.base), 'base should be a plain Uri, not an object');
 
         // input1 and input2 should be objects with uri property
         assert.ok(typeof args.input1 === 'object', 'input1 should be an object');
-        assert.ok(args.input1.uri instanceof vscode.Uri, 'input1.uri should be a Uri');
+        assert.ok(Uri.isUri(args.input1.uri), 'input1.uri should be a Uri');
         assert.ok(typeof args.input2 === 'object', 'input2 should be an object');
-        assert.ok(args.input2.uri instanceof vscode.Uri, 'input2.uri should be a Uri');
+        assert.ok(Uri.isUri(args.input2.uri), 'input2.uri should be a Uri');
 
         // output should be a URI
-        assert.ok(args.output instanceof vscode.Uri, 'output should be a Uri');
+        assert.ok(Uri.isUri(args.output), 'output should be a Uri');
 
         // Verify URI scheme
         assert.strictEqual(args.base.scheme, 'jj-merge-output', 'base scheme should be jj-merge-output');

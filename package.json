@@ -533,42 +533,42 @@
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.on",
-                "title": "\u25cf New Child",
+                "title": "● New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.newChild.off",
-                "title": "\u25cb New Child",
+                "title": "○ New Child",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.on",
-                "title": "\u25cf Edit",
+                "title": "● Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.edit.off",
-                "title": "\u25cb Edit",
+                "title": "○ Edit",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.on",
-                "title": "\u25cf Squash",
+                "title": "● Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.squash.off",
-                "title": "\u25cb Squash",
+                "title": "○ Squash",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.on",
-                "title": "\u25cf Abandon",
+                "title": "● Abandon",
                 "category": "JJ View"
             },
             {
                 "command": "jj-view.toggleCommitAction.abandon.off",
-                "title": "\u25cb Abandon",
+                "title": "○ Abandon",
                 "category": "JJ View"
             },
             {
@@ -1259,6 +1259,7 @@
         "react-dom": "^19.2.3",
         "renderdag-ts": "git+https://github.com/brychanrobot/renderdag-ts.git",
         "ts-pattern": "^5.9.0",
+        "vscode-uri": "^3.1.0",
         "zod": "^4.4.3"
     }
 }

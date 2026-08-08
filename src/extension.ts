@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CodeForgeAuthManager } from './code-forge-auth';
@@ -84,6 +85,7 @@ import type { JjService } from './jj-service';
 import { TOGGLEABLE_COMMIT_ACTIONS } from './jj-types';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import type { JjResourceState } from './scm-resource-state';
+import type { Uri } from './uri-utils';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -674,13 +676,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             await workspaceOpenInNewWindowCommand(scm, jj, args);
         }),
         registerWrappedCommand('jj-view.discardChange', async (scm, _jj, ...args) => {
-            const uri = args[0] as vscode.Uri;
+            const uri = args[0] as Uri;
             const changes = args[1];
             const index = args[2] as number;
             await discardChangeCommand(scm, uri, changes, index);
         }),
         registerWrappedCommand('jj-view.squashHunkIntoParent', async (scm, jj, ...args) => {
-            const uri = args[0] as vscode.Uri;
+            const uri = args[0] as Uri;
             const changes = args[1];
             const index = args[2] as number;
             await squashHunkIntoParentCommand(scm, jj, uri, changes, index);

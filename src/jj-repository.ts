@@ -12,6 +12,7 @@ import { CodeForgeService } from './code-forge-service';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
 import { RefreshScheduler } from './refresh-scheduler';
+import type { Uri } from './uri-utils';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
 import { CoalescingQueue } from './utils/coalescing-queue';
 import { getJjViewConfig } from './utils/config-utils';
@@ -29,7 +30,7 @@ export class JjRepository implements vscode.Disposable {
     readonly onDidStatusChange = this._onDidStatusChange.event;
 
     constructor(
-        public readonly rootUri: vscode.Uri,
+        public readonly rootUri: Uri,
         public readonly storePath: string,
         registry: CodeForgeRegistry,
         outputChannel: JjLoggerChannel,

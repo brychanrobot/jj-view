@@ -2,7 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Uri } from '../uri-utils';
 import { createVscodeMock } from './vscode-mock';
 
 vi.mock('vscode', () => createVscodeMock());
@@ -29,7 +31,7 @@ describe('JjEditFileSystemProvider', () => {
         if (revision) {
             fragmentParams.set('revision', revision);
         }
-        return vscode.Uri.from({
+        return Uri.from({
             scheme: 'jj-edit',
             path: relPath,
             fragment: fragmentParams.toString(),
@@ -53,9 +55,9 @@ describe('JjEditFileSystemProvider', () => {
 
         // Register the real repository
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: vscode.Uri.file(repo.path),
+            uri: Uri.file(repo.path),
         });
-        await repoManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(repo.path));
+        await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
 
         provider = new JjEditFileSystemProvider(repoManager);
         provider.onDidChangeFile((events) => {
@@ -194,12 +196,12 @@ describe('JjEditFileSystemProvider', () => {
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
+        const outsideUri = Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
     });
 
     it('writeFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
+        const outsideUri = Uri.parse('jj-edit:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.writeFile(outsideUri, Buffer.from('content'))).rejects.toThrowError(
             'No Jujutsu repository found',
         );
@@ -238,7 +240,7 @@ describe('JjEditFileSystemProvider', () => {
     });
 
     it('reconstructs absolute path from relative path URI with root fragment', async () => {
-        const relUri = vscode.Uri.from({
+        const relUri = Uri.from({
             scheme: 'jj-edit',
             path: '/file.txt',
             fragment: `root=${encodeURIComponent(repo.path)}&revision=@`,
