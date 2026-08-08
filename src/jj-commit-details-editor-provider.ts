@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import { WebviewToHostMessageSchema } from './common/ipc-schemas';
+import { createWebviewRpcDispatcher } from './common/webview-rpc-dispatcher';
 import { createJjResourceState } from './scm-resource-state';
 import { getJjViewConfig } from './utils/config-utils';
 import { formatCommitTitle } from './utils/jj-utils';
@@ -306,21 +308,19 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
             document.persistedDescription = initialDescription;
             document.draftDescription = initialDescription;
 
-            panel.webview.onDidReceiveMessage(async (message) => {
-                switch (message.type) {
-                    case 'webviewLoaded':
-                        break;
-                    case 'descriptionChanged': {
-                        const newText = message.payload.description;
+            const dispatcher = createWebviewRpcDispatcher(
+                WebviewToHostMessageSchema,
+                {
+                    webviewLoaded: async () => {},
+                    descriptionChanged: async (msg) => {
+                        const newText = msg.payload.description;
                         const newSelection = {
-                            start: message.payload.selectionStart,
-                            end: message.payload.selectionEnd,
+                            start: msg.payload.selectionStart ?? 0,
+                            end: msg.payload.selectionEnd ?? 0,
                         };
 
-                        // Update current document state immediately so 'Save' always has latest
                         document.draftDescription = newText;
 
-                        // Debounce the undo stack push so typing doesn't create thousands of undo points.
                         let state = this._documentStates.get(document.changeId);
                         if (!state) {
                             state = {
@@ -331,7 +331,6 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                             };
                             this._documentStates.set(document.changeId, state);
                         } else {
-                            // Update the panel reference so flush uses the latest active panel
                             state.panel = panel;
                         }
 
@@ -343,22 +342,15 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                         state.debounceTimer = setTimeout(() => {
                             this._flushDebounce(document.changeId);
                         }, 200);
-                        break;
-                    }
-                    case 'saveDescription': {
-                        const newText = message.payload.description;
+                    },
+                    saveDescription: async (msg) => {
+                        const newText = msg.payload.description;
                         document.draftDescription = newText;
-
-                        // Flush any pending undo history so it remains 'behind' the save point
                         this._flushDebounce(document.changeId);
-
-                        // Natively trigger save which will call our saveCustomDocument
                         await vscode.commands.executeCommand('workbench.action.files.save');
-                        break;
-                    }
-                    case 'openDiff': {
-                        const { file, changeId, isImmutable } = message.payload;
-
+                    },
+                    openDiff: async (msg) => {
+                        const { file, changeId, isImmutable } = msg.payload;
                         const state = createJjResourceState(file, changeId, repo.jj.workspaceRoot, {
                             editable: !isImmutable,
                             openDiffOnClick: true,
@@ -370,12 +362,18 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
                                 ...(state.command.arguments ?? []),
                             );
                         }
-                        break;
-                    }
-                    case 'openMultiDiff':
-                        await vscode.commands.executeCommand('jj-view.showMultiFileDiff', message.payload.changeId);
-                        break;
-                }
+                    },
+                    openMultiDiff: async (msg) => {
+                        await vscode.commands.executeCommand('jj-view.showMultiFileDiff', msg.payload.changeId);
+                    },
+                },
+                {
+                    messenger: panel.webview,
+                },
+            );
+
+            panel.webview.onDidReceiveMessage(async (message) => {
+                return await dispatcher.dispatch(message);
             });
         } catch (_) {
             panel.dispose();
