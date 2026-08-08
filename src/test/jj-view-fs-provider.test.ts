@@ -2,7 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Uri } from '../uri-utils';
 import { createVscodeMock } from './vscode-mock';
 
 vi.mock('vscode', () => createVscodeMock());
@@ -36,9 +38,9 @@ describe('JjViewFileSystemProvider', () => {
 
         // Register the real repository
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: vscode.Uri.file(repo.path),
+            uri: Uri.file(repo.path),
         });
-        await repoManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(repo.path));
+        await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
 
         provider = new JjViewFileSystemProvider(repoManager);
     });
@@ -48,7 +50,7 @@ describe('JjViewFileSystemProvider', () => {
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = vscode.Uri.parse('jj-view:///outside/file.txt#root=/outside&revision=@');
+        const outsideUri = Uri.parse('jj-view:///outside/file.txt#root=/outside&revision=@');
         await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
     });
 
@@ -65,7 +67,7 @@ describe('JjViewFileSystemProvider', () => {
             },
         ]);
 
-        const uri = vscode.Uri.from({
+        const uri = Uri.from({
             scheme: 'jj-view',
             path: '/f.txt',
             fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.chainA.changeId}`,

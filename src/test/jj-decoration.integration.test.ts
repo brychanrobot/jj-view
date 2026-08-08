@@ -2,11 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { toFileUri } from '../uri-utils';
+import { toFileUri, Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMockLogOutputChannel } from './test-utils';
@@ -18,7 +19,7 @@ suite('JJ Decoration Integration Test', () => {
 
     // Helper to normalize paths for Windows using robust URI comparison
     function normalize(p: string): string {
-        return vscode.Uri.file(p).toString();
+        return Uri.file(p).toString();
     }
 
     setup(async () => {
@@ -57,7 +58,7 @@ suite('JJ Decoration Integration Test', () => {
         await scmProvider.refresh();
 
         // Get decoration for the file
-        const uri = vscode.Uri.file(file1);
+        const uri = Uri.file(file1);
         const result = scmProvider.decorationProvider.provideFileDecoration(
             uri,
             new vscode.CancellationTokenSource().token,
@@ -127,21 +128,21 @@ suite('JJ Decoration Integration Test', () => {
         await scmProvider.refresh();
 
         // Check decoration for tracked file
-        const trackedUri = vscode.Uri.file(path.join(repo.path, 'tracked_file.txt'));
+        const trackedUri = Uri.file(path.join(repo.path, 'tracked_file.txt'));
         const pTracked = scmProvider.decorationProvider.provideFileDecoration(
             trackedUri,
             new vscode.CancellationTokenSource().token,
         ) as Promise<vscode.FileDecoration | undefined>;
 
         // Check decoration for ignored file
-        const ignoredUri = vscode.Uri.file(path.join(repo.path, 'ignored_file.txt'));
+        const ignoredUri = Uri.file(path.join(repo.path, 'ignored_file.txt'));
         const pIgnored = scmProvider.decorationProvider.provideFileDecoration(
             ignoredUri,
             new vscode.CancellationTokenSource().token,
         ) as Promise<vscode.FileDecoration | undefined>;
 
         // Check decoration for ignored directory
-        const ignoredDirUri = vscode.Uri.file(path.join(repo.path, 'ignored_dir/test.txt'));
+        const ignoredDirUri = Uri.file(path.join(repo.path, 'ignored_dir/test.txt'));
         const pIgnoredDir = scmProvider.decorationProvider.provideFileDecoration(
             ignoredDirUri,
             new vscode.CancellationTokenSource().token,
@@ -161,8 +162,8 @@ suite('JJ Decoration Integration Test', () => {
     });
 
     test('Decorations show Correct Status for .jj directory bypass', async () => {
-        const jjFolder = vscode.Uri.file(path.join(repo.path, '.jj'));
-        const jjContent = vscode.Uri.file(path.join(repo.path, '.jj/config.toml'));
+        const jjFolder = Uri.file(path.join(repo.path, '.jj'));
+        const jjContent = Uri.file(path.join(repo.path, '.jj/config.toml'));
 
         // Provide decorations
         const decFolder = scmProvider.decorationProvider.provideFileDecoration(
@@ -189,7 +190,7 @@ suite('JJ Decoration Integration Test', () => {
         repo.writeFile('.gitignore', 'force_tracked.txt\n');
         await scmProvider.refresh({ forceSnapshot: true }); // Snapshots .gitignore, but force_tracked.txt is ALREADY tracked
 
-        const uri = vscode.Uri.file(path.join(repo.path, 'force_tracked.txt'));
+        const uri = Uri.file(path.join(repo.path, 'force_tracked.txt'));
         const trackedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
             uri,
             new vscode.CancellationTokenSource().token,
@@ -215,7 +216,7 @@ suite('JJ Decoration Integration Test', () => {
 
     test('Decorations clear cache and update on .gitignore change', async () => {
         const fileName = 'dynamic_ignore.txt';
-        const uri = vscode.Uri.file(path.join(repo.path, fileName));
+        const uri = Uri.file(path.join(repo.path, fileName));
 
         // 1. File exists and is tracked in the working copy
         repo.writeFile(fileName, 'content');

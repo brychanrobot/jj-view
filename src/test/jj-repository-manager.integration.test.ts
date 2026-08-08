@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -11,6 +12,7 @@ import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import type { Api } from '../extension';
 import { JjRepositoryManager } from '../jj-repository-manager';
+import { Uri } from '../uri-utils';
 import { autoCleanup, ScopedSymlink, ScopedTempDir, ScopedTestRepo } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel, exposePrivate } from './test-utils';
@@ -22,7 +24,7 @@ suite('JjRepositoryManager Integration Test', () => {
     let manager: JjRepositoryManager;
     let mainRepo: TestRepo;
     let sandbox: sinon.SinonSandbox;
-    let initialFolders: vscode.Uri[] = [];
+    let initialFolders: Uri[] = [];
     let resolvedWorkspaceRoot: string | undefined;
 
     suiteSetup(() => {
@@ -30,7 +32,7 @@ suite('JjRepositoryManager Integration Test', () => {
         initialFolders = (vscode.workspace.workspaceFolders || []).map((f) => f.uri);
     });
 
-    async function setWorkspaceFoldersInternal(folders: vscode.Uri[]): Promise<void> {
+    async function setWorkspaceFoldersInternal(folders: Uri[]): Promise<void> {
         const currentFolders = vscode.workspace.workspaceFolders || [];
         const currentCount = currentFolders.length;
 
@@ -64,7 +66,7 @@ suite('JjRepositoryManager Integration Test', () => {
         });
     }
 
-    async function setWorkspaceFolders(folders: vscode.Uri[]): Promise<AsyncDisposable> {
+    async function setWorkspaceFolders(folders: Uri[]): Promise<AsyncDisposable> {
         await setWorkspaceFoldersInternal(folders);
 
         return {
@@ -189,7 +191,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('getRepositoryForUri works for repo and subfolders', async () => {
         // Manually trigger dynamic registry
-        const fileUri = vscode.Uri.file(path.join(mainRepo.path, 'sub', 'file.txt'));
+        const fileUri = Uri.file(path.join(mainRepo.path, 'sub', 'file.txt'));
         const repo = await manager.maybeRegisterRepositoryContainingUri(fileUri);
         assert.ok(repo, 'Should dynamically register repository');
         assert.strictEqual(repo.rootUri.fsPath, mainRepo.path);
@@ -209,7 +211,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan filters out secondary workspaces when main is present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(secondaryRepo.path)]);
+        await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
 
@@ -227,7 +229,7 @@ suite('JjRepositoryManager Integration Test', () => {
         // Try to dynamically register secondary workspace path
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
 
-        const fileUri = vscode.Uri.file(path.join(secondaryRepo.path, 'file.txt'));
+        const fileUri = Uri.file(path.join(secondaryRepo.path, 'file.txt'));
         const repo = await manager.maybeRegisterRepositoryContainingUri(fileUri);
         // It may return the main repository by prefix match, but the secondary workspace itself must not be registered
         assert.ok(repo === undefined || repo.rootUri.fsPath === mainRepo.path);
@@ -237,7 +239,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan includes secondary workspace if main is NOT present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        await setWorkspaceFolders([vscode.Uri.file(secondaryRepo.path)]);
+        await setWorkspaceFolders([Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
 
@@ -251,19 +253,19 @@ suite('JjRepositoryManager Integration Test', () => {
         const subRepo = new TestRepo(subRepoPath);
         subRepo.init();
 
-        await setWorkspaceFolders([vscode.Uri.file(mainRepo.path), vscode.Uri.file(subRepo.path)]);
+        await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(subRepo.path)]);
 
         await manager.scanForRepositories();
         assert.strictEqual(manager.repositories.length, 2);
 
         // File in subproject should match subRepo (longest prefix match)
-        const fileUri = vscode.Uri.file(path.join(subRepoPath, 'src', 'index.ts'));
+        const fileUri = Uri.file(path.join(subRepoPath, 'src', 'index.ts'));
         const matched = manager.getRepositoryForUri(fileUri);
         assert.ok(matched);
         assert.strictEqual(matched.rootUri.fsPath, subRepoPath);
 
         // File in main project but outside subproject should match mainRepo
-        const mainFileUri = vscode.Uri.file(path.join(mainRepo.path, 'other.ts'));
+        const mainFileUri = Uri.file(path.join(mainRepo.path, 'other.ts'));
         const mainMatched = manager.getRepositoryForUri(mainFileUri);
         assert.ok(mainMatched);
         assert.strictEqual(mainMatched.rootUri.fsPath, mainRepo.path);
@@ -284,7 +286,7 @@ suite('JjRepositoryManager Integration Test', () => {
         repo1.init();
         repo2.init();
 
-        await using _workspace = await setWorkspaceFolders([vscode.Uri.file(parentPath)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(parentPath)]);
 
         await manager.scanForRepositories();
 
@@ -297,10 +299,7 @@ suite('JjRepositoryManager Integration Test', () => {
         using otherRepo = new ScopedTestRepo();
         otherRepo.init();
 
-        await using _workspace = await setWorkspaceFolders([
-            vscode.Uri.file(mainRepo.path),
-            vscode.Uri.file(otherRepo.path),
-        ]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(otherRepo.path)]);
 
         await manager.scanForRepositories();
         const initialFocus = manager.focusedRepository?.rootUri.fsPath;
@@ -311,7 +310,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
         const targetPath = initialFocus === mainRepo.path ? otherRepo.path : mainRepo.path;
 
-        const fileUri = vscode.Uri.file(path.join(targetPath, 'file.ts'));
+        const fileUri = Uri.file(path.join(targetPath, 'file.ts'));
         manager.tryAutoSwitch(fileUri);
 
         assert.strictEqual(manager.focusedRepository?.rootUri.fsPath, targetPath);
@@ -326,7 +325,7 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.scanForRepositories();
 
         // A file URI inside the symlink path should match the repository
-        const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
+        const symlinkFileUri = Uri.file(path.join(symlinkPath, 'file.txt'));
         const matched = manager.getRepositoryForUri(symlinkFileUri);
         assert.ok(matched, 'Should match repository through symbolic link path');
         assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
@@ -361,7 +360,7 @@ suite('JjRepositoryManager Integration Test', () => {
         assert.strictEqual(manager.repositories[0].rootUri.fsPath, mainRepo.path);
 
         // A file URI inside the symlink path should match the repository
-        const symlinkFileUri = vscode.Uri.file(path.join(symlinkPath, 'file.txt'));
+        const symlinkFileUri = Uri.file(path.join(symlinkPath, 'file.txt'));
         const matched = manager.getRepositoryForUri(symlinkFileUri);
         assert.ok(matched, 'Should match repository through nested symlink path');
         assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
@@ -371,10 +370,7 @@ suite('JjRepositoryManager Integration Test', () => {
         using otherRepo = new ScopedTestRepo();
         otherRepo.init();
 
-        await using _workspace = await setWorkspaceFolders([
-            vscode.Uri.file(mainRepo.path),
-            vscode.Uri.file(otherRepo.path),
-        ]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(otherRepo.path)]);
 
         // Stub configuration
         const getStub = sandbox.stub();
@@ -402,7 +398,7 @@ suite('JjRepositoryManager Integration Test', () => {
         using otherRepo = new ScopedTestRepo(otherRepoPath);
         otherRepo.init();
 
-        await setWorkspaceFolders([vscode.Uri.file(mainRepo.path)]);
+        await setWorkspaceFolders([Uri.file(mainRepo.path)]);
 
         // Stub configuration: autoDetect is false, but otherRepo is in scanRepositories
         const getStub = sandbox.stub();
@@ -431,7 +427,7 @@ suite('JjRepositoryManager Integration Test', () => {
         const subfolder = path.join(mainRepo.path, 'src');
         fs.mkdirSync(subfolder, { recursive: true });
 
-        await setWorkspaceFolders([vscode.Uri.file(subfolder)]);
+        await setWorkspaceFolders([Uri.file(subfolder)]);
 
         await manager.scanForRepositories();
 
@@ -443,7 +439,7 @@ suite('JjRepositoryManager Integration Test', () => {
         const subfolder = path.join(mainRepo.path, 'src');
         fs.mkdirSync(subfolder, { recursive: true });
 
-        const registered = await manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder));
+        const registered = await manager.maybeRegisterRepositoryContainingUri(Uri.file(subfolder));
         assert.ok(registered);
         assert.strictEqual(registered.rootUri.fsPath, mainRepo.path);
     });
@@ -515,8 +511,8 @@ suite('JjRepositoryManager Integration Test', () => {
         fs.mkdirSync(subfolder, { recursive: true });
 
         const [repo1, repo2] = await Promise.all([
-            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder)),
-            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder)),
+            manager.maybeRegisterRepositoryContainingUri(Uri.file(subfolder)),
+            manager.maybeRegisterRepositoryContainingUri(Uri.file(subfolder)),
         ]);
 
         assert.ok(repo1);
@@ -536,8 +532,8 @@ suite('JjRepositoryManager Integration Test', () => {
         fs.mkdirSync(subfolder2, { recursive: true });
 
         const [repo1, repo2] = await Promise.all([
-            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder1)),
-            manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(subfolder2)),
+            manager.maybeRegisterRepositoryContainingUri(Uri.file(subfolder1)),
+            manager.maybeRegisterRepositoryContainingUri(Uri.file(subfolder2)),
         ]);
 
         assert.ok(repo1);
@@ -557,7 +553,7 @@ suite('JjRepositoryManager Integration Test', () => {
         using unrelatedRepo = new ScopedTestRepo(tempParent);
         unrelatedRepo.init();
 
-        const registered = await manager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(unrelatedRepo.path));
+        const registered = await manager.maybeRegisterRepositoryContainingUri(Uri.file(unrelatedRepo.path));
         assert.strictEqual(
             registered,
             undefined,
@@ -569,10 +565,10 @@ suite('JjRepositoryManager Integration Test', () => {
         const subfolder = path.join(mainRepo.path, 'src');
         fs.mkdirSync(subfolder, { recursive: true });
 
-        await setWorkspaceFolders([vscode.Uri.file(subfolder)]);
+        await setWorkspaceFolders([Uri.file(subfolder)]);
 
         // Try dynamically registering a file inside the subfolder, which is part of the parent repository
-        const fileUri = vscode.Uri.file(path.join(subfolder, 'file.txt'));
+        const fileUri = Uri.file(path.join(subfolder, 'file.txt'));
         const registered = await manager.maybeRegisterRepositoryContainingUri(fileUri);
 
         assert.ok(registered, 'Should register parent repository');

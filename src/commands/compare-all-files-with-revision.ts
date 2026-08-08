@@ -2,10 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from '../jj-service';
-import { createRevisionUri } from '../uri-utils';
+import { createRevisionUri, Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
 
@@ -40,7 +41,7 @@ export async function compareAllFilesWithRevisionCommand(
                     return;
                 }
 
-                const resources: [vscode.Uri, vscode.Uri][] = [];
+                const resources: [Uri, Uri][] = [];
                 for (const entry of changes) {
                     const isAdded = entry.status === 'added';
                     const isDeleted = entry.status === 'deleted';
@@ -51,7 +52,7 @@ export async function compareAllFilesWithRevisionCommand(
                     const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
                     const rightUri = isDeleted
                         ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
-                        : vscode.Uri.file(path.join(jj.workspaceRoot, rightPath));
+                        : Uri.file(path.join(jj.workspaceRoot, rightPath));
 
                     resources.push([leftUri, rightUri]);
                 }

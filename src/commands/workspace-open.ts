@@ -2,9 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { showJjError } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
@@ -31,7 +33,7 @@ async function openWorkspace(
         }
 
         const workspacePath = await jj.getWorkspaceRoot(workspaceName);
-        const uri = vscode.Uri.file(workspacePath);
+        const uri = Uri.file(workspacePath);
         await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });
     } catch (e) {
         const prefix = workspaceName ? `Failed to open workspace "${workspaceName}"` : 'Failed to resolve workspace';

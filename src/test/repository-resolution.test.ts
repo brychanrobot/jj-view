@@ -2,10 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { resolveRepository } from '../commands/command-utils';
+import { Uri } from '../uri-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
@@ -45,9 +47,9 @@ describe('resolveRepository', () => {
 
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: vscode.Uri.file(repo.path),
+            uri: Uri.file(repo.path),
         });
-        const registered = await repoManager.maybeRegisterRepositoryContainingUri(vscode.Uri.file(repo.path));
+        const registered = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
         if (!registered) {
             throw new Error('Failed to register repository');
         }
@@ -65,7 +67,7 @@ describe('resolveRepository', () => {
     });
 
     it('resolves repository from SourceControlResourceState argument', () => {
-        const mockState = { resourceUri: vscode.Uri.file(path.join(repo.path, 'file.txt')) };
+        const mockState = { resourceUri: Uri.file(path.join(repo.path, 'file.txt')) };
 
         const result = resolveRepository([mockState], repoManager, scmProviders);
 
@@ -75,7 +77,7 @@ describe('resolveRepository', () => {
     });
 
     it('resolves repository from SourceControl object argument', () => {
-        const mockSCM = { rootUri: vscode.Uri.file(repo.path) };
+        const mockSCM = { rootUri: Uri.file(repo.path) };
 
         const result = resolveRepository([mockSCM], repoManager, scmProviders);
 
@@ -101,7 +103,7 @@ describe('resolveRepository', () => {
     });
 
     it('resolves repository from active text editor when no arguments provided', () => {
-        const activeUri = vscode.Uri.file(path.join(repo.path, 'other.txt'));
+        const activeUri = Uri.file(path.join(repo.path, 'other.txt'));
         setActiveTextEditor(
             createMock<vscode.TextEditor>({
                 document: createMock<vscode.TextDocument>({ uri: activeUri }),
@@ -118,7 +120,7 @@ describe('resolveRepository', () => {
     });
 
     it('resolves repository from active custom jj-commit editor', () => {
-        const commitUri = vscode.Uri.from({
+        const commitUri = Uri.from({
             scheme: 'jj-commit',
             path: '/Commit:%20abc123',
             fragment: `changeId=abc12345&repoRoot=${encodeURIComponent(repo.path)}`,
@@ -178,7 +180,7 @@ describe('resolveRepository', () => {
         using _link2 = new ScopedSymlink(jjSymlinkPath, path.join(repo.path, '.jj'), 'dir');
 
         // Resource URI is inside the symlink path
-        const mockState = { resourceUri: vscode.Uri.file(path.join(symlinkPath, 'file.txt')) };
+        const mockState = { resourceUri: Uri.file(path.join(symlinkPath, 'file.txt')) };
 
         const result = resolveRepository([mockState], repoManager, scmProviders);
 

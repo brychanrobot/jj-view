@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { showMultiFileDiffCommand } from '../../commands/multi-diff';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { Uri } from '../../uri-utils';
 import { TestRepo } from '../test-repo';
 
 vi.mock('vscode', async () => {
@@ -54,7 +55,7 @@ describe('showMultiFileDiffCommand', () => {
         expect(title).toContain(changeId.slice(0, 8));
         expect(title).toContain('test commit description');
 
-        const tuples = resourceTuples as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const tuples = resourceTuples as [Uri, Uri, Uri][];
         expect(tuples).toHaveLength(1);
 
         const [label, original, modified] = tuples[0];
@@ -83,7 +84,7 @@ describe('showMultiFileDiffCommand', () => {
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
-        const tuples = call?.[2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const tuples = call?.[2] as [Uri, Uri, Uri][];
         expect(tuples).toHaveLength(1);
 
         // Modified side should use change ID, not '@', with jj-edit scheme
@@ -101,7 +102,7 @@ describe('showMultiFileDiffCommand', () => {
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
 
-        const tuples = call?.[2] as [vscode.Uri, vscode.Uri, vscode.Uri][];
+        const tuples = call?.[2] as [Uri, Uri, Uri][];
         expect(tuples).toHaveLength(1);
     });
 

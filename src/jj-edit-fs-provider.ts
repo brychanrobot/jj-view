@@ -2,15 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
-import { getFsPathFromUri } from './uri-utils';
+import { getFsPathFromUri, Uri } from './uri-utils';
 
 /**
  * Parse a jj-edit URI to extract revision and file path.
  * URI format: jj-edit:///relative/path#root=<repoRoot>&revision=<changeId>
  */
-function parseEditUri(uri: vscode.Uri): { revision: string; filePath: string } {
+function parseEditUri(uri: Uri): { revision: string; filePath: string } {
     const params = new URLSearchParams(uri.fragment);
     const revision = params.get('revision');
     if (!revision) {
@@ -36,7 +37,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
             revision: string;
             filePath: string;
             content: string;
-            uri: vscode.Uri;
+            uri: Uri;
             resolve: () => void;
             reject: (err: unknown) => void;
         }[]
@@ -61,7 +62,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
     invalidateCache() {
         const events: vscode.FileChangeEvent[] = [];
         for (const uriStr of this._knownUris) {
-            const uri = vscode.Uri.parse(uriStr);
+            const uri = Uri.parse(uriStr);
             if (this._repositoryManager.getRepositoryForUri(uri)) {
                 events.push({ type: vscode.FileChangeType.Changed, uri });
             }
@@ -72,7 +73,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    async stat(_uri: vscode.Uri): Promise<vscode.FileStat> {
+    async stat(_uri: Uri): Promise<vscode.FileStat> {
         // Return a default stat. The provider is only used for files we know exist
         // in the revision (they were listed by jj diff). Avoid calling jj here
         // to prevent race conditions and unnecessary overhead.
@@ -84,7 +85,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         };
     }
 
-    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    async readFile(uri: Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
@@ -105,7 +106,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
         return Buffer.from(content, 'utf8');
     }
 
-    async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
+    async writeFile(uri: Uri, content: Uint8Array): Promise<void> {
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
@@ -139,7 +140,7 @@ export class JjEditFileSystemProvider implements vscode.FileSystemProvider {
             const separatorIndex = batchKey.indexOf('\u0000');
             const repoRoot = batchKey.substring(0, separatorIndex);
             const revision = batchKey.substring(separatorIndex + 1);
-            const repo = repoRoot ? this._repositoryManager.getRepositoryForUri(vscode.Uri.file(repoRoot)) : undefined;
+            const repo = repoRoot ? this._repositoryManager.getRepositoryForUri(Uri.file(repoRoot)) : undefined;
             if (!repo) {
                 this._repositoryManager.outputChannel.info(
                     `[JjEditFileSystemProvider.flushWrites] No Jujutsu repository resolved for root: ${repoRoot}`,

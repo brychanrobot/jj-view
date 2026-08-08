@@ -11,7 +11,7 @@ import type { CodeForgeRegistry } from './code-forge-registry';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
-import { getFsPathFromUri, getUriParams } from './uri-utils';
+import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 import { CoalescingQueue } from './utils/coalescing-queue';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
@@ -616,7 +616,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @param uri The VS Code Uri of the file or directory.
      * @returns The registered JjRepository instance, or undefined if not in a valid workspace or if filtered.
      */
-    async maybeRegisterRepositoryContainingUri(uri: vscode.Uri): Promise<JjRepository | undefined> {
+    async maybeRegisterRepositoryContainingUri(uri: Uri): Promise<JjRepository | undefined> {
         if (this._disposed) {
             return undefined;
         }
@@ -716,7 +716,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         const repoPrefix = path.basename(rootPath);
         const repoOutputChannel = new JjOutputChannel(this._outputChannel, repoPrefix);
         return new JjRepository(
-            vscode.Uri.file(rootPath),
+            Uri.file(rootPath),
             resolvedStorePath,
             this._codeForgeRegistry,
             repoOutputChannel,
@@ -901,7 +901,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         );
     }
 
-    private getPathForUri(uri: vscode.Uri): string {
+    private getPathForUri(uri: Uri): string {
         if (uri.scheme === 'jj-commit') {
             try {
                 const query = getUriParams(uri);
@@ -916,7 +916,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         return getFsPathFromUri(uri);
     }
 
-    private async isUriInWorkspaceFolder(uri: vscode.Uri): Promise<boolean> {
+    private async isUriInWorkspaceFolder(uri: Uri): Promise<boolean> {
         if (uri.scheme !== 'file' && !uri.scheme.startsWith('jj-')) {
             return false;
         }
@@ -931,8 +931,8 @@ export class JjRepositoryManager implements vscode.Disposable {
         return false;
     }
 
-    private getOpenEditorUris(): vscode.Uri[] {
-        const uris: vscode.Uri[] = [];
+    private getOpenEditorUris(): Uri[] {
+        const uris: Uri[] = [];
         for (const tabGroup of vscode.window.tabGroups.all) {
             for (const tab of tabGroup.tabs) {
                 const uri = this.getUriFromTab(tab);
@@ -948,7 +948,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * Find the repository that contains the given URI.
      * Uses longest-prefix matching.
      */
-    getRepositoryForUri(uri: vscode.Uri): JjRepository | undefined {
+    getRepositoryForUri(uri: Uri): JjRepository | undefined {
         if (uri.scheme !== 'file' && !uri.scheme.startsWith('jj-')) {
             return undefined;
         }
@@ -1019,7 +1019,7 @@ export class JjRepositoryManager implements vscode.Disposable {
     /**
      * Attempt to switch active repository based on a file URI.
      */
-    tryAutoSwitch(uri: vscode.Uri): boolean {
+    tryAutoSwitch(uri: Uri): boolean {
         const repo = this.getRepositoryForUri(uri);
         if (
             repo &&
@@ -1031,7 +1031,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         return false;
     }
 
-    private getUriFromTab(tab: vscode.Tab): vscode.Uri | undefined {
+    private getUriFromTab(tab: vscode.Tab): Uri | undefined {
         const { input } = tab;
         if (input instanceof vscode.TabInputText) {
             return input.uri;
@@ -1143,7 +1143,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * Closes and disposes a specific repository by its root URI.
      * Fires didClose events and removes it from the managed list.
      */
-    async closeRepository(uri: vscode.Uri): Promise<void> {
+    async closeRepository(uri: Uri): Promise<void> {
         const targetPath = uri.fsPath;
         const normalizedTarget = this.normalizePath(targetPath);
         this._closingPaths.add(normalizedTarget);

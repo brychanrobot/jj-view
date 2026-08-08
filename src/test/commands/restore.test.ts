@@ -6,10 +6,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { restoreCommand } from '../../commands/restore';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -47,7 +47,7 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
         const args = [{ resourceUri: fileUri }];
 
         await restoreCommand(scmProvider, jj, args);
@@ -74,7 +74,7 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
         const args = [{ resourceUri: fileUri, revision: ids.ancestor.changeId }];
 
         await restoreCommand(scmProvider, jj, args);
@@ -103,8 +103,8 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const file1Uri = vscode.Uri.file(path.join(repo.path, file1));
-        const file2Uri = vscode.Uri.file(path.join(repo.path, file2));
+        const file1Uri = Uri.file(path.join(repo.path, file1));
+        const file2Uri = Uri.file(path.join(repo.path, file2));
         const args = [
             { resourceUri: file1Uri, revision: ids.ancestor.changeId },
             { resourceUri: file2Uri, revision: ids.child.changeId },

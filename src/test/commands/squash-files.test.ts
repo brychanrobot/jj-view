@@ -13,6 +13,7 @@ import {
 } from '../../commands/squash-files';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
@@ -84,7 +85,7 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+            const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }];
 
             await squashFilesIntoParentCommand(scmProvider, jj, args);
@@ -126,7 +127,7 @@ describe('squash-files commands', () => {
             setSelectedItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
             setActiveItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
 
-            const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+            const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }];
 
             await squashFilesIntoAncestorCommand(scmProvider, jj, args);
@@ -161,7 +162,7 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+            const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
 
             await squashFilesIntoChildCommand(scmProvider, jj, args);
@@ -187,7 +188,7 @@ describe('squash-files commands', () => {
             setSelectedItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
             setActiveItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
 
-            const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+            const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
 
             await squashFilesIntoChildCommand(scmProvider, jj, args);
@@ -200,7 +201,7 @@ describe('squash-files commands', () => {
             const fileName = 'file.txt';
             const ids = await buildGraph(repo, [{ label: 'only', description: 'only', files: { [fileName]: 'mod' } }]);
 
-            const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+            const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }, { revision: ids.only.changeId }];
 
             await squashFilesIntoChildCommand(scmProvider, jj, args);

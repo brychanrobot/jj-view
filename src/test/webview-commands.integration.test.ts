@@ -16,6 +16,7 @@ import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provi
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
@@ -39,7 +40,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
             messageHandler = handler;
             return { dispose: () => {} };
         },
-        asWebviewUri: (uri: vscode.Uri) => uri,
+        asWebviewUri: (uri: Uri) => uri,
         cspSource: '',
         postMessage: async () => {
             return true;
@@ -69,7 +70,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
         // We need a context for the provider, but we can mock it
         const mockContext = createMock<vscode.ExtensionContext>({
             subscriptions: [],
-            extensionUri: vscode.Uri.file(__dirname),
+            extensionUri: Uri.file(__dirname),
             environmentVariableCollection: createMock<vscode.GlobalEnvironmentVariableCollection>({
                 getScoped: () => createMock<vscode.EnvironmentVariableCollection>({}),
             }),
@@ -85,7 +86,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
             }),
         });
 
-        const extensionUri = vscode.Uri.file(__dirname);
+        const extensionUri = Uri.file(__dirname);
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         scm = contextHelper.scmProvider;
 

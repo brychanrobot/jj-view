@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../../commands/workspace-open';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 
@@ -51,7 +52,7 @@ describe('workspace open commands', () => {
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openFolder',
-            expect.objectContaining({ fsPath: vscode.Uri.file(workspace.path).fsPath }),
+            expect.objectContaining({ fsPath: Uri.file(workspace.path).fsPath }),
             { forceNewWindow: false },
         );
     });
@@ -63,7 +64,7 @@ describe('workspace open commands', () => {
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openFolder',
-            expect.objectContaining({ fsPath: vscode.Uri.file(workspace.path).fsPath }),
+            expect.objectContaining({ fsPath: Uri.file(workspace.path).fsPath }),
             { forceNewWindow: true },
         );
     });
@@ -86,7 +87,7 @@ describe('workspace open commands', () => {
         );
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openFolder',
-            expect.objectContaining({ fsPath: vscode.Uri.file(workspace.path).fsPath }),
+            expect.objectContaining({ fsPath: Uri.file(workspace.path).fsPath }),
             { forceNewWindow: false },
         );
     });

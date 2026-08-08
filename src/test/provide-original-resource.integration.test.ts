@@ -2,10 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
@@ -46,7 +48,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
 
         await scmProvider.refresh({ forceSnapshot: true });
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
+        const fileUri = Uri.file(path.join(repo.path, fileName));
         const originalUri = scmProvider.provideOriginalResource(fileUri);
 
         assert.strictEqual(originalUri, undefined, 'Should return undefined for added files');
@@ -61,7 +63,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
 
         await scmProvider.refresh({ forceSnapshot: true });
 
-        const fileUri = vscode.Uri.file(ignoredPath);
+        const fileUri = Uri.file(ignoredPath);
         const originalUri = scmProvider.provideOriginalResource(fileUri);
 
         assert.strictEqual(originalUri, undefined, 'Should return undefined for untracked/ignored files');
@@ -87,8 +89,8 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
 
         await scmProvider.refresh({ forceSnapshot: true });
 
-        const fileUri = vscode.Uri.file(path.join(repo.path, fileName));
-        const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
+        const fileUri = Uri.file(path.join(repo.path, fileName));
+        const originalUri = scmProvider.provideOriginalResource(fileUri) as Uri;
 
         assert.ok(originalUri, 'Should return a URI for modified files');
         assert.strictEqual(originalUri.scheme, 'jj-view', 'Scheme should be jj-view');

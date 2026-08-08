@@ -2,25 +2,26 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
 import type { JjStatusEntry } from './jj-types';
+import { Uri } from './uri-utils';
 
 export class JjDecorationProvider implements vscode.FileDecorationProvider {
-    private readonly _onDidChangeFileDecorations: vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined> =
-        new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
-    readonly onDidChangeFileDecorations: vscode.Event<vscode.Uri | vscode.Uri[] | undefined> =
-        this._onDidChangeFileDecorations.event;
+    private readonly _onDidChangeFileDecorations: vscode.EventEmitter<Uri | Uri[] | undefined> =
+        new vscode.EventEmitter<Uri | Uri[] | undefined>();
+    readonly onDidChangeFileDecorations: vscode.Event<Uri | Uri[] | undefined> = this._onDidChangeFileDecorations.event;
 
     // Parsed from `jj status` (e.g., Modified, Added, Conflict)
     private scmStatusDecorations = new Map<string, JjStatusEntry>();
 
-    private pendingChecks = new Map<string, vscode.Uri>();
+    private pendingChecks = new Map<string, Uri>();
     private checkTimeout?: NodeJS.Timeout;
 
     // Cache to prevent re-evaluating the same file status repeatedly
-    private trackedStatusCache = new Map<string, { isTracked: boolean; uri: vscode.Uri }>();
+    private trackedStatusCache = new Map<string, { isTracked: boolean; uri: Uri }>();
     private resolveCallbacks = new Map<string, (decoration: vscode.FileDecoration | undefined) => void>();
     private pendingPromises = new Map<string, Promise<vscode.FileDecoration | undefined>>();
 
@@ -83,7 +84,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         }
     }
 
-    private getScmStatusDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    private getScmStatusDecoration(uri: Uri): vscode.FileDecoration | undefined {
         if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
             const scmStatus = this.scmStatusDecorations.get(uri.toString());
             if (scmStatus) {
@@ -100,7 +101,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         return scmStatus ? this.createFileDecoration(scmStatus) : undefined;
     }
 
-    private getWorkspaceRelativePath(uri: vscode.Uri): string | undefined {
+    private getWorkspaceRelativePath(uri: Uri): string | undefined {
         if (!this.workspaceRoot) {
             return undefined;
         }
@@ -132,10 +133,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         return relativePath;
     }
 
-    provideFileDecoration(
-        uri: vscode.Uri,
-        _token: vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.FileDecoration> {
+    provideFileDecoration(uri: Uri, _token: vscode.CancellationToken): vscode.ProviderResult<vscode.FileDecoration> {
         // 1. Check if we have an SCM status decoration from jj status
         const scmStatusDecoration = this.getScmStatusDecoration(uri);
         if (scmStatusDecoration) {
@@ -156,10 +154,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         return this.getTrackedStatusDecoration(uri, relativePath);
     }
 
-    private getTrackedStatusDecoration(
-        uri: vscode.Uri,
-        relativePath: string,
-    ): vscode.ProviderResult<vscode.FileDecoration> {
+    private getTrackedStatusDecoration(uri: Uri, relativePath: string): vscode.ProviderResult<vscode.FileDecoration> {
         // jj intuitively ignores the .jj directory
         if (relativePath === '.jj' || relativePath.startsWith('.jj/') || relativePath.startsWith('.jj\\')) {
             return new vscode.FileDecoration(
@@ -196,7 +191,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         return promise;
     }
 
-    private queueCheck(uri: vscode.Uri, relativePath: string) {
+    private queueCheck(uri: Uri, relativePath: string) {
         this.pendingChecks.set(relativePath, uri);
 
         if (this.checkTimeout) {
@@ -216,7 +211,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
         const pathsToCheck = Array.from(this.pendingChecks.keys());
         const callbacksStr: {
             path: string;
-            uri: vscode.Uri;
+            uri: Uri;
             resolve?: (decoration: vscode.FileDecoration | undefined) => void;
         }[] = [];
         for (const p of pathsToCheck) {
@@ -320,7 +315,7 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
                 }
             }
 
-            const changedUris: vscode.Uri[] = [];
+            const changedUris: Uri[] = [];
 
             for (const [itemPath, cacheEntry] of entries) {
                 const normalizedItemPath = itemPath.replace(/\\/g, '/');
@@ -351,14 +346,14 @@ export class JjDecorationProvider implements vscode.FileDecorationProvider {
     }
 
     private updateScmStatusDecorations(scmStatusDecorations: Map<string, JjStatusEntry>) {
-        const changedUris: vscode.Uri[] = [];
+        const changedUris: Uri[] = [];
 
-        const relativeKeyToUri = (key: string): vscode.Uri => {
+        const relativeKeyToUri = (key: string): Uri => {
             if (key.startsWith('file:') || key.startsWith('jj-edit:') || key.startsWith('jj-view:')) {
-                return vscode.Uri.parse(key);
+                return Uri.parse(key);
             }
             const relKey = key.replace(/^[/\\]+/, '');
-            return vscode.Uri.file(path.join(this.workspaceRoot, relKey));
+            return Uri.file(path.join(this.workspaceRoot, relKey));
         };
 
         // Compare old and new SCM status

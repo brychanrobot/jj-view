@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from './code-forge-service';
@@ -13,7 +14,7 @@ import { JjContextKey } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from './jj-types';
-import { getUriParams } from './uri-utils';
+import { getUriParams, Uri } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -31,14 +32,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public readonly outputChannel?: JjLoggerChannel;
 
     constructor(
-        extensionUri: vscode.Uri,
+        extensionUri: Uri,
         initialRepo: JjRepository | undefined,
         onSelectionChange: (commits: string[]) => void,
         context: vscode.ExtensionContext,
         outputChannel?: JjLoggerChannel,
     );
     constructor(
-        extensionUri: vscode.Uri,
+        extensionUri: Uri,
         initialRepo: JjRepository | undefined,
         commitDetailsProvider: JjCommitDetailsEditorProvider,
         onSelectionChange: (commits: string[]) => void,
@@ -46,7 +47,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
         outputChannel?: JjLoggerChannel,
     );
     constructor(
-        private readonly _extensionUri: vscode.Uri,
+        private readonly _extensionUri: Uri,
         initialRepo: JjRepository | undefined,
         arg3: JjCommitDetailsEditorProvider | ((commits: string[]) => void),
         arg4?: ((commits: string[]) => void) | vscode.ExtensionContext,
@@ -191,7 +192,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                 },
                 openCodeForge: async (msg) => {
                     if (msg.payload.url) {
-                        await vscode.env.openExternal(vscode.Uri.parse(msg.payload.url));
+                        await vscode.env.openExternal(Uri.parse(msg.payload.url));
                     }
                 },
                 newChild: async (msg) => {
@@ -509,14 +510,10 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
-        const themesUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', 'themes.generated.css'),
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'),
-        );
+        const scriptUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
+        const styleUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const themesUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'themes.generated.css'));
+        const codiconsUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'));
 
         const nonce = getNonce();
         const initialDataScript = initialData ? `window.vscodeInitialData = ${JSON.stringify(initialData)};` : '';

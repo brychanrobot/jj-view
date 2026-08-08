@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -11,14 +12,14 @@ import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
-import { getFsPathFromUri, getUriParams } from '../uri-utils';
+import { getFsPathFromUri, getUriParams, Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitDescription } from '../utils/format-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
-function hasResourceUri(arg: unknown): arg is { resourceUri: vscode.Uri } {
+function hasResourceUri(arg: unknown): arg is { resourceUri: Uri } {
     return typeof arg === 'object' && arg !== null && 'resourceUri' in arg;
 }
 
@@ -180,14 +181,14 @@ export function extractRevision(args: unknown[]): string | undefined {
 /**
  * Extracts a file URI from command arguments (Uri, SCM resource state, or active text editor).
  */
-export function extractFileUri(args: unknown[]): vscode.Uri | undefined {
+export function extractFileUri(args: unknown[]): Uri | undefined {
     const firstArg = args[0];
-    if (firstArg instanceof vscode.Uri) {
+    if (Uri.isUri(firstArg)) {
         return firstArg;
     }
     if (typeof firstArg === 'object' && firstArg !== null && 'resourceUri' in firstArg) {
         const state = firstArg as { resourceUri: unknown };
-        if (state.resourceUri instanceof vscode.Uri) {
+        if (Uri.isUri(state.resourceUri)) {
             return state.resourceUri;
         }
     }
@@ -442,16 +443,16 @@ export async function maybeFormatDescriptionOnSave(
  * Extracts a candidate Uri from command arguments.
  * Checks for SourceControlResourceState (resourceUri) or SourceControl (rootUri) objects.
  */
-export function extractUriFromArgs(args: unknown[]): vscode.Uri | undefined {
+export function extractUriFromArgs(args: unknown[]): Uri | undefined {
     const firstArg = args[0];
-    if (firstArg instanceof vscode.Uri) {
+    if (Uri.isUri(firstArg)) {
         return firstArg;
     }
     if (firstArg && typeof firstArg === 'object') {
-        if ('resourceUri' in firstArg && firstArg.resourceUri instanceof vscode.Uri) {
+        if ('resourceUri' in firstArg && Uri.isUri(firstArg.resourceUri)) {
             return firstArg.resourceUri;
         }
-        if ('rootUri' in firstArg && firstArg.rootUri instanceof vscode.Uri) {
+        if ('rootUri' in firstArg && Uri.isUri(firstArg.rootUri)) {
             return firstArg.rootUri;
         }
     }
@@ -499,7 +500,7 @@ export function resolveRepository(
         }
     }
 
-    let uri: vscode.Uri | undefined;
+    let uri: Uri | undefined;
 
     // 2. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
     uri = extractUriFromArgs(args);
@@ -518,7 +519,7 @@ export function resolveRepository(
                 const query = getUriParams(docUri);
                 const repoRoot = query.get('repoRoot');
                 if (repoRoot) {
-                    uri = vscode.Uri.file(decodeURIComponent(repoRoot));
+                    uri = Uri.file(decodeURIComponent(repoRoot));
                     repositoryManager.outputChannel.info(
                         `[resolveRepository] Resolved candidate URI from active jj-commit editor repoRoot: ${uri.toString()}`,
                     );

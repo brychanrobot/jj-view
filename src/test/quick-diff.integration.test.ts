@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
@@ -53,7 +54,7 @@ suite('Quick Diff Integration Test', () => {
         originalReadFile = viewFileSystemProvider.readFile;
 
         // Override provideOriginalResource to return the test scheme
-        scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
+        scmProvider.provideOriginalResource = (uri: Uri) => {
             return uri.with({ scheme: 'jj-view-test', fragment: 'base=@&side=left' });
         };
 
@@ -106,7 +107,7 @@ suite('Quick Diff Integration Test', () => {
         });
     }
 
-    function isSameUri(u1: vscode.Uri, u2: vscode.Uri): boolean {
+    function isSameUri(u1: Uri, u2: Uri): boolean {
         return (
             u1.scheme === u2.scheme &&
             u1.path.toLowerCase().replace(/\\/g, '/') === u2.path.toLowerCase().replace(/\\/g, '/') &&
@@ -120,13 +121,13 @@ suite('Quick Diff Integration Test', () => {
         repo.new(undefined, 'test');
         repo.writeFile(fileName, 'modified\n');
 
-        const fileUri = vscode.Uri.file(`${canonicalPath}/${fileName}`);
-        const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
+        const fileUri = Uri.file(`${canonicalPath}/${fileName}`);
+        const originalUri = scmProvider.provideOriginalResource(fileUri) as Uri;
 
         // Track calls to readFile
         let readCount = 0;
         const originalReadFile = viewFileSystemProvider.readFile.bind(viewFileSystemProvider);
-        viewFileSystemProvider.readFile = async (uri: vscode.Uri) => {
+        viewFileSystemProvider.readFile = async (uri: Uri) => {
             if (uri.toString() === originalUri.toString()) {
                 readCount++;
             }
@@ -155,8 +156,8 @@ suite('Quick Diff Integration Test', () => {
         repo.new();
         repo.writeFile(fileName, 'modified in WC\n');
 
-        const fileUri = vscode.Uri.file(path.join(canonicalPath, fileName));
-        const originalUri = scmProvider.provideOriginalResource(fileUri) as vscode.Uri;
+        const fileUri = Uri.file(path.join(canonicalPath, fileName));
+        const originalUri = scmProvider.provideOriginalResource(fileUri) as Uri;
 
         // Register URI by reading once
         await viewFileSystemProvider.readFile(originalUri);
@@ -189,8 +190,8 @@ suite('Quick Diff Integration Test', () => {
         repo.edit(v1Id);
         await scmProvider.refresh(); // Ensure provider status is updated after repo change
 
-        const fileUri = vscode.Uri.file(path.join(canonicalPath, fileName));
-        const originalUri = (await scmProvider.provideOriginalResource(fileUri)) as vscode.Uri;
+        const fileUri = Uri.file(path.join(canonicalPath, fileName));
+        const originalUri = (await scmProvider.provideOriginalResource(fileUri)) as Uri;
         assert.ok(originalUri, `provideOriginalResource should return a URI for ${fileUri.fsPath}`);
 
         // Register URI by reading once

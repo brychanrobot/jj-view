@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import { ChangeDetectionManager } from '../change-detection-manager';
 import { DirectoryWatcher } from '../directory-watcher';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMock, createMockLogOutputChannel } from './test-utils';
 
@@ -192,7 +193,7 @@ describe('ChangeDetectionManager', () => {
 
             // Simulate save
             const mockDoc = createMock<vscode.TextDocument>({
-                uri: vscode.Uri.file(path.join(repo.path, 'test.txt')),
+                uri: Uri.file(path.join(repo.path, 'test.txt')),
             });
 
             onDidSaveTextDocument(mockDoc);

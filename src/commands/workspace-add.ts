@@ -2,11 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import { getErrorMessage } from './command-utils';
 
@@ -70,7 +72,7 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
         );
 
         if (result === OPEN) {
-            const uri = vscode.Uri.file(destination);
+            const uri = Uri.file(destination);
             await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
         }
     } catch (e) {

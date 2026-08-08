@@ -12,6 +12,7 @@ import { squashHunkIntoParentCommand } from '../commands/squash-selection';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -60,7 +61,7 @@ suite('Quick Diff Commands Integration Test', () => {
         jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider(uniqueScheme, viewFileSystemProvider);
         context.subscriptions.push(jjViewProviderDisposable);
 
-        scmProvider.provideOriginalResource = (uri: vscode.Uri) => {
+        scmProvider.provideOriginalResource = (uri: Uri) => {
             return uri.with({
                 scheme: uniqueScheme,
                 fragment: `base=@&side=left&root=${encodeURIComponent(canonicalPath)}`,
@@ -105,7 +106,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ]);
 
         const filePath = path.join(canonicalPath, fileName);
-        const fileUri = vscode.Uri.file(filePath);
+        const fileUri = Uri.file(filePath);
 
         // Verify initial state
         assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), fileContentModified);
@@ -149,7 +150,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ]);
 
         const filePath = path.join(canonicalPath, fileName);
-        const fileUri = vscode.Uri.file(filePath);
+        const fileUri = Uri.file(filePath);
 
         // Verify initial state
         assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), fileContentModified);
@@ -194,7 +195,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ]);
 
         const filePath = path.join(canonicalPath, fileName);
-        const fileUri = vscode.Uri.file(filePath);
+        const fileUri = Uri.file(filePath);
 
         // Construct LineChange for modification
         const changes = [

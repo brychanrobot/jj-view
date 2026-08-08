@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../../commands/squash-selection';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 
@@ -80,7 +81,7 @@ describe('squash-selection commands', () => {
             ]);
             repo.edit(ids.modified.changeId);
 
-            const uri = vscode.Uri.file(path.join(repo.path, fileName));
+            const uri = Uri.file(path.join(repo.path, fileName));
             const changes = [
                 {
                     originalStartLineNumber: 2,
@@ -150,7 +151,7 @@ describe('squash-selection commands', () => {
             ]);
             repo.edit(ids.modified.changeId);
 
-            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+            const uri = Uri.file(path.join(repo.path, fileName)).with({
                 query: 'jj-revision=@',
             });
 
@@ -195,7 +196,7 @@ describe('squash-selection commands', () => {
             ]);
 
             // URI using 'revision' parameter (jj-edit style)
-            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+            const uri = Uri.file(path.join(repo.path, fileName)).with({
                 scheme: 'jj-edit',
                 query: `revision=${ids.modified.changeId}`,
             });
@@ -232,7 +233,7 @@ describe('squash-selection commands', () => {
             ]);
 
             // URI using 'base' parameter (jj-view style)
-            const uri = vscode.Uri.file(path.join(repo.path, fileName)).with({
+            const uri = Uri.file(path.join(repo.path, fileName)).with({
                 scheme: 'jj-view',
                 query: `base=${ids.modified.changeId}&side=right`,
             });

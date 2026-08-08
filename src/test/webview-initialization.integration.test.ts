@@ -2,12 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from '../code-forge-service';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepository } from '../jj-repository';
+import { Uri } from '../uri-utils';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -19,7 +21,7 @@ function createMockWebviewView() {
         options: {},
         html: '',
         onDidReceiveMessage: () => ({ dispose: () => {} }),
-        asWebviewUri: (uri: vscode.Uri) => uri,
+        asWebviewUri: (uri: Uri) => uri,
         cspSource: '',
         postMessage: async () => true,
     });
@@ -48,7 +50,7 @@ suite('Webview Initialization Integration Test', () => {
     let disposables: vscode.Disposable[] = [];
     let testContext: Awaited<ReturnType<typeof createTestRepositoryContext>>;
     let commitDetailsProvider: JjCommitDetailsEditorProvider;
-    let extensionUri: vscode.Uri;
+    let extensionUri: Uri;
     let outputChannel: ReturnType<typeof createMockLogOutputChannel>;
 
     setup(async () => {
@@ -58,7 +60,7 @@ suite('Webview Initialization Integration Test', () => {
         outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        extensionUri = vscode.Uri.file(__dirname);
+        extensionUri = Uri.file(__dirname);
         testContext = await createTestRepositoryContext(repo.path, outputChannel);
         disposables.push(testContext);
 
@@ -182,7 +184,7 @@ suite('Webview Initialization Integration Test', () => {
         });
 
         const mockRepo = createMock<JjRepository>({
-            rootUri: vscode.Uri.file('/tmp/slow-repo'),
+            rootUri: Uri.file('/tmp/slow-repo'),
             isValid: async () => true,
             jj: testContext.repository.jj,
             codeForge: createMock<CodeForgeService>({
@@ -228,7 +230,7 @@ suite('Webview Initialization Integration Test', () => {
         });
 
         const mockRepo = createMock<JjRepository>({
-            rootUri: vscode.Uri.file('/tmp/reject-repo'),
+            rootUri: Uri.file('/tmp/reject-repo'),
             isValid: async () => true,
             jj: testContext.repository.jj,
             codeForge: createMock<CodeForgeService>({

@@ -2,10 +2,12 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { openChangesCommand, openFileCommand } from '../../commands/open';
 import type { JjResourceState } from '../../scm-resource-state';
+import { Uri } from '../../uri-utils';
 import { createMock } from '../test-utils';
 import { setActiveTextEditor } from '../vscode-mock';
 
@@ -27,7 +29,7 @@ describe('openFileCommand', () => {
 
     test('executes vscode.open from SourceControlResourceState', async () => {
         const resourceState = createMock<vscode.SourceControlResourceState>({
-            resourceUri: vscode.Uri.parse('file:///foo?jj-revision=@'),
+            resourceUri: Uri.parse('file:///foo?jj-revision=@'),
         });
 
         await openFileCommand(resourceState);
@@ -43,7 +45,7 @@ describe('openFileCommand', () => {
     });
 
     test('executes vscode.open from a historical URI (jj-view scheme)', async () => {
-        const uri = vscode.Uri.parse('jj-view:///foo/bar.txt?base=c123&side=left');
+        const uri = Uri.parse('jj-view:///foo/bar.txt?base=c123&side=left');
 
         await openFileCommand(uri);
 
@@ -61,7 +63,7 @@ describe('openFileCommand', () => {
         setActiveTextEditor(
             createMock<vscode.TextEditor>({
                 document: createMock<vscode.TextDocument>({
-                    uri: vscode.Uri.parse('jj-edit:///baz/qux.ts?revision=rev123'),
+                    uri: Uri.parse('jj-edit:///baz/qux.ts?revision=rev123'),
                 }),
             }),
         );
@@ -91,7 +93,7 @@ describe('openChangesCommand', () => {
 
     test('does nothing if resource state has no leftUri or rightUri', async () => {
         const resourceState = createMock<JjResourceState>({
-            resourceUri: vscode.Uri.file('/foo'),
+            resourceUri: Uri.file('/foo'),
             revision: '@',
         });
 
@@ -100,10 +102,10 @@ describe('openChangesCommand', () => {
     });
 
     test('executes the diffCommand with its URIs and title', async () => {
-        const leftUri = vscode.Uri.file('/left');
-        const rightUri = vscode.Uri.file('/right');
+        const leftUri = Uri.file('/left');
+        const rightUri = Uri.file('/right');
         const resourceState = createMock<JjResourceState>({
-            resourceUri: vscode.Uri.file('/foo'),
+            resourceUri: Uri.file('/foo'),
             revision: '@',
             leftUri,
             rightUri,

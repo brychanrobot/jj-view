@@ -2,22 +2,23 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
 import { WebviewToHostMessageSchema } from './common/ipc-schemas';
 import { createWebviewRpcDispatcher } from './common/webview-rpc-dispatcher';
 import { createJjResourceState } from './scm-resource-state';
-import { getUriParams } from './uri-utils';
+import { getUriParams, Uri } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { formatCommitTitle } from './utils/jj-utils';
 
 export class JjCommitDocument implements vscode.CustomDocument {
-    public readonly uri: vscode.Uri;
+    public readonly uri: Uri;
     public readonly changeId: string;
-    public readonly repoRoot?: vscode.Uri;
+    public readonly repoRoot?: Uri;
     public draftDescription?: string;
     public persistedDescription?: string;
 
-    constructor(uri: vscode.Uri, changeId: string, repoRoot?: vscode.Uri) {
+    constructor(uri: Uri, changeId: string, repoRoot?: Uri) {
         this.uri = uri;
         this.changeId = changeId;
         this.repoRoot = repoRoot;
@@ -55,11 +56,11 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
     >();
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
+        private readonly _extensionUri: Uri,
         private readonly _repositoryManager: import('./jj-repository-manager').JjRepositoryManager,
     ) {}
 
-    private getRepositoryForRoot(repoRoot?: vscode.Uri) {
+    private getRepositoryForRoot(repoRoot?: Uri) {
         return repoRoot
             ? this._repositoryManager.getRepositoryForUri(repoRoot)
             : this._repositoryManager.focusedRepository;
@@ -184,7 +185,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
 
     public async saveCustomDocumentAs(
         _document: JjCommitDocument,
-        _destination: vscode.Uri,
+        _destination: Uri,
         _cancellation: vscode.CancellationToken,
     ): Promise<void> {
         // Not applicable for this editor
@@ -212,7 +213,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
     }
 
     public async openCustomDocument(
-        uri: vscode.Uri,
+        uri: Uri,
         _openContext: vscode.CustomDocumentOpenContext,
         _token: vscode.CancellationToken,
     ): Promise<JjCommitDocument> {
@@ -220,7 +221,7 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
         const urlParams = getUriParams(uri);
         const changeId = urlParams.get('changeId') || '';
         const repoRootPath = urlParams.get('repoRoot');
-        const repoRoot = repoRootPath ? vscode.Uri.file(repoRootPath) : undefined;
+        const repoRoot = repoRootPath ? Uri.file(repoRootPath) : undefined;
         return new JjCommitDocument(uri, changeId, repoRoot);
     }
 
@@ -450,11 +451,9 @@ export class JjCommitDetailsEditorProvider implements vscode.CustomEditorProvide
     }
 
     private _getHtmlForWebview(webview: vscode.Webview, initialData?: unknown) {
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'),
-        );
+        const scriptUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'dist', 'webview', 'index.js'));
+        const styleUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const codiconsUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'codicons', 'codicon.css'));
 
         let nonceText = '';
         const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -506,7 +505,7 @@ export async function openCommitDetails(
         minChangeIdLength,
     );
 
-    const uri = vscode.Uri.from({
+    const uri = Uri.from({
         scheme: 'jj-commit',
         authority: 'commit',
         path: `/${title}`,
@@ -518,10 +517,7 @@ export async function openCommitDetails(
     await vscode.commands.executeCommand('vscode.openWith', uri, JjCommitDetailsEditorProvider.viewType);
 }
 
-export async function closeOtherCommitDetailsTabs(
-    currentUri: vscode.Uri,
-    workspaceRoot: string | undefined,
-): Promise<void> {
+export async function closeOtherCommitDetailsTabs(currentUri: Uri, workspaceRoot: string | undefined): Promise<void> {
     const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
     const tabsToClose = allTabs.filter((tab) => {
         if (!(tab.input instanceof vscode.TabInputCustom)) {

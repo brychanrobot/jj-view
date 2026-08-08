@@ -12,6 +12,7 @@ import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
+import { Uri } from '../uri-utils';
 import { createMock } from './test-utils';
 
 export interface TestRepositoryContext {
@@ -26,7 +27,7 @@ export interface TestRepositoryContext {
 async function updateWorkspaceFoldersWithRetry(
     start: number,
     deleteCount: number | undefined | null,
-    ...workspaceFoldersToAdd: { uri: vscode.Uri; name?: string }[]
+    ...workspaceFoldersToAdd: { uri: Uri; name?: string }[]
 ): Promise<boolean> {
     for (let attempt = 0; attempt < 20; attempt++) {
         if (attempt > 0) {
@@ -59,7 +60,7 @@ export async function createTestRepositoryContext(
 ): Promise<TestRepositoryContext> {
     void outputChannel;
     const originalFolders = vscode.workspace.workspaceFolders || [];
-    const uri = vscode.Uri.file(repoPath);
+    const uri = Uri.file(repoPath);
 
     // Add repoPath as a workspace folder if not already present
     const isPresent = originalFolders.some((f) => f.uri.fsPath === uri.fsPath);
@@ -91,11 +92,11 @@ export async function createTestRepositoryContext(
     // Wait for the repository to be registered by the global manager's scan
     const realRoot = await fs.realpath(repoPath);
 
-    let repository = repositoryManager.getRepositoryForUri(vscode.Uri.file(realRoot));
+    let repository = repositoryManager.getRepositoryForUri(Uri.file(realRoot));
     if (!repository) {
         await new Promise<void>((resolve, reject) => {
             const disposable = repositoryManager.onDidChangeRepositories(() => {
-                repository = repositoryManager.getRepositoryForUri(vscode.Uri.file(realRoot));
+                repository = repositoryManager.getRepositoryForUri(Uri.file(realRoot));
                 if (repository) {
                     disposable.dispose();
                     resolve();

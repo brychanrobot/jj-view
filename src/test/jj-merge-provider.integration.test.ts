@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { JjMergeContentProvider } from '../jj-merge-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { TestRepo } from './test-repo';
 
 suite('JJ Merge Provider Integration Test', () => {
@@ -57,7 +58,7 @@ suite('JJ Merge Provider Integration Test', () => {
 
         // Construct URI to match JjScmProvider (relative path + query)
         const encodedPath = encodeURIComponent(filePath);
-        const fileUri = vscode.Uri.file(filePath);
+        const fileUri = Uri.file(filePath);
         const relativePath = vscode.workspace.asRelativePath(fileUri);
         const virtualPath = path.posix.join('/', relativePath);
 
@@ -118,7 +119,7 @@ suite('JJ Merge Provider Integration Test', () => {
         repo.new([leftId, '@'], 'merge');
 
         const encodedPath = encodeURIComponent(filePath);
-        const fileUri = vscode.Uri.file(filePath);
+        const fileUri = Uri.file(filePath);
         const relativePath = vscode.workspace.asRelativePath(fileUri);
         const virtualPath = path.posix.join('/', relativePath);
 

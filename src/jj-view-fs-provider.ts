@@ -2,8 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as vscode from 'vscode';
-import { decodeJjViewQuery, getFsPathFromUri } from './uri-utils';
+import { decodeJjViewQuery, getFsPathFromUri, Uri } from './uri-utils';
 
 /**
  * A FileSystemProvider that provides read-only access to "original" file content
@@ -36,7 +37,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         this._cache.clear();
         const events: vscode.FileChangeEvent[] = [];
         for (const uriStr of this._knownUris) {
-            const uri = vscode.Uri.parse(uriStr);
+            const uri = Uri.parse(uriStr);
             if (this._repositoryManager.getRepositoryForUri(uri)) {
                 events.push({ type: vscode.FileChangeType.Changed, uri });
             }
@@ -47,7 +48,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    async stat(_uri: vscode.Uri): Promise<vscode.FileStat> {
+    async stat(_uri: Uri): Promise<vscode.FileStat> {
         return {
             type: vscode.FileType.File,
             ctime: 0,
@@ -56,7 +57,7 @@ export class JjViewFileSystemProvider implements vscode.FileSystemProvider {
         };
     }
 
-    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    async readFile(uri: Uri): Promise<Uint8Array> {
         this._knownUris.add(uri.toString());
         const filePath = getFsPathFromUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);

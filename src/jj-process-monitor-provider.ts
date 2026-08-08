@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import type { JjProcessTask, JjProcessTracker } from './jj-process-tracker';
 import { getTaskExitCode } from './jj-process-tracker';
+import { Uri } from './uri-utils';
 import { CoalescingQueue } from './utils/coalescing-queue';
 
 export class JjProcessMonitorProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -18,7 +19,7 @@ export class JjProcessMonitorProvider implements vscode.WebviewViewProvider, vsc
     });
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
+        private readonly _extensionUri: Uri,
         private readonly _processTracker: JjProcessTracker,
     ) {
         this._disposables.push(
@@ -155,9 +156,9 @@ export class JjProcessMonitorProvider implements vscode.WebviewViewProvider, vsc
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
         const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'process-monitor.js'),
+            Uri.joinPath(this._extensionUri, 'dist', 'webview', 'process-monitor.js'),
         );
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const styleUri = webview.asWebviewUri(Uri.joinPath(this._extensionUri, 'media', 'main.css'));
         const nonce = getNonce();
 
         return `<!DOCTYPE html>

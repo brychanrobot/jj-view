@@ -2,12 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
-import { getRevisionFromUri, isJjScheme } from './uri-utils';
+import { getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 
 interface CollectedTabs {
@@ -21,7 +22,7 @@ export class DiffTabCleaner {
 
     constructor(
         private readonly jj: JjService,
-        private readonly belongsToRepo: (uri: vscode.Uri) => boolean,
+        private readonly belongsToRepo: (uri: Uri) => boolean,
         private readonly outputChannel?: JjLoggerChannel,
     ) {}
 
@@ -104,7 +105,7 @@ export class DiffTabCleaner {
     /**
      * Extracts a revision from a URI if it belongs to this repository and is not a working copy revision.
      */
-    private getRevisionIfRelevant(uri: vscode.Uri): string | undefined {
+    private getRevisionIfRelevant(uri: Uri): string | undefined {
         if (isJjScheme(uri) && this.belongsToRepo(uri)) {
             const rev = getRevisionFromUri(uri);
             if (rev && rev !== '@' && rev !== '@-') {
