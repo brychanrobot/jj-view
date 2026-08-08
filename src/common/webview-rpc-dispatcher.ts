@@ -1,0 +1,238 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import { z } from 'zod';
+
+export type DiscriminatedMessage<K extends string = 'type'> = {
+    [P in K]: string;
+};
+
+export type MessageHandlerMap<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
+    [V in TMessage[K]]?: (message: Extract<TMessage, Record<K, V>>) => unknown | Promise<unknown>;
+};
+
+export interface LoggerLike {
+    info?(message: string, ...args: unknown[]): void;
+    warn?(message: string, ...args: unknown[]): void;
+    error(message: string, ...args: unknown[]): void;
+}
+
+export interface WebviewRpcDispatcherOptions<K extends string = 'type'> {
+    discriminatorKey?: K;
+    logger?: LoggerLike;
+    messenger?: WebviewPostMessageLike;
+    onError?: (error: unknown, rawMessage: unknown) => void;
+}
+
+export const loggerSchema = z.object({
+    type: z.literal('logMessage'),
+    payload: z.object({
+        level: z.enum(['info', 'warn', 'error']),
+        message: z.string(),
+        details: z.string().optional(),
+    }),
+});
+
+export const rpcResponseSchema = z.object({
+    type: z.literal('__rpc_response__'),
+    requestId: z.string(),
+    result: z.unknown().optional(),
+    error: z.string().optional(),
+});
+
+type PendingPromise = {
+    resolve: (value: unknown) => void;
+    reject: (reason: unknown) => void;
+};
+
+export class WebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> {
+    private readonly discriminatorKey: K;
+    private readonly pendingRequests = new Map<string, PendingPromise>();
+
+    constructor(
+        private readonly schema: z.ZodType<TMessage>,
+        private readonly handlers: MessageHandlerMap<TMessage, K>,
+        private readonly options?: WebviewRpcDispatcherOptions<K>,
+    ) {
+        this.discriminatorKey = options?.discriminatorKey ?? ('type' as K);
+    }
+
+    public registerPendingRequest(requestId: string): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+            this.pendingRequests.set(requestId, { resolve, reject });
+        });
+    }
+
+    private handleRpcResponse(rawMessage: unknown): boolean {
+        const responseParse = rpcResponseSchema.safeParse(rawMessage);
+        if (!responseParse.success) {
+            return false;
+        }
+        const { requestId, result, error } = responseParse.data;
+        const pending = this.pendingRequests.get(requestId);
+        if (pending) {
+            this.pendingRequests.delete(requestId);
+            if (error !== undefined) {
+                pending.reject(new Error(error));
+            } else {
+                pending.resolve(result);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private async handleLogMessage(rawMessage: unknown): Promise<boolean> {
+        const logMsgParse = loggerSchema.safeParse(rawMessage);
+        if (!logMsgParse.success) {
+            return false;
+        }
+
+        const { level, message, details } = logMsgParse.data.payload;
+        const logStr = details ? `${message}: ${details}` : message;
+        if (level === 'info') {
+            this.options?.logger?.info?.(logStr);
+        } else if (level === 'warn') {
+            this.options?.logger?.warn?.(logStr);
+        } else {
+            this.options?.logger?.error(logStr);
+        }
+
+        const customHandler = (this.handlers as Record<string, unknown>).logMessage;
+        if (typeof customHandler === 'function') {
+            await (customHandler as (msg: unknown) => Promise<void>)(rawMessage);
+        }
+        return true;
+    }
+
+    public async dispatch(rawMessage: unknown): Promise<boolean> {
+        if (this.handleRpcResponse(rawMessage)) {
+            return true;
+        }
+
+        if (await this.handleLogMessage(rawMessage)) {
+            return true;
+        }
+
+        const parseResult = this.schema.safeParse(rawMessage);
+        if (!parseResult.success) {
+            const isUnknownDiscriminator = parseResult.error.issues.some((issue) => issue.code === 'invalid_union');
+            if (isUnknownDiscriminator) {
+                return false;
+            }
+            this.options?.logger?.error('Webview RPC validation failed', parseResult.error);
+            this.options?.onError?.(parseResult.error, rawMessage);
+            return false;
+        }
+
+        const message = parseResult.data;
+        const typeValue = message[this.discriminatorKey] as TMessage[K];
+        const handler = this.handlers[typeValue];
+        const requestId = (rawMessage as Record<string, unknown>)?.requestId as string | undefined;
+
+        if (typeof handler === 'function') {
+            try {
+                const result = await handler(message as Extract<TMessage, Record<K, typeof typeValue>>);
+                if (requestId && this.options?.messenger) {
+                    this.options.messenger.postMessage({
+                        type: '__rpc_response__',
+                        requestId,
+                        result,
+                    });
+                }
+                return true;
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                this.options?.logger?.error(`Webview RPC handler error (${String(typeValue)})`, err);
+                this.options?.onError?.(err, rawMessage);
+
+                if (requestId && this.options?.messenger) {
+                    this.options.messenger.postMessage({
+                        type: '__rpc_response__',
+                        requestId,
+                        error: errorMessage,
+                    });
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+}
+
+export function createWebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
+    schema: z.ZodType<TMessage>,
+    handlers: MessageHandlerMap<TMessage, K>,
+    options?: WebviewRpcDispatcherOptions<K>,
+): WebviewRpcDispatcher<TMessage, K> {
+    return new WebviewRpcDispatcher<TMessage, K>(schema, handlers, options);
+}
+
+export type RpcClientMethods<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
+    [V in TMessage[K]]: (
+        ...args: Omit<Extract<TMessage, Record<K, V>>, K | 'requestId'> extends Record<string, never>
+            ? []
+            : [payload: Omit<Extract<TMessage, Record<K, V>>, K | 'requestId'>]
+    ) => Promise<unknown>;
+};
+
+export interface WebviewPostMessageLike {
+    postMessage(message: unknown): unknown;
+}
+
+export interface WebviewRpcPendingRequestRegisterable {
+    registerPendingRequest(requestId: string): Promise<unknown>;
+}
+
+export interface WebviewRpcClientOptions<
+    K extends string = 'type',
+    TResponseMsg extends DiscriminatedMessage<K> = DiscriminatedMessage<K>,
+> {
+    discriminatorKey?: K;
+    dispatcher?: WebviewRpcDispatcher<TResponseMsg, K> | WebviewRpcPendingRequestRegisterable;
+}
+
+export function createWebviewRpcClient<
+    TMessage extends DiscriminatedMessage<K>,
+    K extends string = 'type',
+    TResponseMsg extends DiscriminatedMessage<K> = DiscriminatedMessage<K>,
+>(
+    webview: WebviewPostMessageLike,
+    schema?: z.ZodType<TMessage>,
+    options?: WebviewRpcClientOptions<K, TResponseMsg>,
+): RpcClientMethods<TMessage, K> {
+    let requestIdCounter = 0;
+    const discriminatorKey = options?.discriminatorKey ?? ('type' as K);
+
+    return new Proxy({} as RpcClientMethods<TMessage, K>, {
+        get(_target, prop: string) {
+            return (payload?: Record<string, unknown>) => {
+                const requestId = `req_${Date.now()}_${++requestIdCounter}`;
+                const message = {
+                    [discriminatorKey]: prop,
+                    requestId,
+                    ...(payload ?? {}),
+                };
+
+                if (schema) {
+                    const parseResult = schema.safeParse(message);
+                    if (!parseResult.success) {
+                        throw new Error(`Invalid RPC message '${prop}': ${parseResult.error.message}`);
+                    }
+                }
+
+                let pendingPromise: Promise<unknown> | undefined;
+                if (options?.dispatcher) {
+                    pendingPromise = options.dispatcher.registerPendingRequest(requestId);
+                }
+
+                const sendResult = webview.postMessage(message);
+                if (pendingPromise) {
+                    return pendingPromise;
+                }
+                return Promise.resolve(sendResult);
+            };
+        },
+    });
+}

@@ -6,6 +6,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from './code-forge-service';
 import { showJjError, withDelayedProgress } from './commands/command-utils';
+import { WebviewToHostMessageSchema } from './common/ipc-schemas';
+import { createWebviewRpcDispatcher } from './common/webview-rpc-dispatcher';
 import { JjCommitDetailsEditorProvider, openCommitDetails } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
@@ -180,100 +182,98 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             },
         });
 
-        webviewView.webview.onDidReceiveMessage(async (data) => {
-            switch (data.type) {
-                case 'webviewLoaded':
+        const dispatcher = createWebviewRpcDispatcher(
+            WebviewToHostMessageSchema,
+            {
+                webviewLoaded: async () => {
                     await this.refresh();
-                    break;
-                case 'openCodeForge':
-                    if (data.payload.url) {
-                        await vscode.env.openExternal(vscode.Uri.parse(data.payload.url));
+                },
+                openCodeForge: async (msg) => {
+                    if (msg.payload.url) {
+                        await vscode.env.openExternal(vscode.Uri.parse(msg.payload.url));
                     }
-                    break;
-                case 'newChild':
-                    // new(message?, parent?)
-                    await vscode.commands.executeCommand('jj-view.new', data.payload);
-                    break;
-                case 'squash':
-                    // Route through extension command to reuse safe squash logic (editor, etc.)
-                    // Pass the whole payload
-                    await vscode.commands.executeCommand('jj-view.squashRevisionIntoParent', data.payload);
-                    // Refresh is handled by the command event listener
-                    break;
-                case 'edit':
-                    await vscode.commands.executeCommand('jj-view.edit', data.payload);
-                    break;
-                case 'select': {
+                },
+                newChild: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.new', msg.payload);
+                },
+                squash: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.squashRevisionIntoParent', msg.payload);
+                },
+                edit: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.edit', msg.payload);
+                },
+                select: async (msg) => {
                     if (!this.jj) {
-                        break;
+                        return;
                     }
-                    const details = await this.jj.showDetails(data.payload.changeId);
+                    const details = await this.jj.showDetails(msg.payload.changeId);
                     // biome-ignore lint/suspicious/noControlCharactersInRegex: Standard regex for stripping ANSI escape codes
                     const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-                    vscode.workspace.openTextDocument({ content: cleanDetails, language: 'plaintext' }).then((doc) =>
-                        vscode.window.showTextDocument(doc, {
-                            preview: true,
-                            viewColumn: vscode.ViewColumn.Beside,
-                        }),
-                    );
-                    break;
-                }
-                case 'undo':
+                    const doc = await vscode.workspace.openTextDocument({
+                        content: cleanDetails,
+                        language: 'plaintext',
+                    });
+                    await vscode.window.showTextDocument(doc, {
+                        preview: true,
+                        viewColumn: vscode.ViewColumn.Beside,
+                    });
+                },
+                undo: async () => {
                     await vscode.commands.executeCommand('jj-view.undo');
-                    break;
-                case 'redo':
+                },
+                redo: async () => {
                     await vscode.commands.executeCommand('jj-view.redo');
-                    break;
-                case 'abandon':
-                    await vscode.commands.executeCommand('jj-view.abandon', data.payload);
-                    break;
-                case 'getDetails':
+                },
+                abandon: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.abandon', msg.payload);
+                },
+                getDetails: async (msg) => {
                     await this.createCommitDetailsPanel(
-                        data.payload.changeId,
-                        data.payload.changeIdShortest,
-                        data.payload.isDivergent,
-                        data.payload.changeIdOffset,
+                        msg.payload.changeId,
+                        msg.payload.changeIdShortest,
+                        msg.payload.isDivergent,
+                        msg.payload.changeIdOffset,
                     );
-                    break;
-                case 'new':
+                },
+                new: async () => {
                     await vscode.commands.executeCommand('jj-view.new');
-                    break;
-                case 'newBefore':
-                    await vscode.commands.executeCommand('jj-view.newBefore', ...(data.payload.changeIds || []));
-                    break;
-                case 'newAfter':
-                    await vscode.commands.executeCommand('jj-view.newAfter', ...(data.payload.changeIds || []));
-                    break;
-                case 'resolve':
+                },
+                newBefore: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.newBefore', ...(msg.payload.changeIds || []));
+                },
+                newAfter: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.newAfter', ...(msg.payload.changeIds || []));
+                },
+                resolve: async (msg) => {
                     if (this.jj) {
-                        await this.jj.resolve(data.payload);
+                        await this.jj.resolve(msg.payload.path);
                         await vscode.commands.executeCommand('jj-view.refresh');
                     }
-                    break;
-                case 'moveBookmark':
-                    await this.handleMoveBookmark(data.payload);
-                    break;
-                case 'rebaseCommit':
-                    await this.handleRebaseCommit(data.payload);
-                    break;
-                case 'squashCommit':
-                    await this.handleSquashCommit(data.payload);
-                    break;
-                case 'duplicateCommit':
-                    await this.handleDuplicateCommit(data.payload);
-                    break;
-                case 'mergeCommit':
-                    await this.handleMergeCommit(data.payload);
-                    break;
-                case 'upload':
-                    await vscode.commands.executeCommand('jj-view.upload', data.payload);
-                    break;
-                case 'showComments':
-                    await vscode.commands.executeCommand('jj-view.showComments', data.payload.changeId);
-                    break;
-                case 'selectionChange': {
-                    const count = data.payload.commitIds.length;
-                    const hasImmutable = !!data.payload.hasImmutableSelection;
+                },
+                moveBookmark: async (msg) => {
+                    await this.handleMoveBookmark(msg.payload);
+                },
+                rebaseCommit: async (msg) => {
+                    await this.handleRebaseCommit(msg.payload);
+                },
+                squashCommit: async (msg) => {
+                    await this.handleSquashCommit(msg.payload);
+                },
+                duplicateCommit: async (msg) => {
+                    await this.handleDuplicateCommit(msg.payload);
+                },
+                mergeCommit: async (msg) => {
+                    await this.handleMergeCommit(msg.payload);
+                },
+                upload: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.upload', msg.payload);
+                },
+                showComments: async (msg) => {
+                    await vscode.commands.executeCommand('jj-view.showComments', msg.payload.changeId);
+                },
+                selectionChange: async (msg) => {
+                    const count = msg.payload.commitIds.length;
+                    const hasImmutable = !!msg.payload.hasImmutableSelection;
 
                     if (count !== 1) {
                         const tabsToClose: vscode.Tab[] = [];
@@ -304,17 +304,14 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                         }
                     }
 
-                    // Compute Capabilities
                     const allowAbandon = count > 0 && !hasImmutable;
                     const allowMerge = count > 1;
                     const allowNewBefore = count > 0 && !hasImmutable;
 
-                    // Calculate parent mutability for absorb command
-                    // Only applicable for single selection where parents are mutable
                     let parentMutable = false;
                     if (count === 1) {
                         const selectedCommit = this._cachedCommits.find(
-                            (c) => c.change_id === data.payload.commitIds[0],
+                            (c) => c.change_id === msg.payload.commitIds[0],
                         );
                         if (selectedCommit) {
                             parentMutable = canAbsorbCommit(selectedCommit);
@@ -327,11 +324,18 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     vscode.commands.executeCommand('setContext', JjContextKey.SelectionParentMutable, parentMutable);
 
                     if (this._onSelectionChange) {
-                        this._onSelectionChange(data.payload.commitIds);
+                        this._onSelectionChange(msg.payload.commitIds);
                     }
-                    break;
-                }
-            }
+                },
+            },
+            {
+                logger: this.outputChannel,
+                messenger: webviewView.webview,
+            },
+        );
+
+        webviewView.webview.onDidReceiveMessage(async (message) => {
+            return await dispatcher.dispatch(message);
         });
     }
 
