@@ -9,12 +9,7 @@
  * timer leaks when the fetch settles before the timeout fires.
  */
 export async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const signal = init?.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal;
-    try {
-        return await fetch(url, { ...init, signal });
-    } finally {
-        clearTimeout(timeoutId);
-    }
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = init?.signal ? AbortSignal.any([timeoutSignal, init.signal]) : timeoutSignal;
+    return await fetch(url, { ...init, signal });
 }
