@@ -6,6 +6,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fetchWithTimeout } from './fetch-utils';
 import type { JjLoggerChannel } from './output-channel';
 
 /**
@@ -313,9 +314,8 @@ export async function getGceAuth(outputChannel?: JjLoggerChannel): Promise<{ nam
     try {
         const metadataHost = process.env.GCE_METADATA_HOST || 'http://metadata.google.internal';
         outputChannel?.debug(`[GerritAuth] Probing GCE Metadata server at ${metadataHost}...`);
-        const probeResponse = await fetch(metadataHost, {
+        const probeResponse = await fetchWithTimeout(metadataHost, 2000, {
             headers: { 'Metadata-Flavor': 'Google' },
-            signal: AbortSignal.timeout(2000),
         });
         if (!probeResponse.ok || probeResponse.headers.get('Metadata-Flavor') !== 'Google') {
             outputChannel?.debug('[GerritAuth] GCE Metadata probe failed or invalid flavor');
@@ -323,11 +323,11 @@ export async function getGceAuth(outputChannel?: JjLoggerChannel): Promise<{ nam
         }
 
         outputChannel?.debug('[GerritAuth] Fetching GCE service account token...');
-        const tokenResponse = await fetch(
+        const tokenResponse = await fetchWithTimeout(
             `${metadataHost}/computeMetadata/v1/instance/service-accounts/default/token`,
+            3000,
             {
                 headers: { 'Metadata-Flavor': 'Google' },
-                signal: AbortSignal.timeout(3000),
             },
         );
         if (!tokenResponse.ok) {
