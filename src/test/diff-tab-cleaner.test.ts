@@ -28,7 +28,7 @@ interface PrivateDiffTabCleaner {
     };
     checkRevisionsValidity(revisions: Set<string>): Promise<Set<string>>;
     filterTabsToClose(tabToRevisions: Map<vscode.Tab, string[]>, invalidRevisions: Set<string>): vscode.Tab[];
-    closeTabs(tabs: vscode.Tab[]): Promise<void>;
+    closeTabs(tabs: vscode.Tab[]): void;
 }
 
 describe('Diff Tab Cleaner', () => {
