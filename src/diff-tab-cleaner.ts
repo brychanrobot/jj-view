@@ -43,7 +43,7 @@ export class DiffTabCleaner {
             const invalidRevisions = await this.checkRevisionsValidity(uniqueRevisions);
             const tabsToClose = this.filterTabsToClose(tabToRevisions, invalidRevisions);
 
-            await this.closeTabs(tabsToClose);
+            this.closeTabs(tabsToClose);
         } catch (err) {
             this.outputChannel?.error(`[DiffTabCleaner] Failed to check/close invalid diff editors: ${err}`);
         }
@@ -194,17 +194,13 @@ export class DiffTabCleaner {
     }
 
     /**
-     * Closes the specified tabs.
+     * Closes the specified tabs asynchronously.
      */
-    private async closeTabs(tabs: vscode.Tab[]): Promise<void> {
-        await Promise.all(
-            tabs.map(async (tab) => {
-                try {
-                    await vscode.window.tabGroups.close(tab);
-                } catch (err) {
-                    this.outputChannel?.error(`[DiffTabCleaner] Failed to close tab: ${err}`);
-                }
-            }),
-        );
+    private closeTabs(tabs: vscode.Tab[]): void {
+        tabs.forEach((tab) => {
+            vscode.window.tabGroups.close(tab).then(undefined, (err) => {
+                this.outputChannel?.error(`[DiffTabCleaner] Failed to close tab: ${err}`);
+            });
+        });
     }
 }
