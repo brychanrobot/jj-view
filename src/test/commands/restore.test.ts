@@ -7,9 +7,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { restoreCommand } from '../../commands/restore';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createRestorePayload } from '../../vscode/payloads/restore.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -21,18 +25,32 @@ vi.mock('vscode', async () => {
 describe('restoreCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        scmProvider = createMock<JjScmProvider>({ refresh: vi.fn() });
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
+
+    const runRestore = async (args: unknown[]) => {
+        const payload = createRestorePayload(args);
+        await restoreCommand(ctx, payload);
+    };
 
     test('restores file content', async () => {
         const fileName = 'restore.txt';
@@ -50,7 +68,7 @@ describe('restoreCommand', () => {
         const fileUri = Uri.file(path.join(repo.path, fileName));
         const args = [{ resourceUri: fileUri }];
 
-        await restoreCommand(scmProvider, jj, args);
+        await runRestore(args);
 
         const content = fs.readFileSync(path.join(repo.path, fileName), 'utf-8');
         expect(content).toBe('original');
@@ -77,7 +95,7 @@ describe('restoreCommand', () => {
         const fileUri = Uri.file(path.join(repo.path, fileName));
         const args = [{ resourceUri: fileUri, revision: ids.ancestor.changeId }];
 
-        await restoreCommand(scmProvider, jj, args);
+        await runRestore(args);
 
         const ancestorContent = repo.getFileContent(ids.ancestor.changeId, fileName);
         expect(ancestorContent).toBe('original');
@@ -110,7 +128,7 @@ describe('restoreCommand', () => {
             { resourceUri: file2Uri, revision: ids.child.changeId },
         ];
 
-        await restoreCommand(scmProvider, jj, args);
+        await runRestore(args);
 
         const ancestorContent = repo.getFileContent(ids.ancestor.changeId, file1);
         expect(ancestorContent).toBe('original 1');

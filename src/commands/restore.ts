@@ -2,36 +2,32 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { getFsPathFromUri } from '../uri-utils';
-import { collectResourceStates, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function restoreCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const resourceStates = collectResourceStates(args);
+export interface RestorePayload {
+    pathsByRevision: Record<string, string[]>;
+}
 
-    if (resourceStates.length === 0) {
+export async function restoreCommand(ctx: CommandContext, payload?: RestorePayload): Promise<void> {
+    const pathsByRevision = payload?.pathsByRevision ?? {};
+    const entries = Object.entries(pathsByRevision);
+
+    if (entries.length === 0) {
         return;
     }
 
-    const statesByRevision = new Map<string, string[]>();
-    for (const state of resourceStates) {
-        const rev = state.revision || '@';
-        const list = statesByRevision.get(rev) || [];
-        list.push(getFsPathFromUri(state.resourceUri));
-        statesByRevision.set(rev, list);
-    }
-
     try {
-        for (const [rev, paths] of statesByRevision.entries()) {
+        for (const [rev, paths] of entries) {
             if (rev === '@') {
-                await withDelayedProgress('Restoring files...', jj.restore(paths));
+                await ctx.ui.withProgress('Restoring files...', () => ctx.repo.jj.restore(paths));
             } else {
-                await withDelayedProgress(`Restoring files for ${rev}...`, jj.restore(paths, { changesIn: rev }));
+                await ctx.ui.withProgress(`Restoring files for ${rev}...`, () =>
+                    ctx.repo.jj.restore(paths, { changesIn: rev }),
+                );
             }
         }
-        await scmProvider.refresh({ reason: 'after restore' });
+        await ctx.repo.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error restoring files', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error restoring files');
     }
 }
