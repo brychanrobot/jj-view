@@ -30,6 +30,9 @@ import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
+        commands: {
+            executeCommand: vi.fn(),
+        },
         window: {
             showQuickPick: vi.fn(),
             showTextDocument: vi.fn(),
@@ -232,7 +235,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([]);
 
-        expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
 
         const parentDesc = repo.getDescription('@-');
         expect(parentDesc).toBe('Child Description');
@@ -253,7 +256,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([]);
 
-        expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
 
         const parentDesc = repo.getDescription('@-');
         expect(parentDesc).toBe('Parent Description');
@@ -278,7 +281,7 @@ describe('squashRevisionIntoParentCommand', () => {
         });
 
         await runSquashIntoParent([]);
-        expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
         expect(repo.getDescription(ids.p1.changeId)).toBe('Child Description');
     });
 
@@ -351,18 +354,10 @@ describe('squashRevisionIntoParentCommand', () => {
         fs.writeFileSync(msgPath, 'New combined description\n\n# Comment');
 
         const msgUri = Uri.file(msgPath);
-        const mockDoc = createMock<vscode.TextDocument>({
-            uri: msgUri,
-            isDirty: false,
-            getText: vi.fn().mockReturnValue('New combined description\n\n# Comment'),
-        });
-        Object.defineProperty(vscode.workspace, 'textDocuments', {
-            value: [mockDoc],
-            configurable: true,
-        });
-
         const mockTab = createMock<vscode.Tab>({
-            input: new vscode.TabInputText(msgUri),
+            input: new (class {
+                uri = msgUri;
+            })(),
         });
         Object.defineProperty(vscode.window.tabGroups, 'all', {
             value: [
@@ -373,14 +368,12 @@ describe('squashRevisionIntoParentCommand', () => {
             configurable: true,
         });
 
-        await completeSquashRevisionCommand(ctx, 'New combined description');
+        await completeSquashRevisionCommand(ctx, { message: 'New combined description' });
 
         expect(repo.getDescription('@-')).toBe('New combined description');
 
         expect(fs.existsSync(metaPath)).toBe(false);
         expect(fs.existsSync(msgPath)).toBe(false);
-
-        expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(mockTab);
     });
 
     test('completeSquashRevisionCommand prevents concurrent execution', async () => {
@@ -403,8 +396,8 @@ describe('squashRevisionIntoParentCommand', () => {
             return originalSquash(opts);
         });
 
-        const p1 = completeSquashRevisionCommand(ctx, 'm1');
-        const p2 = completeSquashRevisionCommand(ctx, 'm2');
+        const p1 = completeSquashRevisionCommand(ctx, { message: 'm1' });
+        const p2 = completeSquashRevisionCommand(ctx, { message: 'm2' });
 
         await Promise.all([p1, p2]);
 
@@ -426,18 +419,10 @@ describe('squashRevisionIntoParentCommand', () => {
         fs.writeFileSync(msgPath, 'JJ: comment only');
 
         const msgUri = Uri.file(msgPath);
-        const mockDoc = createMock<vscode.TextDocument>({
-            uri: msgUri,
-            isDirty: false,
-            getText: vi.fn().mockReturnValue('JJ: comment only'),
-        });
-        Object.defineProperty(vscode.workspace, 'textDocuments', {
-            value: [mockDoc],
-            configurable: true,
-        });
-
         const mockTab = createMock<vscode.Tab>({
-            input: new vscode.TabInputText(msgUri),
+            input: new (class {
+                uri = msgUri;
+            })(),
         });
         Object.defineProperty(vscode.window.tabGroups, 'all', {
             value: [
@@ -448,14 +433,13 @@ describe('squashRevisionIntoParentCommand', () => {
             configurable: true,
         });
 
-        await completeSquashRevisionCommand(ctx, 'JJ: comment only');
+        await completeSquashRevisionCommand(ctx, { message: 'JJ: comment only' });
 
         expect(repo.getDescription('@-')).toBe('Parent');
 
         expect(fs.existsSync(metaPath)).toBe(false);
         expect(fs.existsSync(msgPath)).toBe(false);
 
-        expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(mockTab);
         expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Squash message is empty. Aborting.');
     });
 

@@ -6,8 +6,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { commitPromptCommand } from '../../commands/commit-prompt';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 
@@ -20,14 +24,16 @@ describe('commitPromptCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
     let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-
+        mockJjRepo = createMock<JjRepository>({ jj, refresh: vi.fn().mockResolvedValue(undefined) });
         scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
+            refresh: vi.fn().mockResolvedValue(undefined),
             outputChannel: createMockLogOutputChannel({
                 appendLine: vi.fn(),
             }),
@@ -37,6 +43,11 @@ describe('commitPromptCommand', () => {
                 }),
             }),
         });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() }),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -54,7 +65,7 @@ describe('commitPromptCommand', () => {
         // Mock user input
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('new description');
 
-        await commitPromptCommand(scmProvider, jj);
+        await commitPromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalledWith({
             prompt: 'Commit message',
@@ -81,7 +92,7 @@ describe('commitPromptCommand', () => {
         // Mock user cancellation
         vi.mocked(vscode.window.showInputBox).mockResolvedValue(undefined);
 
-        await commitPromptCommand(scmProvider, jj);
+        await commitPromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
         // Should NOT have committed
@@ -101,7 +112,7 @@ describe('commitPromptCommand', () => {
         // Mock user accepting the pre-filled value
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('feat: quick commit');
 
-        await commitPromptCommand(scmProvider, jj);
+        await commitPromptCommand(ctx, scmProvider);
 
         // Prompt should be shown with the input box value
         expect(vscode.window.showInputBox).toHaveBeenCalledWith({
@@ -133,7 +144,7 @@ describe('commitPromptCommand', () => {
         // Mock user clearing the prompt (empty string)
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('');
 
-        await commitPromptCommand(scmProvider, jj);
+        await commitPromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
 
@@ -153,5 +164,17 @@ describe('commitPromptCommand', () => {
 
         // Success path should refresh SCM state
         expect(scmProvider.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
+    });
+
+    test('handles errors during commit and displays error to user', async () => {
+        vi.mocked(vscode.window.showInputBox).mockResolvedValue('failing commit');
+        vi.spyOn(jj, 'commit').mockRejectedValue(new Error('Commit failed'));
+
+        await commitPromptCommand(ctx, scmProvider);
+
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            expect.stringContaining('Error committing change'),
+            expect.anything(),
+        );
     });
 });

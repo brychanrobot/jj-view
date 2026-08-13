@@ -11,7 +11,6 @@ import { CodeForgeRegistry } from '../code-forge-registry';
 import {
     extractBookmarkName,
     maybeFormatDescriptionOnSave,
-    prepareCommitDescription,
     promptForRevision,
     RevisionQuery,
     resolveRevisionsWithSelection,
@@ -310,87 +309,6 @@ describe('resolveRevisionsWithSelection', () => {
     it('falls back to default revision when no args or selection exist', () => {
         expect(resolveRevisionsWithSelection([])).toEqual(['@']);
         expect(resolveRevisionsWithSelection([], undefined, 'root()')).toEqual(['root()']);
-    });
-});
-
-describe('prepareCommitDescription', () => {
-    let repo: TestRepo;
-    let jjRepo: JjRepository;
-
-    beforeEach(() => {
-        repo = new TestRepo();
-        repo.init();
-        jjRepo = new JjRepository(
-            Uri.file(repo.path),
-            path.join(repo.path, '.jj', 'repo'),
-            new CodeForgeRegistry(),
-            createMockLogOutputChannel({ appendLine: () => {} }),
-        );
-    });
-
-    afterEach(() => {
-        jjRepo.dispose();
-    });
-
-    it('appends unresolved comments summary when enabled and available', async () => {
-        const ctx = {
-            repo: jjRepo,
-            config: {
-                get: vi.fn().mockImplementation((key: string) => {
-                    if (key === 'autoInsertUnresolvedCommentsSummary') {
-                        return true;
-                    }
-                    return undefined;
-                }),
-            },
-            services: {
-                commentsManager: {
-                    formatUnresolvedCommentsSummary: vi.fn().mockResolvedValue('Unresolved Comments Summary'),
-                },
-            },
-        };
-
-        const result = await prepareCommitDescription(ctx, { currentDescription: 'Initial title' });
-        expect(result).toBe('Initial title\n\nUnresolved Comments Summary');
-    });
-
-    it('does not append summary when insertCommentsSummary option is false', async () => {
-        const formatSummaryMock = vi.fn().mockResolvedValue('Summary');
-        const ctx = {
-            repo: jjRepo,
-            config: {
-                get: vi.fn().mockReturnValue(true),
-            },
-            services: {
-                commentsManager: {
-                    formatUnresolvedCommentsSummary: formatSummaryMock,
-                },
-            },
-        };
-
-        const result = await prepareCommitDescription(ctx, {
-            currentDescription: 'Initial title',
-            insertCommentsSummary: false,
-        });
-        expect(result).toBe('Initial title');
-        expect(formatSummaryMock).not.toHaveBeenCalled();
-    });
-
-    it('returns original description if comments manager returns nothing', async () => {
-        const ctx = {
-            repo: jjRepo,
-            config: {
-                get: vi.fn().mockReturnValue(true),
-            },
-            services: {
-                commentsManager: {
-                    formatUnresolvedCommentsSummary: vi.fn().mockResolvedValue(undefined),
-                },
-            },
-        };
-
-        const result = await prepareCommitDescription(ctx, { currentDescription: 'Initial title' });
-        expect(result).toBe('Initial title');
     });
 });
 

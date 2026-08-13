@@ -69,6 +69,8 @@ export interface HostDocuments {
         lineRange: { startLine1Based: number; endLine1Based: number },
         replacementText: string,
     ): Promise<void>;
+    saveIfDirty(uri: Uri): Promise<void>;
+    getOpenDocumentText(uri: Uri): string | undefined;
 }
 
 export interface CommandServices {

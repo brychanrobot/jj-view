@@ -298,32 +298,6 @@ export interface DescriptionFormatContext {
         setCommitInput?(value: string): void;
         getCommitInput?(): string | undefined;
     };
-    services?: {
-        commentsManager?: {
-            formatUnresolvedCommentsSummary?: () => Promise<string | undefined>;
-        };
-    };
-}
-
-export async function prepareCommitDescription(
-    ctx: DescriptionFormatContext,
-    options: {
-        currentDescription?: string;
-        insertCommentsSummary?: boolean;
-    } = {},
-): Promise<string> {
-    let description = options.currentDescription ?? '';
-    const shouldInsertSummary =
-        options.insertCommentsSummary ?? ctx.config.get<boolean>('autoInsertUnresolvedCommentsSummary') ?? true;
-
-    if (shouldInsertSummary && ctx.services?.commentsManager?.formatUnresolvedCommentsSummary) {
-        const commentsSummary = await ctx.services.commentsManager.formatUnresolvedCommentsSummary();
-        if (commentsSummary) {
-            description = `${description.trimEnd()}\n\n${commentsSummary}`;
-        }
-    }
-
-    return description;
 }
 
 export async function maybeFormatDescriptionOnSave(
@@ -331,8 +305,6 @@ export async function maybeFormatDescriptionOnSave(
     ctx: DescriptionFormatContext,
     revision: string = '@',
 ): Promise<string> {
-    description = await prepareCommitDescription(ctx, { currentDescription: description });
-
     const formatOnSave = ctx.config.get<boolean>('commit.formatDescriptionOnSave') ?? false;
     if (!formatOnSave) {
         return description;
