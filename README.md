@@ -124,7 +124,6 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Squash Revision into Ancestor...`: Squash the current change into an ancestor.
 - `JJ View: Absorb`: Move changes into the mutable ancestor where they belong.
 - `JJ View: New Merge Change`: Create a merge commit.
-- `JJ View: Open Merge Editor`: Open the merge editor for conflicted files.
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.
 
 ## Features & Integration

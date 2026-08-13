@@ -2,62 +2,46 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { promptForRevision, RevisionQuery, showJjError } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { RevisionQuery } from './command-utils';
 
 export interface MergeCommandArg {
     revision: string;
 }
 
-export async function newMergeChangeCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    ...args: (MergeCommandArg | undefined)[]
-) {
-    const revisions: string[] = [];
-    for (const arg of args) {
-        if (arg?.revision) {
-            revisions.push(arg.revision);
-        }
-    }
+export interface NewMergeChangePayload {
+    revisions?: string[];
+}
+
+export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMergeChangePayload): Promise<void> {
+    const revisions: string[] = payload?.revisions ? [...payload.revisions] : [];
 
     if (revisions.length === 0) {
-        // Try getting from selection
-        const selection = scmProvider.getSelectedCommitIds();
-        if (selection.length > 0) {
-            revisions.push(...selection);
-        } else {
-            // Try getting from context or input
-            const rev1 = await promptForRevision(jj, {
-                placeHolder: 'Select first revision for merge (optional)',
-                emptyPrompt: 'Enter first revision for merge (optional)',
-                revisionQuery: RevisionQuery.visible(),
-            });
-            if (rev1) {
-                revisions.push(rev1);
-            }
-            const rev2 = await promptForRevision(jj, {
-                placeHolder: 'Select second revision for merge (optional)',
-                emptyPrompt: 'Enter second revision for merge (optional)',
-                revisionQuery: RevisionQuery.visible(),
-            });
-            if (rev2) {
-                revisions.push(rev2);
-            }
+        const rev1 = await ctx.ui.promptForRevision({
+            placeHolder: 'Select first revision for merge (optional)',
+            revisionQuery: RevisionQuery.visible(),
+        });
+        if (rev1) {
+            revisions.push(rev1);
+        }
+        const rev2 = await ctx.ui.promptForRevision({
+            placeHolder: 'Select second revision for merge (optional)',
+            revisionQuery: RevisionQuery.visible(),
+        });
+        if (rev2) {
+            revisions.push(rev2);
         }
     }
 
     if (revisions.length < 1) {
-        vscode.window.showWarningMessage('Need at least 1 revision to create a change.');
+        await ctx.ui.showError(new Error('Need at least 1 revision to create a change.'), 'Merge Error');
         return;
     }
 
     try {
-        await jj.new({ parents: revisions });
-        await scmProvider.refresh();
+        await ctx.repo.jj.new({ parents: revisions });
+        await ctx.repo.refresh();
     } catch (e: unknown) {
-        await showJjError(e, 'Failed to create merge', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Failed to create merge');
     }
 }

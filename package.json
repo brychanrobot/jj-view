@@ -712,6 +712,10 @@
                     "when": "false"
                 },
                 {
+                    "command": "jj-view.openMergeEditor",
+                    "when": "false"
+                },
+                {
                     "command": "jj-view.hideCommitAction.newChild",
                     "when": "false"
                 },

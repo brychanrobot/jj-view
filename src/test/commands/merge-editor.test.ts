@@ -2,27 +2,32 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { openMergeEditorCommand } from '../../commands/merge-editor';
-import type { JjScmProvider } from '../../jj-scm-provider';
-import { createMock } from '../test-utils';
-import { asMock } from '../vitest-utils';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
+import { Uri } from '../../uri-utils';
+import { createOpenMergeEditorPayload } from '../../vscode/payloads/merge-editor.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
-vi.mock('vscode', () => ({
-    window: {
-        showErrorMessage: vi.fn(),
-    },
-    Uri: { fsPath: '/path' },
-}));
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('../vscode-mock');
+    return createVscodeMock();
+});
 
 describe('openMergeEditorCommand', () => {
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
-        scmProvider = createMock<JjScmProvider>({
-            openMergeEditor: vi.fn(),
+        mockJjRepo = createMock<JjRepository>({
+            rootUri: Uri.file('/test'),
         });
+        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
+        ctx.nav.openMergeEditor = vi.fn();
     });
 
     afterEach(() => {
@@ -30,29 +35,32 @@ describe('openMergeEditorCommand', () => {
     });
 
     test('does nothing if no resources provided', async () => {
-        // Mock console.warn to avoid clutter output
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const payload = createOpenMergeEditorPayload([undefined]);
+        await openMergeEditorCommand(ctx, payload);
 
-        await openMergeEditorCommand(scmProvider, undefined);
-
-        expect(scmProvider.openMergeEditor).not.toHaveBeenCalled();
-        expect(warnSpy).toHaveBeenCalledWith('jj-view.openMergeEditor: No valid resource states provided');
-
-        warnSpy.mockRestore();
+        expect(ctx.nav.openMergeEditor).not.toHaveBeenCalled();
     });
 
     test('calls openMergeEditor with resource states', async () => {
-        const resource = { resourceUri: { fsPath: 'foo' } };
-        await openMergeEditorCommand(scmProvider, resource);
+        const resourceUri = Uri.file('/test/foo.txt');
+        const resource = { resourceUri };
+        const payload = createOpenMergeEditorPayload([resource]);
+        await openMergeEditorCommand(ctx, payload);
 
-        expect(scmProvider.openMergeEditor).toHaveBeenCalledWith([resource]);
+        expect(ctx.nav.openMergeEditor).toHaveBeenCalledWith(resourceUri);
     });
 
     test('handles error', async () => {
-        const resource = { resourceUri: { fsPath: 'foo' } };
-        asMock(scmProvider.openMergeEditor).mockRejectedValue(new Error('boom'));
+        const resourceUri = Uri.file('/test/foo.txt');
+        const resource = { resourceUri };
+        const openMergeEditor = ctx.nav.openMergeEditor;
+        if (!openMergeEditor) {
+            throw new Error('openMergeEditor not defined');
+        }
+        vi.mocked(openMergeEditor).mockRejectedValue(new Error('boom'));
 
-        await openMergeEditorCommand(scmProvider, resource);
+        const payload = createOpenMergeEditorPayload([resource]);
+        await openMergeEditorCommand(ctx, payload);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Error opening merge editor: boom'),

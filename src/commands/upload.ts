@@ -2,22 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { CodeForgeService } from '../code-forge-service';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { getJjViewConfig } from '../utils/config-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
-export async function uploadCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    codeForge: CodeForgeService,
-    args: unknown[],
-    outputChannel: JjLoggerChannel,
-): Promise<void> {
-    const revision = extractRevision(args);
+export interface UploadPayload {
+    revision?: string;
+}
+
+export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload): Promise<void> {
+    const { repo, ui, nav } = ctx;
+    const revision = payload?.revision;
     const customCommand = getJjViewConfig<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
@@ -31,6 +25,7 @@ export async function uploadCommand(
             subcommand = first;
             commandArgs = rest;
         } else {
+            const { codeForge, jj } = repo;
             const { activeProvider } = codeForge;
             if (activeProvider?.getUploadCommand) {
                 const rev = revision || '@';
@@ -57,24 +52,24 @@ export async function uploadCommand(
         }
 
         if (!subcommand) {
-            vscode.window.showErrorMessage('Invalid upload command configuration.');
+            await ui.showError(new Error('Invalid upload command configuration.'), 'Upload Error');
             return;
         }
 
         const displayRev = revision || '@';
         const title = displayRev ? `Uploading revision ${displayRev.substring(0, 8)}...` : 'Uploading...';
-        await withDelayedProgress(title, jj.upload(uploadRevision, subcommand, ...commandArgs));
+        await ui.withProgress(title, () => repo.jj.upload(uploadRevision, subcommand, ...commandArgs));
 
-        await scmProvider.refresh();
-        codeForge.requestRefreshWithBackoffs();
-        vscode.window.setStatusBarMessage('Upload successful', 3000);
+        await repo.refresh();
+        repo.codeForge.requestRefreshWithBackoffs();
+        await ui.showInformation('Upload successful');
     } catch (e: unknown) {
         const CONFIGURE = 'Configure Upload...';
         const extraActions = hasCustomCommand ? [] : [CONFIGURE];
-        const selection = await showJjError(e, 'Upload failed', jj, outputChannel, extraActions);
+        const selection = await ui.showError(e, 'Upload failed', extraActions);
 
         if (selection === CONFIGURE) {
-            vscode.commands.executeCommand('workbench.action.openSettings', 'jj-view.uploadCommand');
+            await nav.openSettings('jj-view.uploadCommand');
         }
     }
 }

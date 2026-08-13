@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CommentsManager } from '../comments-manager';
 import type {
@@ -13,7 +14,7 @@ import type {
     HostDocuments,
 } from '../common/command-context';
 import type { JjRepository } from '../jj-repository';
-import type { Uri } from '../uri-utils';
+import { getFsPathFromUri, toFileUri, type Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
@@ -142,6 +143,40 @@ export class VSCodeCommandNavigation implements CommandNavigation {
         // vscode.changes expects 3-tuples of [labelUri, leftUri, rightUri] where labelUri is the target resource URI
         const changes = resources.map((r) => [r.rightUri, r.leftUri, r.rightUri]);
         await vscode.commands.executeCommand('vscode.changes', title, changes);
+    }
+
+    async openMergeEditor(resourceUri: Uri): Promise<void> {
+        const fsPath = getFsPathFromUri(resourceUri);
+        const encodedPath = encodeURIComponent(fsPath);
+        const relativePath = vscode.workspace.asRelativePath(toFileUri(resourceUri));
+        const virtualPath = path.posix.join('/', relativePath);
+
+        const baseUri = resourceUri.with({
+            scheme: 'jj-merge-output',
+            authority: 'jj-merge',
+            path: virtualPath,
+            fragment: `path=${encodedPath}&part=base`,
+        });
+        const leftUri = resourceUri.with({
+            scheme: 'jj-merge-output',
+            authority: 'jj-merge',
+            path: virtualPath,
+            fragment: `path=${encodedPath}&part=left`,
+        });
+        const rightUri = resourceUri.with({
+            scheme: 'jj-merge-output',
+            authority: 'jj-merge',
+            path: virtualPath,
+            fragment: `path=${encodedPath}&part=right`,
+        });
+        const outputUri = toFileUri(resourceUri);
+        const args = {
+            base: baseUri,
+            input1: { uri: leftUri, title: 'Side 1' },
+            input2: { uri: rightUri, title: 'Side 2' },
+            output: outputUri,
+        };
+        await vscode.commands.executeCommand('_open.mergeEditor', args);
     }
 
     async openFile(uri: Uri): Promise<void> {

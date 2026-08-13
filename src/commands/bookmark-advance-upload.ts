@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { advanceBookmarkCommand } from './bookmark-advance';
 import { uploadCommand } from './upload';
 
@@ -14,7 +13,6 @@ export interface AdvanceBookmarkAndUploadPayload {
 export async function advanceBookmarkAndUploadCommand(
     ctx: CommandContext,
     payload?: AdvanceBookmarkAndUploadPayload,
-    scmProvider?: JjScmProvider,
 ): Promise<void> {
     let revision: string | undefined;
     try {
@@ -27,7 +25,5 @@ export async function advanceBookmarkAndUploadCommand(
         return;
     }
 
-    if (scmProvider) {
-        await uploadCommand(scmProvider, ctx.repo.jj, ctx.repo.codeForge, [revision], ctx.log);
-    }
+    await uploadCommand(ctx, { revision });
 }

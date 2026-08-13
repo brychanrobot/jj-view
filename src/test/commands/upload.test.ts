@@ -8,9 +8,12 @@ import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../../code-forge-auth';
 import type { CodeForgeService } from '../../code-forge-service';
 import { uploadCommand } from '../../commands/upload';
+import type { CommentsManager } from '../../comments-manager';
 import { GitHubProvider } from '../../github-provider';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { createUploadPayload } from '../../vscode/payloads/upload.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel, FakeConfigStore } from '../test-utils';
 
@@ -29,8 +32,9 @@ describe('uploadCommand', () => {
     let jjService: JjService;
     let repo: TestRepo;
     let codeForgeService: CodeForgeService;
-    let scmProvider: JjScmProvider;
     let mockOutputChannel: vscode.LogOutputChannel;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -41,10 +45,14 @@ describe('uploadCommand', () => {
             isEnabled: true,
             requestRefreshWithBackoffs: vi.fn(),
         });
-        scmProvider = createMock<JjScmProvider>({
+        mockJjRepo = createMock<JjRepository>({
+            jj: jjService,
+            codeForge: codeForgeService,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn() });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
+
         fakeConfigStore.clear();
         vi.mocked(vscode.window.showErrorMessage).mockClear();
         vi.mocked(vscode.commands.executeCommand).mockClear();
@@ -79,11 +87,12 @@ describe('uploadCommand', () => {
         // Setup config to return 'git push' ONLY when queried for 'uploadCommand'
         fakeConfigStore.set('uploadCommand', 'git push');
 
-        await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+        const payload = createUploadPayload(['feature-x']);
+        await uploadCommand(ctx, payload);
 
         // Verify that the push succeeded and remote repository now has the ref
         expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
-        expect(scmProvider.refresh).toHaveBeenCalled();
+        expect(mockJjRepo.refresh).toHaveBeenCalled();
         expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
@@ -107,11 +116,12 @@ describe('uploadCommand', () => {
 
         fakeConfigStore.clear();
 
-        await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+        const payload = createUploadPayload(['feature-x']);
+        await uploadCommand(ctx, payload);
 
         // Verify that the default push succeeded
         expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
-        expect(scmProvider.refresh).toHaveBeenCalled();
+        expect(mockJjRepo.refresh).toHaveBeenCalled();
         expect(codeForgeService.requestRefreshWithBackoffs).toHaveBeenCalled();
     });
 
@@ -136,7 +146,8 @@ describe('uploadCommand', () => {
         fakeConfigStore.clear();
 
         // This simulates the webview payload: { changeId: 'feature-x' }
-        await uploadCommand(scmProvider, jjService, codeForgeService, [{ changeId: 'feature-x' }], mockOutputChannel);
+        const payload = createUploadPayload([{ changeId: 'feature-x' }]);
+        await uploadCommand(ctx, payload);
 
         expect(remoteRepo.hasGitRef('refs/heads/feature-x')).toBe(true);
     });
@@ -165,6 +176,12 @@ describe('uploadCommand', () => {
             requestRefreshWithBackoffs: vi.fn(),
             activeProvider: badProvider,
         });
+        mockJjRepo = createMock<JjRepository>({
+            jj: jjService,
+            codeForge: badCodeForgeService,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
 
         const showErrorMessage = vscode.window.showErrorMessage as (
             message: string,
@@ -172,13 +189,8 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Configure Upload...');
 
-        // Capture output channel logs
-        const loggedLines: string[] = [];
-        mockOutputChannel.appendLine = vi.fn().mockImplementation((line: string) => {
-            loggedLines.push(line);
-        });
-
-        await uploadCommand(scmProvider, jjService, badCodeForgeService, ['feature-x'], mockOutputChannel);
+        const payload = createUploadPayload(['feature-x']);
+        await uploadCommand(ctx, payload);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed:'),
@@ -211,7 +223,8 @@ describe('uploadCommand', () => {
         ) => Thenable<string | undefined>;
         vi.mocked(showErrorMessage).mockResolvedValue('Show Log');
 
-        await uploadCommand(scmProvider, jjService, codeForgeService, ['feature-x'], mockOutputChannel);
+        const payload = createUploadPayload(['feature-x']);
+        await uploadCommand(ctx, payload);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Upload failed:'),
@@ -241,14 +254,15 @@ describe('uploadCommand', () => {
             requestRefreshWithBackoffs: vi.fn(),
             activeProvider: githubProvider,
         });
-
-        // Capture output channel logs
-        const loggedLines: string[] = [];
-        mockOutputChannel.appendLine = vi.fn().mockImplementation((line: string) => {
-            loggedLines.push(line);
+        mockJjRepo = createMock<JjRepository>({
+            jj: jjService,
+            codeForge: githubCodeForgeService,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
 
-        await uploadCommand(scmProvider, jjService, githubCodeForgeService, [ids.commitA.changeId], mockOutputChannel);
+        const payload = createUploadPayload([ids.commitA.changeId]);
+        await uploadCommand(ctx, payload);
 
         // Since there was no local bookmark on commitA, the github provider's getUploadCommand should have returned git push -c <revision>
         // This should create a new bookmark starting with "push-" in the repo and push it to remote.
@@ -280,8 +294,15 @@ describe('uploadCommand', () => {
             requestRefreshWithBackoffs: vi.fn(),
             activeProvider: githubProvider,
         });
+        mockJjRepo = createMock<JjRepository>({
+            jj: jjService,
+            codeForge: githubCodeForgeService,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
 
-        await uploadCommand(scmProvider, jjService, githubCodeForgeService, ['my-feature-branch'], mockOutputChannel);
+        const payload = createUploadPayload(['my-feature-branch']);
+        await uploadCommand(ctx, payload);
 
         // Since there was a local bookmark, it should use -r, pushing my-feature-branch.
         expect(remoteRepo.hasGitRef('refs/heads/my-feature-branch')).toBe(true);
