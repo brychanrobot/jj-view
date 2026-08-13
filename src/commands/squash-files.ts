@@ -2,117 +2,126 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { getFsPathFromUri } from '../uri-utils';
-import {
-    collectResourceStates,
-    extractRevision,
-    promptForRevision,
-    RevisionQuery,
-    showJjError,
-    withDelayedProgress,
-} from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { RevisionQuery } from './command-utils';
 
-/**
- * Command to squash whole file changes from the working copy into its parent.
- */
-export async function squashFilesIntoParentCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
+export interface SquashFilesIntoParentPayload {
+    paths: string[];
+    revision?: string;
+}
 
+export interface SquashFilesIntoAncestorPayload {
+    paths: string[];
+    revision?: string;
+    ancestorRevision?: string;
+}
+
+export interface SquashFilesIntoChildPayload {
+    paths: string[];
+    revision?: string;
+    childRevision?: string;
+}
+
+export async function squashFilesIntoParentCommand(
+    ctx: CommandContext,
+    payload?: SquashFilesIntoParentPayload,
+): Promise<void> {
+    const paths = payload?.paths ?? [];
     if (paths.length === 0) {
         return;
     }
 
-    const revision = extractRevision(args) || '@';
+    const revision = payload?.revision || '@';
 
     try {
-        await withDelayedProgress(
-            'Squashing file(s) into parent...',
-            jj.squashRevision({ paths, revision, useDestinationMessage: true }),
+        await ctx.ui.withProgress('Squashing file(s) into parent...', () =>
+            ctx.repo.jj.squashRevision({ paths, revision, useDestinationMessage: true }),
         );
-        await scmProvider.refresh({ reason: 'after squash file(s) into parent' });
+        await ctx.repo.refresh({ reason: 'after squash file(s) into parent' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error squashing file(s) into parent', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error squashing file(s) into parent');
     }
 }
 
-/**
- * Command to squash whole file changes from a revision into a chosen ancestor.
- */
-export async function squashFilesIntoAncestorCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
-
+export async function squashFilesIntoAncestorCommand(
+    ctx: CommandContext,
+    payload?: SquashFilesIntoAncestorPayload,
+): Promise<void> {
+    const paths = payload?.paths ?? [];
     if (paths.length === 0) {
         return;
     }
 
-    const revision = extractRevision(args) || '@';
+    const revision = payload?.revision || '@';
 
     try {
-        const selectedAncestorRev = await promptForRevision(jj, {
-            placeHolder: 'Select which ancestor to squash into',
-            emptyPrompt: 'Enter ancestor revision',
-            revisionQuery: RevisionQuery.ancestorsExcluding(revision),
-        });
+        let selectedAncestorRev = payload?.ancestorRevision;
+        if (!selectedAncestorRev) {
+            selectedAncestorRev = await ctx.ui.promptForRevision({
+                placeHolder: 'Select which ancestor to squash into',
+                revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+            });
+        }
         if (!selectedAncestorRev) {
             return;
         }
 
-        await withDelayedProgress(
-            'Squashing file(s) into ancestor...',
-            jj.squashRevision({ paths, revision, intoRevision: selectedAncestorRev, useDestinationMessage: true }),
+        await ctx.ui.withProgress('Squashing file(s) into ancestor...', () =>
+            ctx.repo.jj.squashRevision({
+                paths,
+                revision,
+                intoRevision: selectedAncestorRev,
+                useDestinationMessage: true,
+            }),
         );
-        await scmProvider.refresh({ reason: 'after squash file(s) into ancestor' });
+        await ctx.repo.refresh({ reason: 'after squash file(s) into ancestor' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error squashing file(s) into ancestor', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error squashing file(s) into ancestor');
     }
 }
 
-/**
- * Command to squash whole file changes from a revision into one of its children.
- */
-export async function squashFilesIntoChildCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
-
+export async function squashFilesIntoChildCommand(
+    ctx: CommandContext,
+    payload?: SquashFilesIntoChildPayload,
+): Promise<void> {
+    const paths = payload?.paths ?? [];
     if (paths.length === 0) {
         return;
     }
 
-    const revision = extractRevision(args) || '@';
+    const revision = payload?.revision || '@';
 
     try {
-        const children = await jj.getChildren(revision);
-        let targetChild: string | undefined;
+        const children = await ctx.repo.jj.getChildren(revision);
+        let targetChild = payload?.childRevision;
 
-        if (children.length === 0) {
-            const revDisplay = revision === '@' ? 'the working copy' : revision;
-            vscode.window.showErrorMessage(`No child commits to squash changes into for ${revDisplay}.`);
-            return;
-        } else if (children.length === 1) {
-            targetChild = children[0];
-        } else {
-            targetChild = await promptForRevision(jj, {
-                placeHolder: `Select child commit for ${revision}`,
-                emptyPrompt: `Enter child commit for ${revision}`,
-                revisionQuery: RevisionQuery.children(revision),
-            });
+        if (!targetChild) {
+            if (children.length === 0) {
+                const revDisplay = revision === '@' ? 'the working copy' : revision;
+                await ctx.ui.showError(
+                    new Error(`No child commits to squash changes into for ${revDisplay}.`),
+                    'Squash Error',
+                );
+                return;
+            } else if (children.length === 1) {
+                targetChild = children[0];
+            } else {
+                targetChild = await ctx.ui.promptForRevision({
+                    placeHolder: `Select child commit for ${revision}`,
+                    revisionQuery: RevisionQuery.children(revision),
+                });
+            }
         }
 
         if (!targetChild) {
             return;
         }
 
-        await withDelayedProgress(
-            'Squashing file(s) into child...',
-            jj.squashRevision({ paths, revision, intoRevision: targetChild }),
+        await ctx.ui.withProgress('Squashing file(s) into child...', () =>
+            ctx.repo.jj.squashRevision({ paths, revision, intoRevision: targetChild }),
         );
-        await scmProvider.refresh({ reason: 'after squash file(s) into child' });
+        await ctx.repo.refresh({ reason: 'after squash file(s) into child' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error squashing file(s) into child', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error squashing file(s) into child');
     }
 }

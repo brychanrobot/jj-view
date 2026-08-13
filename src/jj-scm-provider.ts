@@ -3,13 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { getErrorMessage } from './commands/command-utils';
-import { completeSquashRevisionCommand, isSquashInProgress } from './commands/squash-revision';
+import { getSquashStorageDir, isSquashInProgress } from './commands/squash-revision';
 import { DiffTabCleaner } from './diff-tab-cleaner';
 import { JjContextKey, ScmContextValue } from './jj-context-keys';
 import { JjDecorationProvider } from './jj-decoration-provider';
@@ -149,26 +147,16 @@ export class JjScmProvider implements vscode.Disposable {
                         tab.input instanceof vscode.TabInputText &&
                         path.basename(tab.input.uri.fsPath) === 'SQUASH_MSG'
                     ) {
-                        const msgUri = tab.input.uri;
-
-                        const storageDir = this.getSquashStorageDir();
+                        const storageDir = getSquashStorageDir(this.jj.workspaceRoot);
                         const metaPath = path.join(storageDir, 'SQUASH_META.json');
 
                         try {
                             await fs.access(metaPath);
-                            if (isSquashInProgress(this)) {
+                            if (isSquashInProgress(this.jj.workspaceRoot)) {
                                 return;
                             }
 
-                            // If the document is not dirty, it was either saved or never changed.
-                            // If it IS dirty, the user chose "Don't Save", so we read the original from disk.
-                            const doc = vscode.workspace.textDocuments.find(
-                                (d) => d.uri.toString() === msgUri.toString(),
-                            );
-                            const message =
-                                doc && !doc.isDirty ? doc.getText() : await fs.readFile(msgUri.fsPath, 'utf-8');
-
-                            await completeSquashRevisionCommand(this, this.jj, message);
+                            await vscode.commands.executeCommand('jj-view.completeSquashRevision');
                         } catch {
                             // No pending squash, ignore
                         }
@@ -196,19 +184,6 @@ export class JjScmProvider implements vscode.Disposable {
 
     public async refresh(options: { forceSnapshot?: boolean; reason?: string } = {}): Promise<void> {
         await this.repo.refresh(options);
-    }
-
-    /**
-     * Returns the directory used to store temporary state for deferred squash operations.
-     * Uses VS Code's storageUri if available, otherwise falls back to a temporary directory.
-     */
-    public getSquashStorageDir(): string {
-        if (this.context.storageUri) {
-            return this.context.storageUri.fsPath;
-        }
-        // Fallback to OS temp dir if no workspace storage is available
-        const hash = crypto.createHash('md5').update(this.jj.workspaceRoot).digest('hex');
-        return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
     }
 
     private async updateScmView(event: { reason: string }): Promise<void> {

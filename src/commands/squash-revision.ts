@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import * as vscode from 'vscode';
 import { z } from 'zod';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { Uri } from '../uri-utils';
-import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
+import { RevisionQuery } from './command-utils';
 
 const SquashMetaSchema = z.object({
     revision: z.string(),
@@ -18,159 +18,155 @@ const SquashMetaSchema = z.object({
 });
 type SquashMeta = z.infer<typeof SquashMetaSchema>;
 
-/**
- * Command to squash the entire revision into its parent.
- */
-export async function squashRevisionIntoParentCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const revision = extractRevision(args) || '@';
+export interface SquashRevisionIntoParentPayload {
+    revision?: string;
+    targetParent?: string;
+}
 
-    // Check if we have multiple parents
-    const [sourceEntry] = await jj.getLog({ revision });
+export interface SquashRevisionIntoAncestorPayload {
+    revision?: string;
+    ancestorRevision?: string;
+}
+
+export function getSquashStorageDir(workspaceRoot: string): string {
+    const normRoot = path.normalize(workspaceRoot.replace(/\\/g, '/')).toLowerCase();
+    const hash = crypto.createHash('md5').update(normRoot).digest('hex');
+    return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
+}
+
+const inProgressCompletions = new Set<string>();
+
+export function isSquashInProgress(workspaceRoot: string): boolean {
+    return inProgressCompletions.has(getSquashStorageDir(workspaceRoot));
+}
+
+export async function squashRevisionIntoParentCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoParentPayload,
+): Promise<void> {
+    const revision = payload?.revision || '@';
+
+    const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
     if (!sourceEntry) {
         return;
     }
 
     try {
-        let targetParent: string;
+        let targetParent = payload?.targetParent;
 
-        if (sourceEntry.parents && sourceEntry.parents.length > 1) {
-            // Multiple parents - prompt for selection
-            const parentOptions: vscode.QuickPickItem[] = [];
+        if (!targetParent) {
+            if (sourceEntry.parents && sourceEntry.parents.length > 1) {
+                const parentOptions: { label: string; description?: string; detail: string; value: string }[] = [];
 
-            for (let i = 0; i < sourceEntry.parents.length; i++) {
-                const parentRef = sourceEntry.parents[i].commit_id;
+                for (let i = 0; i < sourceEntry.parents.length; i++) {
+                    const parentRef = sourceEntry.parents[i].commit_id;
 
-                const [parentEntry] = await jj.getLog({ revision: parentRef });
-                if (parentEntry) {
-                    const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
-                    const desc = parentEntry.description?.trim() || '(no description)';
-                    const shortDesc = desc.split('\n')[0].substring(0, 50);
+                    const [parentEntry] = await ctx.repo.jj.getLog({ revision: parentRef });
+                    if (parentEntry) {
+                        const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
+                        const desc = parentEntry.description?.trim() || '(no description)';
+                        const shortDesc = desc.split('\n')[0].substring(0, 50);
 
-                    parentOptions.push({
-                        label: `Parent ${i + 1}: ${shortId}`,
-                        description: shortDesc,
-                        detail: parentRef,
-                    });
+                        parentOptions.push({
+                            label: `Parent ${i + 1}: ${shortId}`,
+                            description: shortDesc,
+                            detail: parentRef,
+                            value: parentRef,
+                        });
+                    }
                 }
+
+                const selected = await ctx.ui.showQuickPick(parentOptions, {
+                    placeHolder: 'Select which parent to squash into',
+                });
+
+                const chosen = selected?.detail || selected?.value;
+                if (!chosen) {
+                    return;
+                }
+
+                targetParent = chosen;
+            } else {
+                if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
+                    await ctx.ui.showError(new Error('Cannot squash a root revision.'), 'Squash Revision Error');
+                    return;
+                }
+                targetParent = sourceEntry.parents[0].commit_id;
             }
-
-            const selected = await vscode.window.showQuickPick(parentOptions, {
-                placeHolder: 'Select which parent to squash into',
-            });
-
-            if (!selected?.detail) {
-                return;
-            } // User cancelled
-
-            targetParent = selected.detail;
-        } else {
-            // Single parent
-            if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
-                vscode.window.showErrorMessage('Cannot squash a root revision.');
-                return;
-            }
-            targetParent = sourceEntry.parents[0].commit_id;
         }
 
-        await performSquashRevision(scmProvider, jj, revision, targetParent, sourceEntry.description);
-
-        await scmProvider.refresh({ reason: 'after squash revision into parent' });
+        await performSquashRevision(ctx, revision, targetParent, sourceEntry.description);
+        await ctx.repo.refresh({ reason: 'after squash revision into parent' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error squashing revision into parent', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error squashing revision into parent');
     }
 }
 
-/**
- * Command to squash the entire revision into a chosen ancestor.
- */
-export async function squashRevisionIntoAncestorCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const revision = extractRevision(args) || '@';
+export async function squashRevisionIntoAncestorCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoAncestorPayload,
+): Promise<void> {
+    const revision = payload?.revision || '@';
 
     try {
-        const selectedAncestorRev = await promptForRevision(jj, {
-            placeHolder: 'Select which ancestor to squash into',
-            emptyPrompt: 'Enter ancestor revision',
-            revisionQuery: RevisionQuery.ancestorsExcluding(revision),
-        });
+        let selectedAncestorRev = payload?.ancestorRevision;
+        if (!selectedAncestorRev) {
+            selectedAncestorRev = await ctx.ui.promptForRevision({
+                placeHolder: 'Select which ancestor to squash into',
+                revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+            });
+        }
         if (!selectedAncestorRev) {
             return;
         }
 
-        const [sourceEntry] = await jj.getLog({ revision });
-        await performSquashRevision(scmProvider, jj, revision, selectedAncestorRev, sourceEntry?.description);
-        await scmProvider.refresh({ reason: 'after squash revision into ancestor' });
+        const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
+        await performSquashRevision(ctx, revision, selectedAncestorRev, sourceEntry?.description);
+        await ctx.repo.refresh({ reason: 'after squash revision into ancestor' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error squashing revision into ancestor', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error squashing revision into ancestor');
     }
 }
 
-const inProgressCompletions = new Set<string>();
-
-/**
- * Checks if a squash operation is currently being completed for the given provider.
- */
-export function isSquashInProgress(scmProvider: JjScmProvider): boolean {
-    return inProgressCompletions.has(scmProvider.getSquashStorageDir());
-}
-
-/**
- * Performs the squash operation, handling descriptions and potentially opening an editor.
- */
 async function performSquashRevision(
-    scmProvider: JjScmProvider,
-    jj: JjService,
+    ctx: CommandContext,
     revision: string,
     intoRevision: string,
     sourceDescription?: string,
 ) {
     const hasSourceDesc = sourceDescription && sourceDescription.trim().length > 0;
-    const [parentEntry] = await jj.getLog({ revision: intoRevision });
+    const [parentEntry] = await ctx.repo.jj.getLog({ revision: intoRevision });
     if (!parentEntry) {
         throw new Error(`Failed to fetch log for revision ${intoRevision}`);
     }
     const parentDescription = parentEntry.description || '';
     const hasParentDesc = parentDescription.trim().length > 0;
 
-    // Only open editor if both have descriptions.
     if (hasSourceDesc && hasParentDesc) {
-        await openSquashDescriptionEditor(
-            scmProvider,
-            revision,
-            sourceDescription || '',
-            intoRevision,
-            parentDescription,
-        );
+        await openSquashDescriptionEditor(ctx, revision, sourceDescription || '', intoRevision, parentDescription);
         return;
     }
 
-    // JJ will pick the non-empty description if only one exists.
-    await withDelayedProgress('Squashing revision...', jj.squashRevision({ revision, intoRevision }));
+    await ctx.ui.withProgress('Squashing revision...', () => ctx.repo.jj.squashRevision({ revision, intoRevision }));
 }
 
 async function openSquashDescriptionEditor(
-    scmProvider: JjScmProvider,
+    ctx: CommandContext,
     revision: string,
     sourceDesc: string,
     parentRev: string,
     parentDesc: string,
 ) {
-    // 1. Combine descriptions
     const combined = `${parentDesc.trim()}\n\n${sourceDesc.trim()}`;
-
-    // 3. Write to temporary file
-    const storageDir = scmProvider.getSquashStorageDir();
+    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
     const squashMsgPath = path.join(storageDir, 'SQUASH_MSG');
     await fs.mkdir(storageDir, { recursive: true });
 
     const content = `${combined}\n\nJJ: Please enter the commit message for your changes.\nJJ: Lines starting with "JJ:" will be ignored.\nJJ: When finished, save this file to complete the squash, or click the checkmark button in the editor title.`;
 
     await fs.writeFile(squashMsgPath, content);
+    await ctx.nav.openFile(Uri.file(squashMsgPath));
 
-    // 4. Open in editor
-    const doc = await vscode.workspace.openTextDocument(squashMsgPath);
-    await vscode.window.showTextDocument(doc);
-
-    // 5. Store pending squash state
     const meta: SquashMeta = {
         revision,
         parentRev,
@@ -178,8 +174,8 @@ async function openSquashDescriptionEditor(
     await fs.writeFile(path.join(storageDir, 'SQUASH_META.json'), JSON.stringify(meta));
 }
 
-export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, jj: JjService, message: string) {
-    const storageDir = scmProvider.getSquashStorageDir();
+export async function completeSquashRevisionCommand(ctx: CommandContext, message: string) {
+    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
     const metaPath = path.join(storageDir, 'SQUASH_META.json');
     const msgPath = path.join(storageDir, 'SQUASH_MSG');
 
@@ -198,7 +194,6 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
         }
         const { revision, parentRev } = validation.data;
 
-        // Strip comments
         const finalMessage = message
             .split('\n')
             .filter((line) => !line.startsWith('JJ:'))
@@ -206,34 +201,26 @@ export async function completeSquashRevisionCommand(scmProvider: JjScmProvider, 
             .trim();
 
         if (finalMessage.length === 0) {
-            vscode.window.showWarningMessage('Squash message is empty. Aborting.');
+            await ctx.ui.showWarning('Squash message is empty. Aborting.');
             return;
         }
 
-        await withDelayedProgress(
-            'Squashing revision...',
-            jj.squashRevision({ revision, intoRevision: parentRev, message: finalMessage }),
+        await ctx.ui.withProgress('Squashing revision...', () =>
+            ctx.repo.jj.squashRevision({ revision, intoRevision: parentRev, message: finalMessage }),
         );
 
-        await scmProvider.refresh({ reason: 'after complete squash revision' });
-        vscode.window.showInformationMessage('Squash completed.');
+        await ctx.repo.refresh({ reason: 'after complete squash revision' });
+        await ctx.ui.showInformation('Squash completed.');
     } catch (e: unknown) {
         if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-            vscode.window.showErrorMessage('No pending squash operation found.');
+            await ctx.ui.showError(e, 'No pending squash operation found.');
         } else {
-            await showJjError(e, 'Failed to complete squash revision', jj, scmProvider.outputChannel);
+            await ctx.ui.showError(e, 'Failed to complete squash revision.');
         }
     } finally {
         await fs.unlink(metaPath).catch(() => {});
         await fs.unlink(msgPath).catch(() => {});
-
-        // Close the editor if it's still open
-        const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-        const targetFsPath = Uri.file(msgPath).fsPath;
-        const tab = tabs.find((t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath === targetFsPath);
-        if (tab) {
-            await vscode.window.tabGroups.close(tab);
-        }
+        await ctx.nav.closeTab(Uri.file(msgPath));
         inProgressCompletions.delete(storageDir);
     }
 }

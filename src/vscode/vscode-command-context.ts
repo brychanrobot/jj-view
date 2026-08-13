@@ -149,6 +149,21 @@ export class VSCodeCommandNavigation implements CommandNavigation {
         await vscode.commands.executeCommand('list.focusFirst');
         await vscode.commands.executeCommand('list.select');
     }
+
+    async closeTab(uri: Uri): Promise<void> {
+        await closeTabsForUri(uri);
+    }
+}
+
+export async function closeTabsForUri(uri: Uri): Promise<void> {
+    const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+    const targetFsPath = uri.fsPath.toLowerCase();
+    const matchingTabs = tabs.filter(
+        (t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath.toLowerCase() === targetFsPath,
+    );
+    for (const tab of matchingTabs) {
+        await vscode.window.tabGroups.close(tab);
+    }
 }
 
 export class VSCodeCommandContext implements CommandContext {
