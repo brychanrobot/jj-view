@@ -2,20 +2,22 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function editCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const revision = extractRevision(args);
+export interface EditPayload {
+    revision?: string;
+}
+
+export async function editCommand(ctx: CommandContext, payload?: EditPayload): Promise<void> {
+    const revision = payload?.revision;
     if (!revision) {
         return;
     }
 
     try {
-        await withDelayedProgress('Editing...', jj.edit(revision));
-        await scmProvider.refresh({ reason: 'after edit' });
+        await ctx.ui.withProgress('Editing...', () => ctx.repo.jj.edit(revision));
+        await ctx.repo.refresh({ reason: 'after edit' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error editing commit', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error editing commit');
     }
 }
