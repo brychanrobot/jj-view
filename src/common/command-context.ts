@@ -29,7 +29,11 @@ export interface CommandUI {
         ...actions: string[]
     ): Promise<string | undefined>;
     showError(error: unknown, prefix: string, extraActions?: string[]): Promise<string | undefined>;
-    promptForRevision(options?: { placeHolder?: string; revisionQuery?: string }): Promise<string | undefined>;
+    promptForRevision(options?: {
+        placeHolder?: string;
+        revisionQuery?: string;
+        emptyPrompt?: string;
+    }): Promise<string | undefined>;
     promptSelectOrCreate(options: {
         placeHolder?: string;
         items: { label: string; description?: string }[];

@@ -4,23 +4,23 @@
  */
 
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { createRevisionUri, Uri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractRevision, promptForRevision, RevisionQuery, showJjError, withDelayedProgress } from './command-utils';
+import { RevisionQuery } from './command-utils';
+
+export interface CompareAllFilesWithRevisionPayload {
+    revision?: string;
+}
 
 export async function compareAllFilesWithRevisionCommand(
-    jj: JjService,
-    outputChannel: JjLoggerChannel,
-    ...args: unknown[]
+    ctx: CommandContext,
+    payload?: CompareAllFilesWithRevisionPayload,
 ): Promise<void> {
     try {
-        let revision = extractRevision(args);
+        let revision = payload?.revision;
         if (!revision) {
-            revision = await promptForRevision(jj, {
+            revision = await ctx.ui.promptForRevision({
                 placeHolder: 'Select an ancestor to compare with all files',
-                emptyPrompt: 'Enter revision to compare with all files',
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
             });
         }
@@ -30,39 +30,35 @@ export async function compareAllFilesWithRevisionCommand(
         }
 
         const rev = revision;
+        const { jj } = ctx.repo;
 
-        await withDelayedProgress(
-            `Comparing ${rev} with all files...`,
-            (async (): Promise<void> => {
-                const changes = await jj.getChangesBetween(rev, '@');
+        await ctx.ui.withProgress(`Comparing ${rev} with all files...`, async (): Promise<void> => {
+            const changes = await jj.getChangesBetween(rev, '@');
 
-                if (changes.length === 0) {
-                    vscode.window.showInformationMessage(`No differences found between ${rev} and working copy.`);
-                    return;
-                }
+            if (changes.length === 0) {
+                await ctx.ui.showInformation(`No differences found between ${rev} and working copy.`);
+                return;
+            }
 
-                const resources: [Uri, Uri][] = [];
-                for (const entry of changes) {
-                    const isAdded = entry.status === 'added';
-                    const isDeleted = entry.status === 'deleted';
+            const resources = changes.map((entry) => {
+                const isAdded = entry.status === 'added';
+                const isDeleted = entry.status === 'deleted';
 
-                    const leftPath = entry.oldPath || entry.path;
-                    const rightPath = entry.path;
+                const leftPath = entry.oldPath || entry.path;
+                const rightPath = entry.path;
 
-                    const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
-                    const rightUri = isDeleted
-                        ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
-                        : Uri.file(path.join(jj.workspaceRoot, rightPath));
+                const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
+                const rightUri = isDeleted
+                    ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
+                    : Uri.file(path.join(jj.workspaceRoot, rightPath));
 
-                    resources.push([leftUri, rightUri]);
-                }
+                return { leftUri, rightUri, label: rightPath };
+            });
 
-                const title = `Compare ${rev} with Working Copy`;
-                const resourceTuples = resources.map(([original, modified]) => [modified, original, modified]);
-                await vscode.commands.executeCommand('vscode.changes', title, resourceTuples);
-            })(),
-        );
+            const title = `Compare ${rev} with Working Copy`;
+            await ctx.nav.openMultiDiff(title, resources);
+        });
     } catch (err: unknown) {
-        await showJjError(err, 'Failed to open comparison', jj, outputChannel);
+        await ctx.ui.showError(err, 'Failed to open comparison');
     }
 }

@@ -3,40 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { JjService } from '../jj-service';
-import { createRevisionUri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractFileUri, promptForRevision, RevisionQuery, showJjError } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { createRevisionUri, type Uri } from '../uri-utils';
+import { RevisionQuery } from './command-utils';
+
+export interface CompareFileWithRevisionPayload {
+    fileUri?: Uri;
+    revision?: string;
+}
 
 export async function compareFileWithRevisionCommand(
-    jj: JjService,
-    outputChannel: JjLoggerChannel,
-    ...args: unknown[]
+    ctx: CommandContext,
+    payload?: CompareFileWithRevisionPayload,
 ): Promise<void> {
     try {
-        const fileUri = extractFileUri(args) ?? vscode.window.activeTextEditor?.document.uri;
+        const fileUri = payload?.fileUri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            vscode.window.showErrorMessage('No workspace file selected for comparison.');
+            await ctx.ui.showError(new Error('No workspace file selected for comparison.'), 'Compare File Error');
             return;
         }
 
-        const revision = await promptForRevision(jj, {
-            placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
-            emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
-            revisionQuery: RevisionQuery.ancestorsExcluding('@'),
-        });
+        let revision = payload?.revision;
+        if (!revision) {
+            revision = await ctx.ui.promptForRevision({
+                placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
+                emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
+                revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+            });
+        }
 
         if (!revision) {
             return;
         }
 
+        const { jj } = ctx.repo;
         const leftUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
 
         const title = `${path.basename(fileUri.fsPath)} (${revision} ↔ Working Copy)`;
-        await vscode.commands.executeCommand('vscode.diff', leftUri, fileUri, title);
+        await ctx.nav.openDiff(leftUri, fileUri, title);
     } catch (err: unknown) {
-        await showJjError(err, 'Failed to compare file', jj, outputChannel);
+        await ctx.ui.showError(err, 'Failed to compare file');
     }
 }

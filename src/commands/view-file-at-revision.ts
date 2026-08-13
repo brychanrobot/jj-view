@@ -3,39 +3,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { JjService } from '../jj-service';
-import { createRevisionUri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractFileUri, promptForRevision, RevisionQuery, showJjError } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { createRevisionUri, type Uri } from '../uri-utils';
+import { RevisionQuery } from './command-utils';
+
+export interface ViewFileAtRevisionPayload {
+    fileUri?: Uri;
+    revision?: string;
+}
 
 export async function viewFileAtRevisionCommand(
-    jj: JjService,
-    outputChannel: JjLoggerChannel,
-    ...args: unknown[]
+    ctx: CommandContext,
+    payload?: ViewFileAtRevisionPayload,
 ): Promise<void> {
     try {
-        const fileUri = extractFileUri(args) ?? vscode.window.activeTextEditor?.document.uri;
+        const fileUri = payload?.fileUri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            vscode.window.showErrorMessage('No workspace file selected.');
+            await ctx.ui.showError(new Error('No workspace file selected.'), 'View File Error');
             return;
         }
 
-        const revision = await promptForRevision(jj, {
-            placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
-            emptyPrompt: `View ${path.basename(fileUri.fsPath)} at revision`,
-            revisionQuery: RevisionQuery.visible(),
-        });
+        let revision = payload?.revision;
+        if (!revision) {
+            revision = await ctx.ui.promptForRevision({
+                placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
+                revisionQuery: RevisionQuery.visible(),
+            });
+        }
 
         if (!revision) {
             return;
         }
 
+        const { jj } = ctx.repo;
         const revisionUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
 
-        await vscode.commands.executeCommand('vscode.open', revisionUri);
+        await ctx.nav.openFile(revisionUri);
     } catch (err: unknown) {
-        await showJjError(err, 'Failed to view file at revision', jj, outputChannel);
+        await ctx.ui.showError(err, 'Failed to view file at revision');
     }
 }

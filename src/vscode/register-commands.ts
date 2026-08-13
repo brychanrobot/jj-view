@@ -85,6 +85,8 @@ import {
     createUnresolveCommentThreadPayload,
 } from './payloads/comments.payload';
 import { createCommitPayload } from './payloads/commit.payload';
+import { createCompareAllFilesWithRevisionPayload } from './payloads/compare-all-files-with-revision.payload';
+import { createCompareFileWithRevisionPayload } from './payloads/compare-file-with-revision.payload';
 import { createSetDescriptionPayload } from './payloads/describe.payload';
 import { createShowDetailsPayload } from './payloads/details.payload';
 import { createDiscardChangePayload } from './payloads/discard-change.payload';
@@ -92,6 +94,7 @@ import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
 import { createNewMergeChangePayload } from './payloads/merge.payload';
 import { createOpenMergeEditorPayload } from './payloads/merge-editor.payload';
+import { createShowMultiFileDiffPayload } from './payloads/multi-diff.payload';
 import { createNewPayload } from './payloads/new.payload';
 import { createNewAfterPayload } from './payloads/new-after.payload';
 import { createNewBeforePayload } from './payloads/new-before.payload';
@@ -113,6 +116,7 @@ import {
     createSquashSelectionIntoParentPayload,
 } from './payloads/squash-selection.payload';
 import { createUploadPayload } from './payloads/upload.payload';
+import { createViewFileAtRevisionPayload } from './payloads/view-file-at-revision.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { resolveRepository } from './vscode-ui-helpers';
 
@@ -283,18 +287,26 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.showDetails', createShowDetailsPayload, showDetailsCommand),
         registerCommandWithPayload('jj-view.openMergeEditor', createOpenMergeEditorPayload, openMergeEditorCommand),
         registerCommandWithPayload('jj-view.absorb', createAbsorbPayload, absorbCommand),
-        registerWrappedCommand('jj-view.showMultiFileDiff', async (_scm, jj, ...args) => {
-            await showMultiFileDiffCommand(jj, outputChannel, ...args);
-        }),
-        registerWrappedCommand('jj-view.compareWithWorkingCopy', async (_scm, jj, ...args) => {
-            await compareAllFilesWithRevisionCommand(jj, outputChannel, ...args);
-        }),
-        registerWrappedCommand('jj-view.compareFileWith', async (_scm, jj, ...args) => {
-            await compareFileWithRevisionCommand(jj, outputChannel, ...args);
-        }),
-        registerWrappedCommand('jj-view.viewFileAtRevision', async (_scm, jj, ...args) => {
-            await viewFileAtRevisionCommand(jj, outputChannel, ...args);
-        }),
+        registerCommandWithPayload(
+            'jj-view.showMultiFileDiff',
+            createShowMultiFileDiffPayload,
+            showMultiFileDiffCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.compareWithWorkingCopy',
+            createCompareAllFilesWithRevisionPayload,
+            compareAllFilesWithRevisionCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.compareFileWith',
+            createCompareFileWithRevisionPayload,
+            compareFileWithRevisionCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.viewFileAtRevision',
+            createViewFileAtRevisionPayload,
+            viewFileAtRevisionCommand,
+        ),
         registerWrappedCommand('jj-view.workspaceAdd', async (scm, jj) => {
             await workspaceAddCommand(scm, jj);
         }),

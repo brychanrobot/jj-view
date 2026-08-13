@@ -7,9 +7,14 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../../commands/compare-all-files-with-revision';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { Uri } from '../../uri-utils';
+import { createCompareAllFilesWithRevisionPayload } from '../../vscode/payloads/compare-all-files-with-revision.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -24,18 +29,20 @@ vi.mock('vscode', async () => {
     });
 });
 
-import { createMockLogOutputChannel } from '../test-utils';
-
 describe('compareAllFilesWithRevisionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockOutputChannel: vscode.LogOutputChannel;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        mockOutputChannel = createMockLogOutputChannel();
+        mockJjRepo = createMock<JjRepository>({ jj });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
     });
 
     afterEach(() => {
@@ -54,7 +61,8 @@ describe('compareAllFilesWithRevisionCommand', () => {
         repo.deleteFile('file2.txt');
         repo.writeFile('file3.txt', 'unique added file\n');
 
-        await compareAllFilesWithRevisionCommand(jj, mockOutputChannel, parentId);
+        const payload = createCompareAllFilesWithRevisionPayload([parentId]);
+        await compareAllFilesWithRevisionCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.changes',
@@ -86,5 +94,18 @@ describe('compareAllFilesWithRevisionCommand', () => {
         expect(simplified[2].leftScheme).toBe('jj-view');
         expect(simplified[2].leftFragment).toContain('revision=none');
         expect(simplified[2].rightScheme).toBe('file');
+    });
+
+    it('shows info message when no differences are found', async () => {
+        const ids = await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
+        const parentId = ids.v1.changeId;
+
+        const payload = createCompareAllFilesWithRevisionPayload([parentId]);
+        await compareAllFilesWithRevisionCommand(ctx, payload);
+
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+            `No differences found between ${parentId} and working copy.`,
+        );
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });
 });

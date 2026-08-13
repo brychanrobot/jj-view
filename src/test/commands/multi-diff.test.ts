@@ -6,9 +6,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { showMultiFileDiffCommand } from '../../commands/multi-diff';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { Uri } from '../../uri-utils';
+import { createShowMultiFileDiffPayload } from '../../vscode/payloads/multi-diff.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -18,18 +23,20 @@ vi.mock('vscode', async () => {
     });
 });
 
-import { createMockLogOutputChannel } from '../test-utils';
-
 describe('showMultiFileDiffCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockOutputChannel: vscode.LogOutputChannel;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        mockOutputChannel = createMockLogOutputChannel();
+        mockJjRepo = createMock<JjRepository>({ jj });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
     });
 
     afterEach(() => {
@@ -42,7 +49,8 @@ describe('showMultiFileDiffCommand', () => {
         repo.describe('test commit description');
         const changeId = repo.getChangeId('@');
 
-        await showMultiFileDiffCommand(jj, mockOutputChannel, changeId);
+        const payload = createShowMultiFileDiffPayload([changeId]);
+        await showMultiFileDiffCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalled();
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
@@ -79,7 +87,8 @@ describe('showMultiFileDiffCommand', () => {
         repo.writeFile('file.txt', 'content');
         const changeId = repo.getChangeId('@');
 
-        await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
+        const payload = createShowMultiFileDiffPayload(['@']);
+        await showMultiFileDiffCommand(ctx, payload);
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
@@ -97,7 +106,8 @@ describe('showMultiFileDiffCommand', () => {
         repo.writeFile('file1.txt', 'A');
         const commitId = repo.getCommitId('@');
 
-        await showMultiFileDiffCommand(jj, mockOutputChannel, { commitId });
+        const payload = createShowMultiFileDiffPayload([{ commitId }]);
+        await showMultiFileDiffCommand(ctx, payload);
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
         expect(call).toBeDefined();
@@ -107,9 +117,12 @@ describe('showMultiFileDiffCommand', () => {
     });
 
     it('shows info message when no changes found', async () => {
-        await showMultiFileDiffCommand(jj, mockOutputChannel, '@');
+        const payload = createShowMultiFileDiffPayload(['@']);
+        await showMultiFileDiffCommand(ctx, payload);
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('No changes found'));
+        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+            expect.stringContaining('No changes found in revision'),
+        );
         expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
             'vscode.changes',
             expect.anything(),

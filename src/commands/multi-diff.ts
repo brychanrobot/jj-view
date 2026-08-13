@@ -3,60 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
-import type { JjService } from '../jj-service';
-import { createDiffUris, type Uri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { createDiffUris } from '../uri-utils';
 
-export async function showMultiFileDiffCommand(
-    jj: JjService,
-    outputChannel: JjLoggerChannel,
-    ...args: unknown[]
-): Promise<void> {
+export interface ShowMultiFileDiffPayload {
+    revision?: string;
+}
+
+export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: ShowMultiFileDiffPayload): Promise<void> {
     try {
-        const revision = extractRevision(args) || '@';
+        const revision = payload?.revision || '@';
 
-        await withDelayedProgress(
-            `Preparing multi-file diff for ${revision}...`,
-            (async (): Promise<void> => {
-                // Resolve to concrete change ID so both diff sides use the jj-view content provider
-                const [logEntry] = await jj.getLog({ revision, limit: 1 });
-                const changeId = logEntry?.change_id ?? revision;
-                const editable = logEntry ? !logEntry.is_immutable : false;
+        await ctx.ui.withProgress(`Preparing multi-file diff for ${revision}...`, async (): Promise<void> => {
+            const { jj } = ctx.repo;
+            // Resolve to concrete change ID so both diff sides use the jj-view content provider
+            const [logEntry] = await jj.getLog({ revision, limit: 1 });
+            const changeId = logEntry?.change_id ?? revision;
+            const editable = logEntry ? !logEntry.is_immutable : false;
 
-                const [changes, description] = await Promise.all([
-                    jj.getChanges(changeId),
-                    jj.getDescription(changeId),
-                    jj.getDiffForRevision(revision),
-                ]);
+            const [changes, description] = await Promise.all([
+                jj.getChanges(changeId),
+                jj.getDescription(changeId),
+                jj.getDiffForRevision(revision),
+            ]);
 
-                if (changes.length === 0) {
-                    vscode.window.showInformationMessage(`No changes found in revision ${changeId}.`);
-                    return;
-                }
+            if (changes.length === 0) {
+                await ctx.ui.showInformation(`No changes found in revision ${changeId}.`);
+                return;
+            }
 
-                const resources: [Uri, Uri][] = [];
-                for (const entry of changes) {
-                    const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
-                    resources.push([leftUri, rightUri]);
-                }
+            const resources = changes.map((entry) => {
+                const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
+                return { leftUri, rightUri, label: entry.path };
+            });
 
-                /*
-                 * vscode.changes expects: (title: string, resources: [label, original, modified][])
-                 * Each tuple is [labelUri, originalUri, modifiedUri] where:
-                 *   - label: display identifier for the file in the multi-diff editor
-                 *   - original: left-side (parent revision)
-                 *   - modified: right-side (current revision)
-                 */
-                const firstLine = description.split('\n')[0].trim();
-                const shortId = changeId.slice(0, 8);
-                const title = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
-                const resourceTuples = resources.map(([original, modified]) => [modified, original, modified]);
-                await vscode.commands.executeCommand('vscode.changes', title, resourceTuples);
-            })(),
-        );
+            const firstLine = description.split('\n')[0].trim();
+            const shortId = changeId.slice(0, 8);
+            const title = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
+            await ctx.nav.openMultiDiff(title, resources);
+        });
     } catch (err: unknown) {
-        await showJjError(err, 'Failed to open multi-file diff', jj, outputChannel);
+        await ctx.ui.showError(err, 'Failed to open multi-file diff');
     }
 }

@@ -20,9 +20,9 @@ import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import type { CommentsManager } from '../comments-manager';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
 import { toFileUri, Uri } from '../uri-utils';
+import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/compare-all-files-with-revision.payload';
 import { createSquashFilesIntoParentPayload } from '../vscode/payloads/squash-files.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
@@ -38,7 +38,6 @@ import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', () => {
-    let jj: JjService;
     let scmProvider: JjScmProvider;
     let contextHelper: TestRepositoryContext;
     let sandbox: sinon.SinonSandbox;
@@ -56,7 +55,6 @@ suite('JJ SCM Provider Integration Test', () => {
         repo = new TestRepo();
         repo.init();
 
-        jj = new JjService(repo.path, NO_OP_LOGGER);
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
@@ -831,7 +829,13 @@ suite('JJ SCM Provider Integration Test', () => {
         repo.writeFile('file1.txt', 'wc\n');
 
         try {
-            await compareAllFilesWithRevisionCommand(jj, scmProvider.outputChannel, ids.v1.changeId);
+            const ctx = new VSCodeCommandContext(
+                scmProvider.repo,
+                scmProvider.outputChannel,
+                createMock<CommentsManager>({}),
+            );
+            const payload = createCompareAllFilesWithRevisionPayload([ids.v1.changeId]);
+            await compareAllFilesWithRevisionCommand(ctx, payload);
             // Wait for the comparison editor to be open before finishing the test
             await waitUntil(
                 () => {
