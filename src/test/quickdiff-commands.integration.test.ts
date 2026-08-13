@@ -9,16 +9,17 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashHunkIntoParentCommand } from '../commands/squash-selection';
+import type { CommentsManager } from '../comments-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { Uri } from '../uri-utils';
+import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
+import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('Quick Diff Commands Integration Test', () => {
-    let jj: JjService;
     let repo: TestRepo;
     let canonicalPath: string;
     let scmProvider: JjScmProvider;
@@ -36,7 +37,6 @@ suite('Quick Diff Commands Integration Test', () => {
             subscriptions: [],
         });
 
-        jj = new JjService(canonicalPath, NO_OP_LOGGER);
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
             append: () => {},
@@ -208,7 +208,13 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Squash Command
-        await squashHunkIntoParentCommand(scmProvider, jj, fileUri, changes, 0);
+        const cmdCtx = new VSCodeCommandContext(
+            scmProvider.repo,
+            scmProvider.outputChannel,
+            createMock<CommentsManager>({}),
+        );
+        const payload = createSquashHunkIntoParentPayload([fileUri, changes, 0]);
+        await squashHunkIntoParentCommand(cmdCtx, payload);
 
         // Verify Parent has modified content
         const parentContent = repo.getFileContent('@-', fileName);

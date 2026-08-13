@@ -3,16 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../../commands/squash-selection';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import {
+    createSquashHunkIntoParentPayload,
+    createSquashSelectionIntoParentPayload,
+} from '../../vscode/payloads/squash-selection.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMock } from '../test-utils';
 
-// Mock VS Code
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
     return createVscodeMock({
@@ -29,20 +36,24 @@ vi.mock('vscode', async () => {
 describe('squash-selection commands', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
-            provideOriginalResource: vi.fn(),
-            outputChannel: createMockLogOutputChannel({
-                appendLine: vi.fn(),
-            }),
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -97,25 +108,18 @@ describe('squash-selection commands', () => {
                 },
             ];
 
-            // Squash the second hunk (index 1: line 4)
-            await squashHunkIntoParentCommand(scmProvider, jj, uri, changes, 1);
+            const payload = createSquashHunkIntoParentPayload([uri, changes, 1]);
+            await squashHunkIntoParentCommand(ctx, payload);
 
-            // Verify state
-            // Parent should have the second modification (line 4)
             const parentContent = repo.getFileContent('@-', fileName);
             expect(parentContent).toBe('line1\nline2\nline3\nmodified4\nline5\n');
 
-            // Working copy should still have BOTH modifications (one from parent, one local)
             const wcContent = repo.getFileContent('@', fileName);
             expect(wcContent).toBe('line1\nmodified2\nline3\nmodified4\nline5\n');
 
-            // Diff should only show the first modification (line 2)
-            // Use --git diff to avoid context lines in the check
             const wcDiffGit = repo.getDiff('@', { git: true });
             expect(wcDiffGit).toContain('+modified2');
             expect(wcDiffGit).not.toContain('+modified4');
-
-            expect(scmProvider.refresh).toHaveBeenCalled();
         });
     });
 
@@ -155,7 +159,6 @@ describe('squash-selection commands', () => {
                 query: 'jj-revision=@',
             });
 
-            // Select the first modification (line 2, which is line 1 in Position)
             const mockEditor = createMock<vscode.TextEditor>({
                 document: createMock<vscode.TextDocument>({
                     uri,
@@ -163,20 +166,15 @@ describe('squash-selection commands', () => {
                 selections: [new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 10))],
             });
 
-            await squashSelectionIntoParentCommand(scmProvider, jj, mockEditor);
+            const payload = createSquashSelectionIntoParentPayload(mockEditor);
+            await squashSelectionIntoParentCommand(ctx, payload);
 
-            // Select was first modification (line 2)
-            // Parent should have the first modification
             const parentContent = repo.getFileContent('@-', fileName);
             expect(parentContent).toBe('line1\nmodified2\nline3\nline4\nline5\n');
 
-            // Diff should only show the second modification (line 4)
-            // Use --git diff to avoid context lines in the check
             const wcDiffGit = repo.getDiff('@', { git: true });
             expect(wcDiffGit).toContain('+modified4');
             expect(wcDiffGit).not.toContain('+modified2');
-
-            expect(scmProvider.refresh).toHaveBeenCalled();
         });
 
         test('squashes selection from jj-edit editor', async () => {
@@ -195,13 +193,11 @@ describe('squash-selection commands', () => {
                 },
             ]);
 
-            // URI using 'revision' parameter (jj-edit style)
             const uri = Uri.file(path.join(repo.path, fileName)).with({
                 scheme: 'jj-edit',
                 query: `revision=${ids.modified.changeId}`,
             });
 
-            // Select the modification (line 2)
             const mockEditor = createMock<vscode.TextEditor>({
                 document: createMock<vscode.TextDocument>({
                     uri,
@@ -209,9 +205,9 @@ describe('squash-selection commands', () => {
                 selections: [new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 10))],
             });
 
-            await squashSelectionIntoParentCommand(scmProvider, jj, mockEditor);
+            const payload = createSquashSelectionIntoParentPayload(mockEditor);
+            await squashSelectionIntoParentCommand(ctx, payload);
 
-            // Parent (root) should have the modification
             const parentContent = repo.getFileContent(ids.root.changeId, fileName);
             expect(parentContent).toBe('line1\nmodified2\nline3\n');
         });
@@ -232,13 +228,11 @@ describe('squash-selection commands', () => {
                 },
             ]);
 
-            // URI using 'base' parameter (jj-view style)
             const uri = Uri.file(path.join(repo.path, fileName)).with({
                 scheme: 'jj-view',
                 query: `base=${ids.modified.changeId}&side=right`,
             });
 
-            // Select the modification (line 2)
             const mockEditor = createMock<vscode.TextEditor>({
                 document: createMock<vscode.TextDocument>({
                     uri,
@@ -246,13 +240,11 @@ describe('squash-selection commands', () => {
                 selections: [new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 10))],
             });
 
-            await squashSelectionIntoParentCommand(scmProvider, jj, mockEditor);
+            const payload = createSquashSelectionIntoParentPayload(mockEditor);
+            await squashSelectionIntoParentCommand(ctx, payload);
 
-            // Parent (root) should have the modification
             const parentContent = repo.getFileContent(ids.root.changeId, fileName);
             expect(parentContent).toBe('line1\nmodified2\nline3\n');
         });
     });
 });
-
-import * as path from 'node:path';

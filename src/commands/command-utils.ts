@@ -169,13 +169,54 @@ export function extractRevisions(args: unknown[]): string[] {
     return Array.from(new Set(revisions));
 }
 
-/**
- * Helper to check if a specific revision was passed (singular).
- * Re-added for backward compatibility to keep independent command diffs small.
- */
 export function extractRevision(args: unknown[]): string | undefined {
     const revs = extractRevisions(args);
     return revs.length > 0 ? revs[0] : undefined;
+}
+
+const COMMON_TARGET_REVISION_KEYS = ['intoRevision', 'targetRevision', 'target', 'destination', 'to'];
+
+function extractTargetRevisionByKeys(
+    args: unknown[],
+    specificKeys: string[],
+    sourceRevision?: string,
+): string | undefined {
+    const keys = [...specificKeys, ...COMMON_TARGET_REVISION_KEYS];
+    for (const arg of args) {
+        if (arg && typeof arg === 'object' && !Array.isArray(arg)) {
+            const obj = arg as Record<string, unknown>;
+            for (const key of keys) {
+                const val = obj[key];
+                if (typeof val === 'string' && val.trim().length > 0) {
+                    return val.trim();
+                }
+            }
+        }
+    }
+
+    const revisions = extractRevisions(args);
+    if (sourceRevision) {
+        const candidate = revisions.find((r) => r !== sourceRevision);
+        if (candidate) {
+            return candidate;
+        }
+    } else if (revisions.length > 1) {
+        return revisions[1];
+    }
+
+    return undefined;
+}
+
+export function extractAncestorRevision(args: unknown[], sourceRevision?: string): string | undefined {
+    return extractTargetRevisionByKeys(args, ['ancestorRevision', 'ancestor'], sourceRevision);
+}
+
+export function extractChildRevision(args: unknown[], sourceRevision?: string): string | undefined {
+    return extractTargetRevisionByKeys(args, ['childRevision', 'child'], sourceRevision);
+}
+
+export function extractTargetParent(args: unknown[], sourceRevision?: string): string | undefined {
+    return extractTargetRevisionByKeys(args, ['targetParent', 'parent'], sourceRevision);
 }
 
 /**

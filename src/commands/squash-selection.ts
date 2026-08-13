@@ -4,117 +4,61 @@
  */
 
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { getFsPathFromUri, getRevisionFromUri, type Uri } from '../uri-utils';
-import { showJjError } from './command-utils';
 
-interface LineChange {
-    readonly originalStartLineNumber: number;
-    readonly originalEndLineNumber: number;
-    readonly modifiedStartLineNumber: number;
-    readonly modifiedEndLineNumber: number;
+export interface SquashHunkIntoParentPayload {
+    uri?: Uri;
+    ranges?: { startLine: number; endLine: number }[];
+    revision?: string;
 }
 
-function isLineChangeArray(changes: unknown): changes is LineChange[] {
-    if (!Array.isArray(changes)) {
-        return false;
-    }
-    return changes.every((c) => {
-        const change = c as LineChange;
-        return (
-            typeof change.originalStartLineNumber === 'number' &&
-            typeof change.originalEndLineNumber === 'number' &&
-            typeof change.modifiedStartLineNumber === 'number' &&
-            typeof change.modifiedEndLineNumber === 'number'
-        );
-    });
+export interface SquashSelectionIntoParentPayload {
+    uri?: Uri;
+    ranges?: { startLine: number; endLine: number }[];
+    revision?: string;
 }
 
-/**
- * Command to squash a specific change (hunk) from the editor gutter into its parent.
- */
 export async function squashHunkIntoParentCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    uri: Uri,
-    changes: unknown,
-    index: number,
-) {
-    if (
-        !uri ||
-        !changes ||
-        !isLineChangeArray(changes) ||
-        index === undefined ||
-        index < 0 ||
-        index >= changes.length
-    ) {
+    ctx: CommandContext,
+    payload?: SquashHunkIntoParentPayload,
+): Promise<void> {
+    const uri = payload?.uri;
+    const ranges = payload?.ranges;
+    if (!uri || !ranges || ranges.length === 0) {
         return;
     }
 
-    const change = changes[index];
-    const isDeletion = change.modifiedEndLineNumber < change.modifiedStartLineNumber;
-
-    let startLine: number;
-    let endLine: number;
-
-    if (isDeletion) {
-        startLine = change.modifiedStartLineNumber - 1;
-        endLine = change.modifiedStartLineNumber;
-    } else {
-        startLine = change.modifiedStartLineNumber - 1;
-        endLine = change.modifiedEndLineNumber - 1;
-    }
-
-    const ranges = [{ startLine, endLine }];
-    const relPath = path.relative(jj.workspaceRoot, getFsPathFromUri(uri));
-    const revision = getRevisionFromUri(uri) || '@';
+    const relPath = path.relative(ctx.repo.jj.workspaceRoot, getFsPathFromUri(uri));
+    const revision = payload?.revision || getRevisionFromUri(uri) || '@';
 
     try {
-        await jj.squashSelectionIntoParent(relPath, ranges, revision);
-        vscode.window.showInformationMessage('Squashed hunk into parent.');
-
-        await scmProvider.refresh({ reason: 'after squash hunk into parent' });
-        // Force Quick Diff refresh
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor && activeEditor.document.uri.toString() === uri.toString()) {
-            const viewColumn = activeEditor.viewColumn;
-            await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-            await vscode.window.showTextDocument(uri, { viewColumn, preview: false });
-        }
+        await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
+        await ctx.repo.refresh({ reason: 'after squash hunk into parent' });
     } catch (e: unknown) {
-        await showJjError(e, 'Failed to squash hunk', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Failed to squash hunk');
     }
 }
 
-/**
- * Command to squash selected lines from a diff editor into their parent.
- */
 export async function squashSelectionIntoParentCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    editor: vscode.TextEditor,
-) {
-    if (!editor) {
+    ctx: CommandContext,
+    payload?: SquashSelectionIntoParentPayload,
+): Promise<void> {
+    const uri = payload?.uri;
+    const ranges = payload?.ranges;
+    if (!uri || !ranges || ranges.length === 0) {
         return;
     }
 
-    const docUri = editor.document.uri;
-    const fsPath = getFsPathFromUri(docUri);
-    const relPath = path.relative(jj.workspaceRoot, fsPath);
-
-    const revision = getRevisionFromUri(docUri) || '@';
-    scmProvider.outputChannel.info(`Squashing selection from ${revision} into parent.`);
-
-    const ranges = editor.selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
+    const fsPath = getFsPathFromUri(uri);
+    const relPath = path.relative(ctx.repo.jj.workspaceRoot, fsPath);
+    const revision = payload?.revision || getRevisionFromUri(uri) || '@';
 
     try {
-        await jj.squashSelectionIntoParent(relPath, ranges, revision);
-        vscode.window.showInformationMessage(`Squashed selection from ${revision} into parent.`);
+        await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
     } catch (e: unknown) {
-        await showJjError(e, 'Failed to squash selection', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Failed to squash selection');
     } finally {
-        await scmProvider.refresh({ reason: 'after squash selection into parent' });
+        await ctx.repo.refresh({ reason: 'after squash selection into parent' });
     }
 }

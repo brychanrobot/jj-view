@@ -16,18 +16,17 @@ import type { CommentsManager } from '../comments-manager';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
 import { createNewPayload } from '../vscode/payloads/new.payload';
+import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
 import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', () => {
-    let jj: JjService;
     let scm: JjScmProvider;
     let provider: JjLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;
@@ -69,7 +68,6 @@ suite('Webview Commands End-to-End Integration Test', () => {
         await repo.init(); // Init repo
 
         // Services
-        jj = new JjService(repo.path, NO_OP_LOGGER);
         outputChannel = vscode.window.createOutputChannel('JJ View Test', { log: true });
 
         // We need a context for the provider, but we can mock it
@@ -114,7 +112,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
                 return abandonCommand(ctx, payload);
             }
             if (command === 'jj-view.squashRevisionIntoParent') {
-                return squashRevisionIntoParentCommand(scm, jj, args);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const payload = createSquashRevisionIntoParentPayload(args);
+                return squashRevisionIntoParentCommand(ctx, payload);
             }
             if (command === 'jj-view.new') {
                 const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));

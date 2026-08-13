@@ -51,6 +51,7 @@ export interface CommandNavigation {
     copyToClipboard(text: string): Promise<void>;
     openSettings(settingId?: string): Promise<void>;
     focusScmInput?(): Promise<void>;
+    closeTab(uri: Uri): Promise<void>;
 }
 
 export interface CommandServices {

@@ -50,6 +50,7 @@ import {
 } from '../commands/squash-files';
 import {
     completeSquashRevisionCommand,
+    getSquashStorageDir,
     squashRevisionIntoAncestorCommand,
     squashRevisionIntoParentCommand,
 } from '../commands/squash-revision';
@@ -83,6 +84,19 @@ import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
 import { createNewPayload } from './payloads/new.payload';
 import { createRestorePayload } from './payloads/restore.payload';
+import {
+    createSquashFilesIntoAncestorPayload,
+    createSquashFilesIntoChildPayload,
+    createSquashFilesIntoParentPayload,
+} from './payloads/squash-files.payload';
+import {
+    createSquashRevisionIntoAncestorPayload,
+    createSquashRevisionIntoParentPayload,
+} from './payloads/squash-revision.payload';
+import {
+    createSquashHunkIntoParentPayload,
+    createSquashSelectionIntoParentPayload,
+} from './payloads/squash-selection.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 
 export interface RegisterCommandsOptions {
@@ -211,30 +225,33 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     context.subscriptions.push(
         registerCommandWithPayload('jj-view.abandon', createAbandonPayload, abandonCommand),
         registerCommandWithPayload('jj-view.restore', createRestorePayload, restoreCommand),
-        registerWrappedCommand('jj-view.squashRevisionIntoParent', async (scm, jj, ...args) => {
-            await squashRevisionIntoParentCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.squashRevisionIntoAncestor', async (scm, jj, ...args) => {
-            await squashRevisionIntoAncestorCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.completeSquashRevision', async (scm, jj) => {
-            const storageDir = scm.getSquashStorageDir();
+        registerCommandWithPayload(
+            'jj-view.squashRevisionIntoParent',
+            createSquashRevisionIntoParentPayload,
+            squashRevisionIntoParentCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.squashRevisionIntoAncestor',
+            createSquashRevisionIntoAncestorPayload,
+            squashRevisionIntoAncestorCommand,
+        ),
+        registerCommand('jj-view.completeSquashRevision', async (ctx) => {
+            const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
             const msgPath = path.join(storageDir, 'SQUASH_MSG');
             const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
             if (doc) {
                 if (doc.isDirty) {
                     await doc.save();
                 }
-                await completeSquashRevisionCommand(scm, jj, doc.getText());
+                await completeSquashRevisionCommand(ctx, doc.getText());
             }
         }),
         registerCommandWithPayload('jj-view.setDescription', createSetDescriptionPayload, setDescriptionCommand),
-        registerWrappedCommand('jj-view.squashSelectionIntoParent', async (scm, jj) => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                await squashSelectionIntoParentCommand(scm, jj, editor);
-            }
-        }),
+        registerCommandWithPayload(
+            'jj-view.squashSelectionIntoParent',
+            () => createSquashSelectionIntoParentPayload(vscode.window.activeTextEditor),
+            squashSelectionIntoParentCommand,
+        ),
         registerCommand('jj-view.refresh', refreshCommand),
         registerWrappedCommand('jj-view.openFile', async (_scm, _jj, ...args) => {
             await openFileCommand(...args);
@@ -309,25 +326,30 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const index = args[2] as number;
             await discardChangeCommand(scm, uri, changes, index);
         }),
-        registerWrappedCommand('jj-view.squashHunkIntoParent', async (scm, jj, ...args) => {
-            const uri = args[0] as Uri;
-            const changes = args[1];
-            const index = args[2] as number;
-            await squashHunkIntoParentCommand(scm, jj, uri, changes, index);
-        }),
+        registerCommandWithPayload(
+            'jj-view.squashHunkIntoParent',
+            createSquashHunkIntoParentPayload,
+            squashHunkIntoParentCommand,
+        ),
         registerWrappedCommand('jj-view.rebaseOntoSelected', async (scm, jj, ...args) => {
             const arg = args[0] as CommitMenuContext;
             await rebaseOntoSelectedCommand(scm, jj, arg);
         }),
-        registerWrappedCommand('jj-view.squashFilesIntoParent', async (scm, jj, ...args) => {
-            await squashFilesIntoParentCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.squashFilesIntoAncestor', async (scm, jj, ...args) => {
-            await squashFilesIntoAncestorCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.squashFilesIntoChild', async (scm, jj, ...args) => {
-            await squashFilesIntoChildCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload(
+            'jj-view.squashFilesIntoParent',
+            createSquashFilesIntoParentPayload,
+            squashFilesIntoParentCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.squashFilesIntoAncestor',
+            createSquashFilesIntoAncestorPayload,
+            squashFilesIntoAncestorCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.squashFilesIntoChild',
+            createSquashFilesIntoChildPayload,
+            squashFilesIntoChildCommand,
+        ),
     );
 
     for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {
