@@ -3,40 +3,53 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { Uri } from '../uri-utils';
-import { showJjError } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
-export async function workspaceOpenInCurrentWindowCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    await openWorkspace(scmProvider, jj, args, false);
+export interface WorkspaceOpenInCurrentWindowPayload {
+    workspaceName?: string;
 }
 
-export async function workspaceOpenInNewWindowCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    await openWorkspace(scmProvider, jj, args, true);
+export interface WorkspaceOpenInNewWindowPayload {
+    workspaceName?: string;
+}
+
+export async function workspaceOpenInCurrentWindowCommand(
+    ctx: CommandContext,
+    payload?: WorkspaceOpenInCurrentWindowPayload,
+): Promise<void> {
+    await openWorkspace(ctx, payload?.workspaceName, false);
+}
+
+export async function workspaceOpenInNewWindowCommand(
+    ctx: CommandContext,
+    payload?: WorkspaceOpenInNewWindowPayload,
+): Promise<void> {
+    await openWorkspace(ctx, payload?.workspaceName, true);
 }
 
 async function openWorkspace(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    args: unknown[],
+    ctx: CommandContext,
+    providedWorkspaceName: string | undefined,
     forceNewWindow: boolean,
 ): Promise<void> {
-    let workspaceName: string | undefined;
+    let workspaceName: string | undefined = providedWorkspaceName;
+    const { jj } = ctx.repo;
 
     try {
-        workspaceName = await resolveWorkspaceName(jj, args);
+        if (!workspaceName) {
+            workspaceName = await resolveWorkspaceName(jj, []);
+        }
         if (!workspaceName) {
             return;
         }
 
         const workspacePath = await jj.getWorkspaceRoot(workspaceName);
         const uri = Uri.file(workspacePath);
-        await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });
+        await ctx.nav.openFolder(uri, forceNewWindow);
     } catch (e) {
         const prefix = workspaceName ? `Failed to open workspace "${workspaceName}"` : 'Failed to resolve workspace';
-        await showJjError(e, prefix, jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, prefix);
     }
 }

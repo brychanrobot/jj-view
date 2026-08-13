@@ -6,9 +6,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../../commands/workspace-open';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
+import {
+    createWorkspaceOpenInCurrentWindowPayload,
+    createWorkspaceOpenInNewWindowPayload,
+} from '../../vscode/payloads/workspace-open.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 
@@ -28,17 +34,19 @@ vi.mock('vscode', async () => {
 describe('workspace open commands', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        scmProvider = createMock<JjScmProvider>({
-            outputChannel: createMockLogOutputChannel({
-                error: vi.fn(),
-            }),
-        });
+        mockJjRepo = createMock<JjRepository>({ jj });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() }),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -48,7 +56,8 @@ describe('workspace open commands', () => {
     test('opens the workspace from a context-menu argument in the current window', async () => {
         const workspace = repo.workspaceAdd('feature');
 
-        await workspaceOpenInCurrentWindowCommand(scmProvider, jj, [{ workspaceName: 'feature' }]);
+        const payload = createWorkspaceOpenInCurrentWindowPayload([{ workspaceName: 'feature' }]);
+        await workspaceOpenInCurrentWindowCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openFolder',
@@ -60,7 +69,8 @@ describe('workspace open commands', () => {
     test('opens the selected workspace in a new window', async () => {
         const workspace = repo.workspaceAdd('feature');
 
-        await workspaceOpenInNewWindowCommand(scmProvider, jj, [{ workspaceName: 'feature' }]);
+        const payload = createWorkspaceOpenInNewWindowPayload([{ workspaceName: 'feature' }]);
+        await workspaceOpenInNewWindowCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openFolder',
@@ -76,7 +86,8 @@ describe('workspace open commands', () => {
             description: workspace.path,
         });
 
-        await workspaceOpenInCurrentWindowCommand(scmProvider, jj, []);
+        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
+        await workspaceOpenInCurrentWindowCommand(ctx, payload);
 
         expect(vscode.window.showQuickPick).toHaveBeenCalledWith(
             expect.arrayContaining([expect.objectContaining({ label: 'feature', description: workspace.path })]),
@@ -96,21 +107,20 @@ describe('workspace open commands', () => {
         repo.workspaceAdd('feature');
         vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce(undefined);
 
-        await workspaceOpenInCurrentWindowCommand(scmProvider, jj, []);
+        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
+        await workspaceOpenInCurrentWindowCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
         expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
     });
 
     test('reports an error when the workspace root cannot be resolved', async () => {
-        await workspaceOpenInCurrentWindowCommand(scmProvider, jj, [{ workspaceName: 'missing' }]);
+        const payload = createWorkspaceOpenInCurrentWindowPayload([{ workspaceName: 'missing' }]);
+        await workspaceOpenInCurrentWindowCommand(ctx, payload);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Failed to open workspace "missing"'),
             'Show Log',
-        );
-        expect(scmProvider.outputChannel.error).toHaveBeenCalledWith(
-            expect.stringContaining('[Error] Failed to open workspace "missing"'),
         );
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });
@@ -118,14 +128,12 @@ describe('workspace open commands', () => {
     test('reports an error when workspace names cannot be resolved', async () => {
         repo.dispose();
 
-        await workspaceOpenInCurrentWindowCommand(scmProvider, jj, []);
+        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
+        await workspaceOpenInCurrentWindowCommand(ctx, payload);
 
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             expect.stringContaining('Failed to resolve workspace'),
             'Show Log',
-        );
-        expect(scmProvider.outputChannel.error).toHaveBeenCalledWith(
-            expect.stringContaining('[Error] Failed to resolve workspace'),
         );
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
     });

@@ -116,6 +116,12 @@ import {
 } from './payloads/squash-selection.payload';
 import { createUploadPayload } from './payloads/upload.payload';
 import { createViewFileAtRevisionPayload } from './payloads/view-file-at-revision.payload';
+import { createWorkspaceDeletePayload } from './payloads/workspace-delete.payload';
+import { createWorkspaceForgetPayload } from './payloads/workspace-forget.payload';
+import {
+    createWorkspaceOpenInCurrentWindowPayload,
+    createWorkspaceOpenInNewWindowPayload,
+} from './payloads/workspace-open.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { resolveRepository } from './vscode-ui-helpers';
 
@@ -300,21 +306,19 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             createViewFileAtRevisionPayload,
             viewFileAtRevisionCommand,
         ),
-        registerWrappedCommand('jj-view.workspaceAdd', async (scm, jj) => {
-            await workspaceAddCommand(scm, jj);
-        }),
-        registerWrappedCommand('jj-view.workspaceForget', async (scm, jj, ...args) => {
-            await workspaceForgetCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.workspaceDelete', async (scm, jj, ...args) => {
-            await workspaceDeleteCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.workspaceOpenInCurrentWindow', async (scm, jj, ...args) => {
-            await workspaceOpenInCurrentWindowCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.workspaceOpenInNewWindow', async (scm, jj, ...args) => {
-            await workspaceOpenInNewWindowCommand(scm, jj, args);
-        }),
+        registerCommand('jj-view.workspaceAdd', workspaceAddCommand),
+        registerCommandWithPayload('jj-view.workspaceForget', createWorkspaceForgetPayload, workspaceForgetCommand),
+        registerCommandWithPayload('jj-view.workspaceDelete', createWorkspaceDeletePayload, workspaceDeleteCommand),
+        registerCommandWithPayload(
+            'jj-view.workspaceOpenInCurrentWindow',
+            createWorkspaceOpenInCurrentWindowPayload,
+            workspaceOpenInCurrentWindowCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.workspaceOpenInNewWindow',
+            createWorkspaceOpenInNewWindowPayload,
+            workspaceOpenInNewWindowCommand,
+        ),
         registerCommandWithPayload('jj-view.discardChange', createDiscardChangePayload, discardChangeCommand),
         registerCommandWithPayload(
             'jj-view.squashHunkIntoParent',
