@@ -4,10 +4,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createAbsorbPayload } from '../../vscode/payloads/absorb.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -19,21 +22,34 @@ vi.mock('vscode', async () => {
 describe('absorbCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
+
+    const runAbsorb = async (args: unknown[]) => {
+        const payload = createAbsorbPayload(args);
+        await absorbCommand(ctx, payload);
+    };
 
     it('should absorb working copy changes', async () => {
         const fileName = 'file.txt';
@@ -48,14 +64,13 @@ describe('absorbCommand', () => {
             },
         ]);
 
-        await absorbCommand(scmProvider, jj, []);
+        await runAbsorb([]);
 
-        // Verify parent has the change
+        expect(mockJjRepo.refresh).toHaveBeenCalledTimes(1);
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after absorb' });
+
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe('line1\nline2 modified\n');
-
-        expect(scmProvider.refresh).toHaveBeenCalled();
-        expect(vscode.window.setStatusBarMessage).toHaveBeenCalledWith('Absorb completed.', 3000);
     });
 
     it('should absorb from specific revision', async () => {
@@ -80,12 +95,12 @@ describe('absorbCommand', () => {
         const commitBId = ids.B.commitId;
         const arg = { commitId: commitBId };
 
-        await absorbCommand(scmProvider, jj, [arg]);
+        await runAbsorb([arg]);
 
-        // Verify A has the change
+        expect(mockJjRepo.refresh).toHaveBeenCalledTimes(1);
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after absorb' });
+
         const contentA = repo.getFileContent(ids.A.changeId, fileName);
         expect(contentA).toBe('base\nlineA modified\n');
-
-        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 });

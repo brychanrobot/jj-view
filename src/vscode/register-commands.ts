@@ -39,7 +39,7 @@ import { newCommand } from '../commands/new';
 import { newAfterCommand } from '../commands/new-after';
 import { newBeforeCommand } from '../commands/new-before';
 import { openChangesCommand, openFileCommand } from '../commands/open';
-import { type CommitMenuContext, rebaseOntoSelectedCommand } from '../commands/rebase';
+import { rebaseOntoSelectedCommand } from '../commands/rebase';
 import { redoCommand } from '../commands/redo';
 import { refreshCommand } from '../commands/refresh';
 import { restoreCommand } from '../commands/restore';
@@ -74,6 +74,7 @@ import type { JjResourceState } from '../scm-resource-state';
 import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
+import { createAbsorbPayload } from './payloads/absorb.payload';
 import { createSetBookmarkPayload } from './payloads/bookmark.payload';
 import { createAdvanceBookmarkPayload } from './payloads/bookmark-advance.payload';
 import { createAdvanceBookmarkAndUploadPayload } from './payloads/bookmark-advance-upload.payload';
@@ -83,6 +84,9 @@ import { createSetDescriptionPayload } from './payloads/describe.payload';
 import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
 import { createNewPayload } from './payloads/new.payload';
+import { createNewAfterPayload } from './payloads/new-after.payload';
+import { createNewBeforePayload } from './payloads/new-before.payload';
+import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import {
     createSquashFilesIntoAncestorPayload,
@@ -183,11 +187,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     );
 
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
-    context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
-            await focusDescriptionInputCommand();
-        }),
-    );
+    context.subscriptions.push(registerCommand('jj-view.focusDescriptionInput', focusDescriptionInputCommand));
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.showComments', async (changeId?: string) => {
@@ -264,14 +264,8 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerCommand('jj-view.redo', redoCommand),
         registerCommandWithPayload('jj-view.duplicate', createDuplicatePayload, duplicateCommand),
         registerCommandWithPayload('jj-view.edit', createEditPayload, editCommand),
-        registerWrappedCommand('jj-view.newBefore', async (scm, jj, ...args) => {
-            const changeIds = args as string[];
-            await newBeforeCommand(scm, jj, changeIds);
-        }),
-        registerWrappedCommand('jj-view.newAfter', async (scm, jj, ...args) => {
-            const changeIds = args as string[];
-            await newAfterCommand(scm, jj, changeIds);
-        }),
+        registerCommandWithPayload('jj-view.newBefore', createNewBeforePayload, newBeforeCommand),
+        registerCommandWithPayload('jj-view.newAfter', createNewAfterPayload, newAfterCommand),
         registerWrappedCommand('jj-view.upload', async (scm, jj, ...args) => {
             await uploadCommand(scm, jj, scm.repo.codeForge, args, outputChannel);
         }),
@@ -290,9 +284,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const rest = args.slice(1);
             await openMergeEditorCommand(scm, args[0], ...rest);
         }),
-        registerWrappedCommand('jj-view.absorb', async (scm, jj, ...args) => {
-            await absorbCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.absorb', createAbsorbPayload, absorbCommand),
         registerWrappedCommand('jj-view.showMultiFileDiff', async (_scm, jj, ...args) => {
             await showMultiFileDiffCommand(jj, outputChannel, ...args);
         }),
@@ -331,10 +323,11 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             createSquashHunkIntoParentPayload,
             squashHunkIntoParentCommand,
         ),
-        registerWrappedCommand('jj-view.rebaseOntoSelected', async (scm, jj, ...args) => {
-            const arg = args[0] as CommitMenuContext;
-            await rebaseOntoSelectedCommand(scm, jj, arg);
-        }),
+        registerCommandWithPayload(
+            'jj-view.rebaseOntoSelected',
+            createRebaseOntoSelectedPayload,
+            rebaseOntoSelectedCommand,
+        ),
         registerCommandWithPayload(
             'jj-view.squashFilesIntoParent',
             createSquashFilesIntoParentPayload,

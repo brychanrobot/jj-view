@@ -174,6 +174,28 @@ export function extractRevision(args: unknown[]): string | undefined {
     return revs.length > 0 ? revs[0] : undefined;
 }
 
+/**
+ * Resolves target revisions by taking explicit arguments, merging with multi-selection
+ * when the clicked revision is part of the selection, or falling back to a default revision.
+ */
+export function resolveRevisionsWithSelection(
+    args: unknown[],
+    scmProvider?: { getSelectedCommitIds?: () => string[] },
+    fallback = '@',
+): string[] {
+    const argRevisions = extractRevisions(args);
+    const selectedIds = scmProvider?.getSelectedCommitIds?.() ?? [];
+
+    if (argRevisions.length > 0) {
+        const target = argRevisions[0];
+        return selectedIds.includes(target) ? selectedIds : argRevisions;
+    }
+    if (selectedIds.length > 0) {
+        return selectedIds;
+    }
+    return [fallback];
+}
+
 const COMMON_TARGET_REVISION_KEYS = ['intoRevision', 'targetRevision', 'target', 'destination', 'to'];
 
 function extractTargetRevisionByKeys(

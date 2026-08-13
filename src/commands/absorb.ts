@@ -2,23 +2,23 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { getFsPathFromUri } from '../uri-utils';
-import { collectResourceStates, extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 
-export async function absorbCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const resourceStates = collectResourceStates(args);
-    const paths = resourceStates.map((r) => getFsPathFromUri(r.resourceUri));
+import type { CommandContext } from '../common/command-context';
 
-    const fromRevision = extractRevisions(args)[0];
+export interface AbsorbPayload {
+    paths?: string[];
+    fromRevision?: string;
+}
+
+export async function absorbCommand(ctx: CommandContext, payload?: AbsorbPayload): Promise<void> {
+    const paths = payload?.paths ?? [];
+    const fromRevision = payload?.fromRevision;
 
     try {
-        await withDelayedProgress('Absorbing changes...', jj.absorb({ paths, fromRevision }));
-        await scmProvider.refresh({ reason: 'after absorb' });
-        vscode.window.setStatusBarMessage('Absorb completed.', 3000);
+        await ctx.ui.withProgress('Absorbing changes...', () => ctx.repo.jj.absorb({ paths, fromRevision }));
+        await ctx.repo.refresh({ reason: 'after absorb' });
+        ctx.ui.setStatusBarMessage?.('Absorb completed.', 3000);
     } catch (e: unknown) {
-        await showJjError(e, 'Absorb failed', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Absorb failed');
     }
 }

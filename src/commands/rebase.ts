@@ -2,34 +2,39 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { showJjError, withDelayedProgress } from './command-utils';
+
+import type { CommandContext } from '../common/command-context';
 
 export interface CommitMenuContext {
     commitId: string;
 }
 
-export async function rebaseOntoSelectedCommand(scmProvider: JjScmProvider, jj: JjService, arg: CommitMenuContext) {
-    if (!arg?.commitId) {
+export interface RebaseOntoSelectedPayload {
+    sourceId?: string;
+    destinations?: string[];
+}
+
+export async function rebaseOntoSelectedCommand(
+    ctx: CommandContext,
+    payload?: RebaseOntoSelectedPayload,
+): Promise<void> {
+    const sourceId = payload?.sourceId;
+    if (!sourceId) {
         return;
     }
-    const sourceId = arg.commitId;
 
-    const selectedIds = scmProvider.getSelectedCommitIds();
-    if (!selectedIds || selectedIds.length === 0) {
-        vscode.window.showErrorMessage('No commits selected to rebase onto.');
+    const destinations = payload?.destinations ?? [];
+    if (destinations.length === 0) {
+        await ctx.ui.showError(new Error('No commits selected to rebase onto.'), 'Rebase Error');
         return;
     }
 
     try {
-        await withDelayedProgress('Rebasing...', jj.rebase(sourceId, selectedIds, 'source'));
-        vscode.window.showInformationMessage(
-            `Rebasing ${sourceId.substring(0, 8)} onto ${selectedIds.length} dest(s).`,
+        await ctx.ui.withProgress(`Rebasing ${sourceId.substring(0, 8)} onto ${destinations.length} dest(s)...`, () =>
+            ctx.repo.jj.rebase(sourceId, destinations, 'source'),
         );
-        await vscode.commands.executeCommand('jj-view.refresh');
+        await ctx.repo.refresh();
     } catch (err: unknown) {
-        await showJjError(err, 'Error rebasing', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(err, 'Error rebasing');
     }
 }
