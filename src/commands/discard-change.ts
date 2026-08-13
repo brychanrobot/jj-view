@@ -3,10 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import { Uri } from '../uri-utils';
-import { showJjError } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { getOriginalResourceUri, Uri } from '../uri-utils';
 
 export interface LineChange {
     readonly originalStartLineNumber: number;
@@ -30,7 +28,17 @@ export function isLineChangeArray(changes: unknown): changes is LineChange[] {
     });
 }
 
-export async function discardChangeCommand(scmProvider: JjScmProvider, uri: Uri, changes: unknown, index: number) {
+export interface DiscardChangePayload {
+    uri?: Uri;
+    changes?: unknown;
+    index?: number;
+}
+
+export async function discardChangeCommand(ctx: CommandContext, payload?: DiscardChangePayload): Promise<void> {
+    const uri = payload?.uri;
+    const changes = payload?.changes;
+    const index = payload?.index;
+
     if (
         !uri ||
         !changes ||
@@ -45,55 +53,29 @@ export async function discardChangeCommand(scmProvider: JjScmProvider, uri: Uri,
     const change = changes[index];
 
     try {
-        const originalUri = await scmProvider.provideOriginalResource(uri);
+        const originalUri = getOriginalResourceUri(ctx.repo.rootUri.fsPath, uri);
         if (!originalUri || !Uri.isUri(originalUri)) {
             throw new Error('Could not determine original resource');
         }
 
-        const originalDoc = await vscode.workspace.openTextDocument(originalUri);
-        const modifiedDoc = await vscode.workspace.openTextDocument(uri);
-
-        const getSafeRange = (
-            doc: vscode.TextDocument,
-            startLine1Based: number,
-            endLine1Based: number,
-        ): vscode.Range => {
-            const lineCount = doc.lineCount;
-            if (lineCount === 0) {
-                return new vscode.Range(0, 0, 0, 0);
-            }
-            const startLine = Math.max(0, Math.min(startLine1Based - 1, lineCount - 1));
-            const endLine = Math.max(0, Math.min(endLine1Based - 1, lineCount - 1));
-
-            const startPos = new vscode.Position(startLine, 0);
-            const endLineObj = doc.lineAt(endLine);
-            const endPos = endLineObj.rangeIncludingLineBreak.end;
-
-            return new vscode.Range(startPos, endPos);
-        };
-
-        // Calculate Original Range
         let originalTextStr = '';
         if (change.originalEndLineNumber >= change.originalStartLineNumber) {
-            originalTextStr = originalDoc.getText(
-                getSafeRange(originalDoc, change.originalStartLineNumber, change.originalEndLineNumber),
+            originalTextStr = await ctx.documents.readLineRangeText(
+                originalUri,
+                change.originalStartLineNumber,
+                change.originalEndLineNumber,
             );
         }
 
-        // Calculate Modified Range
-        let modifiedRange: vscode.Range;
-        if (change.modifiedEndLineNumber >= change.modifiedStartLineNumber) {
-            modifiedRange = getSafeRange(modifiedDoc, change.modifiedStartLineNumber, change.modifiedEndLineNumber);
-        } else {
-            const insertLine = Math.max(0, Math.min(change.modifiedStartLineNumber, modifiedDoc.lineCount));
-            modifiedRange = new vscode.Range(insertLine, 0, insertLine, 0);
-        }
-
-        const workspaceEdit = new vscode.WorkspaceEdit();
-        workspaceEdit.replace(uri, modifiedRange, originalTextStr);
-        await vscode.workspace.applyEdit(workspaceEdit);
-        await modifiedDoc.save();
+        await ctx.documents.replaceLineRangeAndSave(
+            uri,
+            {
+                startLine1Based: change.modifiedStartLineNumber,
+                endLine1Based: change.modifiedEndLineNumber,
+            },
+            originalTextStr,
+        );
     } catch (e: unknown) {
-        await showJjError(e, 'Failed to discard change', scmProvider.jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Failed to discard change');
     }
 }

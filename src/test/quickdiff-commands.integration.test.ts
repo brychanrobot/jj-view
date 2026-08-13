@@ -13,6 +13,7 @@ import type { CommentsManager } from '../comments-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { Uri } from '../uri-utils';
+import { createDiscardChangePayload } from '../vscode/payloads/discard-change.payload';
 import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
 import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createTestRepositoryContext } from './integration-test-utils';
@@ -123,7 +124,13 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Discard Command
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
+        const cmdCtx = new VSCodeCommandContext(
+            scmProvider.repo,
+            scmProvider.outputChannel,
+            createMock<CommentsManager>({}),
+        );
+        const payload = createDiscardChangePayload([fileUri, changes, 0]);
+        await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
         const finalContent = fs.readFileSync(filePath, 'utf-8');
@@ -168,7 +175,13 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Discard Command
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
+        const cmdCtx = new VSCodeCommandContext(
+            scmProvider.repo,
+            scmProvider.outputChannel,
+            createMock<CommentsManager>({}),
+        );
+        const payload = createDiscardChangePayload([fileUri, changes, 0]);
+        await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
         const finalContent = fs.readFileSync(filePath, 'utf-8');

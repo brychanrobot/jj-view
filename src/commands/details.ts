@@ -2,16 +2,20 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import type { CommandContext } from '../common/command-context';
 import { openCommitDetails } from '../jj-commit-details-editor-provider';
-import type { JjService } from '../jj-service';
-import type { JjLoggerChannel } from '../utils/output-channel';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
 
-export async function showDetailsCommand(jj: JjService, outputChannel: JjLoggerChannel, args: unknown[]) {
-    const revision = extractRevision(args) || '@';
+export interface ShowDetailsPayload {
+    revision?: string;
+}
+
+export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDetailsPayload): Promise<void> {
+    const { repo, ui } = ctx;
+    const { jj } = repo;
+    const revision = payload?.revision || '@';
 
     try {
-        const [logEntry] = await withDelayedProgress('Loading details...', jj.getLog({ revision }));
+        const [logEntry] = await ui.withProgress('Loading details...', () => jj.getLog({ revision }));
         if (!logEntry) {
             throw new Error(`No log entry found for revision: ${revision}`);
         }
@@ -23,6 +27,6 @@ export async function showDetailsCommand(jj: JjService, outputChannel: JjLoggerC
             logEntry.change_id_offset,
         );
     } catch (e: unknown) {
-        await showJjError(e, 'Error showing details', jj, outputChannel);
+        await ui.showError(e, 'Error showing details');
     }
 }

@@ -19,12 +19,23 @@ import {
     replyCommentCommand,
 } from '../commands/comments';
 import type { CommentsManager } from '../comments-manager';
+import type { JjRepository } from '../jj-repository';
+import { Uri } from '../uri-utils';
+import type { JjLoggerChannel } from '../utils/output-channel';
+import {
+    createAckCommentPayload,
+    createDoneCommentPayload,
+    createReplyAndResolveCommentPayload,
+    createReplyCommentPayload,
+} from '../vscode/payloads/comments.payload';
+import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createMock } from './test-utils';
 
 describe('Comment Command Handlers', () => {
     let mockCommentsManager: CommentsManager;
     let replyToThreadSpy: Mock;
     let toggleResolveThreadSpy: Mock;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -37,33 +48,41 @@ describe('Comment Command Handlers', () => {
             replyToThread: replyToThreadSpy,
             toggleResolveThread: toggleResolveThreadSpy,
         });
+
+        ctx = new VSCodeCommandContext(
+            createMock<JjRepository>({}),
+            createMock<JjLoggerChannel>({}),
+            mockCommentsManager,
+        );
     });
 
     test('replyCommentCommand delegates to replyToThread without resolving', async () => {
-        const mockThread = createMock<vscode.CommentThread>();
+        const mockThread = createMock<vscode.CommentThread>({ uri: Uri.parse('file:///test.ts') });
         const reply = createMock<vscode.CommentReply>({
             thread: mockThread,
             text: 'my response',
         });
 
-        await replyCommentCommand(mockCommentsManager, reply);
+        const payload = createReplyCommentPayload([reply]);
+        await replyCommentCommand(ctx, payload);
 
-        expect(replyToThreadSpy).toHaveBeenCalledWith(reply);
+        expect(replyToThreadSpy).toHaveBeenCalledWith(payload.reply);
         expect(toggleResolveThreadSpy).not.toHaveBeenCalled();
     });
 
     test('ackCommentCommand sends Acknowledged comment and resolves the thread', async () => {
-        const mockThread = createMock<vscode.CommentThread>();
+        const mockThread = createMock<vscode.CommentThread>({ uri: Uri.parse('file:///test.ts') });
         const reply = createMock<vscode.CommentReply>({
             thread: mockThread,
             text: 'some random typed text',
         });
 
-        await ackCommentCommand(mockCommentsManager, reply);
+        const payload = createAckCommentPayload([reply]);
+        await ackCommentCommand(ctx, payload);
 
         expect(replyToThreadSpy).toHaveBeenCalledWith(
             {
-                thread: mockThread,
+                thread: payload.reply?.thread,
                 text: 'Acknowledged',
             },
             true,
@@ -72,17 +91,18 @@ describe('Comment Command Handlers', () => {
     });
 
     test('doneCommentCommand sends Done comment and resolves the thread', async () => {
-        const mockThread = createMock<vscode.CommentThread>();
+        const mockThread = createMock<vscode.CommentThread>({ uri: Uri.parse('file:///test.ts') });
         const reply = createMock<vscode.CommentReply>({
             thread: mockThread,
             text: 'some random typed text',
         });
 
-        await doneCommentCommand(mockCommentsManager, reply);
+        const payload = createDoneCommentPayload([reply]);
+        await doneCommentCommand(ctx, payload);
 
         expect(replyToThreadSpy).toHaveBeenCalledWith(
             {
-                thread: mockThread,
+                thread: payload.reply?.thread,
                 text: 'Done',
             },
             true,
@@ -91,23 +111,24 @@ describe('Comment Command Handlers', () => {
     });
 
     test('replyAndResolveCommentCommand sends typed text and resolves the thread', async () => {
-        const mockThread = createMock<vscode.CommentThread>();
+        const mockThread = createMock<vscode.CommentThread>({ uri: Uri.parse('file:///test.ts') });
         const reply = createMock<vscode.CommentReply>({
             thread: mockThread,
             text: 'my typed response',
         });
 
-        await replyAndResolveCommentCommand(mockCommentsManager, reply);
+        const payload = createReplyAndResolveCommentPayload([reply]);
+        await replyAndResolveCommentCommand(ctx, payload);
 
-        expect(replyToThreadSpy).toHaveBeenCalledWith(reply, true);
+        expect(replyToThreadSpy).toHaveBeenCalledWith(payload.reply, true);
         expect(toggleResolveThreadSpy).not.toHaveBeenCalled();
     });
 
     test('command handlers return early if reply is falsy', async () => {
-        await replyCommentCommand(mockCommentsManager, undefined);
-        await ackCommentCommand(mockCommentsManager, undefined);
-        await doneCommentCommand(mockCommentsManager, undefined);
-        await replyAndResolveCommentCommand(mockCommentsManager, undefined);
+        await replyCommentCommand(ctx, createReplyCommentPayload([]));
+        await ackCommentCommand(ctx, createAckCommentPayload([]));
+        await doneCommentCommand(ctx, createDoneCommentPayload([]));
+        await replyAndResolveCommentCommand(ctx, createReplyAndResolveCommentPayload([]));
 
         expect(replyToThreadSpy).not.toHaveBeenCalled();
         expect(toggleResolveThreadSpy).not.toHaveBeenCalled();

@@ -3,19 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
-import type { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
-import { JjService } from '../jj-service';
 import type { JjResourceState } from '../scm-resource-state';
-import { getFsPathFromUri, getUriParams, Uri } from '../uri-utils';
-import { getJjViewConfig } from '../utils/config-utils';
+import { getFsPathFromUri, Uri } from '../uri-utils';
 import { formatCommitDescription } from '../utils/format-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
+
+export { promptForRevision, showJjError, withDelayedProgress } from '../vscode/vscode-ui-helpers';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -31,37 +25,6 @@ function hasResourceStates(arg: unknown): arg is { resourceStates: unknown[] } {
     return Array.isArray(obj.resourceStates);
 }
 
-function hasRevision(arg: unknown): arg is { revision: string } | { 'jj.revision': string } {
-    if (typeof arg !== 'object' || arg === null) {
-        return false;
-    }
-    const obj = arg as Record<string, unknown>;
-    return typeof obj.revision === 'string' || typeof obj['jj.revision'] === 'string';
-}
-
-function hasCommitId(arg: unknown): arg is { commitId: string } | { 'jj.commitId': string } {
-    if (typeof arg !== 'object' || arg === null) {
-        return false;
-    }
-    const obj = arg as Record<string, unknown>;
-    return typeof obj.commitId === 'string' || typeof obj['jj.commitId'] === 'string';
-}
-
-function hasChangeId(arg: unknown): arg is { changeId: string } | { 'jj.changeId': string } {
-    if (typeof arg !== 'object' || arg === null) {
-        return false;
-    }
-    const obj = arg as Record<string, unknown>;
-    return typeof obj.changeId === 'string' || typeof obj['jj.changeId'] === 'string';
-}
-
-/**
- * Standardizes the extraction of JjResourceStates from the various ways
- * VS Code passes arguments to commands (command palette, context menu, etc).
- *
- * @param args The variadic arguments passed to the command handler
- * @returns An array of JjResourceState objects representing the selected files/resources
- */
 export function collectResourceStates(args: unknown[]): JjResourceState[] {
     const resourceStates: JjResourceState[] = [];
 
@@ -92,28 +55,34 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
     return Array.from(unique.values());
 }
 
-function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
-    return typeof arg === 'object' && arg !== null && 'id' in arg && 'label' in arg && 'resourceStates' in arg;
+function extractRevisionsFromObject(arg: Record<string, unknown>, unique: Set<string>): void {
+    const scalarKeys = ['revision', 'jj.revision', 'changeId', 'jj.changeId', 'commitId', 'jj.commitId'];
+    for (const key of scalarKeys) {
+        const val = arg[key];
+        if (typeof val === 'string' && val.trim().length > 0) {
+            unique.add(val.trim());
+            return;
+        }
+    }
+
+    const arrayKeys = ['revisions', 'jj.revisions', 'changeIds', 'jj.changeIds', 'commitIds', 'jj.commitIds'];
+    for (const key of arrayKeys) {
+        const val = arg[key];
+        if (Array.isArray(val)) {
+            for (const item of val) {
+                if (typeof item === 'string' && item.trim().length > 0) {
+                    unique.add(item.trim());
+                }
+            }
+            if (unique.size > 0) {
+                return;
+            }
+        }
+    }
 }
 
-export function isCurrentWorkingCopyResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
-    return isSourceControlResourceGroup(arg) && arg.id === ScmContextValue.WorkingCopyGroup;
-}
-
-export function isParentResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
-    return isSourceControlResourceGroup(arg) && arg.id.startsWith('ancestor-');
-}
-
-function isJjResourceState(arg: unknown): arg is JjResourceState {
-    return typeof arg === 'object' && arg !== null && 'resourceUri' in arg && 'revision' in arg;
-}
-
-/**
- * Helper to extract revisions from various VS Code argument types.
- * Supports strings, objects with revision/commitId, and resource groups.
- */
 export function extractRevisions(args: unknown[]): string[] {
-    const revisions: string[] = [];
+    const unique = new Set<string>();
 
     for (const arg of args) {
         if (!arg) {
@@ -121,57 +90,85 @@ export function extractRevisions(args: unknown[]): string[] {
         }
 
         if (typeof arg === 'string' && arg.trim().length > 0) {
-            revisions.push(arg);
-            continue;
-        }
-
-        if (hasRevision(arg)) {
-            const val = 'revision' in arg ? arg.revision : arg['jj.revision'];
-            revisions.push(val);
-            continue;
-        }
-
-        if (hasChangeId(arg)) {
-            const val = 'changeId' in arg ? arg.changeId : arg['jj.changeId'];
-            revisions.push(val);
-            continue;
-        }
-
-        if (hasCommitId(arg)) {
-            const val = 'commitId' in arg ? arg.commitId : arg['jj.commitId'];
-            revisions.push(val);
-            continue;
-        }
-
-        if (isCurrentWorkingCopyResourceGroup(arg)) {
-            revisions.push('@');
-            continue;
-        }
-        if (isJjResourceState(arg)) {
-            revisions.push(arg.revision);
-            continue;
-        }
-
-        if (isParentResourceGroup(arg) && arg.resourceStates.length > 0) {
-            // Revisions for all files in this group (they should all be the same commit)
-            const groupRevisions = (arg.resourceStates as JjResourceState[])
-                .map((s) => s.revision)
-                .filter((v, i, a) => a.indexOf(v) === i);
-            revisions.push(...groupRevisions);
+            unique.add(arg.trim());
             continue;
         }
 
         if (Array.isArray(arg)) {
-            revisions.push(...extractRevisions(arg));
+            for (const rev of extractRevisions(arg)) {
+                unique.add(rev);
+            }
+            continue;
+        }
+
+        if (isCurrentWorkingCopyResourceGroup(arg)) {
+            unique.add('@');
+            continue;
+        }
+
+        if (hasResourceStates(arg)) {
+            for (const state of arg.resourceStates) {
+                const rev = extractRevision([state]);
+                if (rev) {
+                    unique.add(rev);
+                }
+            }
+            continue;
+        }
+
+        if (typeof arg === 'object' && arg !== null) {
+            extractRevisionsFromObject(arg as Record<string, unknown>, unique);
         }
     }
 
-    return Array.from(new Set(revisions));
+    return Array.from(unique.values());
+}
+
+export function extractBookmarkName(args: unknown[]): string | undefined {
+    const firstArg = args?.[0];
+
+    if (typeof firstArg === 'string') {
+        return firstArg.trim() || undefined;
+    }
+
+    if (firstArg && typeof firstArg === 'object') {
+        const obj = firstArg as Record<string, unknown>;
+        const name =
+            typeof obj.name === 'string'
+                ? obj.name
+                : typeof obj.bookmarkName === 'string'
+                  ? obj.bookmarkName
+                  : undefined;
+        return name?.trim() || undefined;
+    }
+
+    return undefined;
+}
+
+export interface ScmResourceGroup {
+    id: string;
+    label?: string;
+    resourceStates?: unknown[];
+}
+
+function isSourceControlResourceGroup(arg: unknown): arg is ScmResourceGroup {
+    return typeof arg === 'object' && arg !== null && 'id' in arg && 'resourceStates' in arg;
+}
+
+export function isCurrentWorkingCopyResourceGroup(arg: unknown): arg is ScmResourceGroup {
+    return isSourceControlResourceGroup(arg) && arg.id === ScmContextValue.WorkingCopyGroup;
+}
+
+export function isParentResourceGroup(arg: unknown): arg is ScmResourceGroup {
+    return isSourceControlResourceGroup(arg) && arg.id.startsWith('ancestor-');
 }
 
 export function extractRevision(args: unknown[]): string | undefined {
-    const revs = extractRevisions(args);
-    return revs.length > 0 ? revs[0] : undefined;
+    const revisions = extractRevisions(args);
+    if (revisions.length > 0) {
+        return revisions[0];
+    }
+    return undefined;
 }
 
 /**
@@ -241,21 +238,37 @@ export function extractTargetParent(args: unknown[], sourceRevision?: string): s
     return extractTargetRevisionByKeys(args, ['targetParent', 'parent'], sourceRevision);
 }
 
-/**
- * Extracts a file URI from command arguments (Uri, SCM resource state, or active text editor).
- */
-export function extractFileUri(args: unknown[]): Uri | undefined {
-    const firstArg = args[0];
-    if (Uri.isUri(firstArg)) {
-        return firstArg;
+export function extractUriFromArgs(args: unknown[]): Uri | undefined {
+    for (const arg of args) {
+        if (Uri.isUri(arg)) {
+            return arg;
+        }
+        if (typeof arg === 'string') {
+            try {
+                return Uri.parse(arg);
+            } catch (_) {
+                // Ignore parse failures for plain strings that aren't valid URIs
+            }
+        }
+        if (hasResourceUri(arg)) {
+            return arg.resourceUri;
+        }
     }
-    if (typeof firstArg === 'object' && firstArg !== null && 'resourceUri' in firstArg) {
+    return undefined;
+}
+export function extractFileUri(args: unknown[]): Uri | undefined {
+    const uri = extractUriFromArgs(args);
+    if (uri) {
+        return uri;
+    }
+    const firstArg = args[0];
+    if (firstArg && typeof firstArg === 'object' && firstArg !== null && 'resourceUri' in firstArg) {
         const state = firstArg as { resourceUri: unknown };
         if (Uri.isUri(state.resourceUri)) {
             return state.resourceUri;
         }
     }
-    return vscode.window.activeTextEditor?.document.uri;
+    return undefined;
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -266,371 +279,70 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export const RevisionQuery = {
-    ancestorsIncluding: (targetRevision = '@'): string => {
-        return `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable())))`;
-    },
-    ancestorsExcluding: (targetRevision = '@'): string => {
-        return `((::${targetRevision} & mutable()) | parents(roots(::${targetRevision} & mutable()))) ~ ${targetRevision}`;
-    },
-    mutable: (): string => {
-        return 'visible() & mutable()';
-    },
-    visible: (): string => {
-        return 'visible()';
-    },
-    children: (targetRevision = '@'): string => {
-        return `children(${targetRevision})`;
-    },
-};
-
-export interface PromptForRevisionOptions {
-    placeHolder?: string;
-    emptyPrompt?: string;
-    revisionQuery?: string;
-}
-
-export const DEFAULT_PROMPT_FOR_REVISION_OPTIONS: Required<PromptForRevisionOptions> = {
-    placeHolder: 'Select a revision',
-    emptyPrompt: 'Enter revision',
-    revisionQuery: RevisionQuery.ancestorsExcluding('@'),
-};
-
-/**
- * Prompts the user to select or type a revision.
- * Populates a QuickPick with the mutable ancestors of the target revision.
- */
-export async function promptForRevision(
-    jj: JjService,
-    options: PromptForRevisionOptions = {},
-): Promise<string | undefined> {
-    const { placeHolder, emptyPrompt, revisionQuery } = {
-        ...DEFAULT_PROMPT_FOR_REVISION_OPTIONS,
-        ...options,
-    };
-
-    const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
-    const limit = maxMutableAncestors + 1;
-
-    try {
-        const commitIds = await jj.getLogIds({
-            revision: revisionQuery,
-            limit,
-        });
-
-        const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
-        const ancestors = entries.map((e) => e[0]).filter(Boolean);
-
-        const options: vscode.QuickPickItem[] = ancestors.map((entry) => {
-            const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
-            const desc = entry.description?.trim() || '(no description)';
-            const shortDesc = desc.split('\n')[0].substring(0, 50);
-
-            let bookmarkStr = '';
-            if (entry.bookmarks && entry.bookmarks.length > 0) {
-                bookmarkStr = ` (${entry.bookmarks.map((b) => b.name).join(', ')})`;
-            }
-
-            return {
-                label: `${shortId}${bookmarkStr}`,
-                description: shortDesc,
-                detail: entry.change_id,
-            };
-        });
-
-        if (options.length === 0) {
-            return await vscode.window.showInputBox({
-                prompt: `${emptyPrompt} (no ancestors found)`,
-                placeHolder: 'e.g. main, @-',
-            });
-        }
-
-        const selected = await new Promise<string | undefined>((resolve) => {
-            const quickPick = vscode.window.createQuickPick();
-            quickPick.items = options;
-            quickPick.placeholder = placeHolder;
-            quickPick.matchOnDescription = true;
-            quickPick.matchOnDetail = true;
-
-            quickPick.onDidAccept(() => {
-                const selectedItem = quickPick.activeItems[0] || quickPick.selectedItems[0];
-                if (selectedItem) {
-                    resolve(selectedItem.detail);
-                } else if (quickPick.value.trim()) {
-                    resolve(quickPick.value.trim());
-                } else {
-                    resolve(undefined);
-                }
-                quickPick.dispose();
-            });
-
-            quickPick.onDidHide(() => {
-                resolve(undefined);
-                quickPick.dispose();
-            });
-
-            quickPick.show();
-        });
-
-        if (!selected) {
-            return undefined;
-        }
-
-        return selected;
-    } catch {
-        return await vscode.window.showInputBox({
-            prompt: emptyPrompt,
-            placeHolder: 'e.g. main, @-',
-        });
-    }
-}
-
-/**
- * Wraps a promise with a delayed progress notification.
- * If the promise resolves within 100ms, no notification is shown.
- * If it takes longer, a progress notification appears until the promise resolves.
- */
-export async function withDelayedProgress<T>(title: string, promise: Promise<T>): Promise<T> {
-    const DELAY_MS = 100;
-
-    let notificationResolver: ((value?: unknown) => void) | undefined;
-    // Promise that resolves when the notification is dismissed (by the task finishing)
-    const notificationComplete = new Promise((resolve) => {
-        notificationResolver = resolve;
-    });
-
-    const timer = setTimeout(() => {
-        vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: title,
-                cancellable: false,
-            },
-            async () => {
-                // Wait for the original task to complete
-                await notificationComplete;
-            },
-        );
-    }, DELAY_MS);
-
-    try {
-        return await promise;
-    } finally {
-        clearTimeout(timer);
-        // Signal the progress window to close if it was opened
-        if (notificationResolver) {
-            notificationResolver();
-        }
-    }
-}
-
-/**
- * Displays an error message to the user and logs full details to the output channel.
- * The message is shown as a non-modal (toast) notification which persists until dismissed.
- * A "Show Log" button is included to open the output channel.
- *
- * @returns The label of the button clicked by the user, or undefined if dismissed.
- */
-export async function showJjError(
-    error: unknown,
-    prefix: string,
-    jj?: JjService,
-    outputChannel?: JjLoggerChannel,
-    extraActions: string[] = [],
-): Promise<string | undefined> {
-    const message = getErrorMessage(error);
-    let fullMessage = `${prefix}: ${message}`;
-
-    const isLockError = JjService.isIndexLockError(error);
-    const DELETE_LOCK = 'Delete Lock File';
-    let lockPath: string | undefined;
-
-    if (isLockError && jj) {
-        try {
-            const repoRoot = await jj.getRepoRoot();
-            lockPath = path.join(repoRoot, '.git', 'index.lock');
-            fullMessage = `${prefix}: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`;
-            if (!extraActions.includes(DELETE_LOCK)) {
-                extraActions = [DELETE_LOCK, ...extraActions];
-            }
-        } catch (_) {
-            // Ignore if we can't figure out the repo root
-        }
-    }
-
-    if (!process.env.VITEST) {
-        console.error(fullMessage, error);
-    }
-    outputChannel?.error(`[Error] ${fullMessage}`);
-
-    const SHOW_LOG = 'Show Log';
-    const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);
-
-    if (selection === SHOW_LOG) {
-        outputChannel?.show();
-    } else if (selection === DELETE_LOCK && lockPath) {
-        try {
-            await fs.unlink(lockPath);
-            outputChannel?.info(`[Info] Deleted lock file at ${lockPath}`);
-        } catch (e) {
-            outputChannel?.error(`[Error] Failed to delete lock file: ${getErrorMessage(e)}`);
-            vscode.window.showErrorMessage(`Failed to delete lock file: ${getErrorMessage(e)}`);
-        }
-    }
-    return selection;
-}
+    Parents: 'parents(@)',
+    Ancestors: 'ancestors(@)',
+    All: 'all()',
+    ancestorsExcluding: (rev: string) => `ancestors(${rev}) ~ ${rev}`,
+    ancestorsIncluding: (rev: string) => `ancestors(${rev})`,
+    mutable: () => 'mutable()',
+    visible: () => 'visible()',
+    children: (rev: string) => `children(${rev})`,
+} as const;
 
 export interface DescriptionFormatContext {
     repo: JjRepository;
-    sourceControl?: { inputBox: { value: string } };
+    config: {
+        get<T>(key: string): T | undefined;
+    };
+    ui?: {
+        setCommitInput?(value: string): void;
+        getCommitInput?(): string | undefined;
+    };
+    services?: {
+        commentsManager?: {
+            formatUnresolvedCommentsSummary?: () => Promise<string | undefined>;
+        };
+    };
 }
 
-/**
- * Formats a description if the 'jj-view.commit.formatDescriptionOnSave' setting is enabled.
- */
+export async function prepareCommitDescription(
+    ctx: DescriptionFormatContext,
+    options: {
+        currentDescription?: string;
+        insertCommentsSummary?: boolean;
+    } = {},
+): Promise<string> {
+    let description = options.currentDescription ?? '';
+    const shouldInsertSummary =
+        options.insertCommentsSummary ?? ctx.config.get<boolean>('autoInsertUnresolvedCommentsSummary') ?? true;
+
+    if (shouldInsertSummary && ctx.services?.commentsManager?.formatUnresolvedCommentsSummary) {
+        const commentsSummary = await ctx.services.commentsManager.formatUnresolvedCommentsSummary();
+        if (commentsSummary) {
+            description = `${description.trimEnd()}\n\n${commentsSummary}`;
+        }
+    }
+
+    return description;
+}
+
 export async function maybeFormatDescriptionOnSave(
     description: string,
-    context?: DescriptionFormatContext,
+    ctx: DescriptionFormatContext,
     revision: string = '@',
 ): Promise<string> {
-    const scope = context?.repo?.rootUri;
-    const formatOnSave = getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope);
+    description = await prepareCommitDescription(ctx, { currentDescription: description });
+
+    const formatOnSave = ctx.config.get<boolean>('commit.formatDescriptionOnSave') ?? false;
     if (!formatOnSave) {
         return description;
     }
 
-    const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', 72, scope) ?? 72;
+    const bodyWidthRuler = ctx.config.get<number>('commit.bodyWidthRuler') ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
-    if (revision === '@' && context?.sourceControl) {
-        context.sourceControl.inputBox.value = description;
+    if (revision === '@' && ctx.ui?.setCommitInput) {
+        ctx.ui.setCommitInput(description);
     }
     return description;
-}
-
-/**
- * Extracts a candidate Uri from command arguments.
- * Checks for SourceControlResourceState (resourceUri) or SourceControl (rootUri) objects.
- */
-export function extractUriFromArgs(args: unknown[]): Uri | undefined {
-    const firstArg = args[0];
-    if (Uri.isUri(firstArg)) {
-        return firstArg;
-    }
-    if (firstArg && typeof firstArg === 'object') {
-        if ('resourceUri' in firstArg && Uri.isUri(firstArg.resourceUri)) {
-            return firstArg.resourceUri;
-        }
-        if ('rootUri' in firstArg && Uri.isUri(firstArg.rootUri)) {
-            return firstArg.rootUri;
-        }
-    }
-    return undefined;
-}
-
-/**
- * Extracts and normalizes a bookmark name from command arguments.
- */
-export function extractBookmarkName(args: unknown[]): string | undefined {
-    const firstArg = args?.[0];
-
-    if (typeof firstArg === 'string') {
-        return firstArg.trim() || undefined;
-    }
-
-    if (firstArg && typeof firstArg === 'object') {
-        const obj = firstArg as Record<string, unknown>;
-        const name =
-            typeof obj.name === 'string'
-                ? obj.name
-                : typeof obj.bookmarkName === 'string'
-                  ? obj.bookmarkName
-                  : undefined;
-        return name?.trim() || undefined;
-    }
-
-    return undefined;
-}
-
-export function resolveRepository(
-    args: unknown[],
-    repositoryManager: JjRepositoryManager,
-    scmProviders: Map<string, JjScmProvider>,
-): { repo: JjRepository; scm: JjScmProvider } | undefined {
-    // 1. Check if first arg is a VS Code SourceControlResourceGroup
-    const firstArg = args[0];
-    if (firstArg && isSourceControlResourceGroup(firstArg)) {
-        for (const scmProvider of scmProviders.values()) {
-            if (scmProvider.ownsGroup(firstArg)) {
-                return { repo: scmProvider.repo, scm: scmProvider };
-            }
-        }
-    }
-
-    let uri: Uri | undefined;
-
-    // 2. Check if first arg is a VS Code SourceControlResourceState or SourceControl object
-    uri = extractUriFromArgs(args);
-    if (uri) {
-        repositoryManager.outputChannel.info(
-            `[resolveRepository] Extracted candidate URI from arguments: ${uri.toString()}`,
-        );
-    }
-
-    // 2. Check active editor document URI (handles file tabs and jj-commit custom editor)
-    if (!uri) {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            const docUri = activeEditor.document.uri;
-            if (docUri.scheme === 'jj-commit') {
-                const query = getUriParams(docUri);
-                const repoRoot = query.get('repoRoot');
-                if (repoRoot) {
-                    uri = Uri.file(decodeURIComponent(repoRoot));
-                    repositoryManager.outputChannel.info(
-                        `[resolveRepository] Resolved candidate URI from active jj-commit editor repoRoot: ${uri.toString()}`,
-                    );
-                }
-            } else {
-                uri = docUri;
-                repositoryManager.outputChannel.info(
-                    `[resolveRepository] Resolved candidate URI from active text editor: ${uri.toString()}`,
-                );
-            }
-        }
-    }
-
-    // 3. Resolve repository and scm from candidate URI, or fallback to focused repository
-    let repo = uri ? repositoryManager.getRepositoryForUri(uri) : undefined;
-    if (repo) {
-        repositoryManager.outputChannel.info(
-            `[resolveRepository] Successfully resolved repository for URI: ${repo.rootUri.fsPath}`,
-        );
-    } else {
-        if (uri) {
-            repositoryManager.outputChannel.info(
-                `[resolveRepository] No repository matched candidate URI: ${uri.toString()}`,
-            );
-        }
-        repo = repositoryManager.focusedRepository;
-        if (repo) {
-            repositoryManager.outputChannel.info(
-                `[resolveRepository] Falling back to focused repository: ${repo.rootUri.fsPath}`,
-            );
-        } else {
-            repositoryManager.outputChannel.info(`[resolveRepository] No focused repository fallback available.`);
-        }
-    }
-
-    if (repo) {
-        const scm = scmProviders.get(repo.rootUri.fsPath);
-        if (scm) {
-            return { repo, scm };
-        } else {
-            repositoryManager.outputChannel.info(
-                `[resolveRepository] Resolved repository ${repo.rootUri.fsPath} but no matching SCM provider found.`,
-            );
-        }
-    }
-
-    return undefined;
 }

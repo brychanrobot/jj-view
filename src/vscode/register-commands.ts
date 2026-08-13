@@ -10,7 +10,6 @@ import { setBookmarkCommand } from '../commands/bookmark';
 import { advanceBookmarkCommand } from '../commands/bookmark-advance';
 import { advanceBookmarkAndUploadCommand } from '../commands/bookmark-advance-upload';
 import { deleteBookmarkCommand } from '../commands/bookmark-delete';
-import { resolveRepository } from '../commands/command-utils';
 import {
     ackCommentCommand,
     copyUnresolvedCommentsCommand,
@@ -68,10 +67,7 @@ import type { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjService } from '../jj-service';
-
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
-import type { JjResourceState } from '../scm-resource-state';
-import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
 import { createAbsorbPayload } from './payloads/absorb.payload';
@@ -79,13 +75,26 @@ import { createSetBookmarkPayload } from './payloads/bookmark.payload';
 import { createAdvanceBookmarkPayload } from './payloads/bookmark-advance.payload';
 import { createAdvanceBookmarkAndUploadPayload } from './payloads/bookmark-advance-upload.payload';
 import { createDeleteBookmarkPayload } from './payloads/bookmark-delete.payload';
+import {
+    createAckCommentPayload,
+    createDoneCommentPayload,
+    createReplyAndResolveCommentPayload,
+    createReplyCommentPayload,
+    createResolveCommentThreadPayload,
+    createShowCommentsPayload,
+    createUnresolveCommentThreadPayload,
+} from './payloads/comments.payload';
 import { createCommitPayload } from './payloads/commit.payload';
 import { createSetDescriptionPayload } from './payloads/describe.payload';
+import { createShowDetailsPayload } from './payloads/details.payload';
+import { createDiscardChangePayload } from './payloads/discard-change.payload';
 import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
 import { createNewPayload } from './payloads/new.payload';
 import { createNewAfterPayload } from './payloads/new-after.payload';
 import { createNewBeforePayload } from './payloads/new-before.payload';
+import { createOpenChangesPayload } from './payloads/open-changes.payload';
+import { createOpenFilePayload } from './payloads/open-file.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import {
@@ -102,6 +111,7 @@ import {
     createSquashSelectionIntoParentPayload,
 } from './payloads/squash-selection.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
+import { resolveRepository } from './vscode-ui-helpers';
 
 export interface RegisterCommandsOptions {
     context: vscode.ExtensionContext;
@@ -123,7 +133,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const context = resolveRepositoryLocal(args);
-            if (context) {
+            if (context?.repo && context?.scm) {
                 repositoryManager.setFocusedRepository(context.repo);
                 return await handler(context.scm, context.repo.jj, ...args);
             } else {
@@ -140,9 +150,14 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const context = resolveRepositoryLocal(args);
-            if (context) {
+            if (context?.repo) {
                 repositoryManager.setFocusedRepository(context.repo);
-                const cmdCtx = new VSCodeCommandContext(context.repo, outputChannel, commentsManager);
+                const cmdCtx = new VSCodeCommandContext(
+                    context.repo,
+                    outputChannel,
+                    commentsManager,
+                    context.scm?.sourceControl,
+                );
                 const payload = payloadCreator(args, context.scm);
                 return await handler(cmdCtx, payload);
             } else {
@@ -154,14 +169,19 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
 
     function registerCommand<TReturn = unknown>(
         commandId: string,
-        handler: (ctx: CommandContext) => Promise<TReturn>,
+        handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const context = resolveRepositoryLocal(args);
-            if (context) {
+            if (context?.repo) {
                 repositoryManager.setFocusedRepository(context.repo);
-                const cmdCtx = new VSCodeCommandContext(context.repo, outputChannel, commentsManager);
-                return await handler(cmdCtx);
+                const cmdCtx = new VSCodeCommandContext(
+                    context.repo,
+                    outputChannel,
+                    commentsManager,
+                    context.scm?.sourceControl,
+                );
+                return await handler(cmdCtx, ...args);
             } else {
                 outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
                 return;
@@ -190,36 +210,26 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     context.subscriptions.push(registerCommand('jj-view.focusDescriptionInput', focusDescriptionInputCommand));
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jj-view.showComments', async (changeId?: string) => {
-            await showCommentsCommand(commentsManager, changeId);
-        }),
-        vscode.commands.registerCommand('jj-view.ackComment', async (reply?: vscode.CommentReply) => {
-            await ackCommentCommand(commentsManager, reply);
-        }),
-        vscode.commands.registerCommand('jj-view.doneComment', async (reply?: vscode.CommentReply) => {
-            await doneCommentCommand(commentsManager, reply);
-        }),
-        vscode.commands.registerCommand('jj-view.replyAndResolveComment', async (reply?: vscode.CommentReply) => {
-            await replyAndResolveCommentCommand(commentsManager, reply);
-        }),
-        vscode.commands.registerCommand('jj-view.replyComment', async (reply?: vscode.CommentReply) => {
-            await replyCommentCommand(commentsManager, reply);
-        }),
-        vscode.commands.registerCommand(
+        registerCommandWithPayload('jj-view.showComments', createShowCommentsPayload, showCommentsCommand),
+        registerCommandWithPayload('jj-view.ackComment', createAckCommentPayload, ackCommentCommand),
+        registerCommandWithPayload('jj-view.doneComment', createDoneCommentPayload, doneCommentCommand),
+        registerCommandWithPayload(
+            'jj-view.replyAndResolveComment',
+            createReplyAndResolveCommentPayload,
+            replyAndResolveCommentCommand,
+        ),
+        registerCommandWithPayload('jj-view.replyComment', createReplyCommentPayload, replyCommentCommand),
+        registerCommandWithPayload(
             'jj-view.resolveCommentThread',
-            async (arg?: vscode.CommentThread | vscode.CommentReply) => {
-                await resolveCommentThreadCommand(commentsManager, arg);
-            },
+            createResolveCommentThreadPayload,
+            resolveCommentThreadCommand,
         ),
-        vscode.commands.registerCommand(
+        registerCommandWithPayload(
             'jj-view.unresolveCommentThread',
-            async (arg?: vscode.CommentThread | vscode.CommentReply) => {
-                await unresolveCommentThreadCommand(commentsManager, arg);
-            },
+            createUnresolveCommentThreadPayload,
+            unresolveCommentThreadCommand,
         ),
-        vscode.commands.registerCommand('jj-view.copyUnresolvedComments', async () => {
-            await copyUnresolvedCommentsCommand(commentsManager);
-        }),
+        registerCommand('jj-view.copyUnresolvedComments', copyUnresolvedCommentsCommand),
     );
 
     context.subscriptions.push(
@@ -253,13 +263,8 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             squashSelectionIntoParentCommand,
         ),
         registerCommand('jj-view.refresh', refreshCommand),
-        registerWrappedCommand('jj-view.openFile', async (_scm, _jj, ...args) => {
-            await openFileCommand(...args);
-        }),
-        registerWrappedCommand('jj-view.openChanges', async (_scm, _jj, ...args) => {
-            const state = args[0] as JjResourceState | undefined;
-            await openChangesCommand(state);
-        }),
+        registerCommandWithPayload('jj-view.openFile', createOpenFilePayload, openFileCommand),
+        registerCommandWithPayload('jj-view.openChanges', createOpenChangesPayload, openChangesCommand),
         registerCommand('jj-view.undo', undoCommand),
         registerCommand('jj-view.redo', redoCommand),
         registerCommandWithPayload('jj-view.duplicate', createDuplicatePayload, duplicateCommand),
@@ -277,9 +282,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             (ctx, payload) => advanceBookmarkAndUploadCommand(ctx, payload, scmProviders.get(ctx.repo.rootUri.fsPath)),
         ),
         registerCommandWithPayload('jj-view.deleteBookmark', createDeleteBookmarkPayload, deleteBookmarkCommand),
-        registerWrappedCommand('jj-view.showDetails', async (_scm, jj, ...args) => {
-            await showDetailsCommand(jj, outputChannel, args);
-        }),
+        registerCommandWithPayload('jj-view.showDetails', createShowDetailsPayload, showDetailsCommand),
         registerWrappedCommand('jj-view.openMergeEditor', async (scm, _jj, ...args) => {
             const rest = args.slice(1);
             await openMergeEditorCommand(scm, args[0], ...rest);
@@ -312,12 +315,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerWrappedCommand('jj-view.workspaceOpenInNewWindow', async (scm, jj, ...args) => {
             await workspaceOpenInNewWindowCommand(scm, jj, args);
         }),
-        registerWrappedCommand('jj-view.discardChange', async (scm, _jj, ...args) => {
-            const uri = args[0] as Uri;
-            const changes = args[1];
-            const index = args[2] as number;
-            await discardChangeCommand(scm, uri, changes, index);
-        }),
+        registerCommandWithPayload('jj-view.discardChange', createDiscardChangePayload, discardChangeCommand),
         registerCommandWithPayload(
             'jj-view.squashHunkIntoParent',
             createSquashHunkIntoParentPayload,

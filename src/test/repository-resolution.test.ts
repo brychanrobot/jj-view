@@ -6,8 +6,8 @@
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { resolveRepository } from '../commands/command-utils';
 import { Uri } from '../uri-utils';
+import { resolveRepository } from '../vscode/vscode-ui-helpers';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');

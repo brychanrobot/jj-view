@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import { Uri } from '../uri-utils';
 // sort-imports-ignore
 
@@ -15,7 +16,7 @@ vi.mock('vscode', async () => {
 
 import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../code-forge-provider';
 import { CodeForgeRegistry } from '../code-forge-registry';
-import { CommentsManager } from '../comments-manager';
+import { CommentsManager, type CommentThread } from '../comments-manager';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, CallbackWaiter, createMock, createMockLogOutputChannel, setPrivate } from './test-utils';
@@ -195,16 +196,43 @@ describe('CommentsManager Tests', () => {
         const mockController = (vscode.comments.createCommentController as ReturnType<typeof vi.fn>).mock.results[0]
             .value;
         const createdThread = mockController.createCommentThread.mock.results[0].value;
+        createdThread.canReply = true;
 
-        const reply = createMock<vscode.CommentReply>({
-            thread: createdThread,
-            text: 'Here is my reply',
-        });
-
-        await commentsManager.replyToThread(reply);
+        await commentsManager.replyToThread({ thread: createdThread as CommentThread, text: 'Here is my reply' });
 
         expect(threads[0].comments.length).toBe(1);
         expect(threads[0].comments[0].body).toBe('Here is my reply');
+    });
+
+    test('replyToThread should correctly disambiguate multiple threads on the same line by thread ID', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-1',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [],
+            },
+            {
+                id: 'thread-2',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        await commentsManager.replyToThread({
+            thread: { id: 'thread-2', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            text: 'Reply to thread 2',
+        });
+
+        expect(threads[0].comments.length).toBe(0);
+        expect(threads[1].comments.length).toBe(1);
+        expect(threads[1].comments[0].body).toBe('Reply to thread 2');
     });
 
     test('toggleResolveThread should toggle resolved status and refresh', async () => {

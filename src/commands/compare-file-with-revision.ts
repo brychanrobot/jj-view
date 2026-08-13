@@ -15,7 +15,7 @@ export async function compareFileWithRevisionCommand(
     ...args: unknown[]
 ): Promise<void> {
     try {
-        const fileUri = extractFileUri(args);
+        const fileUri = extractFileUri(args) ?? vscode.window.activeTextEditor?.document.uri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
             vscode.window.showErrorMessage('No workspace file selected for comparison.');

@@ -6,10 +6,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { JjResourceState } from '../../scm-resource-state';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createShowDetailsPayload } from '../../vscode/payloads/details.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMock } from '../test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
@@ -19,13 +24,20 @@ vi.mock('vscode', async () => {
 describe('showDetailsCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
-    let mockOutputChannel: vscode.LogOutputChannel;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn() });
+
+        mockJjRepo = createMock<JjRepository>({ jj });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -34,7 +46,8 @@ describe('showDetailsCommand', () => {
 
     test('calls vscode.openWith for the extracted revision', async () => {
         const changeId = repo.getChangeId('@');
-        await showDetailsCommand(jj, mockOutputChannel, [changeId]);
+        const payload = createShowDetailsPayload([changeId]);
+        await showDetailsCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openWith',
@@ -55,7 +68,8 @@ describe('showDetailsCommand', () => {
             resourceStates: [mockState],
         });
 
-        await showDetailsCommand(jj, mockOutputChannel, [mockGroup]);
+        const payload = createShowDetailsPayload([mockGroup]);
+        await showDetailsCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openWith',
@@ -69,7 +83,8 @@ describe('showDetailsCommand', () => {
 
     test('defaults to @ if no revision extracted', async () => {
         const changeId = repo.getChangeId('@');
-        await showDetailsCommand(jj, mockOutputChannel, [{}]);
+        const payload = createShowDetailsPayload([{}]);
+        await showDetailsCommand(ctx, payload);
 
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
             'vscode.openWith',
