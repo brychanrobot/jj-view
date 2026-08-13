@@ -91,4 +91,25 @@ describe('commitCommand', () => {
 
         expect(withProgressSpy).toHaveBeenCalledWith('Committing...', expect.any(Function));
     });
+
+    test('formats description when commit.formatDescriptionOnSave is enabled', async () => {
+        vi.spyOn(ctx.config, 'get').mockImplementation((key: string) => {
+            if (key === 'commit.formatDescriptionOnSave') {
+                return true;
+            }
+            if (key === 'commit.bodyWidthRuler') {
+                return 20;
+            }
+            return undefined;
+        });
+
+        repo.new(undefined, 'initial');
+        const initialId = repo.getChangeId('@');
+
+        const longMsg = 'Title\n\nThis is a long body description that should be wrapped.';
+        await commitCommand(ctx, { description: longMsg });
+
+        const committedDesc = repo.getDescription(initialId);
+        expect(committedDesc.trim()).toBe('Title\n\nThis is a long body\ndescription that\nshould be wrapped.');
+    });
 });

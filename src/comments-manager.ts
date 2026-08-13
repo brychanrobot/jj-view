@@ -6,10 +6,13 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
+import type { CommentThread } from './comments-types';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
 import { Uri } from './uri-utils';
+
+export * from './comments-types';
 
 export class CommentsManager implements vscode.Disposable {
     private commentController: vscode.CommentController;
@@ -426,7 +429,29 @@ export class CommentsManager implements vscode.Disposable {
         }
     }
 
-    public async replyToThread(reply: vscode.CommentReply, resolved?: boolean): Promise<void> {
+    private findThreadId(thread: CommentThread): string | undefined {
+        if (thread.id && this.threads.has(thread.id)) {
+            return thread.id;
+        }
+
+        const threadUri = thread.uri.toString();
+        const threadRange = thread.range;
+
+        for (const [id, t] of this.threads.entries()) {
+            if (
+                t.uri.toString() === threadUri &&
+                t.range?.start.line === threadRange?.start.line &&
+                t.range?.start.character === threadRange?.start.character &&
+                t.range?.end.line === threadRange?.end.line &&
+                t.range?.end.character === threadRange?.end.character
+            ) {
+                return id;
+            }
+        }
+        return undefined;
+    }
+
+    public async replyToThread(reply: { thread: CommentThread; text?: string }, resolved?: boolean): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
         const changeId = this.activeChangeId;
         if (!repo || !changeId) {
@@ -438,20 +463,11 @@ export class CommentsManager implements vscode.Disposable {
             return;
         }
 
-        // Find thread ID matching the vscode comment thread
-        let foundThreadId: string | undefined;
-        for (const [id, t] of this.threads.entries()) {
-            if (t === reply.thread) {
-                foundThreadId = id;
-                break;
-            }
-        }
-
-        if (!foundThreadId) {
+        const threadId = this.findThreadId(reply.thread);
+        if (!threadId) {
             return;
         }
 
-        const threadId = foundThreadId;
         const provider = activeProvider as Required<
             Pick<CodeForgeProvider, 'replyToCommentThread' | 'getCommentThreads'>
         > &
@@ -465,7 +481,7 @@ export class CommentsManager implements vscode.Disposable {
                     cancellable: false,
                 },
                 async () => {
-                    await provider.replyToCommentThread(changeId, threadId, reply.text, resolved);
+                    await provider.replyToCommentThread(changeId, threadId, reply.text ?? '', resolved);
                     await this.refreshActiveChangeComments();
                     repo.codeForge.requestRefreshWithBackoffs();
                 },
@@ -475,7 +491,7 @@ export class CommentsManager implements vscode.Disposable {
         }
     }
 
-    public async toggleResolveThread(thread: vscode.CommentThread, resolved: boolean): Promise<void> {
+    public async toggleResolveThread(thread: CommentThread, resolved: boolean): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
         const changeId = this.activeChangeId;
         if (!repo || !changeId) {
@@ -487,19 +503,11 @@ export class CommentsManager implements vscode.Disposable {
             return;
         }
 
-        let foundThreadId: string | undefined;
-        for (const [id, t] of this.threads.entries()) {
-            if (t === thread) {
-                foundThreadId = id;
-                break;
-            }
-        }
-
-        if (!foundThreadId) {
+        const threadId = this.findThreadId(thread);
+        if (!threadId) {
             return;
         }
 
-        const threadId = foundThreadId;
         const provider = activeProvider as Required<
             Pick<CodeForgeProvider, 'resolveCommentThread' | 'getCommentThreads'>
         > &
@@ -562,7 +570,7 @@ export class CommentsManager implements vscode.Disposable {
             }
             for (const comment of thread.comments) {
                 const author = comment.author?.name || 'Unknown';
-                const body = typeof comment.body === 'string' ? comment.body : comment.body.value;
+                const body = typeof comment.body === 'string' ? comment.body : (comment.body?.value ?? '');
                 const indentedBody = body
                     .split(/\r?\n/)
                     .map((line) => `    > ${line}`)
@@ -583,7 +591,36 @@ export class CommentsManager implements vscode.Disposable {
         }
     }
 
-    public dispose() {
+    public async formatUnresolvedCommentsSummary(): Promise<string | undefined> {
+        const unresolvedThreads = Array.from(this.threads.values()).filter(
+            (thread) => thread.state === vscode.CommentThreadState.Unresolved,
+        );
+        if (unresolvedThreads.length === 0) {
+            return undefined;
+        }
+        let result = `### Unresolved Comments\n\n`;
+        for (const thread of unresolvedThreads) {
+            const relativePath = vscode.workspace.asRelativePath(thread.uri);
+            if (thread.range) {
+                const lineNum = thread.range.start.line + 1;
+                result += `- **${relativePath}:${lineNum}**\n`;
+            } else {
+                result += `- **${relativePath}**\n`;
+            }
+            for (const comment of thread.comments) {
+                const author = comment.author?.name || 'Unknown';
+                const body = typeof comment.body === 'string' ? comment.body : (comment.body?.value ?? '');
+                const indentedBody = body
+                    .split(/\r?\n/)
+                    .map((line) => `    > ${line}`)
+                    .join('\n');
+                result += `  - **${author}**:\n${indentedBody}\n`;
+            }
+        }
+        return result.trim();
+    }
+
+    public dispose(): void {
         if (this.activeLoadController) {
             this.activeLoadController.abort();
         }

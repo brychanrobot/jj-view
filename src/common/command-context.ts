@@ -36,6 +36,8 @@ export interface CommandUI {
     }): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
+    setCommitInput?(value: string): void;
+    getCommitInput?(): string | undefined;
 }
 
 export interface CommandConfig {
@@ -55,6 +57,15 @@ export interface CommandNavigation {
     closeTab(uri: Uri): Promise<void>;
 }
 
+export interface HostDocuments {
+    readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string>;
+    replaceLineRangeAndSave(
+        uri: Uri,
+        lineRange: { startLine1Based: number; endLine1Based: number },
+        replacementText: string,
+    ): Promise<void>;
+}
+
 export interface CommandServices {
     commentsManager?: CommentsManager;
 }
@@ -64,6 +75,7 @@ export interface CommandContext {
     readonly ui: CommandUI;
     readonly config: CommandConfig;
     readonly nav: CommandNavigation;
+    readonly documents: HostDocuments;
     readonly log: JjLoggerChannel;
     readonly services: CommandServices;
 }

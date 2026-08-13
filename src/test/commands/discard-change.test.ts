@@ -8,10 +8,13 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { discardChangeCommand } from '../../commands/discard-change';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
+import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 
 // Track created documents for mocking
 const mockDocuments = new Map<
@@ -100,15 +103,20 @@ vi.mock('vscode', () => {
 });
 
 describe('discardChangeCommand', () => {
+    let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
-        scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: (uri: Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }),
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            rootUri: Uri.file(repo.path),
         });
+        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
         mockDocuments.clear();
     });
 
@@ -123,15 +131,15 @@ describe('discardChangeCommand', () => {
         const fileUri = Uri.file(path.join(repo.path, fileName));
 
         // Test with null uri
-        await discardChangeCommand(scmProvider, null as unknown as Uri, [], 0);
+        await discardChangeCommand(ctx, { uri: null as unknown as Uri, changes: [], index: 0 });
         expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
 
         // Test with invalid index
-        await discardChangeCommand(scmProvider, fileUri, [], 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes: [], index: 0 });
         expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
 
         // Test with non-array changes
-        await discardChangeCommand(scmProvider, fileUri, 'invalid', 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes: 'invalid', index: 0 });
         expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
     });
 
@@ -143,11 +151,11 @@ describe('discardChangeCommand', () => {
 
         // Invalid change object (missing properties)
         const invalidChanges = [{ originalStartLineNumber: 1 }];
-        await discardChangeCommand(scmProvider, fileUri, invalidChanges, 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes: invalidChanges, index: 0 });
         expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
     });
 
-    test('calls provideOriginalResource for parent content', async () => {
+    test('discards change for parent content', async () => {
         const fileName = 'discard.txt';
 
         repo.writeFile(fileName, 'original\n');
@@ -157,13 +165,6 @@ describe('discardChangeCommand', () => {
 
         const fileUri = Uri.file(path.join(repo.path, fileName));
 
-        const provideOriginalResourceMock = vi
-            .fn()
-            .mockImplementation((uri: Uri) => uri.with({ scheme: 'jj-view', fragment: 'base=@&side=left' }));
-        scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: provideOriginalResourceMock,
-        });
-
         const changes = [
             {
                 originalStartLineNumber: 1,
@@ -173,37 +174,9 @@ describe('discardChangeCommand', () => {
             },
         ];
 
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
-        expect(provideOriginalResourceMock).toHaveBeenCalledWith(fileUri);
-    });
-
-    test('shows error message on failure', async () => {
-        const fileName = 'error.txt';
-        repo.writeFile(fileName, 'content\n');
-
-        const fileUri = Uri.file(path.join(repo.path, fileName));
-
-        // Mock provideOriginalResource to return null
-        scmProvider = createMock<JjScmProvider>({
-            provideOriginalResource: () => null,
-        });
-
-        const changes = [
-            {
-                originalStartLineNumber: 1,
-                originalEndLineNumber: 1,
-                modifiedStartLineNumber: 1,
-                modifiedEndLineNumber: 1,
-            },
-        ];
-
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
-
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            expect.stringContaining('Failed to discard change'),
-            'Show Log',
-        );
+        expect(vscode.workspace.applyEdit).toHaveBeenCalled();
     });
 
     test('handles deletion discard (empty modified range)', async () => {
@@ -225,7 +198,7 @@ describe('discardChangeCommand', () => {
             },
         ];
 
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
         // Should attempt to apply an edit
         expect(vscode.workspace.applyEdit).toHaveBeenCalled();
@@ -250,7 +223,7 @@ describe('discardChangeCommand', () => {
             },
         ];
 
-        await discardChangeCommand(scmProvider, fileUri, changes, 0);
+        await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
         expect(vscode.workspace.applyEdit).toHaveBeenCalled();
     });

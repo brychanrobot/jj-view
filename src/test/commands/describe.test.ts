@@ -47,6 +47,7 @@ describe('setDescriptionCommand', () => {
             mockJjRepo,
             createMock<JjLoggerChannel>(NO_OP_LOGGER),
             createMock<CommentsManager>({}),
+            scmProvider.sourceControl,
         );
     });
 
@@ -115,5 +116,24 @@ describe('setDescriptionCommand', () => {
         const result = await setDescriptionCommand(ctx, { revision: '@-' });
         expect(result).toBe('');
         expect(repo.getDescription('@-').trim()).toBe('');
+    });
+
+    test('updates SCM input box when formatDescriptionOnSave is enabled for @', async () => {
+        vi.spyOn(ctx.config, 'get').mockImplementation((key: string) => {
+            if (key === 'commit.formatDescriptionOnSave') {
+                return true;
+            }
+            if (key === 'commit.bodyWidthRuler') {
+                return 20;
+            }
+            return undefined;
+        });
+
+        const longMsg = 'Title\n\nThis is a very long line in the body that will be wrapped by the formatter.';
+        await setDescriptionCommand(ctx, { description: longMsg, revision: '@' });
+
+        expect(scmProvider.sourceControl.inputBox.value).toBe(
+            'Title\n\nThis is a very long\nline in the body\nthat will be wrapped\nby the formatter.',
+        );
     });
 });

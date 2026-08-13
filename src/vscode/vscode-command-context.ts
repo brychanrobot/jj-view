@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { promptForRevision, showJjError, withDelayedProgress } from '../commands/command-utils';
 import type { CommentsManager } from '../comments-manager';
 import type {
     CommandConfig,
@@ -11,16 +10,19 @@ import type {
     CommandNavigation,
     CommandServices,
     CommandUI,
+    HostDocuments,
 } from '../common/command-context';
 import type { JjRepository } from '../jj-repository';
 import type { Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
+import { promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
 
 export class VSCodeCommandUI implements CommandUI {
     constructor(
         private readonly repo: JjRepository,
         private readonly log: JjLoggerChannel,
+        private readonly sourceControl?: { inputBox: { value: string } },
     ) {}
 
     async showInputBox(options?: {
@@ -111,6 +113,16 @@ export class VSCodeCommandUI implements CommandUI {
             vscode.window.setStatusBarMessage(message);
         }
     }
+
+    setCommitInput(value: string): void {
+        if (this.sourceControl) {
+            this.sourceControl.inputBox.value = value;
+        }
+    }
+
+    getCommitInput(): string | undefined {
+        return this.sourceControl?.inputBox.value;
+    }
 }
 
 export class VSCodeCommandConfig implements CommandConfig {
@@ -174,20 +186,66 @@ export async function closeTabsForUri(uri: Uri): Promise<void> {
     }
 }
 
+export class VSCodeHostDocuments implements HostDocuments {
+    async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        if (endLine1Based < startLine1Based) {
+            return '';
+        }
+        const range = this.getSafeRange(doc, startLine1Based, endLine1Based);
+        return doc.getText(range);
+    }
+
+    async replaceLineRangeAndSave(
+        uri: Uri,
+        lineRange: { startLine1Based: number; endLine1Based: number },
+        replacementText: string,
+    ): Promise<void> {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        let modifiedRange: vscode.Range;
+        if (lineRange.endLine1Based >= lineRange.startLine1Based) {
+            modifiedRange = this.getSafeRange(doc, lineRange.startLine1Based, lineRange.endLine1Based);
+        } else {
+            const insertLine = Math.max(0, Math.min(lineRange.startLine1Based, doc.lineCount));
+            modifiedRange = new vscode.Range(insertLine, 0, insertLine, 0);
+        }
+
+        const workspaceEdit = new vscode.WorkspaceEdit();
+        workspaceEdit.replace(uri, modifiedRange, replacementText);
+        await vscode.workspace.applyEdit(workspaceEdit);
+        await doc.save();
+    }
+
+    private getSafeRange(doc: vscode.TextDocument, startLine1Based: number, endLine1Based: number): vscode.Range {
+        const { lineCount } = doc;
+        if (lineCount === 0) {
+            return new vscode.Range(0, 0, 0, 0);
+        }
+        const startLine = Math.max(0, Math.min(startLine1Based - 1, lineCount - 1));
+        const endLine = Math.max(0, Math.min(endLine1Based - 1, lineCount - 1));
+        const startPos = new vscode.Position(startLine, 0);
+        const endPos = doc.lineAt(endLine).rangeIncludingLineBreak.end;
+        return new vscode.Range(startPos, endPos);
+    }
+}
+
 export class VSCodeCommandContext implements CommandContext {
     readonly ui: CommandUI;
     readonly config: CommandConfig;
     readonly nav: CommandNavigation;
+    readonly documents: HostDocuments;
     readonly services: CommandServices;
 
     constructor(
         readonly repo: JjRepository,
         readonly log: JjLoggerChannel,
         commentsManager: CommentsManager,
+        sourceControl?: { inputBox: { value: string } },
     ) {
-        this.ui = new VSCodeCommandUI(repo, log);
+        this.ui = new VSCodeCommandUI(repo, log, sourceControl);
         this.config = new VSCodeCommandConfig();
         this.nav = new VSCodeCommandNavigation();
+        this.documents = new VSCodeHostDocuments();
         this.services = { commentsManager };
     }
 }

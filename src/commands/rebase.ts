@@ -18,6 +18,7 @@ export async function rebaseOntoSelectedCommand(
     ctx: CommandContext,
     payload?: RebaseOntoSelectedPayload,
 ): Promise<void> {
+    const { repo, ui } = ctx;
     const sourceId = payload?.sourceId;
     if (!sourceId) {
         return;
@@ -25,16 +26,16 @@ export async function rebaseOntoSelectedCommand(
 
     const destinations = payload?.destinations ?? [];
     if (destinations.length === 0) {
-        await ctx.ui.showError(new Error('No commits selected to rebase onto.'), 'Rebase Error');
+        await ui.showError(new Error('No commits selected to rebase onto.'), 'Rebase Error');
         return;
     }
 
     try {
-        await ctx.ui.withProgress(`Rebasing ${sourceId.substring(0, 8)} onto ${destinations.length} dest(s)...`, () =>
-            ctx.repo.jj.rebase(sourceId, destinations, 'source'),
+        await ui.withProgress(`Rebasing ${sourceId.substring(0, 8)} onto ${destinations.length} dest(s)...`, () =>
+            repo.jj.rebase(sourceId, destinations, 'source'),
         );
-        await ctx.repo.refresh();
+        await repo.refresh();
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Error rebasing');
+        await ui.showError(err, 'Error rebasing');
     }
 }

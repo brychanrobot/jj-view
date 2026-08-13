@@ -7,15 +7,21 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
+import { CodeForgeRegistry } from '../code-forge-registry';
 import {
     extractBookmarkName,
+    maybeFormatDescriptionOnSave,
+    prepareCommitDescription,
     promptForRevision,
     RevisionQuery,
     resolveRevisionsWithSelection,
     withDelayedProgress,
 } from '../commands/command-utils';
+import { JjRepository } from '../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { Uri } from '../uri-utils';
 import { buildGraph, TestRepo } from './test-repo';
+import { createMockLogOutputChannel } from './test-utils';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
 
 // Mock vscode
@@ -304,5 +310,178 @@ describe('resolveRevisionsWithSelection', () => {
     it('falls back to default revision when no args or selection exist', () => {
         expect(resolveRevisionsWithSelection([])).toEqual(['@']);
         expect(resolveRevisionsWithSelection([], undefined, 'root()')).toEqual(['root()']);
+    });
+});
+
+describe('prepareCommitDescription', () => {
+    let repo: TestRepo;
+    let jjRepo: JjRepository;
+
+    beforeEach(() => {
+        repo = new TestRepo();
+        repo.init();
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel({ appendLine: () => {} }),
+        );
+    });
+
+    afterEach(() => {
+        jjRepo.dispose();
+    });
+
+    it('appends unresolved comments summary when enabled and available', async () => {
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockImplementation((key: string) => {
+                    if (key === 'autoInsertUnresolvedCommentsSummary') {
+                        return true;
+                    }
+                    return undefined;
+                }),
+            },
+            services: {
+                commentsManager: {
+                    formatUnresolvedCommentsSummary: vi.fn().mockResolvedValue('Unresolved Comments Summary'),
+                },
+            },
+        };
+
+        const result = await prepareCommitDescription(ctx, { currentDescription: 'Initial title' });
+        expect(result).toBe('Initial title\n\nUnresolved Comments Summary');
+    });
+
+    it('does not append summary when insertCommentsSummary option is false', async () => {
+        const formatSummaryMock = vi.fn().mockResolvedValue('Summary');
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockReturnValue(true),
+            },
+            services: {
+                commentsManager: {
+                    formatUnresolvedCommentsSummary: formatSummaryMock,
+                },
+            },
+        };
+
+        const result = await prepareCommitDescription(ctx, {
+            currentDescription: 'Initial title',
+            insertCommentsSummary: false,
+        });
+        expect(result).toBe('Initial title');
+        expect(formatSummaryMock).not.toHaveBeenCalled();
+    });
+
+    it('returns original description if comments manager returns nothing', async () => {
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockReturnValue(true),
+            },
+            services: {
+                commentsManager: {
+                    formatUnresolvedCommentsSummary: vi.fn().mockResolvedValue(undefined),
+                },
+            },
+        };
+
+        const result = await prepareCommitDescription(ctx, { currentDescription: 'Initial title' });
+        expect(result).toBe('Initial title');
+    });
+});
+
+describe('maybeFormatDescriptionOnSave', () => {
+    let repo: TestRepo;
+    let jjRepo: JjRepository;
+
+    beforeEach(() => {
+        repo = new TestRepo();
+        repo.init();
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel({ appendLine: () => {} }),
+        );
+    });
+
+    afterEach(() => {
+        jjRepo.dispose();
+    });
+
+    it('does not format description when commit.formatDescriptionOnSave is disabled', async () => {
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockImplementation((key: string) => {
+                    if (key === 'commit.formatDescriptionOnSave') {
+                        return false;
+                    }
+                    return undefined;
+                }),
+            },
+        };
+
+        const raw = 'Title\n\nThis is a very long paragraph that will not be wrapped because formatting is off.';
+        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@');
+        expect(result).toBe(raw);
+    });
+
+    it('formats description and updates ctx.ui.setCommitInput when revision is @', async () => {
+        const setCommitInput = vi.fn();
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockImplementation((key: string) => {
+                    if (key === 'commit.formatDescriptionOnSave') {
+                        return true;
+                    }
+                    if (key === 'commit.bodyWidthRuler') {
+                        return 20;
+                    }
+                    return undefined;
+                }),
+            },
+            ui: {
+                setCommitInput,
+            },
+        };
+
+        const raw = 'Title\n\nThis is a long body line that should be wrapped by prettier.';
+        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@');
+
+        expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
+        expect(setCommitInput).toHaveBeenCalledWith(result);
+    });
+
+    it('formats description but does not call setCommitInput when revision is not @', async () => {
+        const setCommitInput = vi.fn();
+        const ctx = {
+            repo: jjRepo,
+            config: {
+                get: vi.fn().mockImplementation((key: string) => {
+                    if (key === 'commit.formatDescriptionOnSave') {
+                        return true;
+                    }
+                    if (key === 'commit.bodyWidthRuler') {
+                        return 20;
+                    }
+                    return undefined;
+                }),
+            },
+            ui: {
+                setCommitInput,
+            },
+        };
+
+        const raw = 'Title\n\nThis is a long body line that should be wrapped by prettier.';
+        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@-');
+
+        expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
+        expect(setCommitInput).not.toHaveBeenCalled();
     });
 });

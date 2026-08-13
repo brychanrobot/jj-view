@@ -189,6 +189,20 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
 }
 
 /**
+ * Gets the original resource URI (left side / base) for a file in the workspace or revision.
+ */
+export function getOriginalResourceUri(root: string, uri: Uri): Uri {
+    const revision = getRevisionFromUri(uri) || '@';
+    const relativePath = getRepoRelativePath(uri, root);
+    const relPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+    return Uri.from({
+        scheme: 'jj-view',
+        path: relPath,
+        fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
+    });
+}
+
+/**
  * Converts a URI (which may be a custom scheme or contain fragment parameters)
  * into a standard file scheme URI pointing to the underlying workspace file.
  */

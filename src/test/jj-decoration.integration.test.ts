@@ -22,6 +22,26 @@ suite('JJ Decoration Integration Test', () => {
         return Uri.file(p).toString();
     }
 
+    async function waitForDecoration(
+        uri: Uri,
+        predicate: (dec: vscode.FileDecoration | undefined) => boolean,
+        timeoutMs = 5000,
+    ): Promise<vscode.FileDecoration | undefined> {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            const token = new vscode.CancellationTokenSource().token;
+            const res = await Promise.resolve(scmProvider.decorationProvider.provideFileDecoration(uri, token));
+            const dec = res ?? undefined;
+            if (predicate(dec)) {
+                return dec;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        const token = new vscode.CancellationTokenSource().token;
+        const res = await Promise.resolve(scmProvider.decorationProvider.provideFileDecoration(uri, token));
+        return res ?? undefined;
+    }
+
     setup(async () => {
         // Create a temporary workspace
         repo = new TestRepo();
@@ -222,24 +242,16 @@ suite('JJ Decoration Integration Test', () => {
         repo.writeFile(fileName, 'content');
         await scmProvider.refresh(); // Automatically tracked as 'A'
 
-        const initialTrackedDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
-            uri,
-            new vscode.CancellationTokenSource().token,
-        ) as Promise<vscode.FileDecoration | undefined>;
-        await initialTrackedDecorationPromise;
-        // Here, it would actually be marked as 'A' (Added), but essentially not ignored
+        const initialTrackedDecoration = await waitForDecoration(uri, (dec) => dec?.badge === 'A');
+        assert.ok(initialTrackedDecoration !== undefined, 'Should be tracked initially');
+        assert.strictEqual(initialTrackedDecoration?.badge, 'A');
 
         // 2. Ignore it first, then untrack it (jj file untrack requires the file to be ignored)
         repo.writeFile('.gitignore', `${fileName}\n`);
         repo.untrack(fileName);
-        await scmProvider.refresh(); // This clears the decoration cache!
+        await scmProvider.refresh(); // Triggers update of decoration cache
 
-        const finalIgnoredDecorationPromise = scmProvider.decorationProvider.provideFileDecoration(
-            uri,
-            new vscode.CancellationTokenSource().token,
-        ) as Promise<vscode.FileDecoration | undefined>;
-
-        const finalIgnoredDecoration = await finalIgnoredDecorationPromise;
+        const finalIgnoredDecoration = await waitForDecoration(uri, (dec) => dec?.tooltip === 'Ignored');
         assert.ok(finalIgnoredDecoration !== undefined, 'Should now be ignored');
         assert.strictEqual(finalIgnoredDecoration?.tooltip, 'Ignored', 'Should have Ignored tooltip');
     });
