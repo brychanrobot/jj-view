@@ -74,8 +74,11 @@ import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
 import { createCommitPayload } from './payloads/commit.payload';
+import { createSetDescriptionPayload } from './payloads/describe.payload';
+import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
 import { createNewPayload } from './payloads/new.payload';
+import { createRestorePayload } from './payloads/restore.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 
 export interface RegisterCommandsOptions {
@@ -203,10 +206,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
 
     context.subscriptions.push(
         registerCommandWithPayload('jj-view.abandon', createAbandonPayload, abandonCommand),
-        registerWrappedCommand('jj-view.restore', async (scm, jj, ...args) => {
-            const states = args as vscode.SourceControlResourceState[];
-            await restoreCommand(scm, jj, states);
-        }),
+        registerCommandWithPayload('jj-view.restore', createRestorePayload, restoreCommand),
         registerWrappedCommand('jj-view.squashRevisionIntoParent', async (scm, jj, ...args) => {
             await squashRevisionIntoParentCommand(scm, jj, args);
         }),
@@ -224,9 +224,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
                 await completeSquashRevisionCommand(scm, jj, doc.getText());
             }
         }),
-        registerWrappedCommand('jj-view.setDescription', async (scm, jj, ...args) => {
-            return await setDescriptionCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.setDescription', createSetDescriptionPayload, setDescriptionCommand),
         registerWrappedCommand('jj-view.squashSelectionIntoParent', async (scm, jj) => {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
@@ -243,9 +241,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         }),
         registerCommand('jj-view.undo', undoCommand),
         registerCommand('jj-view.redo', redoCommand),
-        registerWrappedCommand('jj-view.duplicate', async (scm, jj, ...args) => {
-            await duplicateCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.duplicate', createDuplicatePayload, duplicateCommand),
         registerCommandWithPayload('jj-view.edit', createEditPayload, editCommand),
         registerWrappedCommand('jj-view.newBefore', async (scm, jj, ...args) => {
             const changeIds = args as string[];

@@ -2,32 +2,28 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { extractRevisions, maybeFormatDescriptionOnSave, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { maybeFormatDescriptionOnSave } from './command-utils';
 
-export async function setDescriptionCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[] = []) {
-    let description = typeof args[0] === 'string' ? args[0] : undefined;
-    const revisionArgs = description ? args.slice(1) : args;
-    const revision =
-        (description && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
+export interface SetDescriptionPayload {
+    description?: string;
+    revision?: string;
+}
 
-    if (description === undefined) {
-        if (revision === '@') {
-            description = scmProvider.sourceControl.inputBox.value;
-        } else {
-            return false;
-        }
-    }
-    description = description.trim();
-    description = await maybeFormatDescriptionOnSave(description, scmProvider, revision);
+export async function setDescriptionCommand(
+    ctx: CommandContext,
+    payload?: SetDescriptionPayload,
+): Promise<string | false> {
+    const revision = payload?.revision ?? '@';
+    let description = (payload?.description ?? '').trim();
+    description = await maybeFormatDescriptionOnSave(description, ctx, revision);
 
     try {
-        await withDelayedProgress('Setting description...', jj.describe(description, revision));
-        scmProvider.refresh({ reason: 'after describe' });
+        await ctx.ui.withProgress('Setting description...', () => ctx.repo.jj.describe(description, revision));
+        ctx.repo.refresh({ reason: 'after describe' });
         return description;
     } catch (e: unknown) {
-        await showJjError(e, 'Error setting description', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error setting description');
         return false;
     }
 }
