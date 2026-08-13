@@ -2,19 +2,22 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { maybeFormatDescriptionOnSave, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
+import { maybeFormatDescriptionOnSave } from './command-utils';
 
-export async function commitCommand(scmProvider: JjScmProvider, jj: JjService) {
-    let description = scmProvider.sourceControl.inputBox.value.trim();
+export interface CommitPayload {
+    description?: string;
+}
 
-    description = await maybeFormatDescriptionOnSave(description, scmProvider);
-
+export async function commitCommand(ctx: CommandContext, payload?: CommitPayload): Promise<void> {
+    let description = payload?.description?.trim() ?? '';
+    if (description) {
+        description = await maybeFormatDescriptionOnSave(description, ctx);
+    }
     try {
-        await withDelayedProgress('Committing...', jj.commit(description));
-        await scmProvider.refresh({ reason: 'after commit' });
+        await ctx.ui.withProgress('Committing...', () => ctx.repo.jj.commit(description));
+        await ctx.repo.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
-        await showJjError(err, 'Error committing change', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(err, 'Error committing change');
     }
 }

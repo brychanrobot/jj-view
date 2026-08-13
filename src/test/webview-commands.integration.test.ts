@@ -12,11 +12,13 @@ import { newCommand } from '../commands/new';
 import { redoCommand } from '../commands/redo';
 import { squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { undoCommand } from '../commands/undo';
+import type { CommentsManager } from '../comments-manager';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
+import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
@@ -116,10 +118,12 @@ suite('Webview Commands End-to-End Integration Test', () => {
                 return editCommand(scm, jj, args);
             }
             if (command === 'jj-view.undo') {
-                return undoCommand(scm, jj);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                return undoCommand(ctx);
             }
             if (command === 'jj-view.redo') {
-                return redoCommand(scm, jj);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                return redoCommand(ctx);
             }
             if (command === 'jj-view.refresh') {
                 return;

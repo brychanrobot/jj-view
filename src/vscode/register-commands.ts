@@ -62,6 +62,7 @@ import { workspaceDeleteCommand } from '../commands/workspace-delete';
 import { workspaceForgetCommand } from '../commands/workspace-forget';
 import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../commands/workspace-open';
 import type { CommentsManager } from '../comments-manager';
+import type { CommandContext } from '../common/command-context';
 import type { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
@@ -71,6 +72,8 @@ import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
 import type { JjResourceState } from '../scm-resource-state';
 import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
+import { createCommitPayload } from './payloads/commit.payload';
+import { VSCodeCommandContext } from './vscode-command-context';
 
 export interface RegisterCommandsOptions {
     context: vscode.ExtensionContext;
@@ -102,7 +105,41 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         });
     }
 
-    // Register all wrapped commands
+    function registerCommandWithPayload<TPayload, TReturn = unknown>(
+        commandId: string,
+        payloadCreator: (args: unknown[], scm?: JjScmProvider) => TPayload,
+        handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
+    ): vscode.Disposable {
+        return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
+            const context = resolveRepositoryLocal(args);
+            if (context) {
+                repositoryManager.setFocusedRepository(context.repo);
+                const cmdCtx = new VSCodeCommandContext(context.repo, outputChannel, commentsManager);
+                const payload = payloadCreator(args, context.scm);
+                return await handler(cmdCtx, payload);
+            } else {
+                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                return;
+            }
+        });
+    }
+
+    function registerCommand<TReturn = unknown>(
+        commandId: string,
+        handler: (ctx: CommandContext) => Promise<TReturn>,
+    ): vscode.Disposable {
+        return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
+            const context = resolveRepositoryLocal(args);
+            if (context) {
+                repositoryManager.setFocusedRepository(context.repo);
+                const cmdCtx = new VSCodeCommandContext(context.repo, outputChannel, commentsManager);
+                return await handler(cmdCtx);
+            } else {
+                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                return;
+            }
+        });
+    }
     context.subscriptions.push(
         registerWrappedCommand('jj-view.focusRepository', () => {
             // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
@@ -114,9 +151,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const arg = args[0] as MergeCommandArg | undefined;
             await newMergeChangeCommand(scm, jj, arg);
         }),
-        registerWrappedCommand('jj-view.commit', async (scm, jj) => {
-            await commitCommand(scm, jj);
-        }),
+        registerCommandWithPayload('jj-view.commit', createCommitPayload, commitCommand),
         registerWrappedCommand('jj-view.commitPrompt', async (scm, jj) => {
             await commitPromptCommand(scm, jj);
         }),
@@ -199,9 +234,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
                 await squashSelectionIntoParentCommand(scm, jj, editor);
             }
         }),
-        registerWrappedCommand('jj-view.refresh', async (scm) => {
-            await refreshCommand(scm);
-        }),
+        registerCommand('jj-view.refresh', refreshCommand),
         registerWrappedCommand('jj-view.openFile', async (_scm, _jj, ...args) => {
             await openFileCommand(...args);
         }),
@@ -209,14 +242,8 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const state = args[0] as JjResourceState | undefined;
             await openChangesCommand(state);
         }),
-        registerWrappedCommand('jj-view.undo', async (scm, jj) => {
-            await undoCommand(scm, jj);
-            await scm.repo.refresh({ reason: 'undo' });
-        }),
-        registerWrappedCommand('jj-view.redo', async (scm, jj) => {
-            await redoCommand(scm, jj);
-            await scm.repo.refresh({ reason: 'redo' });
-        }),
+        registerCommand('jj-view.undo', undoCommand),
+        registerCommand('jj-view.redo', redoCommand),
         registerWrappedCommand('jj-view.duplicate', async (scm, jj, ...args) => {
             await duplicateCommand(scm, jj, args);
         }),

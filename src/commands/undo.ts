@@ -2,15 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function undoCommand(scmProvider: JjScmProvider, jj: JjService) {
+export async function undoCommand(ctx: CommandContext): Promise<void> {
+    const { repo, ui } = ctx;
     try {
-        await withDelayedProgress('Undoing...', jj.undo());
-        await scmProvider.refresh();
+        await ui.withProgress('Undoing...', () => repo.jj.undo());
+        await repo.refresh({ reason: 'undo' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error undoing', jj, scmProvider.outputChannel);
+        await ui.showError(e, 'Error undoing');
     }
 }
