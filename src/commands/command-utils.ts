@@ -421,10 +421,10 @@ export async function showJjError(
  */
 export async function maybeFormatDescriptionOnSave(
     description: string,
-    scmProvider: JjScmProvider,
+    scmProvider?: JjScmProvider,
     revision: string = '@',
 ): Promise<string> {
-    const scope = scmProvider.repo?.rootUri;
+    const scope = scmProvider?.repo?.rootUri;
     const formatOnSave = getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope);
     if (!formatOnSave) {
         return description;
@@ -433,7 +433,7 @@ export async function maybeFormatDescriptionOnSave(
     const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', 72, scope) ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
-    if (revision === '@') {
+    if (revision === '@' && scmProvider) {
         scmProvider.sourceControl.inputBox.value = description;
     }
     return description;
