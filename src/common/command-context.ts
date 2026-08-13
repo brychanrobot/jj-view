@@ -48,6 +48,7 @@ export interface CommandConfig {
 export interface CommandNavigation {
     openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void>;
     openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void>;
+    openMergeEditor(resourceUri: Uri): Promise<void>;
     openFile(uri: Uri): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
     openExternal(url: string): Promise<void>;

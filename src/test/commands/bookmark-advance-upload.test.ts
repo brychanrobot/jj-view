@@ -4,33 +4,33 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import type { CodeForgeService } from '../../code-forge-service';
 import { advanceBookmarkAndUploadCommand } from '../../commands/bookmark-advance-upload';
 import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
-import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createAdvanceBookmarkAndUploadPayload } from '../../vscode/payloads/bookmark-advance-upload.payload';
 import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
-import { resetMockQuickPick } from '../vitest-utils';
+import { createMock, createMockLogOutputChannel, FakeConfigStore } from '../test-utils';
+
+const fakeConfigStore = new FakeConfigStore();
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
+    return createVscodeMock({
+        workspace: {
+            getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
+        },
+    });
 });
 
 describe('advanceBookmarkAndUploadCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let remoteRepo: TestRepo;
-    let scmProvider: JjScmProvider;
     let mockJjRepo: JjRepository;
     let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -39,39 +39,30 @@ describe('advanceBookmarkAndUploadCommand', () => {
         remoteRepo = new TestRepo();
         remoteRepo.init();
 
+        repo.addRemote('origin', remoteRepo.path);
+        repo.config('git.push', '"origin"');
+
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        const codeForge = createMock<CodeForgeService>({
-            activeProvider: undefined,
+
+        const codeForgeService = createMock<CodeForgeService>({
+            isEnabled: false,
             requestRefreshWithBackoffs: vi.fn(),
         });
+
         mockJjRepo = createMock<JjRepository>({
             jj,
-            codeForge,
+            codeForge: codeForgeService,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
-            outputChannel: createMockLogOutputChannel({
-                appendLine: vi.fn(),
-            }),
-            repo: mockJjRepo,
-        });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
 
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
+        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
-    test('advances bookmark and uploads to remote in sequence', async () => {
-        repo.addRemote('origin', remoteRepo.path);
+    test('advances bookmark and uploads to remote', async () => {
         repo.config('remotes.origin.auto-track-bookmarks', '"*"');
         repo.config('git.push-new-bookmarks', 'true');
 
@@ -82,7 +73,7 @@ describe('advanceBookmarkAndUploadCommand', () => {
         const [child] = await jj.getLog({ revision: '@' });
 
         const payload = createAdvanceBookmarkAndUploadPayload([child.change_id]);
-        await advanceBookmarkAndUploadCommand(ctx, payload, scmProvider);
+        await advanceBookmarkAndUploadCommand(ctx, payload);
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(

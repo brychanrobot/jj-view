@@ -31,7 +31,7 @@ import { discardChangeCommand } from '../commands/discard-change';
 import { duplicateCommand } from '../commands/duplicate';
 import { editCommand } from '../commands/edit';
 import { focusDescriptionInputCommand } from '../commands/focus-description-input';
-import { type MergeCommandArg, newMergeChangeCommand } from '../commands/merge';
+import { newMergeChangeCommand } from '../commands/merge';
 import { openMergeEditorCommand } from '../commands/merge-editor';
 import { showMultiFileDiffCommand } from '../commands/multi-diff';
 import { newCommand } from '../commands/new';
@@ -90,6 +90,8 @@ import { createShowDetailsPayload } from './payloads/details.payload';
 import { createDiscardChangePayload } from './payloads/discard-change.payload';
 import { createDuplicatePayload } from './payloads/duplicate.payload';
 import { createEditPayload } from './payloads/edit.payload';
+import { createNewMergeChangePayload } from './payloads/merge.payload';
+import { createOpenMergeEditorPayload } from './payloads/merge-editor.payload';
 import { createNewPayload } from './payloads/new.payload';
 import { createNewAfterPayload } from './payloads/new-after.payload';
 import { createNewBeforePayload } from './payloads/new-before.payload';
@@ -110,6 +112,7 @@ import {
     createSquashHunkIntoParentPayload,
     createSquashSelectionIntoParentPayload,
 } from './payloads/squash-selection.payload';
+import { createUploadPayload } from './payloads/upload.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { resolveRepository } from './vscode-ui-helpers';
 
@@ -193,10 +196,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
         }),
         registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
-        registerWrappedCommand('jj-view.newMergeChange', async (scm, jj, ...args) => {
-            const arg = args[0] as MergeCommandArg | undefined;
-            await newMergeChangeCommand(scm, jj, arg);
-        }),
+        registerCommandWithPayload('jj-view.newMergeChange', createNewMergeChangePayload, newMergeChangeCommand),
         registerCommandWithPayload('jj-view.commit', createCommitPayload, commitCommand),
         registerWrappedCommand('jj-view.commitPrompt', async (scm, jj) => {
             await commitPromptCommand(scm, jj);
@@ -271,22 +271,17 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.edit', createEditPayload, editCommand),
         registerCommandWithPayload('jj-view.newBefore', createNewBeforePayload, newBeforeCommand),
         registerCommandWithPayload('jj-view.newAfter', createNewAfterPayload, newAfterCommand),
-        registerWrappedCommand('jj-view.upload', async (scm, jj, ...args) => {
-            await uploadCommand(scm, jj, scm.repo.codeForge, args, outputChannel);
-        }),
+        registerCommandWithPayload('jj-view.upload', createUploadPayload, uploadCommand),
         registerCommandWithPayload('jj-view.setBookmark', createSetBookmarkPayload, setBookmarkCommand),
         registerCommandWithPayload('jj-view.advanceBookmark', createAdvanceBookmarkPayload, advanceBookmarkCommand),
         registerCommandWithPayload(
             'jj-view.advanceBookmarkAndUpload',
             createAdvanceBookmarkAndUploadPayload,
-            (ctx, payload) => advanceBookmarkAndUploadCommand(ctx, payload, scmProviders.get(ctx.repo.rootUri.fsPath)),
+            advanceBookmarkAndUploadCommand,
         ),
         registerCommandWithPayload('jj-view.deleteBookmark', createDeleteBookmarkPayload, deleteBookmarkCommand),
         registerCommandWithPayload('jj-view.showDetails', createShowDetailsPayload, showDetailsCommand),
-        registerWrappedCommand('jj-view.openMergeEditor', async (scm, _jj, ...args) => {
-            const rest = args.slice(1);
-            await openMergeEditorCommand(scm, args[0], ...rest);
-        }),
+        registerCommandWithPayload('jj-view.openMergeEditor', createOpenMergeEditorPayload, openMergeEditorCommand),
         registerCommandWithPayload('jj-view.absorb', createAbsorbPayload, absorbCommand),
         registerWrappedCommand('jj-view.showMultiFileDiff', async (_scm, jj, ...args) => {
             await showMultiFileDiffCommand(jj, outputChannel, ...args);
