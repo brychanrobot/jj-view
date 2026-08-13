@@ -5,17 +5,13 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import { getErrorMessage } from './command-utils';
 
-/**
- * Command to create a new jj workspace.
- */
-export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjService) {
+export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
+    const { jj } = ctx.repo;
     try {
         // 1. Find main workspace root
         const mainRoot = await jj.getMainWorkspaceRoot();
@@ -29,7 +25,7 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
         }
 
         // 3. Prompt for workspace name
-        const workspaceName = await vscode.window.showInputBox({
+        const workspaceName = await ctx.ui.showInputBox({
             prompt: 'Enter a name for the new workspace',
             placeHolder: 'e.g. my-feature',
             validateInput: (value) => {
@@ -50,34 +46,24 @@ export async function workspaceAddCommand(scmProvider: JjScmProvider, jj: JjServ
         const destination = path.join(workspacesLocation, workspaceName);
 
         // 4. Run jj workspace add
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: `Creating workspace "${workspaceName}"...`,
-                cancellable: false,
-            },
-            async () => {
-                // Ensure the parent directory (workspacesLocation) exists
-                await fs.promises.mkdir(workspacesLocation, { recursive: true });
-                await jj.workspaceAdd(destination, workspaceName);
-            },
-        );
-        await scmProvider.refresh();
+        await ctx.ui.withProgress(`Creating workspace "${workspaceName}"...`, async () => {
+            // Ensure the parent directory (workspacesLocation) exists
+            await fs.promises.mkdir(workspacesLocation, { recursive: true });
+            await jj.workspaceAdd(destination, workspaceName);
+        });
+
+        await ctx.repo.refresh();
 
         // 5. Success notification with "Open" action
         const OPEN = 'Open Workspace';
-        const result = await vscode.window.showInformationMessage(
-            `Workspace "${workspaceName}" created successfully.`,
-            OPEN,
-        );
+        const result = await ctx.ui.showInformation(`Workspace "${workspaceName}" created successfully.`, OPEN);
 
         if (result === OPEN) {
             const uri = Uri.file(destination);
-            await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
+            await ctx.nav.openFolder(uri, true);
         }
     } catch (e) {
         const message = getErrorMessage(e);
-        vscode.window.showErrorMessage(`Failed to create workspace: ${message}`);
-        scmProvider.outputChannel.error(`[Error] Workspace creation failed: ${message}`);
+        await ctx.ui.showError(new Error(`Failed to create workspace: ${message}`), 'Workspace Add Error');
     }
 }

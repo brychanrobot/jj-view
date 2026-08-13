@@ -4,20 +4,23 @@
  */
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
+import type { CommandContext } from '../common/command-context';
 import { getErrorMessage } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
-export async function workspaceDeleteCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    const workspaceName = await resolveWorkspaceName(jj, args);
+export interface WorkspaceDeletePayload {
+    workspaceName?: string;
+}
+
+export async function workspaceDeleteCommand(ctx: CommandContext, payload?: WorkspaceDeletePayload): Promise<void> {
+    const { jj } = ctx.repo;
+    const workspaceName = payload?.workspaceName || (await resolveWorkspaceName(jj, []));
     if (!workspaceName) {
         return;
     }
 
     const YES = 'Yes, Delete Workspace';
-    const result = await vscode.window.showWarningMessage(
+    const result = await ctx.ui.showWarning(
         `Are you sure you want to forget AND delete the directory for workspace "${workspaceName}"? This action cannot be undone.`,
         { modal: true },
         YES,
@@ -28,31 +31,24 @@ export async function workspaceDeleteCommand(scmProvider: JjScmProvider, jj: JjS
     }
 
     try {
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: `Deleting workspace "${workspaceName}"...`,
-                cancellable: false,
-            },
-            async () => {
-                let dirPath: string | undefined;
-                try {
-                    dirPath = await jj.getWorkspaceRoot(workspaceName);
-                } catch (_) {
-                    throw new Error(`Failed to find directory for workspace "${workspaceName}"`);
-                }
+        await ctx.ui.withProgress(`Deleting workspace "${workspaceName}"...`, async () => {
+            let dirPath: string | undefined;
+            try {
+                dirPath = await jj.getWorkspaceRoot(workspaceName);
+            } catch (_) {
+                throw new Error(`Failed to find directory for workspace "${workspaceName}"`);
+            }
 
-                await jj.workspaceForget(workspaceName);
-                if (dirPath) {
-                    await rmRecursive(dirPath);
-                }
-            },
-        );
-        scmProvider.refresh();
+            await jj.workspaceForget(workspaceName);
+            if (dirPath) {
+                await rmRecursive(dirPath);
+            }
+        });
+
+        await ctx.repo.refresh();
     } catch (e) {
         const message = getErrorMessage(e);
-        vscode.window.showErrorMessage(`Failed to delete workspace: ${message}`);
-        scmProvider.outputChannel.error(`[Error] Workspace delete failed: ${message}`);
+        await ctx.ui.showError(new Error(`Failed to delete workspace: ${message}`), 'Workspace Delete Error');
     }
 }
 

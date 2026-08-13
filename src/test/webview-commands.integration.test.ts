@@ -63,7 +63,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         visible: true,
     });
 
+    let showInfoStub: sinon.SinonStub;
+
     setup(async () => {
+        showInfoStub = sinon.stub(vscode.window, 'showInformationMessage').resolves(undefined);
         repo = new TestRepo();
         await repo.init(); // Init repo
 
@@ -149,6 +152,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
     });
 
     teardown(async () => {
+        if (showInfoStub) {
+            showInfoStub.restore();
+        }
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
