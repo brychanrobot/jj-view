@@ -6,9 +6,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { editCommand } from '../../commands/edit';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { JjResourceState } from '../../scm-resource-state';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createEditPayload } from '../../vscode/payloads/edit.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -20,28 +24,40 @@ vi.mock('vscode', async () => {
 describe('editCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        scmProvider = createMock<JjScmProvider>({ refresh: vi.fn() });
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
+    const runEdit = async (args: unknown[]) => {
+        const payload = createEditPayload(args);
+        await editCommand(ctx, payload);
+    };
+
     test('edits specified commit', async () => {
-        // Setup: Parent -> Child. Currently at Child.
         const ids = await buildGraph(repo, [
             { label: 'parent', description: 'parent' },
             { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
-        // Edit parent
-        await editCommand(scmProvider, jj, [ids.parent.changeId]);
+        await runEdit([ids.parent.changeId]);
 
         const currentChangeId = repo.getChangeId('@');
         expect(currentChangeId).toBe(ids.parent.changeId);
@@ -60,7 +76,7 @@ describe('editCommand', () => {
             resourceStates: [mockState],
         });
 
-        await editCommand(scmProvider, jj, [mockParentGroup]);
+        await runEdit([mockParentGroup]);
 
         const currentChangeId = repo.getChangeId('@');
         expect(currentChangeId).toBe(ids.parent.changeId);

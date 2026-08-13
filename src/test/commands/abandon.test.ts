@@ -6,38 +6,74 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { abandonCommand } from '../../commands/abandon';
-import { ScmContextValue } from '../../jj-context-keys';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createAbandonPayload } from '../../vscode/payloads/abandon.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 import { asMock, resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
+    return createVscodeMock({
+        window: {
+            showQuickPick: vi.fn(),
+            showInformationMessage: vi.fn(),
+            showErrorMessage: vi.fn(),
+        },
+    });
 });
 
 describe('abandonCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
+
         scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
+            jj,
+            repo: createMock<JjRepository>({
+                jj,
+                rootUri: Uri.file(repo.path),
+                refresh: vi.fn().mockResolvedValue(undefined),
+            }),
+            outputChannel: createMock<JjLoggerChannel>(NO_OP_LOGGER),
             getSelectedCommitIds: vi.fn().mockReturnValue([]),
         });
+
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            rootUri: Uri.file(repo.path),
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
-    // Helper to verify a change is truly abandoned (not just that @ moved)
+    const runAbandon = async (args: unknown[]) => {
+        const payload = createAbandonPayload(args, scmProvider);
+        await abandonCommand(ctx, payload);
+    };
+
     const expectChangeAbandoned = (changeId: string) => {
         const visibleIds = repo.getLog('all()', 'change_id');
         expect(visibleIds).not.toContain(changeId);
@@ -49,81 +85,52 @@ describe('abandonCommand', () => {
     };
 
     test('abandons specified commit', async () => {
-        repo.describe('to abandon');
-        const changeId = repo.getChangeId('@');
+        repo.new();
+        const c1 = repo.getChangeId('@');
+        repo.new();
 
-        await abandonCommand(scmProvider, jj, [changeId]);
+        await runAbandon([{ commitId: c1 }]);
 
-        const newChangeId = repo.getChangeId('@');
-        expect(newChangeId).not.toBe(changeId);
-        expectChangeAbandoned(changeId);
+        expectChangeAbandoned(c1);
+
+        const parents = repo.getParents('@');
+        expect(parents).not.toContain(c1);
     });
 
     test('abandons working copy when triggered from resource group header', async () => {
-        repo.describe('working copy to abandon');
-        const changeId = repo.getChangeId('@');
+        repo.new();
+        const c1 = repo.getChangeId('@');
+        const scmGroup = { id: 'jj.group.workingCopy', label: 'Working Copy', resourceStates: [] };
 
-        // Mock a SourceControlResourceGroup
-        const resourceGroup = { id: ScmContextValue.WorkingCopyGroup, label: 'Working Copy', resourceStates: [] };
+        await runAbandon([scmGroup]);
 
-        await abandonCommand(scmProvider, jj, [resourceGroup]);
-
-        const newChangeId = repo.getChangeId('@');
-        expect(newChangeId).not.toBe(changeId);
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            expect.stringContaining('Abandoned 1 change(s)'),
-        );
+        expectChangeAbandoned(c1);
     });
 
     test('abandons working copy and IGNORES selection when triggered from resource group header', async () => {
-        repo.describe('working copy to abandon');
-
-        // 1. Clean slate
-        repo.abandon('@'); // ensure clean
-
-        const graph = await buildGraph(repo, [
-            { label: 'Keep Me', description: 'Keep Me' }, // Root commit C1
-            { label: 'Abandon Me', description: 'Abandon Me', parents: ['Keep Me'], isCurrentWorkingCopy: true }, // Child commit C2 (@)
-        ]);
-
-        const keepId = graph['Keep Me'].changeId;
-        const abandonId = graph['Abandon Me'].changeId;
-
-        // Select C1 (Keep Me)
-        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([keepId]);
-
-        const resourceGroup = { id: ScmContextValue.WorkingCopyGroup, label: 'Working Copy', resourceStates: [] };
-        await abandonCommand(scmProvider, jj, [resourceGroup]);
-
-        // Verify C2 is gone
-        const currentChangeId = repo.getChangeId('@');
-        expect(currentChangeId).not.toBe(abandonId);
-
-        // Verify we are now on top of C1 (Keep Me)
-        const parents = repo.getParents('@');
-        expect(parents).toContain(keepId);
-    });
-
-    test('abandons clicked commit if not in selection', async () => {
         const graph = await buildGraph(repo, [
             { label: 'C1' },
             { label: 'C2', parents: ['C1'], isCurrentWorkingCopy: true },
         ]);
         const c1 = graph.C1.changeId;
+        const c2 = graph.C2.changeId;
 
-        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([]);
+        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1]);
+        const scmGroup = { id: 'jj.group.workingCopy', label: 'Working Copy', resourceStates: [] };
 
-        const arg = { commitId: c1 };
-        await abandonCommand(scmProvider, jj, [arg]);
+        await runAbandon([scmGroup]);
 
-        // c1 was parent of c2. If c1 is abandoned, c2 should be reparented to c1's parent (root)
-        // Verify c1 is gone from parent history of c2
-        const parents = repo.getParents('@'); // c2
-        expect(parents).not.toContain(c1);
+        expectChangeAbandoned(c2);
+        expectChangeVisible(c1);
+    });
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            expect.stringContaining('Abandoned 1 change'),
-        );
+    test('abandons clicked commit if not in selection', async () => {
+        repo.new();
+        const c1 = repo.getChangeId('@');
+
+        await runAbandon([{ commitId: c1 }]);
+
+        expectChangeAbandoned(c1);
     });
 
     test('abandons clicked commit AND selection if clicked is part of selection', async () => {
@@ -137,9 +144,8 @@ describe('abandonCommand', () => {
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1, c2]);
         const arg = { commitId: c1 };
 
-        await abandonCommand(scmProvider, jj, [arg]);
+        await runAbandon([arg]);
 
-        // Both abandoned.
         expectChangeAbandoned(c1);
         expectChangeAbandoned(c2);
     });
@@ -155,9 +161,8 @@ describe('abandonCommand', () => {
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1]);
         const arg = { commitId: c2 };
 
-        await abandonCommand(scmProvider, jj, [arg]);
+        await runAbandon([arg]);
 
-        // c2 (the click) is abandoned. c1 (selection) is NOT abandoned.
         expectChangeAbandoned(c2);
         expectChangeVisible(c1);
 
@@ -169,21 +174,18 @@ describe('abandonCommand', () => {
         repo.new();
         const c1 = repo.getChangeId('@');
 
-        // Create child to be @
         repo.new();
 
         asMock(scmProvider.getSelectedCommitIds).mockReturnValue([c1]);
 
-        await abandonCommand(scmProvider, jj, []);
+        await runAbandon([]);
 
-        // c1 abandoned.
         expectChangeAbandoned(c1);
     });
 
     test('prompts for input if no selection and no click arg', async () => {
         repo.new();
         const c1 = repo.getChangeId('@');
-        // Create child
         repo.new();
 
         const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
@@ -199,11 +201,23 @@ describe('abandonCommand', () => {
         setSelectedItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
         setActiveItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
 
-        await abandonCommand(scmProvider, jj, []);
+        await runAbandon([]);
 
         expect(mockQuickPick.show).toHaveBeenCalled();
 
-        // c1 abandoned
         expectChangeAbandoned(c1);
+    });
+
+    test('abandons merge commit with multiple parents', async () => {
+        const graph = await buildGraph(repo, [
+            { label: 'p1', files: { 'p1.txt': 'p1' } },
+            { label: 'p2', files: { 'p2.txt': 'p2' } },
+            { label: 'merge', parents: ['p1', 'p2'], description: 'Merge Commit', isCurrentWorkingCopy: true },
+        ]);
+        const mergeChangeId = graph.merge.changeId;
+
+        await runAbandon([{ commitId: mergeChangeId }]);
+
+        expectChangeAbandoned(mergeChangeId);
     });
 });

@@ -2,33 +2,18 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { extractRevision, showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function newCommand(scmProvider: JjScmProvider, jj: JjService, args?: unknown[]) {
-    // args might contain a revision if triggered from context menu "New child"
-    // However, usually we have separate commands or just reuse 'new'
+export interface NewPayload {
+    parents?: string[];
+}
 
-    // Check if we have arguments passed (like from webview or context menu)
-    // If we do, is it a single revision?
-    let parents: string[] | undefined;
-    if (args) {
-        if (Array.isArray(args)) {
-            const revision = extractRevision(args);
-            if (revision) {
-                parents = [revision];
-            }
-        } else if (typeof args === 'string') {
-            // direct call
-            parents = [args];
-        }
-    }
-
+export async function newCommand(ctx: CommandContext, payload?: NewPayload): Promise<void> {
+    const parents = payload?.parents;
     try {
-        await withDelayedProgress('Creating new change...', jj.new({ parents }));
-        await scmProvider.refresh({ reason: 'after new' });
+        await ctx.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ parents }));
+        await ctx.repo.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error creating new commit', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error creating new commit');
     }
 }

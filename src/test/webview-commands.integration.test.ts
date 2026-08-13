@@ -18,6 +18,9 @@ import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
+import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
+import { createEditPayload } from '../vscode/payloads/edit.payload';
+import { createNewPayload } from '../vscode/payloads/new.payload';
 import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
@@ -106,16 +109,22 @@ suite('Webview Commands End-to-End Integration Test', () => {
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
         executeCommandStub.callsFake(async (command: string, ...args: unknown[]) => {
             if (command === 'jj-view.abandon') {
-                return abandonCommand(scm, jj, args);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const payload = createAbandonPayload(args, scm);
+                return abandonCommand(ctx, payload);
             }
             if (command === 'jj-view.squashRevisionIntoParent') {
                 return squashRevisionIntoParentCommand(scm, jj, args);
             }
             if (command === 'jj-view.new') {
-                return newCommand(scm, jj, args);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const payload = createNewPayload(args);
+                return newCommand(ctx, payload);
             }
             if (command === 'jj-view.edit') {
-                return editCommand(scm, jj, args);
+                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const payload = createEditPayload(args);
+                return editCommand(ctx, payload);
             }
             if (command === 'jj-view.undo') {
                 const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));

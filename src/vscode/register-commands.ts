@@ -72,7 +72,10 @@ import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
 import type { JjResourceState } from '../scm-resource-state';
 import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
+import { createAbandonPayload } from './payloads/abandon.payload';
 import { createCommitPayload } from './payloads/commit.payload';
+import { createEditPayload } from './payloads/edit.payload';
+import { createNewPayload } from './payloads/new.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
 
 export interface RegisterCommandsOptions {
@@ -144,9 +147,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerWrappedCommand('jj-view.focusRepository', () => {
             // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
         }),
-        registerWrappedCommand('jj-view.new', async (scm, jj, ...args) => {
-            await newCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
         registerWrappedCommand('jj-view.newMergeChange', async (scm, jj, ...args) => {
             const arg = args[0] as MergeCommandArg | undefined;
             await newMergeChangeCommand(scm, jj, arg);
@@ -201,9 +202,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     );
 
     context.subscriptions.push(
-        registerWrappedCommand('jj-view.abandon', async (scm, jj, ...args) => {
-            await abandonCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.abandon', createAbandonPayload, abandonCommand),
         registerWrappedCommand('jj-view.restore', async (scm, jj, ...args) => {
             const states = args as vscode.SourceControlResourceState[];
             await restoreCommand(scm, jj, states);
@@ -247,9 +246,7 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerWrappedCommand('jj-view.duplicate', async (scm, jj, ...args) => {
             await duplicateCommand(scm, jj, args);
         }),
-        registerWrappedCommand('jj-view.edit', async (scm, jj, ...args) => {
-            await editCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.edit', createEditPayload, editCommand),
         registerWrappedCommand('jj-view.newBefore', async (scm, jj, ...args) => {
             const changeIds = args as string[];
             await newBeforeCommand(scm, jj, changeIds);

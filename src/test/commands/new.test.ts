@@ -5,8 +5,12 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { newCommand } from '../../commands/new';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createNewPayload } from '../../vscode/payloads/new.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -18,22 +22,36 @@ vi.mock('vscode', async () => {
 describe('newCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        scmProvider = createMock<JjScmProvider>({ refresh: vi.fn() });
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
+    const runNew = async (args: unknown[] = []) => {
+        const payload = createNewPayload(args);
+        await newCommand(ctx, payload);
+    };
+
     test('creates new empty commit', async () => {
         const beforeChangeId = repo.getChangeId('@');
-        await newCommand(scmProvider, jj);
+        await runNew();
         const afterChangeId = repo.getChangeId('@');
         const parents = repo.getParents('@');
 
