@@ -2,7 +2,6 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { abandonCommand } from '../commands/abandon';
 import { absorbCommand } from '../commands/absorb';
@@ -49,7 +48,6 @@ import {
 } from '../commands/squash-files';
 import {
     completeSquashRevisionCommand,
-    getSquashStorageDir,
     squashRevisionIntoAncestorCommand,
     squashRevisionIntoParentCommand,
 } from '../commands/squash-revision';
@@ -87,6 +85,7 @@ import {
 import { createCommitPayload } from './payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from './payloads/compare-all-files-with-revision.payload';
 import { createCompareFileWithRevisionPayload } from './payloads/compare-file-with-revision.payload';
+import { createCompleteSquashRevisionPayload } from './payloads/complete-squash-revision.payload';
 import { createSetDescriptionPayload } from './payloads/describe.payload';
 import { createShowDetailsPayload } from './payloads/details.payload';
 import { createDiscardChangePayload } from './payloads/discard-change.payload';
@@ -202,12 +201,12 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
         registerCommandWithPayload('jj-view.newMergeChange', createNewMergeChangePayload, newMergeChangeCommand),
         registerCommandWithPayload('jj-view.commit', createCommitPayload, commitCommand),
-        registerWrappedCommand('jj-view.commitPrompt', async (scm, jj) => {
-            await commitPromptCommand(scm, jj);
-        }),
-        registerWrappedCommand('jj-view.describePrompt', async (scm, jj) => {
-            await describePromptCommand(scm, jj);
-        }),
+        registerCommand('jj-view.commitPrompt', (ctx) =>
+            commitPromptCommand(ctx, scmProviders.get(ctx.repo.rootUri.fsPath)),
+        ),
+        registerCommand('jj-view.describePrompt', (ctx) =>
+            describePromptCommand(ctx, scmProviders.get(ctx.repo.rootUri.fsPath)),
+        ),
     );
 
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
@@ -249,17 +248,11 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             createSquashRevisionIntoAncestorPayload,
             squashRevisionIntoAncestorCommand,
         ),
-        registerCommand('jj-view.completeSquashRevision', async (ctx) => {
-            const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
-            const msgPath = path.join(storageDir, 'SQUASH_MSG');
-            const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === msgPath);
-            if (doc) {
-                if (doc.isDirty) {
-                    await doc.save();
-                }
-                await completeSquashRevisionCommand(ctx, doc.getText());
-            }
-        }),
+        registerCommandWithPayload(
+            'jj-view.completeSquashRevision',
+            createCompleteSquashRevisionPayload,
+            completeSquashRevisionCommand,
+        ),
         registerCommandWithPayload('jj-view.setDescription', createSetDescriptionPayload, setDescriptionCommand),
         registerCommandWithPayload(
             'jj-view.squashSelectionIntoParent',

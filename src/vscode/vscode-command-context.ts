@@ -204,7 +204,6 @@ export class VSCodeCommandNavigation implements CommandNavigation {
         await vscode.commands.executeCommand('list.focusFirst');
         await vscode.commands.executeCommand('list.select');
     }
-
     async closeTab(uri: Uri): Promise<void> {
         await closeTabsForUri(uri);
     }
@@ -251,6 +250,18 @@ export class VSCodeHostDocuments implements HostDocuments {
         await doc.save();
     }
 
+    async saveIfDirty(uri: Uri): Promise<void> {
+        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
+        if (doc?.isDirty) {
+            await doc.save();
+        }
+    }
+
+    getOpenDocumentText(uri: Uri): string | undefined {
+        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
+        return doc?.getText();
+    }
+
     private getSafeRange(doc: vscode.TextDocument, startLine1Based: number, endLine1Based: number): vscode.Range {
         const { lineCount } = doc;
         if (lineCount === 0) {
@@ -274,7 +285,7 @@ export class VSCodeCommandContext implements CommandContext {
     constructor(
         readonly repo: JjRepository,
         readonly log: JjLoggerChannel,
-        commentsManager: CommentsManager,
+        commentsManager?: CommentsManager,
         sourceControl?: { inputBox: { value: string } },
     ) {
         this.ui = new VSCodeCommandUI(repo, log, sourceControl);

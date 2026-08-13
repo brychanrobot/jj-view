@@ -591,35 +591,6 @@ export class CommentsManager implements vscode.Disposable {
         }
     }
 
-    public async formatUnresolvedCommentsSummary(): Promise<string | undefined> {
-        const unresolvedThreads = Array.from(this.threads.values()).filter(
-            (thread) => thread.state === vscode.CommentThreadState.Unresolved,
-        );
-        if (unresolvedThreads.length === 0) {
-            return undefined;
-        }
-        let result = `### Unresolved Comments\n\n`;
-        for (const thread of unresolvedThreads) {
-            const relativePath = vscode.workspace.asRelativePath(thread.uri);
-            if (thread.range) {
-                const lineNum = thread.range.start.line + 1;
-                result += `- **${relativePath}:${lineNum}**\n`;
-            } else {
-                result += `- **${relativePath}**\n`;
-            }
-            for (const comment of thread.comments) {
-                const author = comment.author?.name || 'Unknown';
-                const body = typeof comment.body === 'string' ? comment.body : (comment.body?.value ?? '');
-                const indentedBody = body
-                    .split(/\r?\n/)
-                    .map((line) => `    > ${line}`)
-                    .join('\n');
-                result += `  - **${author}**:\n${indentedBody}\n`;
-            }
-        }
-        return result.trim();
-    }
-
     public dispose(): void {
         if (this.activeLoadController) {
             this.activeLoadController.abort();

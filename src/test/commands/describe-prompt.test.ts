@@ -6,8 +6,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { describePromptCommand } from '../../commands/describe-prompt';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
 
@@ -20,14 +24,17 @@ describe('describePromptCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
     let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
+        mockJjRepo = createMock<JjRepository>({ jj, refresh: vi.fn().mockResolvedValue(undefined) });
 
         scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
+            refresh: vi.fn().mockResolvedValue(undefined),
             outputChannel: createMockLogOutputChannel({
                 appendLine: vi.fn(),
             }),
@@ -37,6 +44,11 @@ describe('describePromptCommand', () => {
                 }),
             }),
         });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() }),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -54,7 +66,7 @@ describe('describePromptCommand', () => {
         // Mock user input
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('new description');
 
-        await describePromptCommand(scmProvider, jj);
+        await describePromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalledWith({
             prompt: 'Set description',
@@ -77,7 +89,7 @@ describe('describePromptCommand', () => {
         // Mock user cancellation
         vi.mocked(vscode.window.showInputBox).mockResolvedValue(undefined);
 
-        await describePromptCommand(scmProvider, jj);
+        await describePromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
 
@@ -95,7 +107,7 @@ describe('describePromptCommand', () => {
         // Mock user accepting the pre-filled value
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('feat: quick describe updated');
 
-        await describePromptCommand(scmProvider, jj);
+        await describePromptCommand(ctx, scmProvider);
 
         // Prompt should be shown with the input box value
         expect(vscode.window.showInputBox).toHaveBeenCalledWith({
@@ -120,12 +132,24 @@ describe('describePromptCommand', () => {
         // Mock user clearing the prompt (empty string)
         vi.mocked(vscode.window.showInputBox).mockResolvedValue('');
 
-        await describePromptCommand(scmProvider, jj);
+        await describePromptCommand(ctx, scmProvider);
 
         expect(vscode.window.showInputBox).toHaveBeenCalled();
 
         // The current working copy should have an empty description
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
+    });
+
+    test('handles errors during describe and displays error to user', async () => {
+        vi.mocked(vscode.window.showInputBox).mockResolvedValue('failing describe');
+        vi.spyOn(jj, 'describe').mockRejectedValue(new Error('Describe failed'));
+
+        await describePromptCommand(ctx, scmProvider);
+
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            expect.stringContaining('Error setting description'),
+            expect.anything(),
+        );
     });
 });

@@ -605,7 +605,12 @@ suite('JJ SCM Provider Integration Test', () => {
         // Verify creation
         assert.ok(require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
 
-        await completeSquashRevisionCommand(cmdCtx, 'Parent Desc\n\nChild Desc');
+        const completeCtx = new VSCodeCommandContext(
+            scmProvider.repo,
+            scmProvider.outputChannel,
+            createMock<CommentsManager>({}),
+        );
+        await completeSquashRevisionCommand(completeCtx, { message: 'Parent Desc\n\nChild Desc' });
         assert.ok(!require('node:fs').existsSync(squashMsgPath), 'Cleanup success');
 
         let parentDesc = repo.getDescription('@-');

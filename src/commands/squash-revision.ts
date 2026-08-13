@@ -174,10 +174,18 @@ async function openSquashDescriptionEditor(
     await fs.writeFile(path.join(storageDir, 'SQUASH_META.json'), JSON.stringify(meta));
 }
 
-export async function completeSquashRevisionCommand(ctx: CommandContext, message: string) {
+export interface CompleteSquashRevisionPayload {
+    message?: string;
+}
+
+export async function completeSquashRevisionCommand(
+    ctx: CommandContext,
+    payload?: CompleteSquashRevisionPayload,
+): Promise<void> {
     const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
     const metaPath = path.join(storageDir, 'SQUASH_META.json');
     const msgPath = path.join(storageDir, 'SQUASH_MSG');
+    const msgUri = Uri.file(msgPath);
 
     if (inProgressCompletions.has(storageDir)) {
         return;
@@ -194,7 +202,15 @@ export async function completeSquashRevisionCommand(ctx: CommandContext, message
         }
         const { revision, parentRev } = validation.data;
 
-        const finalMessage = message
+        await ctx.documents.saveIfDirty(msgUri);
+
+        let rawMessage = payload?.message;
+        if (!rawMessage || rawMessage.trim().length === 0) {
+            rawMessage =
+                ctx.documents.getOpenDocumentText(msgUri) ?? (await fs.readFile(msgPath, 'utf-8').catch(() => ''));
+        }
+
+        const finalMessage = rawMessage
             .split('\n')
             .filter((line) => !line.startsWith('JJ:'))
             .join('\n')
@@ -220,7 +236,7 @@ export async function completeSquashRevisionCommand(ctx: CommandContext, message
     } finally {
         await fs.unlink(metaPath).catch(() => {});
         await fs.unlink(msgPath).catch(() => {});
-        await ctx.nav.closeTab(Uri.file(msgPath));
+        await ctx.nav.closeTab(msgUri);
         inProgressCompletions.delete(storageDir);
     }
 }
