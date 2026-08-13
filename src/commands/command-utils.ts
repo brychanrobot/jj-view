@@ -464,27 +464,25 @@ export function extractUriFromArgs(args: unknown[]): Uri | undefined {
     return undefined;
 }
 
-interface BookmarkContextArg {
-    webviewSection: string;
-    bookmarkName?: string;
-}
-
-function isBookmarkContextArg(arg: unknown): arg is BookmarkContextArg {
-    return !!arg && typeof arg === 'object' && 'webviewSection' in arg && 'bookmarkName' in arg;
-}
-
 /**
- * Extracts a bookmark name from command arguments.
+ * Extracts and normalizes a bookmark name from command arguments.
  */
 export function extractBookmarkName(args: unknown[]): string | undefined {
     const firstArg = args?.[0];
 
-    if (
-        isBookmarkContextArg(firstArg) &&
-        firstArg.webviewSection === 'jj.bookmark' &&
-        typeof firstArg.bookmarkName === 'string'
-    ) {
-        return firstArg.bookmarkName;
+    if (typeof firstArg === 'string') {
+        return firstArg.trim() || undefined;
+    }
+
+    if (firstArg && typeof firstArg === 'object') {
+        const obj = firstArg as Record<string, unknown>;
+        const name =
+            typeof obj.name === 'string'
+                ? obj.name
+                : typeof obj.bookmarkName === 'string'
+                  ? obj.bookmarkName
+                  : undefined;
+        return name?.trim() || undefined;
     }
 
     return undefined;

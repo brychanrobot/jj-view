@@ -74,6 +74,32 @@ export class VSCodeCommandUI implements CommandUI {
         return await promptForRevision(this.repo.jj, options);
     }
 
+    async promptSelectOrCreate(options: {
+        placeHolder?: string;
+        items: { label: string; description?: string }[];
+    }): Promise<string | undefined> {
+        return await new Promise<string | undefined>((resolve) => {
+            const quickPick = vscode.window.createQuickPick();
+            quickPick.placeholder = options.placeHolder;
+            quickPick.items = options.items;
+            quickPick.matchOnDescription = true;
+
+            quickPick.onDidAccept(() => {
+                const selection = quickPick.selectedItems[0];
+                const selectedName = selection ? selection.label : quickPick.value.trim();
+                resolve(selectedName || undefined);
+                quickPick.dispose();
+            });
+
+            quickPick.onDidHide(() => {
+                resolve(undefined);
+                quickPick.dispose();
+            });
+
+            quickPick.show();
+        });
+    }
+
     async withProgress<T>(title: string, task: () => Promise<T>): Promise<T> {
         return await withDelayedProgress(title, task());
     }

@@ -7,7 +7,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { promptForRevision, RevisionQuery, withDelayedProgress } from '../commands/command-utils';
+import { extractBookmarkName, promptForRevision, RevisionQuery, withDelayedProgress } from '../commands/command-utils';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
@@ -250,5 +250,22 @@ describe('promptForRevision', () => {
         resetMockQuickPick(mockQuickPick);
         await promptForRevision(jj, { revisionQuery: RevisionQuery.children(ids.parent.changeId) });
         expect(mockQuickPick.items.some((item) => item.detail === targetChangeId)).toBe(true);
+    });
+});
+
+describe('extractBookmarkName', () => {
+    it('extracts bookmark name from string argument', () => {
+        expect(extractBookmarkName(['  my-bookmark  '])).toBe('my-bookmark');
+        expect(extractBookmarkName(['   '])).toBeUndefined();
+    });
+
+    it('extracts bookmark name from object with name or bookmarkName property', () => {
+        expect(extractBookmarkName([{ name: '  my-bookmark  ' }])).toBe('my-bookmark');
+        expect(extractBookmarkName([{ bookmarkName: '  my-bookmark  ' }])).toBe('my-bookmark');
+        expect(extractBookmarkName([{ webviewSection: 'jj.bookmark', bookmarkName: 'my-bookmark' }])).toBe(
+            'my-bookmark',
+        );
+        expect(extractBookmarkName([{ name: '   ' }])).toBeUndefined();
+        expect(extractBookmarkName([{}])).toBeUndefined();
     });
 });
