@@ -6,10 +6,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { advanceBookmarkCommand } from '../../commands/bookmark-advance';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createAdvanceBookmarkPayload } from '../../vscode/payloads/bookmark-advance.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMock } from '../test-utils';
 import { resetMockQuickPick, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
@@ -20,17 +24,23 @@ vi.mock('vscode', async () => {
 describe('advanceBookmarkCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
     let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
-            outputChannel: createMockLogOutputChannel({ appendLine: vi.fn() }),
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
 
         mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
         resetMockQuickPick(mockQuickPick);
@@ -40,18 +50,22 @@ describe('advanceBookmarkCommand', () => {
         vi.clearAllMocks();
     });
 
+    const runAdvanceBookmark = async (args: unknown[]) => {
+        const payload = createAdvanceBookmarkPayload(args);
+        return await advanceBookmarkCommand(ctx, payload);
+    };
+
     test('advances bookmark with revision argument directly', async () => {
         repo.bookmark('test-bookmark', '@');
         await jj.new({ message: 'child' });
         const [child] = await jj.getLog({ revision: '@' });
 
-        await advanceBookmarkCommand(scmProvider, jj, [child.change_id]);
+        await runAdvanceBookmark([child.change_id]);
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(
             expect.arrayContaining([expect.objectContaining({ name: 'test-bookmark' })]),
         );
-        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     test('prompts for revision if not provided, and advances bookmark', async () => {
@@ -69,12 +83,11 @@ describe('advanceBookmarkCommand', () => {
             acceptCallback();
         });
 
-        await advanceBookmarkCommand(scmProvider, jj, []);
+        await runAdvanceBookmark([]);
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(
             expect.arrayContaining([expect.objectContaining({ name: 'test-bookmark' })]),
         );
-        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 });

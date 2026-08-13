@@ -2,49 +2,37 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function setBookmarkCommand(
-    scmProvider: JjScmProvider,
-    jj: JjService,
-    context: { changeId?: string; commitId?: string },
-) {
-    const revision = context?.changeId || context?.commitId;
+export interface SetBookmarkPayload {
+    revision?: string;
+    name?: string;
+}
+
+export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookmarkPayload): Promise<void> {
+    const revision = payload?.revision;
     if (!revision) {
         return;
     }
 
     try {
-        const bookmarks = await withDelayedProgress('Fetching bookmarks...', jj.getBookmarks());
+        let name = payload?.name?.trim() || undefined;
+        if (!name) {
+            const bookmarks = await ctx.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
 
-        // Show QuickPick to allow selecting an existing bookmark or creating a new one
-        const quickPick = vscode.window.createQuickPick();
-        quickPick.placeholder = 'Select a bookmark to move, or type a new name to create';
-        quickPick.items = bookmarks
-            .filter((b) => !b.remote)
-            .map((b) => ({ label: b.name, description: 'Move bookmark' }));
-        quickPick.matchOnDescription = true;
+            name = await ctx.ui.promptSelectOrCreate({
+                placeHolder: 'Select a bookmark to move, or type a new name to create',
+                items: bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, description: 'Move bookmark' })),
+            });
 
-        quickPick.onDidAccept(async () => {
-            const selection = quickPick.selectedItems[0];
-            const name = selection ? selection.label : quickPick.value;
-
-            if (name) {
-                quickPick.hide();
-                try {
-                    await withDelayedProgress(`Setting bookmark ${name}...`, jj.moveBookmark(name, revision));
-                    await scmProvider.refresh({ reason: 'after bookmark set' });
-                } catch (e: unknown) {
-                    await showJjError(e, 'Error setting bookmark', jj, scmProvider.outputChannel);
-                }
+            if (!name) {
+                return;
             }
-        });
+        }
 
-        quickPick.show();
+        await ctx.ui.withProgress(`Setting bookmark ${name}...`, () => ctx.repo.jj.moveBookmark(name, revision));
+        await ctx.repo.refresh({ reason: 'after bookmark set' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error checking bookmarks', jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, 'Error setting bookmark');
     }
 }

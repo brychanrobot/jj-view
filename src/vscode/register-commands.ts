@@ -73,6 +73,10 @@ import type { JjResourceState } from '../scm-resource-state';
 import type { Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
+import { createSetBookmarkPayload } from './payloads/bookmark.payload';
+import { createAdvanceBookmarkPayload } from './payloads/bookmark-advance.payload';
+import { createAdvanceBookmarkAndUploadPayload } from './payloads/bookmark-advance-upload.payload';
+import { createDeleteBookmarkPayload } from './payloads/bookmark-delete.payload';
 import { createCommitPayload } from './payloads/commit.payload';
 import { createSetDescriptionPayload } from './payloads/describe.payload';
 import { createDuplicatePayload } from './payloads/duplicate.payload';
@@ -254,19 +258,14 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         registerWrappedCommand('jj-view.upload', async (scm, jj, ...args) => {
             await uploadCommand(scm, jj, scm.repo.codeForge, args, outputChannel);
         }),
-        registerWrappedCommand('jj-view.setBookmark', async (scm, jj, ...args) => {
-            const arg = args[0] as { commitId: string };
-            await setBookmarkCommand(scm, jj, arg);
-        }),
-        registerWrappedCommand('jj-view.advanceBookmark', async (scm, jj, ...args) => {
-            await advanceBookmarkCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.advanceBookmarkAndUpload', async (scm, jj, ...args) => {
-            await advanceBookmarkAndUploadCommand(scm, jj, args);
-        }),
-        registerWrappedCommand('jj-view.deleteBookmark', async (scm, jj, ...args) => {
-            await deleteBookmarkCommand(scm, jj, args);
-        }),
+        registerCommandWithPayload('jj-view.setBookmark', createSetBookmarkPayload, setBookmarkCommand),
+        registerCommandWithPayload('jj-view.advanceBookmark', createAdvanceBookmarkPayload, advanceBookmarkCommand),
+        registerCommandWithPayload(
+            'jj-view.advanceBookmarkAndUpload',
+            createAdvanceBookmarkAndUploadPayload,
+            (ctx, payload) => advanceBookmarkAndUploadCommand(ctx, payload, scmProviders.get(ctx.repo.rootUri.fsPath)),
+        ),
+        registerCommandWithPayload('jj-view.deleteBookmark', createDeleteBookmarkPayload, deleteBookmarkCommand),
         registerWrappedCommand('jj-view.showDetails', async (_scm, jj, ...args) => {
             await showDetailsCommand(jj, outputChannel, args);
         }),
