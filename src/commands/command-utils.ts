@@ -416,15 +416,20 @@ export async function showJjError(
     return selection;
 }
 
+export interface DescriptionFormatContext {
+    repo: JjRepository;
+    sourceControl?: { inputBox: { value: string } };
+}
+
 /**
  * Formats a description if the 'jj-view.commit.formatDescriptionOnSave' setting is enabled.
  */
 export async function maybeFormatDescriptionOnSave(
     description: string,
-    scmProvider?: JjScmProvider,
+    context?: DescriptionFormatContext,
     revision: string = '@',
 ): Promise<string> {
-    const scope = scmProvider?.repo?.rootUri;
+    const scope = context?.repo?.rootUri;
     const formatOnSave = getJjViewConfig<boolean>('commit.formatDescriptionOnSave', false, scope);
     if (!formatOnSave) {
         return description;
@@ -433,8 +438,8 @@ export async function maybeFormatDescriptionOnSave(
     const bodyWidthRuler = getJjViewConfig<number>('commit.bodyWidthRuler', 72, scope) ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
-    if (revision === '@' && scmProvider) {
-        scmProvider.sourceControl.inputBox.value = description;
+    if (revision === '@' && context?.sourceControl) {
+        context.sourceControl.inputBox.value = description;
     }
     return description;
 }

@@ -2,15 +2,14 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { showJjError, withDelayedProgress } from './command-utils';
+import type { CommandContext } from '../common/command-context';
 
-export async function redoCommand(scmProvider: JjScmProvider, jj: JjService) {
+export async function redoCommand(ctx: CommandContext): Promise<void> {
+    const { repo, ui } = ctx;
     try {
-        await withDelayedProgress('Redoing...', jj.redo());
-        await scmProvider.refresh();
+        await ui.withProgress('Redoing...', () => repo.jj.redo());
+        await repo.refresh({ reason: 'redo' });
     } catch (e: unknown) {
-        await showJjError(e, 'Error redoing', jj, scmProvider.outputChannel);
+        await ui.showError(e, 'Error redoing');
     }
 }

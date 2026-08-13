@@ -4,10 +4,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
 import { commitCommand } from '../../commands/commit';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -19,21 +21,22 @@ vi.mock('vscode', async () => {
 describe('commitCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
-    let scmProvider: JjScmProvider;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
-            sourceControl: createMock<vscode.SourceControl>({
-                inputBox: createMock<vscode.SourceControlInputBox>({
-                    value: '',
-                }),
-            }),
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
@@ -44,35 +47,48 @@ describe('commitCommand', () => {
         repo.new(undefined, 'initial');
         const initialId = repo.getChangeId('@');
 
-        const inputBoxMock = scmProvider.sourceControl.inputBox;
-        inputBoxMock.value = '   ';
-        await commitCommand(scmProvider, jj);
+        await commitCommand(ctx, { description: '   ' });
 
         const oldChangeDesc = repo.getDescription(initialId);
         expect(oldChangeDesc.trim()).toBe('');
 
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
-
-        expect(scmProvider.sourceControl.inputBox.value).toBe('   ');
-        expect(scmProvider.refresh).toHaveBeenCalled();
     });
 
     test('commits change successfully', async () => {
         repo.new(undefined, 'initial');
         const initialId = repo.getChangeId('@');
 
-        const inputBoxMock = scmProvider.sourceControl.inputBox;
-        inputBoxMock.value = 'feat: my change';
-        await commitCommand(scmProvider, jj);
+        await commitCommand(ctx, { description: 'feat: my change' });
 
         const oldChangeDesc = repo.getDescription(initialId);
         expect(oldChangeDesc.trim()).toBe('feat: my change');
 
         const currentDesc = repo.getDescription('@');
         expect(currentDesc.trim()).toBe('');
+    });
 
-        expect(scmProvider.sourceControl.inputBox.value).toBe('feat: my change');
-        expect(scmProvider.refresh).toHaveBeenCalled();
+    test('shows an error when jj.commit rejects', async () => {
+        const uiShowErrorSpy = vi.spyOn(ctx.ui, 'showError').mockResolvedValue(undefined);
+        vi.spyOn(mockJjRepo.jj, 'commit').mockRejectedValue(new Error('commit failed'));
+
+        await commitCommand(ctx, { description: 'feat: error test' });
+
+        expect(uiShowErrorSpy).toHaveBeenCalledWith(expect.any(Error), 'Error committing change');
+    });
+
+    test('refreshes the repository after a successful commit', async () => {
+        await commitCommand(ctx, { description: 'feat: repo refresh' });
+
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after commit' });
+    });
+
+    test('wraps commit execution in a progress UI', async () => {
+        const withProgressSpy = vi.spyOn(ctx.ui, 'withProgress');
+
+        await commitCommand(ctx, { description: 'feat: progress test' });
+
+        expect(withProgressSpy).toHaveBeenCalledWith('Committing...', expect.any(Function));
     });
 });
