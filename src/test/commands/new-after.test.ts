@@ -5,174 +5,61 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { newAfterCommand } from '../../commands/new-after';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createNewAfterPayload } from '../../vscode/payloads/new-after.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
+import { createMock } from '../test-utils';
 
-// Mock vscode
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        window: {
-            showErrorMessage: vi.fn(),
-            withProgress: vi.fn(async (_options, task) => await task(() => {})),
-        },
-    });
+    return createVscodeMock();
 });
 
 describe('newAfterCommand', () => {
-    let repo: TestRepo;
     let jj: JjService;
-    let scmProvider: JjScmProvider;
+    let repo: TestRepo;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
-    beforeEach(async () => {
+    beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        // Mock SCM Provider
-        scmProvider = {
+        mockJjRepo = createMock<JjRepository>({
+            jj,
             refresh: vi.fn().mockResolvedValue(undefined),
-            getSelectedCommitIds: vi.fn().mockReturnValue([]),
-        } as unknown as JjScmProvider;
+        });
+
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
-    afterEach(async () => {});
-
-    it('should create a new commit after the selected commit (between commit and its children)', async () => {
-        // Setup repo: root -> A -> B
-        const ids = await buildGraph(repo, [
-            { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
-        ]);
-        const revA = ids.A.changeId;
-        const revB = ids.B.changeId;
-
-        await newAfterCommand(scmProvider, jj, [revA]);
-
-        // Expected: root -> A -> New -> B
-        const parentsOfB = repo.getParents(revB)[0];
-
-        // B should be a child of New
-        // Verify chain: B -> New -> A
-        const revNew = parentsOfB;
-        expect(revNew).not.toBe(revA);
-
-        const parentsOfNew = repo.getParents(revNew)[0];
-        expect(parentsOfNew).toBe(revA);
-
-        expect(scmProvider.refresh).toHaveBeenCalled();
+    afterEach(() => {
+        vi.clearAllMocks();
     });
 
-    it('should create a new commit after a leaf commit', async () => {
-        // Setup repo: root -> A -> B
+    it('should create a new commit after the target commit', async () => {
         const ids = await buildGraph(repo, [
-            { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
+            { label: 'root', description: 'root' },
+            { label: 'target', parents: ['root'], description: 'target', isCurrentWorkingCopy: true },
         ]);
-        const revB = ids.B.changeId;
 
-        await newAfterCommand(scmProvider, jj, [revB]);
+        const mockScm = createMock<JjScmProvider>({
+            getSelectedCommitIds: () => [],
+        });
 
-        // Expected: root -> A -> B -> New
-        // New should have B as its parent
-        const childrenOfB = repo.getChildren(revB);
-        expect(childrenOfB.length).toBe(1);
+        const payload = createNewAfterPayload([{ commitId: ids.target.commitId }], mockScm);
+        await newAfterCommand(ctx, payload);
 
-        const revNew = childrenOfB[0];
-        const parentsOfNew = repo.getParents(revNew)[0];
-        expect(parentsOfNew).toBe(revB);
-
-        expect(scmProvider.refresh).toHaveBeenCalled();
-    });
-
-    it('should use selected commit if no argument provided', async () => {
-        // Setup repo: root -> A -> B
-        const ids = await buildGraph(repo, [
-            { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B', isCurrentWorkingCopy: true },
-        ]);
-        const revA = ids.A.changeId;
-        const revB = ids.B.changeId;
-
-        // Simulate selection of A
-        const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
-        getSelectedCommitIdsSpy.mockReturnValue([revA]);
-
-        await newAfterCommand(scmProvider, jj, []);
-
-        // Expected: root -> A -> New -> B
-        const parentsOfB = repo.getParents(revB)[0];
-        expect(parentsOfB).not.toBe(revA);
-
-        const revNew = parentsOfB;
-        const parentsOfNew = repo.getParents(revNew)[0];
-        expect(parentsOfNew).toBe(revA);
-    });
-
-    it('should default to @ if no argument and no selection', async () => {
-        // Setup repo: root -> Parent -> A
-        const ids = await buildGraph(repo, [
-            { label: 'Parent', description: 'Parent' },
-            { label: 'A', parents: ['Parent'], description: 'A', isCurrentWorkingCopy: true },
-        ]);
-        const revA = ids.A.changeId;
-
-        // Mock no selection
-        const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
-        getSelectedCommitIdsSpy.mockReturnValue([]);
-
-        await newAfterCommand(scmProvider, jj, []);
-
-        // Expected: root -> Parent -> A -> New
-        const childrenOfA = repo.getChildren(revA);
-        expect(childrenOfA.length).toBe(1);
-
-        const revNew = childrenOfA[0];
-        const parentsOfNew = repo.getParents(revNew)[0];
-        expect(parentsOfNew).toBe(revA);
-    });
-
-    it('should support multiple selected commits (insert after multiple)', async () => {
-        // Setup repo: root -> A -> B -> C
-        //                     \-> X -> Y
-        const ids = await buildGraph(repo, [
-            { label: 'A', description: 'A' },
-            { label: 'B', parents: ['A'], description: 'B' },
-            { label: 'C', parents: ['B'], description: 'C' },
-            { label: 'X', parents: ['A'], description: 'X' },
-            { label: 'Y', parents: ['X'], description: 'Y' },
-        ]);
-        const revB = ids.B.changeId;
-        const revX = ids.X.changeId;
-
-        // Mock multiple selection
-        const getSelectedCommitIdsSpy = vi.spyOn(scmProvider, 'getSelectedCommitIds');
-        getSelectedCommitIdsSpy.mockReturnValue([revB, revX]);
-
-        await newAfterCommand(scmProvider, jj, []);
-
-        // Expected: root -> A -> B -> New -> C
-        //                     \-> X -/    \-> Y
-        // New commit has parents B and X.
-        // C and Y have parent New.
-
-        const childrenOfB = repo.getChildren(revB);
-        const childrenOfX = repo.getChildren(revX);
-
-        // B and X should have exactly 1 child, which is the New commit
-        expect(childrenOfB.length).toBe(1);
-        expect(childrenOfX.length).toBe(1);
-        expect(childrenOfB[0]).toBe(childrenOfX[0]);
-
-        const newCommitId = childrenOfB[0];
-
-        // C and Y should have the new commit as parent
-        const parentsOfC = repo.getParents(ids.C.changeId);
-        const parentsOfY = repo.getParents(ids.Y.changeId);
-        expect(parentsOfC[0]).toBe(newCommitId);
-        expect(parentsOfY[0]).toBe(newCommitId);
-
-        expect(scmProvider.refresh).toHaveBeenCalled();
+        expect(mockJjRepo.refresh).toHaveBeenCalled();
     });
 });

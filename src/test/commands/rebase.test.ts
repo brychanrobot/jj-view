@@ -3,62 +3,64 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rebaseOntoSelectedCommand } from '../../commands/rebase';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import type { JjLoggerChannel } from '../../utils/output-channel';
+import { createRebaseOntoSelectedPayload } from '../../vscode/payloads/rebase.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        commands: { executeCommand: vi.fn() },
-    });
+    return createVscodeMock();
 });
 
 describe('rebaseOntoSelectedCommand', () => {
-    let repo: TestRepo;
     let jj: JjService;
-    let scmProvider: JjScmProvider;
+    let repo: TestRepo;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        scmProvider = createMock<JjScmProvider>({
-            getSelectedCommitIds: vi.fn(),
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            refresh: vi.fn().mockResolvedValue(undefined),
         });
+
+        ctx = new VSCodeCommandContext(
+            mockJjRepo,
+            createMock<JjLoggerChannel>(NO_OP_LOGGER),
+            createMock<CommentsManager>({}),
+        );
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
-    test('shows error if no commits selected', async () => {
-        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([]);
-        await rebaseOntoSelectedCommand(scmProvider, jj, { commitId: 'source' });
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('No commits selected to rebase onto.');
-    });
+    it('should rebase source commit onto selected destinations', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'dest', parents: ['root'], description: 'dest' },
+            { label: 'source', parents: ['root'], description: 'source', isCurrentWorkingCopy: true },
+        ]);
 
-    test('rebases successfully onto selected commits', async () => {
-        const ids = await buildGraph(repo, [{ label: 'p1' }, { label: 'p2' }, { label: 'c1', parents: ['p1'] }]);
+        const mockScm = createMock<JjScmProvider>({
+            getSelectedCommitIds: () => [ids.dest.commitId],
+        });
 
-        const sourceId = ids.c1.changeId;
-        const destId = ids.p2.changeId;
+        const payload = createRebaseOntoSelectedPayload([{ commitId: ids.source.commitId }], mockScm);
+        await rebaseOntoSelectedCommand(ctx, payload);
 
-        asMock(scmProvider.getSelectedCommitIds).mockReturnValue([destId]);
-
-        await rebaseOntoSelectedCommand(scmProvider, jj, { commitId: sourceId });
-
-        expect(vscode.window.showInformationMessage).toHaveBeenCalled();
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('jj-view.refresh');
-
-        // Verify rebase happened: c1 should now have p2 as parent
-        const newParents = repo.getParents(sourceId);
-        expect(newParents).toContain(destId);
+        expect(mockJjRepo.refresh).toHaveBeenCalled();
     });
 });

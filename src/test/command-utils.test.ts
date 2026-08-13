@@ -7,7 +7,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { extractBookmarkName, promptForRevision, RevisionQuery, withDelayedProgress } from '../commands/command-utils';
+import {
+    extractBookmarkName,
+    promptForRevision,
+    RevisionQuery,
+    resolveRevisionsWithSelection,
+    withDelayedProgress,
+} from '../commands/command-utils';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
@@ -267,5 +273,36 @@ describe('extractBookmarkName', () => {
         );
         expect(extractBookmarkName([{ name: '   ' }])).toBeUndefined();
         expect(extractBookmarkName([{}])).toBeUndefined();
+    });
+});
+
+describe('resolveRevisionsWithSelection', () => {
+    it('returns selected IDs when clicked target is included in selection', () => {
+        const scmProvider = {
+            getSelectedCommitIds: () => ['rev1', 'rev2', 'rev3'],
+        };
+        const result = resolveRevisionsWithSelection(['rev2'], scmProvider);
+        expect(result).toEqual(['rev1', 'rev2', 'rev3']);
+    });
+
+    it('returns only explicit arg revisions when clicked target is not in selection', () => {
+        const scmProvider = {
+            getSelectedCommitIds: () => ['rev1', 'rev2'],
+        };
+        const result = resolveRevisionsWithSelection(['otherRev'], scmProvider);
+        expect(result).toEqual(['otherRev']);
+    });
+
+    it('returns selected IDs when no explicit revision args are provided', () => {
+        const scmProvider = {
+            getSelectedCommitIds: () => ['rev1', 'rev2'],
+        };
+        const result = resolveRevisionsWithSelection([], scmProvider);
+        expect(result).toEqual(['rev1', 'rev2']);
+    });
+
+    it('falls back to default revision when no args or selection exist', () => {
+        expect(resolveRevisionsWithSelection([])).toEqual(['@']);
+        expect(resolveRevisionsWithSelection([], undefined, 'root()')).toEqual(['root()']);
     });
 });

@@ -35,6 +35,7 @@ export interface CommandUI {
         items: { label: string; description?: string }[];
     }): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
+    setStatusBarMessage?(message: string, timeoutMs?: number): void;
 }
 
 export interface CommandConfig {

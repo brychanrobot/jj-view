@@ -6,27 +6,30 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../../commands/absorb';
+import type { CommentsManager } from '../../comments-manager';
 import type { JjScmProvider } from '../../jj-scm-provider';
-import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { createAbsorbPayload } from '../../vscode/payloads/absorb.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { buildGraph, TestRepo } from '../test-repo';
+import { createMock } from '../test-utils';
 
 suite('Absorb Integration Test', function () {
     this.timeout(60000);
     let repo: TestRepo;
-    let jj: JjService;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.LogOutputChannel;
     let contextHelper: import('../integration-test-utils').TestRepositoryContext;
+    let cmdCtx: VSCodeCommandContext;
 
     setup(async () => {
         repo = new TestRepo();
         await repo.init();
-        jj = new JjService(repo.path, NO_OP_LOGGER);
 
         outputChannel = vscode.window.createOutputChannel('JJ Test', { log: true });
         const { createTestRepositoryContext } = await import('../integration-test-utils');
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         scmProvider = contextHelper.scmProvider;
+        cmdCtx = new VSCodeCommandContext(scmProvider.repo, scmProvider.outputChannel, createMock<CommentsManager>({}));
     });
 
     teardown(async () => {
@@ -51,7 +54,7 @@ suite('Absorb Integration Test', function () {
             },
         ]);
 
-        await absorbCommand(scmProvider, jj, []);
+        await absorbCommand(cmdCtx, createAbsorbPayload([]));
 
         const parentContent = repo.getFileContent('@-', 'file.txt');
         assert.ok(parentContent.includes('line 2 changed'), 'Parent should have absorbed the change');
@@ -66,7 +69,7 @@ suite('Absorb Integration Test', function () {
             { label: 'C', parents: ['B'], description: 'C', isCurrentWorkingCopy: true },
         ]);
 
-        await absorbCommand(scmProvider, jj, [{ commitId: ids.B.changeId }]);
+        await absorbCommand(cmdCtx, createAbsorbPayload([{ commitId: ids.B.changeId }]));
 
         const contentA = repo.getFileContent(ids.A.changeId, 'file.txt');
         assert.equal(contentA, 'base\nlineA modified\n');

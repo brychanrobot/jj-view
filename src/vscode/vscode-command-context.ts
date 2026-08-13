@@ -103,6 +103,14 @@ export class VSCodeCommandUI implements CommandUI {
     async withProgress<T>(title: string, task: () => Promise<T>): Promise<T> {
         return await withDelayedProgress(title, task());
     }
+
+    setStatusBarMessage(message: string, timeoutMs?: number): void {
+        if (timeoutMs !== undefined) {
+            vscode.window.setStatusBarMessage(message, timeoutMs);
+        } else {
+            vscode.window.setStatusBarMessage(message);
+        }
+    }
 }
 
 export class VSCodeCommandConfig implements CommandConfig {

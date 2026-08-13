@@ -2,45 +2,25 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
-import { extractRevisions, showJjError, withDelayedProgress } from './command-utils';
 
-export async function newAfterCommand(scmProvider: JjScmProvider, jj: JjService, args: unknown[]) {
-    let revisions: string[] = [];
+import type { CommandContext } from '../common/command-context';
 
-    // 1. Revisions from arguments (context menu, etc)
-    const argRevisions = extractRevisions(args);
+export interface NewAfterPayload {
+    revisions: string[];
+}
 
-    // 2. Selection from provider
-    const selectedIds = scmProvider.getSelectedCommitIds();
-
-    if (argRevisions.length > 0) {
-        // If the right-clicked commit is part of the selection, use the full selection.
-        // This allows "New After" to apply to multiple selected commits if you right-click one of them.
-        const target = argRevisions[0];
-        if (selectedIds.includes(target)) {
-            revisions = selectedIds;
-        } else {
-            revisions = argRevisions;
-        }
-    } else if (selectedIds.length > 0) {
-        revisions = selectedIds;
-    } else {
-        // Fallback: Default to working copy
-        revisions = ['@'];
-    }
+export async function newAfterCommand(ctx: CommandContext, payload?: NewAfterPayload): Promise<void> {
+    const revisions = payload?.revisions ?? ['@'];
 
     if (revisions.length === 0) {
-        vscode.window.showErrorMessage('No commit selected to create a new change after.');
+        await ctx.ui.showError(new Error('No commit selected to create a new change after.'), 'New After Error');
         return;
     }
 
     try {
-        await withDelayedProgress('Creating new change...', jj.new({ insertAfter: revisions }));
-        scmProvider.refresh();
+        await ctx.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ insertAfter: revisions }));
+        await ctx.repo.refresh();
     } catch (e: unknown) {
-        await showJjError(e, `Error creating new commit after ${revisions.join(', ')}`, jj, scmProvider.outputChannel);
+        await ctx.ui.showError(e, `Error creating new commit after ${revisions.join(', ')}`);
     }
 }
