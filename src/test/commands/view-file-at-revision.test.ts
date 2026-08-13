@@ -6,9 +6,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { viewFileAtRevisionCommand } from '../../commands/view-file-at-revision';
+import type { CommentsManager } from '../../comments-manager';
+import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
+import { createViewFileAtRevisionPayload } from '../../vscode/payloads/view-file-at-revision.payload';
+import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
 import { TestRepo } from '../test-repo';
+import { createMock, createMockLogOutputChannel } from '../test-utils';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
 
 vi.mock('vscode', async () => {
@@ -18,18 +23,20 @@ vi.mock('vscode', async () => {
     });
 });
 
-import { createMockLogOutputChannel } from '../test-utils';
-
 describe('viewFileAtRevisionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockOutputChannel: vscode.LogOutputChannel;
+    let mockJjRepo: JjRepository;
+    let ctx: VSCodeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
-        mockOutputChannel = createMockLogOutputChannel();
+        mockJjRepo = createMock<JjRepository>({ jj });
+        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
+        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
     });
 
     afterEach(() => {
@@ -54,7 +61,8 @@ describe('viewFileAtRevisionCommand', () => {
         setSelectedItems(mockQuickPick, [{ label: 'main', detail: 'main' }]);
         setActiveItems(mockQuickPick, [{ label: 'main', detail: 'main' }]);
 
-        await viewFileAtRevisionCommand(jj, mockOutputChannel, fileUri);
+        const payload = createViewFileAtRevisionPayload([fileUri]);
+        await viewFileAtRevisionCommand(ctx, payload);
 
         const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.open');
         expect(call).toBeDefined();
