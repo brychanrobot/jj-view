@@ -149,7 +149,9 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
                 repositoryManager.setFocusedRepository(context.repo);
                 return await handler(context.scm, context.repo.jj, ...args);
             } else {
-                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
+                outputChannel.error(message);
+                vscode.window.showErrorMessage(message);
                 return;
             }
         });
@@ -173,7 +175,9 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
                 const payload = payloadCreator(args, context.scm);
                 return await handler(cmdCtx, payload);
             } else {
-                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
+                outputChannel.error(message);
+                vscode.window.showErrorMessage(message);
                 return;
             }
         });
@@ -195,7 +199,9 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
                 );
                 return await handler(cmdCtx, ...args);
             } else {
-                outputChannel.error(`[Command Error] Failed to resolve repository for command: ${commandId}`);
+                const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
+                outputChannel.error(message);
+                vscode.window.showErrorMessage(message);
                 return;
             }
         });

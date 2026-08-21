@@ -11,21 +11,23 @@ import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
-import { RefreshScheduler } from './refresh-scheduler';
 import type { Uri } from './uri-utils';
 import { AsyncEventEmitter } from './utils/async-event-emitter';
-import { CoalescingQueue } from './utils/coalescing-queue';
 import { getJjViewConfig } from './utils/config-utils';
+import { DebouncingQueue } from './utils/debouncing-queue';
 import type { JjLoggerChannel } from './utils/output-channel';
+
+interface RefreshPayload {
+    forceSnapshot: boolean;
+    reasons: Set<string>;
+}
 
 export class JjRepository implements vscode.Disposable {
     private readonly _jj: JjService;
     private readonly _watcher: ChangeDetectionManager;
     private readonly _codeForge: CodeForgeService;
-    private readonly _refreshScheduler: RefreshScheduler;
     private readonly _onDidStatusChange = new AsyncEventEmitter<{ reason: string }>();
-    private _nextRefreshOptions = { forceSnapshot: false, reasons: new Set<string>() };
-    private readonly _refreshQueue: CoalescingQueue;
+    private readonly _refreshQueue: DebouncingQueue<RefreshPayload>;
 
     readonly onDidStatusChange = this._onDidStatusChange.event;
 
@@ -68,32 +70,48 @@ export class JjRepository implements vscode.Disposable {
             },
         );
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
-        this._refreshScheduler = new RefreshScheduler((options) => this.refresh(options));
+
+        this._refreshQueue = new DebouncingQueue<RefreshPayload>(
+            async (options) => {
+                const reason = Array.from(options?.reasons ?? []).join(', ') || 'unknown';
+
+                this._isValid = undefined;
+                try {
+                    await this._jj.clearCache();
+                    if (options?.forceSnapshot) {
+                        await this._jj.status();
+                    }
+                    await this._jj.getRepoRoot(); // Warm the cache
+
+                    if (!this._disposed) {
+                        await this._onDidStatusChange.fire({ reason });
+                    }
+                } catch (err) {
+                    if (!this._disposed) {
+                        throw err;
+                    }
+                }
+            },
+            {
+                getDebounceMillis: () => getJjViewConfig<number>('refreshDebounceMillis', 100) ?? 100,
+                getMaxMultiplier: () => getJjViewConfig<number>('refreshDebounceMaxMultiplier', 4) ?? 4,
+                mergePayloads: (prev, next) => ({
+                    forceSnapshot: prev.forceSnapshot || next.forceSnapshot,
+                    reasons: new Set([...prev.reasons, ...next.reasons]),
+                }),
+                logger: outputChannel,
+            },
+        );
+
         this._watcher = new ChangeDetectionManager(rootUri.fsPath, this._jj, outputChannel, async (options) => {
-            await this._refreshScheduler.trigger(options);
-        });
-
-        this._refreshQueue = new CoalescingQueue(async () => {
-            const options = { ...this._nextRefreshOptions };
-            this._nextRefreshOptions = { forceSnapshot: false, reasons: new Set<string>() };
-
-            const reason = Array.from(options.reasons).join(', ') || 'manual';
-
-            this._isValid = undefined;
+            const payload: RefreshPayload = {
+                forceSnapshot: !!options?.forceSnapshot,
+                reasons: options?.reason ? new Set([options.reason]) : new Set(),
+            };
             try {
-                await this._jj.clearCache();
-                if (options.forceSnapshot) {
-                    await this._jj.status();
-                }
-                await this._jj.getRepoRoot(); // Warm the cache
-
-                if (!this._disposed) {
-                    await this._onDidStatusChange.fire({ reason });
-                }
-            } catch (err) {
-                if (!this._disposed) {
-                    throw err;
-                }
+                await this._refreshQueue.push(payload);
+            } catch {
+                // Background change detection refreshes log errors via the queue logger.
             }
         });
     }
@@ -133,13 +151,12 @@ export class JjRepository implements vscode.Disposable {
         if (this._disposed) {
             return;
         }
-        if (options.forceSnapshot) {
-            this._nextRefreshOptions.forceSnapshot = true;
-        }
-        if (options.reason) {
-            this._nextRefreshOptions.reasons.add(options.reason);
-        }
-        return this._refreshQueue.run();
+        const payload: RefreshPayload = {
+            forceSnapshot: !!options.forceSnapshot,
+            reasons: options.reason ? new Set([options.reason]) : new Set(),
+        };
+        this._refreshQueue.push(payload);
+        return this._refreshQueue.flush();
     }
 
     async awaitWatchersReady(): Promise<void> {
@@ -153,9 +170,7 @@ export class JjRepository implements vscode.Disposable {
         this._disposed = true;
         this._codeForge.dispose();
         await this._watcher.dispose();
-        this._refreshScheduler.dispose();
 
-        // Wait for any active background refreshes to complete
         if (this._refreshQueue.currentRun) {
             try {
                 await this._refreshQueue.currentRun;
@@ -163,5 +178,6 @@ export class JjRepository implements vscode.Disposable {
                 // Ignore any error during dispose
             }
         }
+        this._refreshQueue.dispose();
     }
 }
