@@ -29,15 +29,22 @@ export interface AlternativeChoice {
     execute: () => Promise<AuthResult>;
 }
 
-export class CodeForgeAuthManager {
+export class CodeForgeAuthManager implements vscode.Disposable {
     private promptedThisSession = new Set<string>();
     private unavailableProviders = new Set<string>();
     private registeredProviderIds = new Set<string>();
+
+    private readonly _onDidAuthenticate = new vscode.EventEmitter<string>();
+    public readonly onDidAuthenticate: vscode.Event<string> = this._onDidAuthenticate.event;
 
     constructor(
         private readonly context: vscode.ExtensionContext,
         private readonly outputChannel?: JjLoggerChannel,
     ) {}
+
+    public dispose(): void {
+        this._onDidAuthenticate.dispose();
+    }
 
     public registerProvider(providerId: string): void {
         this.registeredProviderIds.add(providerId);
@@ -95,9 +102,14 @@ export class CodeForgeAuthManager {
 
     /**
      * Checks whether an active OAuth session exists for the given provider.
-     * Uses a short timeout (500ms) so callers stay responsive (e.g., UI menus).
+     * Uses a short timeout (2000ms) so callers stay responsive (e.g., UI menus).
      * Also updates the `isProviderUnavailable` cache so subsequent calls are instant.
      */
+    private isProviderUnavailableError(e: unknown): boolean {
+        const errorStr = String(e);
+        return errorStr.includes('not registered') || errorStr.includes('No authentication provider');
+    }
+
     public async hasOAuthSession(providerId: string, scopes: string[]): Promise<boolean> {
         if (this.isProviderUnavailable(providerId)) {
             return false;
@@ -105,26 +117,13 @@ export class CodeForgeAuthManager {
         try {
             const session = await this.withTimeout(
                 Promise.resolve(vscode.authentication.getSession(providerId, scopes, { silent: true })),
-                500,
+                2000,
                 `${providerId} session check timed out`,
             );
-            if (session) {
-                // Only clear the unavailable flag when we actually get a session back.
-                // If getSession returns undefined it could mean "provider registered but
-                // not signed in" OR "provider not registered" — we can't distinguish.
-                this.setProviderUnavailable(providerId, false);
-                return true;
-            }
-            return false;
+            this.setProviderUnavailable(providerId, false);
+            return !!session;
         } catch (e) {
-            const errorStr = String(e);
-            // Treat both "not registered" errors AND timeouts as "provider unavailable".
-            // A timeout means the provider extension is likely missing or not yet activated.
-            const isUnregistered =
-                errorStr.includes('not registered') ||
-                errorStr.includes('No authentication provider') ||
-                errorStr.includes('session check timed out');
-            if (isUnregistered) {
+            if (this.isProviderUnavailableError(e)) {
                 this.setProviderUnavailable(providerId, true);
             }
             return false;
@@ -197,7 +196,7 @@ export class CodeForgeAuthManager {
             );
             const session = await this.withTimeout(
                 silentPromise,
-                1000,
+                5000,
                 `${providerId} authentication silent check timed out`,
             );
             this.setProviderUnavailable(providerId, false);
@@ -206,10 +205,8 @@ export class CodeForgeAuthManager {
             }
         } catch (e) {
             const errorStr = String(e);
-            const isUnregistered =
-                errorStr.includes('not registered') || errorStr.includes('No authentication provider');
 
-            if (isUnregistered) {
+            if (this.isProviderUnavailableError(e)) {
                 this.setProviderUnavailable(providerId, true);
                 this.outputChannel?.info(
                     `[CodeForgeAuthManager] ${providerId} authentication provider is not available in VS Code. Using unauthenticated requests only.`,
@@ -237,6 +234,24 @@ export class CodeForgeAuthManager {
         }
         this.markPromptedThisSession(providerId);
 
+        // Fire and forget the prompt flow so it doesn't block the caller
+        this.executePromptFlow(providerId, options).catch((e) => {
+            this.outputChannel?.error(`[CodeForgeAuthManager] Detached prompt flow failed for ${providerId}: ${e}`);
+        });
+
+        return undefined;
+    }
+
+    private async executePromptFlow(
+        providerId: string,
+        options: {
+            scopes: string[];
+            promptMessage: string;
+            signInLabel?: string;
+            extensionInstaller?: ExtensionInstaller;
+            alternativeChoice?: AlternativeChoice;
+        },
+    ): Promise<void> {
         const signInLabel = options.signInLabel ?? 'Sign In';
         const skipLabel = "Don't Sign In (Skip)";
         const choices = [signInLabel];
@@ -252,27 +267,28 @@ export class CodeForgeAuthManager {
                     options.extensionInstaller &&
                     !vscode.extensions.getExtension(options.extensionInstaller.extensionId)
                 ) {
-                    return this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
+                    await this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
+                    return;
                 }
                 const session = await vscode.authentication.getSession(providerId, options.scopes, {
                     createIfNone: true,
                 });
-                return session?.accessToken;
+                if (session?.accessToken) {
+                    this.setProviderUnavailable(providerId, false);
+                    this._onDidAuthenticate.fire(providerId);
+                }
             } else if (options.alternativeChoice && choice === options.alternativeChoice.label) {
-                const result = await options.alternativeChoice.execute();
-                return result.status === 'success' ? result.token : undefined;
+                await options.alternativeChoice.execute();
             } else if (choice === skipLabel) {
                 await this.setAuthSkipped(providerId, true);
             }
         } catch (e) {
             this.outputChannel?.error(`[CodeForgeAuthManager] Failed to prompt or sign in for ${providerId}: ${e}`);
-            return (await this.handleAuthError(providerId, e, {
+            await this.handleAuthError(providerId, e, {
                 extensionInstaller: options.extensionInstaller,
                 alternativeChoice: options.alternativeChoice,
-            })) as string | undefined;
+            });
         }
-
-        return undefined;
     }
 
     /**
@@ -302,11 +318,13 @@ export class CodeForgeAuthManager {
                 forceNewSession: options.hasOAuth ? true : undefined,
             });
             if (session) {
+                this.setProviderUnavailable(providerId, false);
                 const providerName =
                     options.extensionInstaller?.providerName ||
                     providerId.charAt(0).toUpperCase() + providerId.slice(1);
                 vscode.window.showInformationMessage(`Successfully authenticated with ${providerName}.`);
                 options.clearCache();
+                this._onDidAuthenticate.fire(providerId);
             }
         } catch (e) {
             await this.handleAuthError(providerId, e, {
@@ -506,7 +524,9 @@ export class CodeForgeAuthManager {
         try {
             await this.secrets.store(options.secretTokenKey, token.trim());
             this.outputChannel?.info(`[${options.displayName}Provider] Personal Access Token saved successfully`);
+            this.setProviderUnavailable(options.providerId, false);
             options.clearCache();
+            this._onDidAuthenticate.fire(options.providerId);
             return { status: 'success', token: token.trim() };
         } catch (err) {
             this.outputChannel?.info(

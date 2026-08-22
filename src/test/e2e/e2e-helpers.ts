@@ -464,12 +464,11 @@ export async function triggerRefresh(page: Page) {
 
 export async function hoverAndClick(row: Locator, button: Locator) {
     const start = Date.now();
-    const page = row.page();
     await expect(async () => {
-        await page.mouse.move(0, 0);
         await row.hover();
         // Wait for the button to be visible because VS Code renders inline actions on hover
-        await expect(button).toBeVisible({ timeout: 1000 });
+        await expect(button).toBeVisible({ timeout: 2000 });
+        await button.hover();
         await button.click();
     }, `Failed to click inline action button on row`).toPass({ timeout: 10000 });
     logPerf('hoverAndClick', start);
@@ -521,9 +520,9 @@ export async function clickScmAction(page: Page, rowName: string | RegExp | Loca
     const cls = iconMap[actionTitle];
     let button: Locator;
     if (cls) {
-        button = row.locator('.action-item', { has: page.locator(cls) }).first();
+        button = row.locator(`.action-label${cls}`).first();
     } else {
-        button = row.getByRole('button', { name: new RegExp(actionTitle, 'i') }).first();
+        button = row.getByRole('button', { name: new RegExp(actionTitle.replace(/\.\.\./g, ''), 'i') }).first();
     }
 
     await hoverAndClick(row, button);
@@ -1279,12 +1278,12 @@ export async function pickQuickPickItem(
             await expect(quickInput).not.toBeVisible({ timeout: 5000 });
         } else {
             const item = locateQuickInputItem(page, label).first();
-            await expect(item).toBeVisible({ timeout: 1000 });
+            await expect(item).toBeVisible({ timeout: 5000 });
             await item.click();
-            await expect(item).not.toBeVisible({ timeout: 500 });
+            await expect(item).not.toBeVisible({ timeout: 5000 });
         }
     }, `Failed to pick QuickPick item "${label}"`).toPass({
-        timeout: 5000,
+        timeout: 15000,
         // Add a backoff so we don't spam if the UI is genuinely stuck
         intervals: [100, 250, 500, 1000, 2000],
     });

@@ -11,9 +11,15 @@ import { Uri } from '../uri-utils';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
+const mockOnDidSaveTextDocument = vi.fn();
+
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock();
+    return createVscodeMock({
+        workspace: {
+            onDidSaveTextDocument: (...args: unknown[]) => mockOnDidSaveTextDocument(...args),
+        },
+    });
 });
 
 describe('JjRepository.refresh error handling', () => {
@@ -21,6 +27,7 @@ describe('JjRepository.refresh error handling', () => {
     let jjRepo: JjRepository;
 
     beforeEach(() => {
+        mockOnDidSaveTextDocument.mockReturnValue({ dispose: () => {} });
         repo = new TestRepo();
         repo.init();
     });
@@ -79,6 +86,32 @@ describe('JjRepository.refresh error handling', () => {
 
         await jjRepo.dispose();
         await expect(refreshPromise).resolves.toBeUndefined();
+        expect(jjRepo.activeRefresh).toBeUndefined();
+    });
+
+    test('dispose() cancels pending background debounce timer immediately', async () => {
+        let saveListener: ((doc: { uri: { scheme: string; fsPath: string } }) => void) | undefined;
+        mockOnDidSaveTextDocument.mockImplementation(
+            (listener: (doc: { uri: { scheme: string; fsPath: string } }) => void) => {
+                saveListener = listener;
+                return { dispose: () => {} };
+            },
+        );
+
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel(),
+        );
+
+        // Trigger a background file save event to start a debounce timer
+        saveListener?.({
+            uri: Uri.file(path.join(repo.path, 'file.txt')),
+        });
+        expect(jjRepo.activeRefresh).toBeDefined();
+
+        await jjRepo.dispose();
         expect(jjRepo.activeRefresh).toBeUndefined();
     });
 });

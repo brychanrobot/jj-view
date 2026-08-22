@@ -96,6 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
     const authManager = new CodeForgeAuthManager(context, outputChannel);
+    context.subscriptions.push(authManager);
 
     context.subscriptions.push(
         codeForgeRegistry.register({
@@ -147,6 +148,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         processTracker,
     );
     context.subscriptions.push(repositoryManager);
+
+    // Listen to authentication successes from AuthManager and re-detect provider to trigger refresh
+    context.subscriptions.push(
+        authManager.onDidAuthenticate(() => {
+            for (const repo of repositoryManager.repositories) {
+                repo.codeForge
+                    .detectActiveProvider(true)
+                    .then((changed) => {
+                        if (!changed) {
+                            repo.codeForge.forceRefresh();
+                        }
+                    })
+                    .catch((e: unknown) => {
+                        outputChannel.error(`Failed to refresh after authentication: ${e}`);
+                    });
+            }
+        }),
+    );
 
     const commentsManager = new CommentsManager(repositoryManager);
     context.subscriptions.push(commentsManager);

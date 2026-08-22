@@ -171,13 +171,14 @@ export class JjRepository implements vscode.Disposable {
         this._codeForge.dispose();
         await this._watcher.dispose();
 
-        if (this._refreshQueue.currentRun) {
+        const activeRun = this._refreshQueue.currentRun;
+        this._refreshQueue.dispose();
+        if (activeRun) {
             try {
-                await this._refreshQueue.currentRun;
+                await activeRun;
             } catch {
                 // Ignore any error during dispose
             }
         }
-        this._refreshQueue.dispose();
     }
 }

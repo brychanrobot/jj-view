@@ -397,7 +397,9 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
             }
 
             // Background fetch code forge status for commits
-            await this.refreshCodeForge();
+            this.refreshCodeForge().catch((e) => {
+                this.outputChannel?.error(`[JjLogWebviewProvider] Background refreshCodeForge failed: ${e}`);
+            });
         }
     }
 
