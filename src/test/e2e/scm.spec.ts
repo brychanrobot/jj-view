@@ -310,7 +310,7 @@ test.describe('SCM Pane E2E', () => {
         // 2. Squash Files into Ancestor
         // We'll squash s.txt from 'source' (WC) into 'base'
         // Hover over s.txt row and click squash into ancestor
-        await clickScmAction(page, /s\.txt/, SCM_ACTIONS.SquashFilesIntoAncestor);
+        await clickScmAction(page, /^s\.txt\b/, SCM_ACTIONS.SquashFilesIntoAncestor);
         // Pick 'base' from quickpick.
         await pickQuickPickItem(page, '(no description)');
 

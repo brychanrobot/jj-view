@@ -296,6 +296,7 @@ export async function launchNewVSCode(
     }
 
     const env = { ...process.env, NODE_NO_WARNINGS: '1' } as { [key: string]: string };
+    delete env.ELECTRON_RUN_AS_NODE;
     for (const key in extraEnv) {
         const val = extraEnv[key];
         if (val === undefined) {

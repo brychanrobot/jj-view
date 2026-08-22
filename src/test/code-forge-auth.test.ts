@@ -33,6 +33,21 @@ vi.mock('vscode', () => ({
         static from = vi.fn();
         dispose() {}
     },
+    EventEmitter: class {
+        private listeners: ((data: unknown) => void)[] = [];
+        event = (listener: (data: unknown) => void) => {
+            this.listeners.push(listener);
+            return { dispose: () => {} };
+        };
+        fire = (data: unknown) => {
+            for (const listener of this.listeners) {
+                listener(data);
+            }
+        };
+        dispose = () => {
+            this.listeners = [];
+        };
+    },
 }));
 
 describe('CodeForgeAuthManager', () => {
@@ -163,11 +178,34 @@ describe('CodeForgeAuthManager', () => {
         expect(authManager.isProviderUnavailable('github')).toBe(true);
     });
 
+    test('getSessionToken silent mode handles session check timed out error without permanently disabling provider', async () => {
+        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('github session check timed out'));
+        const token = await authManager.getSessionToken('github', {
+            scopes: ['repo'],
+            envTokenKey: 'NON_EXISTENT_ENV_KEY',
+            promptMessage: 'test',
+            prompt: false,
+        });
+        expect(token).toBeUndefined();
+        expect(authManager.isProviderUnavailable('github')).toBe(false);
+    });
+
+    test('hasOAuthSession handles session check timed out error without permanently disabling provider', async () => {
+        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('github session check timed out'));
+        const hasSession = await authManager.hasOAuthSession('github', ['repo']);
+        expect(hasSession).toBe(false);
+        expect(authManager.isProviderUnavailable('github')).toBe(false);
+    });
+
     test('getSessionToken prompt mode warning flow choosing OAuth Sign In', async () => {
         vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In' as never);
         vi.mocked(vscode.authentication.getSession)
             .mockResolvedValueOnce(undefined)
             .mockResolvedValueOnce({ accessToken: 'oauth-token' } as never);
+
+        const authEventPromise = new Promise<string>((resolve) => {
+            authManager.onDidAuthenticate(resolve);
+        });
 
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
@@ -177,7 +215,11 @@ describe('CodeForgeAuthManager', () => {
             prompt: true,
         });
 
-        expect(token).toBe('oauth-token');
+        expect(token).toBeUndefined(); // detached prompt returns undefined immediately
+
+        const providerId = await authEventPromise;
+        expect(providerId).toBe('github');
+
         expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
             'GitHub authentication required',
             'Sign In',
@@ -203,7 +245,11 @@ describe('CodeForgeAuthManager', () => {
             },
         });
 
-        expect(token).toBe('custom-pat-token');
+        expect(token).toBeUndefined(); // detached prompt returns undefined immediately
+
+        // Allow detached prompt flow microtask to run
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
         expect(alternativeExecute).toHaveBeenCalled();
         expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
             'GitLab authentication required',
@@ -211,6 +257,28 @@ describe('CodeForgeAuthManager', () => {
             'Enter PAT',
             "Don't Sign In (Skip)",
         );
+    });
+
+    test('promptForPat fires onDidAuthenticate exactly once', async () => {
+        vi.mocked(vscode.window.showInputBox).mockResolvedValue('pat-token-123');
+        vi.mocked(context.secrets.store).mockResolvedValue(undefined);
+
+        const authEvents: string[] = [];
+        authManager.onDidAuthenticate((providerId) => {
+            authEvents.push(providerId);
+        });
+
+        const result = await authManager.promptForPat({
+            providerId: 'github',
+            displayName: 'GitHub',
+            secretTokenKey: 'github_token',
+            prompt: 'Enter token',
+            placeHolder: 'token...',
+            clearCache: vi.fn(),
+        });
+
+        expect(result.status).toBe('success');
+        expect(authEvents).toEqual(['github']);
     });
 
     test('getSessionToken prompt mode warning flow choosing Skip', async () => {
@@ -233,6 +301,14 @@ describe('CodeForgeAuthManager', () => {
         vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // extension not installed
         vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
 
+        const commandPromise = new Promise<void>((resolve) => {
+            vi.mocked(vscode.commands.executeCommand).mockImplementation(async (command) => {
+                if (command === 'workbench.extensions.search') {
+                    resolve();
+                }
+            });
+        });
+
         const token = await authManager.getSessionToken('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -247,6 +323,10 @@ describe('CodeForgeAuthManager', () => {
         });
 
         expect(token).toBeUndefined();
+
+        // Wait for the floating prompt flow to trigger the command
+        await commandPromise;
+
         expect(vscode.extensions.getExtension).toHaveBeenCalledWith('gitlab.gitlab-workflow');
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
             "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
@@ -257,6 +337,37 @@ describe('CodeForgeAuthManager', () => {
             'gitlab.gitlab-workflow',
         );
         expect(vscode.authentication.getSession).not.toHaveBeenCalledWith('gitlab', ['api'], { createIfNone: true });
+    });
+
+    test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension falls back to PAT', async () => {
+        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In (OAuth)' as never);
+        vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // extension not installed
+        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enter PAT' as never);
+        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'fallback-pat' });
+
+        const token = await authManager.getSessionToken('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'NON_EXISTENT_ENV_KEY',
+            promptMessage: 'GitLab authentication required',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            extensionInstaller: {
+                extensionId: 'gitlab.gitlab-workflow',
+                extensionName: 'GitLab Workflow',
+                providerName: 'GitLab',
+            },
+            alternativeChoice: {
+                label: 'Enter PAT',
+                execute: alternativeExecute,
+            },
+        });
+
+        expect(token).toBeUndefined();
+
+        // Allow detached prompt flow microtask to run
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(alternativeExecute).toHaveBeenCalled();
     });
 
     test('getSessionToken skip prompt check', async () => {
@@ -338,11 +449,14 @@ describe('CodeForgeAuthManager', () => {
     });
 
     describe('performOAuthSignIn', () => {
-        test('successful sign-in calls clearCache and shows information message', async () => {
+        test('successful sign-in calls clearCache, shows information message, and fires onDidAuthenticate', async () => {
             vi.mocked(vscode.extensions.getExtension).mockReturnValue({} as never);
             vi.mocked(vscode.authentication.getSession).mockResolvedValue({ accessToken: 'valid-token' } as never);
             vi.mocked(vscode.window.showInformationMessage);
             const clearCache = vi.fn();
+            const authEventPromise = new Promise<string>((resolve) => {
+                authManager.onDidAuthenticate(resolve);
+            });
 
             await authManager.performOAuthSignIn('gitlab', ['api'], {
                 hasOAuth: false,
@@ -362,6 +476,8 @@ describe('CodeForgeAuthManager', () => {
             expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
                 'Successfully authenticated with GitLab.',
             );
+            const providerId = await authEventPromise;
+            expect(providerId).toBe('gitlab');
         });
 
         test('aborts and prompts to install when required extension is missing', async () => {
@@ -561,6 +677,10 @@ describe('CodeForgeAuthManager', () => {
             vi.mocked(vscode.window.showInputBox).mockResolvedValue('my-new-token');
             vi.mocked(context.secrets.store).mockResolvedValue(undefined);
 
+            const authEventPromise = new Promise<string>((resolve) => {
+                authManager.onDidAuthenticate(resolve);
+            });
+
             const result = await authManager.promptForPat({
                 providerId: 'test-provider',
                 displayName: 'TestProvider',
@@ -584,6 +704,10 @@ describe('CodeForgeAuthManager', () => {
             expect(outputChannel.info).toHaveBeenCalledWith(
                 '[TestProviderProvider] Personal Access Token saved successfully',
             );
+
+            const providerId = await authEventPromise;
+            expect(providerId).toBe('test-provider');
+            expect(authManager.isProviderUnavailable('test-provider')).toBe(false);
         });
 
         test('returns cancelled and does not store if input is cancelled (undefined)', async () => {
@@ -639,6 +763,12 @@ describe('CodeForgeAuthManager', () => {
             expect(outputChannel.info).toHaveBeenCalledWith(
                 '[TestProviderProvider] Secrets storage is not available to save PAT: Error: Secret storage write error',
             );
+        });
+    });
+
+    describe('dispose', () => {
+        test('disposes event emitter', () => {
+            expect(() => authManager.dispose()).not.toThrow();
         });
     });
 });

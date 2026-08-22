@@ -178,8 +178,8 @@ suite('Webview Initialization Integration Test', () => {
     });
 
     test('updateRepository does not block on pending CodeForge detection', async () => {
-        let resolveDetection!: () => void;
-        const pendingDetection = new Promise<void>((resolve) => {
+        let resolveDetection!: (value: boolean) => void;
+        const pendingDetection = new Promise<boolean>((resolve) => {
             resolveDetection = resolve;
         });
 
@@ -217,7 +217,7 @@ suite('Webview Initialization Integration Test', () => {
         assert.strictEqual(completed, true, 'updateRepository should complete without awaiting detectActiveProvider');
         assert.strictEqual(unattachedProvider.repository, mockRepo);
 
-        resolveDetection();
+        resolveDetection(false);
     });
 
     test('updateRepository logs and ignores detectActiveProvider errors', async () => {
