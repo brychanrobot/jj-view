@@ -144,10 +144,10 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         handler: (scm: JjScmProvider, jj: JjService, ...args: unknown[]) => unknown,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const context = resolveRepositoryLocal(args);
-            if (context?.repo && context?.scm) {
-                repositoryManager.setFocusedRepository(context.repo);
-                return await handler(context.scm, context.repo.jj, ...args);
+            const resolved = resolveRepositoryLocal(args);
+            if (resolved?.repo && resolved?.scm) {
+                repositoryManager.setFocusedRepository(resolved.repo);
+                return await handler(resolved.scm, resolved.repo.jj, ...args);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
                 outputChannel.error(message);
@@ -163,16 +163,16 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const context = resolveRepositoryLocal(args);
-            if (context?.repo) {
-                repositoryManager.setFocusedRepository(context.repo);
+            const resolved = resolveRepositoryLocal(args);
+            if (resolved?.repo) {
+                repositoryManager.setFocusedRepository(resolved.repo);
                 const cmdCtx = new VSCodeCommandContext(
-                    context.repo,
+                    resolved.repo,
                     outputChannel,
                     commentsManager,
-                    context.scm?.sourceControl,
+                    resolved.scm?.sourceControl,
                 );
-                const payload = payloadCreator(args, context.scm);
+                const payload = payloadCreator(args, resolved.scm);
                 return await handler(cmdCtx, payload);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
@@ -188,14 +188,14 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const context = resolveRepositoryLocal(args);
-            if (context?.repo) {
-                repositoryManager.setFocusedRepository(context.repo);
+            const resolved = resolveRepositoryLocal(args);
+            if (resolved?.repo) {
+                repositoryManager.setFocusedRepository(resolved.repo);
                 const cmdCtx = new VSCodeCommandContext(
-                    context.repo,
+                    resolved.repo,
                     outputChannel,
                     commentsManager,
-                    context.scm?.sourceControl,
+                    resolved.scm?.sourceControl,
                 );
                 return await handler(cmdCtx, ...args);
             } else {
