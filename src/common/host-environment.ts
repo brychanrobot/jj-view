@@ -131,7 +131,7 @@ export interface HostEnvironment {
 }
 
 export interface CommandServices {
-    commentsManager?: CommentsManager;
+    readonly commentsManager?: CommentsManager;
 }
 
 export interface CommandContext {
