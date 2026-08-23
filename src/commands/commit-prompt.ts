@@ -11,7 +11,7 @@ export async function commitPromptCommand(ctx: CommandContext, scmProvider?: JjS
     const inputBoxValue = scmProvider?.sourceControl.inputBox.value;
     const defaultValue = inputBoxValue || (await jj.getDescription('@'));
 
-    const input = await ctx.ui.showInputBox({
+    const input = await ctx.host.ui.showInputBox({
         prompt: 'Commit message',
         placeHolder: 'Description of the change...',
         value: defaultValue,
@@ -23,13 +23,13 @@ export async function commitPromptCommand(ctx: CommandContext, scmProvider?: JjS
 
     try {
         const message = await maybeFormatDescriptionOnSave(input, ctx);
-        await ctx.ui.withProgress('Committing...', () => jj.commit(message));
+        await ctx.host.ui.withProgress('Committing...', () => jj.commit(message));
         if (scmProvider) {
             await scmProvider.refresh({ reason: 'after commit' });
         } else {
             await ctx.repo.refresh();
         }
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Error committing change');
+        await ctx.host.ui.showError(err, 'Error committing change');
     }
 }

@@ -13,7 +13,7 @@ export async function abandonCommand(ctx: CommandContext, payload?: AbandonPaylo
     let revisions = payload?.revisions ?? [];
 
     if (revisions.length === 0) {
-        const input = await ctx.ui.promptForRevision({
+        const input = await ctx.host.ui.promptForRevision({
             placeHolder: 'Select revision to abandon',
             revisionQuery: RevisionQuery.mutable(),
         });
@@ -27,10 +27,10 @@ export async function abandonCommand(ctx: CommandContext, payload?: AbandonPaylo
     }
 
     try {
-        await ctx.ui.withProgress('Abandoning...', () => ctx.repo.jj.abandon(revisions));
+        await ctx.host.ui.withProgress('Abandoning...', () => ctx.repo.jj.abandon(revisions));
         await ctx.repo.refresh({ reason: 'abandon' });
-        await ctx.ui.showInformation(`Abandoned ${revisions.length} change(s).`);
+        await ctx.host.ui.showInformation(`Abandoned ${revisions.length} change(s).`);
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to abandon');
+        await ctx.host.ui.showError(e, 'Failed to abandon');
     }
 }

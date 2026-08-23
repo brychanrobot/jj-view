@@ -60,14 +60,14 @@ export async function discardChangeCommand(ctx: CommandContext, payload?: Discar
 
         let originalTextStr = '';
         if (change.originalEndLineNumber >= change.originalStartLineNumber) {
-            originalTextStr = await ctx.documents.readLineRangeText(
+            originalTextStr = await ctx.host.documents.readLineRangeText(
                 originalUri,
                 change.originalStartLineNumber,
                 change.originalEndLineNumber,
             );
         }
 
-        await ctx.documents.replaceLineRangeAndSave(
+        await ctx.host.documents.replaceLineRangeAndSave(
             uri,
             {
                 startLine1Based: change.modifiedStartLineNumber,
@@ -76,6 +76,6 @@ export async function discardChangeCommand(ctx: CommandContext, payload?: Discar
             originalTextStr,
         );
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to discard change');
+        await ctx.host.ui.showError(e, 'Failed to discard change');
     }
 }

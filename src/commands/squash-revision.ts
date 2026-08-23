@@ -76,7 +76,7 @@ export async function squashRevisionIntoParentCommand(
                     }
                 }
 
-                const selected = await ctx.ui.showQuickPick(parentOptions, {
+                const selected = await ctx.host.ui.showQuickPick(parentOptions, {
                     placeHolder: 'Select which parent to squash into',
                 });
 
@@ -88,7 +88,7 @@ export async function squashRevisionIntoParentCommand(
                 targetParent = chosen;
             } else {
                 if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
-                    await ctx.ui.showError(new Error('Cannot squash a root revision.'), 'Squash Revision Error');
+                    await ctx.host.ui.showError(new Error('Cannot squash a root revision.'), 'Squash Revision Error');
                     return;
                 }
                 targetParent = sourceEntry.parents[0].commit_id;
@@ -98,7 +98,7 @@ export async function squashRevisionIntoParentCommand(
         await performSquashRevision(ctx, revision, targetParent, sourceEntry.description);
         await ctx.repo.refresh({ reason: 'after squash revision into parent' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error squashing revision into parent');
+        await ctx.host.ui.showError(e, 'Error squashing revision into parent');
     }
 }
 
@@ -111,7 +111,7 @@ export async function squashRevisionIntoAncestorCommand(
     try {
         let selectedAncestorRev = payload?.ancestorRevision;
         if (!selectedAncestorRev) {
-            selectedAncestorRev = await ctx.ui.promptForRevision({
+            selectedAncestorRev = await ctx.host.ui.promptForRevision({
                 placeHolder: 'Select which ancestor to squash into',
                 revisionQuery: RevisionQuery.ancestorsExcluding(revision),
             });
@@ -124,7 +124,7 @@ export async function squashRevisionIntoAncestorCommand(
         await performSquashRevision(ctx, revision, selectedAncestorRev, sourceEntry?.description);
         await ctx.repo.refresh({ reason: 'after squash revision into ancestor' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error squashing revision into ancestor');
+        await ctx.host.ui.showError(e, 'Error squashing revision into ancestor');
     }
 }
 
@@ -147,7 +147,9 @@ async function performSquashRevision(
         return;
     }
 
-    await ctx.ui.withProgress('Squashing revision...', () => ctx.repo.jj.squashRevision({ revision, intoRevision }));
+    await ctx.host.ui.withProgress('Squashing revision...', () =>
+        ctx.repo.jj.squashRevision({ revision, intoRevision }),
+    );
 }
 
 async function openSquashDescriptionEditor(
@@ -165,7 +167,7 @@ async function openSquashDescriptionEditor(
     const content = `${combined}\n\nJJ: Please enter the commit message for your changes.\nJJ: Lines starting with "JJ:" will be ignored.\nJJ: When finished, save this file to complete the squash, or click the checkmark button in the editor title.`;
 
     await fs.writeFile(squashMsgPath, content);
-    await ctx.nav.openFile(Uri.file(squashMsgPath));
+    await ctx.host.nav.openFile(Uri.file(squashMsgPath));
 
     const meta: SquashMeta = {
         revision,
@@ -202,12 +204,12 @@ export async function completeSquashRevisionCommand(
         }
         const { revision, parentRev } = validation.data;
 
-        await ctx.documents.saveIfDirty(msgUri);
+        await ctx.host.documents.saveIfDirty(msgUri);
 
         let rawMessage = payload?.message;
         if (!rawMessage || rawMessage.trim().length === 0) {
             rawMessage =
-                ctx.documents.getOpenDocumentText(msgUri) ?? (await fs.readFile(msgPath, 'utf-8').catch(() => ''));
+                ctx.host.documents.getOpenDocumentText(msgUri) ?? (await fs.readFile(msgPath, 'utf-8').catch(() => ''));
         }
 
         const finalMessage = rawMessage
@@ -217,26 +219,26 @@ export async function completeSquashRevisionCommand(
             .trim();
 
         if (finalMessage.length === 0) {
-            await ctx.ui.showWarning('Squash message is empty. Aborting.');
+            await ctx.host.ui.showWarning('Squash message is empty. Aborting.');
             return;
         }
 
-        await ctx.ui.withProgress('Squashing revision...', () =>
+        await ctx.host.ui.withProgress('Squashing revision...', () =>
             ctx.repo.jj.squashRevision({ revision, intoRevision: parentRev, message: finalMessage }),
         );
 
         await ctx.repo.refresh({ reason: 'after complete squash revision' });
-        await ctx.ui.showInformation('Squash completed.');
+        await ctx.host.ui.showInformation('Squash completed.');
     } catch (e: unknown) {
         if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-            await ctx.ui.showError(e, 'No pending squash operation found.');
+            await ctx.host.ui.showError(e, 'No pending squash operation found.');
         } else {
-            await ctx.ui.showError(e, 'Failed to complete squash revision.');
+            await ctx.host.ui.showError(e, 'Failed to complete squash revision.');
         }
     } finally {
         await fs.unlink(metaPath).catch(() => {});
         await fs.unlink(msgPath).catch(() => {});
-        await ctx.nav.closeTab(msgUri);
+        await ctx.host.nav.closeTab(msgUri);
         inProgressCompletions.delete(storageDir);
     }
 }

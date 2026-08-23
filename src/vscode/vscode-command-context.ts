@@ -3,52 +3,45 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommentsManager } from '../comments-manager';
-import type {
-    CommandConfig,
-    CommandContext,
-    CommandNavigation,
-    CommandServices,
-    CommandUI,
-    HostDocuments,
-} from '../common/command-context';
+import type { CommandContext, CommandServices } from '../common/command-context';
+import type { HostEnvironment } from '../common/host-environment';
 import type { JjRepository } from '../jj-repository';
 import type { JjLoggerChannel } from '../utils/output-channel';
-import {
-    closeTabsForUri,
-    VsCodeHostConfig,
-    VsCodeHostDocuments,
-    VsCodeHostEnvironment,
-    VsCodeHostNavigation,
-    VsCodeHostUi,
-} from './vscode-host-environment';
-
-export {
-    closeTabsForUri,
-    VsCodeHostConfig as VSCodeCommandConfig,
-    VsCodeHostDocuments,
-    VsCodeHostNavigation as VSCodeCommandNavigation,
-    VsCodeHostUi as VSCodeCommandUI,
-};
+import { VsCodeHostEnvironment } from './vscode-host-environment';
 
 export class VSCodeCommandContext implements CommandContext {
-    readonly ui: CommandUI;
-    readonly config: CommandConfig;
-    readonly nav: CommandNavigation;
-    readonly documents: HostDocuments;
-    readonly services: CommandServices;
-    readonly host: VsCodeHostEnvironment;
+    readonly repo: JjRepository;
+    readonly host: HostEnvironment;
+    readonly log: JjLoggerChannel;
+    readonly services?: CommandServices;
 
+    constructor(repo: JjRepository, host: HostEnvironment, log: JjLoggerChannel, comments?: CommentsManager);
     constructor(
-        readonly repo: JjRepository,
-        readonly log: JjLoggerChannel,
-        commentsManager?: CommentsManager,
+        repo: JjRepository,
+        log: JjLoggerChannel,
+        comments?: CommentsManager,
+        sourceControl?: { inputBox: { value: string } },
+    );
+    constructor(
+        repo: JjRepository,
+        hostOrLog: HostEnvironment | JjLoggerChannel,
+        logOrComments?: JjLoggerChannel | CommentsManager,
+        commentsOrSourceControl?: CommentsManager | { inputBox: { value: string } },
         sourceControl?: { inputBox: { value: string } },
     ) {
-        this.host = new VsCodeHostEnvironment({ repo, log, sourceControl });
-        this.ui = this.host.ui;
-        this.config = this.host.config;
-        this.nav = this.host.nav;
-        this.documents = this.host.documents;
-        this.services = { commentsManager };
+        this.repo = repo;
+        if ('ui' in hostOrLog) {
+            this.host = hostOrLog;
+            this.log = logOrComments as JjLoggerChannel;
+            this.services = { commentsManager: commentsOrSourceControl as CommentsManager | undefined };
+        } else {
+            this.log = hostOrLog;
+            this.services = { commentsManager: logOrComments as CommentsManager | undefined };
+            const sc = (sourceControl ??
+                (commentsOrSourceControl && 'inputBox' in commentsOrSourceControl
+                    ? commentsOrSourceControl
+                    : undefined)) as { inputBox: { value: string } } | undefined;
+            this.host = new VsCodeHostEnvironment({ repo: this.repo, log: this.log, sourceControl: sc });
+        }
     }
 }

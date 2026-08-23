@@ -10,7 +10,10 @@ export interface ShowDetailsPayload {
 }
 
 export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDetailsPayload): Promise<void> {
-    const { repo, ui } = ctx;
+    const {
+        repo,
+        host: { ui },
+    } = ctx;
     const { jj } = repo;
     const revision = payload?.revision || '@';
 

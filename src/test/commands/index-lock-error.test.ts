@@ -6,8 +6,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, type Mock, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { showJjError } from '../../commands/command-utils';
 import { JjService } from '../../jj-service';
+import { showJjError } from '../../vscode/vscode-ui-helpers';
 import { TestRepo } from '../test-repo';
 import { createMockLogOutputChannel } from '../test-utils';
 

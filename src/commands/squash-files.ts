@@ -34,12 +34,12 @@ export async function squashFilesIntoParentCommand(
     const revision = payload?.revision || '@';
 
     try {
-        await ctx.ui.withProgress('Squashing file(s) into parent...', () =>
+        await ctx.host.ui.withProgress('Squashing file(s) into parent...', () =>
             ctx.repo.jj.squashRevision({ paths, revision, useDestinationMessage: true }),
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into parent' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error squashing file(s) into parent');
+        await ctx.host.ui.showError(e, 'Error squashing file(s) into parent');
     }
 }
 
@@ -57,7 +57,7 @@ export async function squashFilesIntoAncestorCommand(
     try {
         let selectedAncestorRev = payload?.ancestorRevision;
         if (!selectedAncestorRev) {
-            selectedAncestorRev = await ctx.ui.promptForRevision({
+            selectedAncestorRev = await ctx.host.ui.promptForRevision({
                 placeHolder: 'Select which ancestor to squash into',
                 revisionQuery: RevisionQuery.ancestorsExcluding(revision),
             });
@@ -66,7 +66,7 @@ export async function squashFilesIntoAncestorCommand(
             return;
         }
 
-        await ctx.ui.withProgress('Squashing file(s) into ancestor...', () =>
+        await ctx.host.ui.withProgress('Squashing file(s) into ancestor...', () =>
             ctx.repo.jj.squashRevision({
                 paths,
                 revision,
@@ -76,7 +76,7 @@ export async function squashFilesIntoAncestorCommand(
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into ancestor' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error squashing file(s) into ancestor');
+        await ctx.host.ui.showError(e, 'Error squashing file(s) into ancestor');
     }
 }
 
@@ -98,7 +98,7 @@ export async function squashFilesIntoChildCommand(
         if (!targetChild) {
             if (children.length === 0) {
                 const revDisplay = revision === '@' ? 'the working copy' : revision;
-                await ctx.ui.showError(
+                await ctx.host.ui.showError(
                     new Error(`No child commits to squash changes into for ${revDisplay}.`),
                     'Squash Error',
                 );
@@ -106,7 +106,7 @@ export async function squashFilesIntoChildCommand(
             } else if (children.length === 1) {
                 targetChild = children[0];
             } else {
-                targetChild = await ctx.ui.promptForRevision({
+                targetChild = await ctx.host.ui.promptForRevision({
                     placeHolder: `Select child commit for ${revision}`,
                     revisionQuery: RevisionQuery.children(revision),
                 });
@@ -117,11 +117,11 @@ export async function squashFilesIntoChildCommand(
             return;
         }
 
-        await ctx.ui.withProgress('Squashing file(s) into child...', () =>
+        await ctx.host.ui.withProgress('Squashing file(s) into child...', () =>
             ctx.repo.jj.squashRevision({ paths, revision, intoRevision: targetChild }),
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into child' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error squashing file(s) into child');
+        await ctx.host.ui.showError(e, 'Error squashing file(s) into child');
     }
 }

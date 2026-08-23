@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommentsManager } from '../comments-manager';
+import type { CommandContext, CommandServices } from '../common/command-context';
 import type {
-    CommandContext,
-    CommandServices,
     HostAuth,
     HostAuthSession,
     HostCommands,
@@ -66,7 +65,7 @@ export class FakeHostUi implements HostUi {
 
     async showQuickPick<T extends { label: string; value?: unknown }>(
         _items: T[],
-        _options?: { placeHolder?: string },
+        _options?: { placeHolder?: string; title?: string },
     ): Promise<T | undefined> {
         return this.quickPickResponses.shift() as T | undefined;
     }

@@ -17,14 +17,14 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
     const revisions: string[] = payload?.revisions ? [...payload.revisions] : [];
 
     if (revisions.length === 0) {
-        const rev1 = await ctx.ui.promptForRevision({
+        const rev1 = await ctx.host.ui.promptForRevision({
             placeHolder: 'Select first revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
         });
         if (rev1) {
             revisions.push(rev1);
         }
-        const rev2 = await ctx.ui.promptForRevision({
+        const rev2 = await ctx.host.ui.promptForRevision({
             placeHolder: 'Select second revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
         });
@@ -34,7 +34,7 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
     }
 
     if (revisions.length < 1) {
-        await ctx.ui.showError(new Error('Need at least 1 revision to create a change.'), 'Merge Error');
+        await ctx.host.ui.showError(new Error('Need at least 1 revision to create a change.'), 'Merge Error');
         return;
     }
 
@@ -42,6 +42,6 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
         await ctx.repo.jj.new({ parents: revisions });
         await ctx.repo.refresh();
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to create merge');
+        await ctx.host.ui.showError(e, 'Failed to create merge');
     }
 }

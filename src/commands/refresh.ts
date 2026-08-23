@@ -8,6 +8,6 @@ export async function refreshCommand(ctx: CommandContext): Promise<void> {
     try {
         await ctx.repo.refresh({ reason: 'manual refresh command', forceSnapshot: true });
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Error refreshing');
+        await ctx.host.ui.showError(err, 'Error refreshing');
     }
 }

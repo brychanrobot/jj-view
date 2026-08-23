@@ -2,10 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { CommentsManager } from '../comments-manager';
-import type { JjRepository } from '../jj-repository';
 import type { Uri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
 
 export interface HostDisposable {
     dispose(): void;
@@ -20,7 +17,7 @@ export interface HostUi {
     }): Promise<string | undefined>;
     showQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
-        options?: { placeHolder?: string },
+        options?: { placeHolder?: string; title?: string },
     ): Promise<T | undefined>;
     showMultiQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
@@ -128,15 +125,4 @@ export interface HostEnvironment {
     readonly auth?: HostAuth;
     readonly commands?: HostCommands;
     readonly views?: HostViews;
-}
-
-export interface CommandServices {
-    readonly commentsManager?: CommentsManager;
-}
-
-export interface CommandContext {
-    readonly repo: JjRepository;
-    readonly host: HostEnvironment;
-    readonly log: JjLoggerChannel;
-    readonly services?: CommandServices;
 }

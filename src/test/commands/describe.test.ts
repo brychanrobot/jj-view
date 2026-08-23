@@ -119,7 +119,7 @@ describe('setDescriptionCommand', () => {
     });
 
     test('updates SCM input box when formatDescriptionOnSave is enabled for @', async () => {
-        vi.spyOn(ctx.config, 'get').mockImplementation((key: string) => {
+        vi.spyOn(ctx.host.config, 'get').mockImplementation((key: string) => {
             if (key === 'commit.formatDescriptionOnSave') {
                 return true;
             }

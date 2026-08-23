@@ -12,13 +12,13 @@ export interface WorkspaceForgetPayload {
 
 export async function workspaceForgetCommand(ctx: CommandContext, payload?: WorkspaceForgetPayload): Promise<void> {
     const { jj } = ctx.repo;
-    const workspaceName = payload?.workspaceName ?? (await resolveWorkspaceName(jj, []));
+    const workspaceName = payload?.workspaceName ?? (await resolveWorkspaceName(ctx, []));
     if (!workspaceName) {
         return;
     }
 
     const YES = 'Yes, Forget Workspace';
-    const result = await ctx.ui.showWarning(
+    const result = await ctx.host.ui.showWarning(
         `Are you sure you want to forget the workspace "${workspaceName}"? This will untrack it but will not delete the directory from disk.`,
         { modal: true },
         YES,
@@ -29,13 +29,13 @@ export async function workspaceForgetCommand(ctx: CommandContext, payload?: Work
     }
 
     try {
-        await ctx.ui.withProgress(`Forgetting workspace "${workspaceName}"...`, async () => {
+        await ctx.host.ui.withProgress(`Forgetting workspace "${workspaceName}"...`, async () => {
             await jj.workspaceForget(workspaceName);
         });
 
         await ctx.repo.refresh();
     } catch (e) {
         const message = getErrorMessage(e);
-        await ctx.ui.showError(new Error(`Failed to forget workspace: ${message}`), 'Workspace Forget Error');
+        await ctx.host.ui.showError(new Error(`Failed to forget workspace: ${message}`), 'Workspace Forget Error');
     }
 }

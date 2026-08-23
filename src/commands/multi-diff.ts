@@ -14,7 +14,7 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
     try {
         const revision = payload?.revision || '@';
 
-        await ctx.ui.withProgress(`Preparing multi-file diff for ${revision}...`, async (): Promise<void> => {
+        await ctx.host.ui.withProgress(`Preparing multi-file diff for ${revision}...`, async (): Promise<void> => {
             const { jj } = ctx.repo;
             // Resolve to concrete change ID so both diff sides use the jj-view content provider
             const [logEntry] = await jj.getLog({ revision, limit: 1 });
@@ -28,7 +28,7 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
             ]);
 
             if (changes.length === 0) {
-                await ctx.ui.showInformation(`No changes found in revision ${changeId}.`);
+                await ctx.host.ui.showInformation(`No changes found in revision ${changeId}.`);
                 return;
             }
 
@@ -40,9 +40,9 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
             const firstLine = description.split('\n')[0].trim();
             const shortId = changeId.slice(0, 8);
             const title = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
-            await ctx.nav.openMultiDiff(title, resources);
+            await ctx.host.nav.openMultiDiff(title, resources);
         });
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Failed to open multi-file diff');
+        await ctx.host.ui.showError(err, 'Failed to open multi-file diff');
     }
 }

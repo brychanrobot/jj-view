@@ -15,9 +15,9 @@ export async function commitCommand(ctx: CommandContext, payload?: CommitPayload
         description = await maybeFormatDescriptionOnSave(description, ctx);
     }
     try {
-        await ctx.ui.withProgress('Committing...', () => ctx.repo.jj.commit(description));
+        await ctx.host.ui.withProgress('Committing...', () => ctx.repo.jj.commit(description));
         await ctx.repo.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Error committing change');
+        await ctx.host.ui.showError(err, 'Error committing change');
     }
 }

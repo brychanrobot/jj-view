@@ -3,16 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
-import { getJjViewConfig } from '../utils/config-utils';
 
 export interface UploadPayload {
     revision?: string;
 }
 
 export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload): Promise<void> {
-    const { repo, ui, nav } = ctx;
+    const {
+        repo,
+        host: { ui, nav, config },
+    } = ctx;
     const revision = payload?.revision;
-    const customCommand = getJjViewConfig<string>('uploadCommand');
+    const customCommand = config.get<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
         let subcommand = '';

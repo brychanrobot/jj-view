@@ -18,9 +18,9 @@ export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookm
     try {
         let name = payload?.name?.trim() || undefined;
         if (!name) {
-            const bookmarks = await ctx.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
+            const bookmarks = await ctx.host.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
 
-            name = await ctx.ui.promptSelectOrCreate({
+            name = await ctx.host.ui.promptSelectOrCreate({
                 placeHolder: 'Select a bookmark to move, or type a new name to create',
                 items: bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, description: 'Move bookmark' })),
             });
@@ -30,9 +30,9 @@ export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookm
             }
         }
 
-        await ctx.ui.withProgress(`Setting bookmark ${name}...`, () => ctx.repo.jj.moveBookmark(name, revision));
+        await ctx.host.ui.withProgress(`Setting bookmark ${name}...`, () => ctx.repo.jj.moveBookmark(name, revision));
         await ctx.repo.refresh({ reason: 'after bookmark set' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error setting bookmark');
+        await ctx.host.ui.showError(e, 'Error setting bookmark');
     }
 }

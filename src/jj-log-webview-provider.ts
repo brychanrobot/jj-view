@@ -6,7 +6,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from './code-forge-service';
-import { showJjError, withDelayedProgress } from './commands/command-utils';
 import { WebviewToHostMessageSchema } from './common/ipc-schemas';
 import { createWebviewRpcDispatcher } from './common/webview-rpc-dispatcher';
 import { JjCommitDetailsEditorProvider, openCommitDetails } from './jj-commit-details-editor-provider';
@@ -18,6 +17,7 @@ import { getUriParams, Uri } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { canAbsorbCommit } from './utils/jj-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
+import { showJjError, withDelayedProgress } from './vscode/vscode-ui-helpers';
 
 export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'jj-view.logView';

@@ -18,7 +18,10 @@ export async function rebaseOntoSelectedCommand(
     ctx: CommandContext,
     payload?: RebaseOntoSelectedPayload,
 ): Promise<void> {
-    const { repo, ui } = ctx;
+    const {
+        repo,
+        host: { ui },
+    } = ctx;
     const sourceId = payload?.sourceId;
     if (!sourceId) {
         return;

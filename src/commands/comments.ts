@@ -57,7 +57,7 @@ export async function showCommentsCommand(ctx: CommandContext, payload?: ShowCom
     if (!changeId) {
         return;
     }
-    await ctx.services.commentsManager?.showCommentsForChange(changeId);
+    await ctx.services?.commentsManager?.showCommentsForChange(changeId);
 }
 
 export async function replyCommentCommand(ctx: CommandContext, payload?: ReplyCommentPayload): Promise<void> {
@@ -65,7 +65,7 @@ export async function replyCommentCommand(ctx: CommandContext, payload?: ReplyCo
     if (!reply) {
         return;
     }
-    await ctx.services.commentsManager?.replyToThread(reply);
+    await ctx.services?.commentsManager?.replyToThread(reply);
 }
 
 export async function ackCommentCommand(ctx: CommandContext, payload?: AckCommentPayload): Promise<void> {
@@ -73,7 +73,7 @@ export async function ackCommentCommand(ctx: CommandContext, payload?: AckCommen
     if (!reply) {
         return;
     }
-    await ctx.services.commentsManager?.replyToThread(
+    await ctx.services?.commentsManager?.replyToThread(
         {
             thread: reply.thread,
             text: ACK_REPLY_TEXT,
@@ -87,7 +87,7 @@ export async function doneCommentCommand(ctx: CommandContext, payload?: DoneComm
     if (!reply) {
         return;
     }
-    await ctx.services.commentsManager?.replyToThread(
+    await ctx.services?.commentsManager?.replyToThread(
         {
             thread: reply.thread,
             text: DONE_REPLY_TEXT,
@@ -104,7 +104,7 @@ export async function replyAndResolveCommentCommand(
     if (!reply) {
         return;
     }
-    await ctx.services.commentsManager?.replyToThread(reply, /* resolved */ true);
+    await ctx.services?.commentsManager?.replyToThread(reply, /* resolved */ true);
 }
 
 export async function resolveCommentThreadCommand(
@@ -116,7 +116,7 @@ export async function resolveCommentThreadCommand(
         return;
     }
     const thread = 'thread' in arg ? arg.thread : arg;
-    await ctx.services.commentsManager?.toggleResolveThread(thread, /* resolved */ true);
+    await ctx.services?.commentsManager?.toggleResolveThread(thread, /* resolved */ true);
 }
 
 export async function unresolveCommentThreadCommand(
@@ -128,10 +128,10 @@ export async function unresolveCommentThreadCommand(
         return;
     }
     const thread = 'thread' in arg ? arg.thread : arg;
-    await ctx.services.commentsManager?.toggleResolveThread(thread, /* resolved */ false);
+    await ctx.services?.commentsManager?.toggleResolveThread(thread, /* resolved */ false);
 }
 
 export async function copyUnresolvedCommentsCommand(ctx: CommandContext): Promise<void> {
-    const { commentsManager } = ctx.services;
+    const commentsManager = ctx.services?.commentsManager;
     await commentsManager?.copyUnresolvedComments();
 }

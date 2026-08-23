@@ -11,7 +11,7 @@ export async function describePromptCommand(ctx: CommandContext, scmProvider?: J
     const inputBoxValue = scmProvider?.sourceControl.inputBox.value;
     const defaultValue = inputBoxValue || (await jj.getDescription('@'));
 
-    const input = await ctx.ui.showInputBox({
+    const input = await ctx.host.ui.showInputBox({
         prompt: 'Set description',
         placeHolder: 'Description of the changes...',
         value: defaultValue,
@@ -23,13 +23,13 @@ export async function describePromptCommand(ctx: CommandContext, scmProvider?: J
 
     try {
         const description = await maybeFormatDescriptionOnSave(input, ctx);
-        await ctx.ui.withProgress('Setting description...', () => jj.describe(description));
+        await ctx.host.ui.withProgress('Setting description...', () => jj.describe(description));
         if (scmProvider) {
             await scmProvider.refresh({ reason: 'after describe' });
         } else {
             await ctx.repo.refresh();
         }
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Error setting description');
+        await ctx.host.ui.showError(err, 'Error setting description');
     }
 }

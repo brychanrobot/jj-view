@@ -36,7 +36,7 @@ export async function squashHunkIntoParentCommand(
         await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
         await ctx.repo.refresh({ reason: 'after squash hunk into parent' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to squash hunk');
+        await ctx.host.ui.showError(e, 'Failed to squash hunk');
     }
 }
 
@@ -57,7 +57,7 @@ export async function squashSelectionIntoParentCommand(
     try {
         await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to squash selection');
+        await ctx.host.ui.showError(e, 'Failed to squash selection');
     } finally {
         await ctx.repo.refresh({ reason: 'after squash selection into parent' });
     }

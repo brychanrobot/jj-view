@@ -9,8 +9,6 @@ import type { JjResourceState } from '../scm-resource-state';
 import { getFsPathFromUri, Uri } from '../uri-utils';
 import { formatCommitDescription } from '../utils/format-utils';
 
-export { promptForRevision, showJjError, withDelayedProgress } from '../vscode/vscode-ui-helpers';
-
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
 function hasResourceUri(arg: unknown): arg is { resourceUri: Uri } {
@@ -291,12 +289,14 @@ export const RevisionQuery = {
 
 export interface DescriptionFormatContext {
     repo: JjRepository;
-    config: {
-        get<T>(key: string): T | undefined;
-    };
-    ui?: {
-        setCommitInput?(value: string): void;
-        getCommitInput?(): string | undefined;
+    host: {
+        config: {
+            get<T>(key: string): T | undefined;
+        };
+        ui?: {
+            setCommitInput?(value: string): void;
+            getCommitInput?(): string | undefined;
+        };
     };
 }
 
@@ -305,16 +305,16 @@ export async function maybeFormatDescriptionOnSave(
     ctx: DescriptionFormatContext,
     revision: string = '@',
 ): Promise<string> {
-    const formatOnSave = ctx.config.get<boolean>('commit.formatDescriptionOnSave') ?? false;
+    const formatOnSave = ctx.host.config.get<boolean>('commit.formatDescriptionOnSave') ?? false;
     if (!formatOnSave) {
         return description;
     }
 
-    const bodyWidthRuler = ctx.config.get<number>('commit.bodyWidthRuler') ?? 72;
+    const bodyWidthRuler = ctx.host.config.get<number>('commit.bodyWidthRuler') ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
-    if (revision === '@' && ctx.ui?.setCommitInput) {
-        ctx.ui.setCommitInput(description);
+    if (revision === '@' && ctx.host.ui?.setCommitInput) {
+        ctx.host.ui.setCommitInput(description);
     }
     return description;
 }

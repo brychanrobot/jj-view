@@ -27,7 +27,7 @@ describe('openMergeEditorCommand', () => {
             rootUri: Uri.file('/test'),
         });
         ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
-        ctx.nav.openMergeEditor = vi.fn();
+        ctx.host.nav.openMergeEditor = vi.fn();
     });
 
     afterEach(() => {
@@ -38,7 +38,7 @@ describe('openMergeEditorCommand', () => {
         const payload = createOpenMergeEditorPayload([undefined]);
         await openMergeEditorCommand(ctx, payload);
 
-        expect(ctx.nav.openMergeEditor).not.toHaveBeenCalled();
+        expect(ctx.host.nav.openMergeEditor).not.toHaveBeenCalled();
     });
 
     test('calls openMergeEditor with resource states', async () => {
@@ -47,13 +47,13 @@ describe('openMergeEditorCommand', () => {
         const payload = createOpenMergeEditorPayload([resource]);
         await openMergeEditorCommand(ctx, payload);
 
-        expect(ctx.nav.openMergeEditor).toHaveBeenCalledWith(resourceUri);
+        expect(ctx.host.nav.openMergeEditor).toHaveBeenCalledWith(resourceUri);
     });
 
     test('handles error', async () => {
         const resourceUri = Uri.file('/test/foo.txt');
         const resource = { resourceUri };
-        const openMergeEditor = ctx.nav.openMergeEditor;
+        const openMergeEditor = ctx.host.nav.openMergeEditor;
         if (!openMergeEditor) {
             throw new Error('openMergeEditor not defined');
         }

@@ -11,14 +11,13 @@ import { CodeForgeRegistry } from '../code-forge-registry';
 import {
     extractBookmarkName,
     maybeFormatDescriptionOnSave,
-    promptForRevision,
     RevisionQuery,
     resolveRevisionsWithSelection,
-    withDelayedProgress,
 } from '../commands/command-utils';
 import { JjRepository } from '../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
+import { promptForRevision, withDelayedProgress } from '../vscode/vscode-ui-helpers';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 import { resetMockQuickPick, setActiveItems, setSelectedItems } from './vitest-utils';
@@ -334,13 +333,15 @@ describe('maybeFormatDescriptionOnSave', () => {
     it('does not format description when commit.formatDescriptionOnSave is disabled', async () => {
         const ctx = {
             repo: jjRepo,
-            config: {
-                get: vi.fn().mockImplementation((key: string) => {
-                    if (key === 'commit.formatDescriptionOnSave') {
-                        return false;
-                    }
-                    return undefined;
-                }),
+            host: {
+                config: {
+                    get: vi.fn().mockImplementation((key: string) => {
+                        if (key === 'commit.formatDescriptionOnSave') {
+                            return false;
+                        }
+                        return undefined;
+                    }),
+                },
             },
         };
 
@@ -353,19 +354,21 @@ describe('maybeFormatDescriptionOnSave', () => {
         const setCommitInput = vi.fn();
         const ctx = {
             repo: jjRepo,
-            config: {
-                get: vi.fn().mockImplementation((key: string) => {
-                    if (key === 'commit.formatDescriptionOnSave') {
-                        return true;
-                    }
-                    if (key === 'commit.bodyWidthRuler') {
-                        return 20;
-                    }
-                    return undefined;
-                }),
-            },
-            ui: {
-                setCommitInput,
+            host: {
+                config: {
+                    get: vi.fn().mockImplementation((key: string) => {
+                        if (key === 'commit.formatDescriptionOnSave') {
+                            return true;
+                        }
+                        if (key === 'commit.bodyWidthRuler') {
+                            return 20;
+                        }
+                        return undefined;
+                    }),
+                },
+                ui: {
+                    setCommitInput,
+                },
             },
         };
 
@@ -380,19 +383,21 @@ describe('maybeFormatDescriptionOnSave', () => {
         const setCommitInput = vi.fn();
         const ctx = {
             repo: jjRepo,
-            config: {
-                get: vi.fn().mockImplementation((key: string) => {
-                    if (key === 'commit.formatDescriptionOnSave') {
-                        return true;
-                    }
-                    if (key === 'commit.bodyWidthRuler') {
-                        return 20;
-                    }
-                    return undefined;
-                }),
-            },
-            ui: {
-                setCommitInput,
+            host: {
+                config: {
+                    get: vi.fn().mockImplementation((key: string) => {
+                        if (key === 'commit.formatDescriptionOnSave') {
+                            return true;
+                        }
+                        if (key === 'commit.bodyWidthRuler') {
+                            return 20;
+                        }
+                        return undefined;
+                    }),
+                },
+                ui: {
+                    setCommitInput,
+                },
             },
         };
 

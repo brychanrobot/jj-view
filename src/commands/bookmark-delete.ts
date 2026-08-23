@@ -13,18 +13,18 @@ export async function deleteBookmarkCommand(ctx: CommandContext, payload?: Delet
 
     if (!bookmarkName) {
         try {
-            const bookmarks = await ctx.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
+            const bookmarks = await ctx.host.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
             const items = bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, value: b.name }));
 
             if (items.length === 0) {
-                await ctx.ui.showInformation('No local bookmarks to delete.');
+                await ctx.host.ui.showInformation('No local bookmarks to delete.');
                 return;
             }
 
-            const pick = await ctx.ui.showQuickPick(items, { placeHolder: 'Select a bookmark to delete' });
+            const pick = await ctx.host.ui.showQuickPick(items, { placeHolder: 'Select a bookmark to delete' });
             bookmarkName = pick?.value as string | undefined;
         } catch (e: unknown) {
-            await ctx.ui.showError(e, 'Failed to fetch bookmarks');
+            await ctx.host.ui.showError(e, 'Failed to fetch bookmarks');
             return;
         }
     }
@@ -34,12 +34,12 @@ export async function deleteBookmarkCommand(ctx: CommandContext, payload?: Delet
     }
 
     try {
-        await ctx.ui.withProgress(`Deleting bookmark "${bookmarkName}"...`, () =>
+        await ctx.host.ui.withProgress(`Deleting bookmark "${bookmarkName}"...`, () =>
             ctx.repo.jj.deleteBookmark(bookmarkName),
         );
         await ctx.repo.refresh({ reason: 'after bookmark delete' });
-        await ctx.ui.showInformation(`Deleted bookmark "${bookmarkName}".`);
+        await ctx.host.ui.showInformation(`Deleted bookmark "${bookmarkName}".`);
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Failed to delete bookmark');
+        await ctx.host.ui.showError(e, 'Failed to delete bookmark');
     }
 }

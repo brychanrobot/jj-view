@@ -19,11 +19,11 @@ export async function setDescriptionCommand(
     description = await maybeFormatDescriptionOnSave(description, ctx, revision);
 
     try {
-        await ctx.ui.withProgress('Setting description...', () => ctx.repo.jj.describe(description, revision));
+        await ctx.host.ui.withProgress('Setting description...', () => ctx.repo.jj.describe(description, revision));
         ctx.repo.refresh({ reason: 'after describe' });
         return description;
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error setting description');
+        await ctx.host.ui.showError(e, 'Error setting description');
         return false;
     }
 }
