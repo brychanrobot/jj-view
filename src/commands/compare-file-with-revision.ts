@@ -20,13 +20,13 @@ export async function compareFileWithRevisionCommand(
         const fileUri = payload?.fileUri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            await ctx.ui.showError(new Error('No workspace file selected for comparison.'), 'Compare File Error');
+            await ctx.host.ui.showError(new Error('No workspace file selected for comparison.'), 'Compare File Error');
             return;
         }
 
         let revision = payload?.revision;
         if (!revision) {
-            revision = await ctx.ui.promptForRevision({
+            revision = await ctx.host.ui.promptForRevision({
                 placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
                 emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
@@ -41,8 +41,8 @@ export async function compareFileWithRevisionCommand(
         const leftUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
 
         const title = `${path.basename(fileUri.fsPath)} (${revision} ↔ Working Copy)`;
-        await ctx.nav.openDiff(leftUri, fileUri, title);
+        await ctx.host.nav.openDiff(leftUri, fileUri, title);
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Failed to compare file');
+        await ctx.host.ui.showError(err, 'Failed to compare file');
     }
 }

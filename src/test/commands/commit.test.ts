@@ -70,7 +70,7 @@ describe('commitCommand', () => {
     });
 
     test('shows an error when jj.commit rejects', async () => {
-        const uiShowErrorSpy = vi.spyOn(ctx.ui, 'showError').mockResolvedValue(undefined);
+        const uiShowErrorSpy = vi.spyOn(ctx.host.ui, 'showError').mockResolvedValue(undefined);
         vi.spyOn(mockJjRepo.jj, 'commit').mockRejectedValue(new Error('commit failed'));
 
         await commitCommand(ctx, { description: 'feat: error test' });
@@ -85,7 +85,7 @@ describe('commitCommand', () => {
     });
 
     test('wraps commit execution in a progress UI', async () => {
-        const withProgressSpy = vi.spyOn(ctx.ui, 'withProgress');
+        const withProgressSpy = vi.spyOn(ctx.host.ui, 'withProgress');
 
         await commitCommand(ctx, { description: 'feat: progress test' });
 
@@ -93,7 +93,7 @@ describe('commitCommand', () => {
     });
 
     test('formats description when commit.formatDescriptionOnSave is enabled', async () => {
-        vi.spyOn(ctx.config, 'get').mockImplementation((key: string) => {
+        vi.spyOn(ctx.host.config, 'get').mockImplementation((key: string) => {
             if (key === 'commit.formatDescriptionOnSave') {
                 return true;
             }

@@ -19,15 +19,15 @@ export async function restoreCommand(ctx: CommandContext, payload?: RestorePaylo
     try {
         for (const [rev, paths] of entries) {
             if (rev === '@') {
-                await ctx.ui.withProgress('Restoring files...', () => ctx.repo.jj.restore(paths));
+                await ctx.host.ui.withProgress('Restoring files...', () => ctx.repo.jj.restore(paths));
             } else {
-                await ctx.ui.withProgress(`Restoring files for ${rev}...`, () =>
+                await ctx.host.ui.withProgress(`Restoring files for ${rev}...`, () =>
                     ctx.repo.jj.restore(paths, { changesIn: rev }),
                 );
             }
         }
         await ctx.repo.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error restoring files');
+        await ctx.host.ui.showError(e, 'Error restoring files');
     }
 }

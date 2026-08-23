@@ -5,5 +5,5 @@
 import type { CommandContext } from '../common/command-context';
 
 export async function focusDescriptionInputCommand(ctx: CommandContext): Promise<void> {
-    await ctx.nav.focusScmInput?.();
+    await ctx.host.nav.focusScmInput?.();
 }

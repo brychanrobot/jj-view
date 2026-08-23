@@ -15,10 +15,10 @@ export async function absorbCommand(ctx: CommandContext, payload?: AbsorbPayload
     const fromRevision = payload?.fromRevision;
 
     try {
-        await ctx.ui.withProgress('Absorbing changes...', () => ctx.repo.jj.absorb({ paths, fromRevision }));
+        await ctx.host.ui.withProgress('Absorbing changes...', () => ctx.repo.jj.absorb({ paths, fromRevision }));
         await ctx.repo.refresh({ reason: 'after absorb' });
-        ctx.ui.setStatusBarMessage?.('Absorb completed.', 3000);
+        ctx.host.ui.setStatusBarMessage?.('Absorb completed.', 3000);
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Absorb failed');
+        await ctx.host.ui.showError(e, 'Absorb failed');
     }
 }

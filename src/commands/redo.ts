@@ -5,7 +5,10 @@
 import type { CommandContext } from '../common/command-context';
 
 export async function redoCommand(ctx: CommandContext): Promise<void> {
-    const { repo, ui } = ctx;
+    const {
+        repo,
+        host: { ui },
+    } = ctx;
     try {
         await ui.withProgress('Redoing...', () => repo.jj.redo());
         await repo.refresh({ reason: 'redo' });

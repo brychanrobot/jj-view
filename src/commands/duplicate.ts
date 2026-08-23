@@ -15,9 +15,9 @@ export async function duplicateCommand(ctx: CommandContext, payload?: DuplicateP
     }
 
     try {
-        await ctx.ui.withProgress('Duplicating...', () => ctx.repo.jj.duplicate(revision));
+        await ctx.host.ui.withProgress('Duplicating...', () => ctx.repo.jj.duplicate(revision));
         await ctx.repo.refresh({ reason: 'after duplicate' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error duplicating commit');
+        await ctx.host.ui.showError(e, 'Error duplicating commit');
     }
 }

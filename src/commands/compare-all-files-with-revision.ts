@@ -19,7 +19,7 @@ export async function compareAllFilesWithRevisionCommand(
     try {
         let revision = payload?.revision;
         if (!revision) {
-            revision = await ctx.ui.promptForRevision({
+            revision = await ctx.host.ui.promptForRevision({
                 placeHolder: 'Select an ancestor to compare with all files',
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
             });
@@ -32,11 +32,11 @@ export async function compareAllFilesWithRevisionCommand(
         const rev = revision;
         const { jj } = ctx.repo;
 
-        await ctx.ui.withProgress(`Comparing ${rev} with all files...`, async (): Promise<void> => {
+        await ctx.host.ui.withProgress(`Comparing ${rev} with all files...`, async (): Promise<void> => {
             const changes = await jj.getChangesBetween(rev, '@');
 
             if (changes.length === 0) {
-                await ctx.ui.showInformation(`No differences found between ${rev} and working copy.`);
+                await ctx.host.ui.showInformation(`No differences found between ${rev} and working copy.`);
                 return;
             }
 
@@ -56,9 +56,9 @@ export async function compareAllFilesWithRevisionCommand(
             });
 
             const title = `Compare ${rev} with Working Copy`;
-            await ctx.nav.openMultiDiff(title, resources);
+            await ctx.host.nav.openMultiDiff(title, resources);
         });
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Failed to open comparison');
+        await ctx.host.ui.showError(err, 'Failed to open comparison');
     }
 }

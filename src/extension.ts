@@ -10,7 +10,6 @@ import type { CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import { CodeForgeRegistry } from './code-forge-registry';
 import type { CodeForgeService } from './code-forge-service';
-import { registerProcessMonitorCommands } from './commands/process-monitor';
 import { CommentsManager } from './comments-manager';
 import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
@@ -27,9 +26,9 @@ import { JjScmProvider } from './jj-scm-provider';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
-import { JjOutputChannel } from './utils/output-channel';
+import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 import { registerVSCodeCommands } from './vscode/register-commands';
+import { registerProcessMonitorCommands } from './vscode/register-process-monitor-commands';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;

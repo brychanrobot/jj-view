@@ -62,9 +62,9 @@ import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } 
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext } from '../common/command-context';
 import type { JjLogWebviewProvider } from '../jj-log-webview-provider';
+import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
-import type { JjService } from '../jj-service';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
@@ -123,6 +123,7 @@ import {
     createWorkspaceOpenInNewWindowPayload,
 } from './payloads/workspace-open.payload';
 import { VSCodeCommandContext } from './vscode-command-context';
+import { VsCodeHostEnvironment } from './vscode-host-environment';
 import { resolveRepository } from './vscode-ui-helpers';
 
 export interface RegisterCommandsOptions {
@@ -134,27 +135,15 @@ export interface RegisterCommandsOptions {
     logWebviewProvider: JjLogWebviewProvider;
 }
 
-export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
+export function registerCommands(options: RegisterCommandsOptions): void {
     const { context, repositoryManager, scmProviders, outputChannel, commentsManager, logWebviewProvider } = options;
 
-    const resolveRepositoryLocal = (args: unknown[]) => resolveRepository(args, repositoryManager, scmProviders);
-
-    function registerWrappedCommand(
-        commandId: string,
-        handler: (scm: JjScmProvider, jj: JjService, ...args: unknown[]) => unknown,
-    ): vscode.Disposable {
-        return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const resolved = resolveRepositoryLocal(args);
-            if (resolved?.repo && resolved?.scm) {
-                repositoryManager.setFocusedRepository(resolved.repo);
-                return await handler(resolved.scm, resolved.repo.jj, ...args);
-            } else {
-                const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
-                outputChannel.error(message);
-                vscode.window.showErrorMessage(message);
-                return;
-            }
-        });
+    function resolveRepositoryLocal(args: unknown[]): { repo: JjRepository; scm?: JjScmProvider } | undefined {
+        const res = resolveRepository(args, repositoryManager, scmProviders);
+        if (!res?.repo) {
+            return undefined;
+        }
+        return { repo: res.repo, scm: res.scm };
     }
 
     function registerCommandWithPayload<TPayload, TReturn = unknown>(
@@ -166,12 +155,13 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const resolved = resolveRepositoryLocal(args);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const cmdCtx = new VSCodeCommandContext(
-                    resolved.repo,
-                    outputChannel,
-                    commentsManager,
-                    resolved.scm?.sourceControl,
-                );
+                const host = new VsCodeHostEnvironment({
+                    repo: resolved.repo,
+                    log: outputChannel,
+                    sourceControl: resolved.scm?.sourceControl,
+                    context,
+                });
+                const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 const payload = payloadCreator(args, resolved.scm);
                 return await handler(cmdCtx, payload);
             } else {
@@ -191,12 +181,13 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             const resolved = resolveRepositoryLocal(args);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const cmdCtx = new VSCodeCommandContext(
-                    resolved.repo,
-                    outputChannel,
-                    commentsManager,
-                    resolved.scm?.sourceControl,
-                );
+                const host = new VsCodeHostEnvironment({
+                    repo: resolved.repo,
+                    log: outputChannel,
+                    sourceControl: resolved.scm?.sourceControl,
+                    context,
+                });
+                const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 return await handler(cmdCtx, ...args);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
@@ -206,9 +197,10 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
             }
         });
     }
+
     context.subscriptions.push(
-        registerWrappedCommand('jj-view.focusRepository', () => {
-            // No-op: registerWrappedCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
+        registerCommand('jj-view.focusRepository', async () => {
+            // No-op: registerCommand automatically resolves the clicked repository's rootUri and sets it as the focused repository.
         }),
         registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
         registerCommandWithPayload('jj-view.newMergeChange', createNewMergeChangePayload, newMergeChangeCommand),
@@ -375,3 +367,5 @@ export function registerVSCodeCommands(options: RegisterCommandsOptions): void {
     const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
     context.subscriptions.push(refreshCmd);
 }
+
+export { registerCommands as registerVSCodeCommands };

@@ -15,9 +15,9 @@ export async function editCommand(ctx: CommandContext, payload?: EditPayload): P
     }
 
     try {
-        await ctx.ui.withProgress('Editing...', () => ctx.repo.jj.edit(revision));
+        await ctx.host.ui.withProgress('Editing...', () => ctx.repo.jj.edit(revision));
         await ctx.repo.refresh({ reason: 'after edit' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error editing commit');
+        await ctx.host.ui.showError(e, 'Error editing commit');
     }
 }

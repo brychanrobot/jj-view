@@ -39,7 +39,7 @@ async function openWorkspace(
 
     try {
         if (!workspaceName) {
-            workspaceName = await resolveWorkspaceName(jj, []);
+            workspaceName = await resolveWorkspaceName(ctx, []);
         }
         if (!workspaceName) {
             return;
@@ -47,9 +47,9 @@ async function openWorkspace(
 
         const workspacePath = await jj.getWorkspaceRoot(workspaceName);
         const uri = Uri.file(workspacePath);
-        await ctx.nav.openFolder(uri, forceNewWindow);
+        await ctx.host.nav.openFolder(uri, forceNewWindow);
     } catch (e) {
         const prefix = workspaceName ? `Failed to open workspace "${workspaceName}"` : 'Failed to resolve workspace';
-        await ctx.ui.showError(e, prefix);
+        await ctx.host.ui.showError(e, prefix);
     }
 }

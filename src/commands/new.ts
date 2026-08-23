@@ -11,9 +11,9 @@ export interface NewPayload {
 export async function newCommand(ctx: CommandContext, payload?: NewPayload): Promise<void> {
     const parents = payload?.parents;
     try {
-        await ctx.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ parents }));
+        await ctx.host.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ parents }));
         await ctx.repo.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error creating new commit');
+        await ctx.host.ui.showError(e, 'Error creating new commit');
     }
 }

@@ -5,34 +5,15 @@
 import type { CommentsManager } from '../comments-manager';
 import type { JjRepository } from '../jj-repository';
 import type { JjLoggerChannel } from '../utils/output-channel';
-import type { HostConfig, HostDocuments, HostNavigation, HostUi } from './host-environment';
-
-export type CommandUI = HostUi;
-export type CommandConfig = HostConfig;
-export type CommandNavigation = HostNavigation;
-export type { HostDocuments } from './host-environment';
+import type { HostEnvironment } from './host-environment';
 
 export interface CommandServices {
-    commentsManager?: CommentsManager;
+    readonly commentsManager?: CommentsManager;
 }
 
 export interface CommandContext {
     readonly repo: JjRepository;
-    readonly ui: CommandUI;
-    readonly config: CommandConfig;
-    readonly nav: CommandNavigation;
-    readonly documents: HostDocuments;
+    readonly host: HostEnvironment;
     readonly log: JjLoggerChannel;
-    readonly services: CommandServices;
+    readonly services?: CommandServices;
 }
-
-export type {
-    HostAuth,
-    HostAuthSession,
-    HostCommands,
-    HostDisposable,
-    HostEnvironment,
-    HostSecrets,
-    HostStorage,
-    HostUi,
-} from './host-environment';

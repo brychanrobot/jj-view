@@ -20,9 +20,9 @@ export async function openMergeEditorCommand(ctx: CommandContext, payload?: Open
     try {
         const r = resourceStates[0];
         if (r?.resourceUri) {
-            await ctx.nav.openMergeEditor(r.resourceUri);
+            await ctx.host.nav.openMergeEditor(r.resourceUri);
         }
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error opening merge editor');
+        await ctx.host.ui.showError(e, 'Error opening merge editor');
     }
 }

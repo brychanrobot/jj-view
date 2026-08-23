@@ -23,7 +23,7 @@ export async function openFileCommand(ctx: CommandContext, payload?: OpenFilePay
         return;
     }
     const uri = toFileUri(resourceUri);
-    await ctx.nav.openFile(uri);
+    await ctx.host.nav.openFile(uri);
 }
 
 // Opens the diff view for the given resource state.
@@ -33,5 +33,5 @@ export async function openChangesCommand(ctx: CommandContext, payload?: OpenChan
     if (!resourceState?.leftUri || !resourceState?.rightUri) {
         return;
     }
-    await ctx.nav.openDiff(resourceState.leftUri, resourceState.rightUri, resourceState.diffTitle ?? 'Diff');
+    await ctx.host.nav.openDiff(resourceState.leftUri, resourceState.rightUri, resourceState.diffTitle ?? 'Diff');
 }

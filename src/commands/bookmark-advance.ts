@@ -16,7 +16,7 @@ export async function advanceBookmarkCommand(
     let revision = payload?.revision;
 
     if (!revision) {
-        revision = await ctx.ui.promptForRevision({
+        revision = await ctx.host.ui.promptForRevision({
             placeHolder: 'Select target revision to advance bookmarks to',
             revisionQuery: RevisionQuery.ancestorsIncluding('@'),
         });
@@ -27,13 +27,13 @@ export async function advanceBookmarkCommand(
     }
 
     try {
-        await ctx.ui.withProgress(`Advancing bookmarks to ${revision.substring(0, 8)}...`, () =>
+        await ctx.host.ui.withProgress(`Advancing bookmarks to ${revision.substring(0, 8)}...`, () =>
             ctx.repo.jj.advanceBookmark(revision),
         );
         await ctx.repo.refresh({ reason: 'after bookmark advance' });
         return revision;
     } catch (e: unknown) {
-        await ctx.ui.showError(e, 'Error advancing bookmarks');
+        await ctx.host.ui.showError(e, 'Error advancing bookmarks');
         throw e;
     }
 }

@@ -14,13 +14,13 @@ export interface WorkspaceDeletePayload {
 
 export async function workspaceDeleteCommand(ctx: CommandContext, payload?: WorkspaceDeletePayload): Promise<void> {
     const { jj } = ctx.repo;
-    const workspaceName = payload?.workspaceName || (await resolveWorkspaceName(jj, []));
+    const workspaceName = payload?.workspaceName || (await resolveWorkspaceName(ctx, []));
     if (!workspaceName) {
         return;
     }
 
     const YES = 'Yes, Delete Workspace';
-    const result = await ctx.ui.showWarning(
+    const result = await ctx.host.ui.showWarning(
         `Are you sure you want to forget AND delete the directory for workspace "${workspaceName}"? This action cannot be undone.`,
         { modal: true },
         YES,
@@ -31,7 +31,7 @@ export async function workspaceDeleteCommand(ctx: CommandContext, payload?: Work
     }
 
     try {
-        await ctx.ui.withProgress(`Deleting workspace "${workspaceName}"...`, async () => {
+        await ctx.host.ui.withProgress(`Deleting workspace "${workspaceName}"...`, async () => {
             let dirPath: string | undefined;
             try {
                 dirPath = await jj.getWorkspaceRoot(workspaceName);
@@ -48,7 +48,7 @@ export async function workspaceDeleteCommand(ctx: CommandContext, payload?: Work
         await ctx.repo.refresh();
     } catch (e) {
         const message = getErrorMessage(e);
-        await ctx.ui.showError(new Error(`Failed to delete workspace: ${message}`), 'Workspace Delete Error');
+        await ctx.host.ui.showError(new Error(`Failed to delete workspace: ${message}`), 'Workspace Delete Error');
     }
 }
 

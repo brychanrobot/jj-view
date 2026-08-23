@@ -4,10 +4,7 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { CommentsManager } from '../comments-manager';
 import type {
-    CommandContext,
-    CommandServices,
     HostAuth,
     HostAuthSession,
     HostCommands,
@@ -45,7 +42,7 @@ export class VsCodeHostUi implements HostUi {
 
     async showQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
-        options?: { placeHolder?: string },
+        options?: { placeHolder?: string; title?: string },
     ): Promise<T | undefined> {
         return await vscode.window.showQuickPick(items, options);
     }
@@ -403,18 +400,5 @@ export class VsCodeHostEnvironment implements HostEnvironment {
         this.auth = new VsCodeHostAuth();
         this.commands = new VsCodeHostCommands();
         this.views = new VsCodeHostViews();
-    }
-}
-
-export class VSCodeCommandContext implements CommandContext {
-    readonly services?: CommandServices;
-
-    constructor(
-        readonly repo: JjRepository,
-        readonly host: HostEnvironment,
-        readonly log: JjLoggerChannel,
-        readonly comments?: CommentsManager,
-    ) {
-        this.services = { commentsManager: comments };
     }
 }

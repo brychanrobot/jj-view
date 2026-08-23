@@ -20,13 +20,13 @@ export async function viewFileAtRevisionCommand(
         const fileUri = payload?.fileUri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            await ctx.ui.showError(new Error('No workspace file selected.'), 'View File Error');
+            await ctx.host.ui.showError(new Error('No workspace file selected.'), 'View File Error');
             return;
         }
 
         let revision = payload?.revision;
         if (!revision) {
-            revision = await ctx.ui.promptForRevision({
+            revision = await ctx.host.ui.promptForRevision({
                 placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
                 revisionQuery: RevisionQuery.visible(),
             });
@@ -39,8 +39,8 @@ export async function viewFileAtRevisionCommand(
         const { jj } = ctx.repo;
         const revisionUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
 
-        await ctx.nav.openFile(revisionUri);
+        await ctx.host.nav.openFile(revisionUri);
     } catch (err: unknown) {
-        await ctx.ui.showError(err, 'Failed to view file at revision');
+        await ctx.host.ui.showError(err, 'Failed to view file at revision');
     }
 }

@@ -25,7 +25,7 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
         }
 
         // 3. Prompt for workspace name
-        const workspaceName = await ctx.ui.showInputBox({
+        const workspaceName = await ctx.host.ui.showInputBox({
             prompt: 'Enter a name for the new workspace',
             placeHolder: 'e.g. my-feature',
             validateInput: (value) => {
@@ -46,7 +46,7 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
         const destination = path.join(workspacesLocation, workspaceName);
 
         // 4. Run jj workspace add
-        await ctx.ui.withProgress(`Creating workspace "${workspaceName}"...`, async () => {
+        await ctx.host.ui.withProgress(`Creating workspace "${workspaceName}"...`, async () => {
             // Ensure the parent directory (workspacesLocation) exists
             await fs.promises.mkdir(workspacesLocation, { recursive: true });
             await jj.workspaceAdd(destination, workspaceName);
@@ -56,14 +56,14 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
 
         // 5. Success notification with "Open" action
         const OPEN = 'Open Workspace';
-        const result = await ctx.ui.showInformation(`Workspace "${workspaceName}" created successfully.`, OPEN);
+        const result = await ctx.host.ui.showInformation(`Workspace "${workspaceName}" created successfully.`, OPEN);
 
         if (result === OPEN) {
             const uri = Uri.file(destination);
-            await ctx.nav.openFolder(uri, true);
+            await ctx.host.nav.openFolder(uri, true);
         }
     } catch (e) {
         const message = getErrorMessage(e);
-        await ctx.ui.showError(new Error(`Failed to create workspace: ${message}`), 'Workspace Add Error');
+        await ctx.host.ui.showError(new Error(`Failed to create workspace: ${message}`), 'Workspace Add Error');
     }
 }
