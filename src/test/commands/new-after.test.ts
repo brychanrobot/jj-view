@@ -6,9 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { newAfterCommand } from '../../commands/new-after';
 import type { JjRepository } from '../../jj-repository';
-import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createNewAfterPayload } from '../../vscode/payloads/new-after.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -42,12 +40,7 @@ describe('newAfterCommand', () => {
             { label: 'target', parents: ['root'], description: 'target', isCurrentWorkingCopy: true },
         ]);
 
-        const mockScm = createMock<JjScmProvider>({
-            getSelectedCommitIds: () => [],
-        });
-
-        const payload = createNewAfterPayload([{ commitId: ids.target.commitId }], mockScm);
-        await newAfterCommand(ctx, payload);
+        await newAfterCommand(ctx, { revisions: [ids.target.commitId] });
 
         expect(mockJjRepo.refresh).toHaveBeenCalled();
     });

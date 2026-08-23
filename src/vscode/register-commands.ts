@@ -205,12 +205,8 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
         registerCommandWithPayload('jj-view.newMergeChange', createNewMergeChangePayload, newMergeChangeCommand),
         registerCommandWithPayload('jj-view.commit', createCommitPayload, commitCommand),
-        registerCommand('jj-view.commitPrompt', (ctx) =>
-            commitPromptCommand(ctx, scmProviders.get(ctx.repo.rootUri.fsPath)),
-        ),
-        registerCommand('jj-view.describePrompt', (ctx) =>
-            describePromptCommand(ctx, scmProviders.get(ctx.repo.rootUri.fsPath)),
-        ),
+        registerCommand('jj-view.commitPrompt', commitPromptCommand),
+        registerCommand('jj-view.describePrompt', describePromptCommand),
     );
 
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view

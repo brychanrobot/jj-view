@@ -4,21 +4,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
 import { setDescriptionCommand } from '../../commands/describe';
 import type { JjRepository } from '../../jj-repository';
-import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createSetDescriptionPayload } from '../../vscode/payloads/describe.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMock } from '../test-utils';
 
 describe('setDescriptionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let scmProvider: JjScmProvider;
     let ctx: FakeCommandContext;
 
     beforeEach(() => {
@@ -29,13 +25,6 @@ describe('setDescriptionCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        scmProvider = createMock<JjScmProvider>({
-            refresh: vi.fn(),
-            sourceControl: createMock<vscode.SourceControl>({
-                inputBox: createMock<vscode.SourceControlInputBox>({ value: '' }),
-            }),
-            outputChannel: createMockLogOutputChannel({ appendLine: vi.fn() }),
-        });
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
@@ -43,29 +32,15 @@ describe('setDescriptionCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runSetDescription = async (args: unknown[]) => {
-        const payload = createSetDescriptionPayload(args, scmProvider);
-        return await setDescriptionCommand(ctx, payload);
-    };
-
-    test('updates description from string argument', async () => {
-        const result = await runSetDescription(['new description']);
+    test('updates description from description payload', async () => {
+        const result = await setDescriptionCommand(ctx, { description: 'new description' });
         expect(result).toBe('new description');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('new description');
     });
 
-    test('updates description from input box when message is omitted', async () => {
-        scmProvider.sourceControl.inputBox.value = 'from input box';
-        const result = await runSetDescription([]);
-        expect(result).toBe('from input box');
-        const description = repo.getDescription('@');
-        expect(description.trim()).toBe('from input box');
-    });
-
-    test('allows empty descriptions when invoked from input box', async () => {
-        scmProvider.sourceControl.inputBox.value = '   ';
-        const result = await runSetDescription([]);
+    test('updates description with empty string when empty message is provided', async () => {
+        const result = await setDescriptionCommand(ctx, { description: '   ' });
         expect(result).toBe('');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('');
@@ -73,7 +48,7 @@ describe('setDescriptionCommand', () => {
 
     test('updates description for specific revision', async () => {
         repo.new([], 'child');
-        const result = await runSetDescription(['updated parent', '@-']);
+        const result = await setDescriptionCommand(ctx, { description: 'updated parent', revision: '@-' });
         expect(result).toBe('updated parent');
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('updated parent');
@@ -83,9 +58,8 @@ describe('setDescriptionCommand', () => {
         repo.new([], 'child');
         jj.describe('parent description', '@-');
         jj.describe('working copy description', '@');
-        scmProvider.sourceControl.inputBox.value = 'fallback description';
 
-        const result = await runSetDescription(['   ', '@-']);
+        const result = await setDescriptionCommand(ctx, { description: '   ', revision: '@-' });
         expect(result).toBe('');
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('');
@@ -94,7 +68,7 @@ describe('setDescriptionCommand', () => {
     });
 
     test('returns false on jj describe failure', async () => {
-        const result = await runSetDescription(['description', 'invalid_rev']);
+        const result = await setDescriptionCommand(ctx, { description: 'description', revision: 'invalid_rev' });
         expect(result).toBe(false);
     });
 
@@ -113,7 +87,7 @@ describe('setDescriptionCommand', () => {
         const longMsg = 'Title\n\nThis is a very long line in the body that will be wrapped by the formatter.';
         await setDescriptionCommand(ctx, { description: longMsg, revision: '@' });
 
-        expect(ctx.host.ui.getCommitInput()).toBe(
+        expect(ctx.host.ui.getScmDescriptionInputValue()).toBe(
             'Title\n\nThis is a very long\nline in the body\nthat will be wrapped\nby the formatter.',
         );
     });

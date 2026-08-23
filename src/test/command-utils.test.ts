@@ -350,8 +350,8 @@ describe('maybeFormatDescriptionOnSave', () => {
         expect(result).toBe(raw);
     });
 
-    it('formats description and updates ctx.host.ui.setCommitInput when revision is @', async () => {
-        const setCommitInput = vi.fn();
+    it('formats description and updates ctx.host.ui.setScmDescriptionInputValue when revision is @', async () => {
+        const setScmDescriptionInputValue = vi.fn();
         const ctx = {
             repo: jjRepo,
             host: {
@@ -367,7 +367,7 @@ describe('maybeFormatDescriptionOnSave', () => {
                     }),
                 },
                 ui: {
-                    setCommitInput,
+                    setScmDescriptionInputValue,
                 },
             },
         };
@@ -376,11 +376,11 @@ describe('maybeFormatDescriptionOnSave', () => {
         const result = await maybeFormatDescriptionOnSave(raw, ctx, '@');
 
         expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
-        expect(setCommitInput).toHaveBeenCalledWith(result);
+        expect(setScmDescriptionInputValue).toHaveBeenCalledWith(result);
     });
 
-    it('formats description but does not call setCommitInput when revision is not @', async () => {
-        const setCommitInput = vi.fn();
+    it('formats description but does not call setScmDescriptionInputValue when revision is not @', async () => {
+        const setScmDescriptionInputValue = vi.fn();
         const ctx = {
             repo: jjRepo,
             host: {
@@ -396,7 +396,7 @@ describe('maybeFormatDescriptionOnSave', () => {
                     }),
                 },
                 ui: {
-                    setCommitInput,
+                    setScmDescriptionInputValue,
                 },
             },
         };
@@ -405,6 +405,6 @@ describe('maybeFormatDescriptionOnSave', () => {
         const result = await maybeFormatDescriptionOnSave(raw, ctx, '@-');
 
         expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
-        expect(setCommitInput).not.toHaveBeenCalled();
+        expect(setScmDescriptionInputValue).not.toHaveBeenCalled();
     });
 });

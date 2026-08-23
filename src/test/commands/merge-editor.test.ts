@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { openMergeEditorCommand } from '../../commands/merge-editor';
 import type { JjRepository } from '../../jj-repository';
+import type { JjResourceState } from '../../scm-resource-state';
 import { Uri } from '../../uri-utils';
-import { createOpenMergeEditorPayload } from '../../vscode/payloads/merge-editor.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { createMock } from '../test-utils';
 
@@ -27,33 +27,30 @@ describe('openMergeEditorCommand', () => {
         vi.clearAllMocks();
     });
 
-    test('does nothing if no resources provided', async () => {
-        const payload = createOpenMergeEditorPayload([undefined]);
-        await openMergeEditorCommand(ctx, payload);
+    test('does nothing if no resource states provided', async () => {
+        await openMergeEditorCommand(ctx, { resourceStates: [] });
 
         expect(ctx.host.nav.openMergeEditor).not.toHaveBeenCalled();
     });
 
-    test('calls openMergeEditor with resource states', async () => {
+    test('calls openMergeEditor with resource uri', async () => {
         const resourceUri = Uri.file('/test/foo.txt');
-        const resource = { resourceUri };
-        const payload = createOpenMergeEditorPayload([resource]);
-        await openMergeEditorCommand(ctx, payload);
+        const resourceState = createMock<JjResourceState>({ resourceUri });
+        await openMergeEditorCommand(ctx, { resourceStates: [resourceState] });
 
         expect(ctx.host.nav.openMergeEditor).toHaveBeenCalledWith(resourceUri);
     });
 
     test('handles error', async () => {
         const resourceUri = Uri.file('/test/foo.txt');
-        const resource = { resourceUri };
+        const resourceState = createMock<JjResourceState>({ resourceUri });
         const openMergeEditor = ctx.host.nav.openMergeEditor;
         if (!openMergeEditor) {
             throw new Error('openMergeEditor not defined');
         }
         vi.mocked(openMergeEditor).mockRejectedValue(new Error('boom'));
 
-        const payload = createOpenMergeEditorPayload([resource]);
-        await openMergeEditorCommand(ctx, payload);
+        await openMergeEditorCommand(ctx, { resourceStates: [resourceState] });
 
         expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error opening merge editor');
     });

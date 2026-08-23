@@ -9,8 +9,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { restoreCommand } from '../../commands/restore';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { Uri } from '../../uri-utils';
-import { createRestorePayload } from '../../vscode/payloads/restore.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -36,11 +34,6 @@ describe('restoreCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runRestore = async (args: unknown[]) => {
-        const payload = createRestorePayload(args);
-        await restoreCommand(ctx, payload);
-    };
-
     test('restores file content', async () => {
         const fileName = 'restore.txt';
         await buildGraph(repo, [
@@ -54,10 +47,7 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const fileUri = Uri.file(path.join(repo.path, fileName));
-        const args = [{ resourceUri: fileUri }];
-
-        await runRestore(args);
+        await restoreCommand(ctx, { pathsByRevision: { '@': [fileName] } });
 
         const content = fs.readFileSync(path.join(repo.path, fileName), 'utf-8');
         expect(content).toBe('original');
@@ -81,10 +71,7 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const fileUri = Uri.file(path.join(repo.path, fileName));
-        const args = [{ resourceUri: fileUri, revision: ids.ancestor.changeId }];
-
-        await runRestore(args);
+        await restoreCommand(ctx, { pathsByRevision: { [ids.ancestor.changeId]: [fileName] } });
 
         const ancestorContent = repo.getFileContent(ids.ancestor.changeId, fileName);
         expect(ancestorContent).toBe('original');
@@ -110,14 +97,12 @@ describe('restoreCommand', () => {
             },
         ]);
 
-        const file1Uri = Uri.file(path.join(repo.path, file1));
-        const file2Uri = Uri.file(path.join(repo.path, file2));
-        const args = [
-            { resourceUri: file1Uri, revision: ids.ancestor.changeId },
-            { resourceUri: file2Uri, revision: ids.child.changeId },
-        ];
-
-        await runRestore(args);
+        await restoreCommand(ctx, {
+            pathsByRevision: {
+                [ids.ancestor.changeId]: [file1],
+                [ids.child.changeId]: [file2],
+            },
+        });
 
         const ancestorContent = repo.getFileContent(ids.ancestor.changeId, file1);
         expect(ancestorContent).toBe('original 1');

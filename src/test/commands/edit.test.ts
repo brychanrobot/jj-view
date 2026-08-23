@@ -4,12 +4,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
 import { editCommand } from '../../commands/edit';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjResourceState } from '../../scm-resource-state';
-import { createEditPayload } from '../../vscode/payloads/edit.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -35,39 +32,36 @@ describe('editCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runEdit = async (args: unknown[]) => {
-        const payload = createEditPayload(args);
-        await editCommand(ctx, payload);
-    };
-
     test('edits specified commit', async () => {
         const ids = await buildGraph(repo, [
             { label: 'parent', description: 'parent' },
             { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
-        await runEdit([ids.parent.changeId]);
+        await editCommand(ctx, { revision: ids.parent.changeId });
 
         const currentChangeId = repo.getChangeId('@');
         expect(currentChangeId).toBe(ids.parent.changeId);
+        expect(mockJjRepo.refresh).toHaveBeenCalled();
     });
 
-    test('edits from parent resource group header', async () => {
+    test('does nothing if no revision specified', async () => {
         const ids = await buildGraph(repo, [
             { label: 'parent', description: 'parent' },
             { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
         ]);
 
-        const mockState = createMock<JjResourceState>({ revision: ids.parent.changeId });
-        const mockParentGroup = createMock<vscode.SourceControlResourceGroup>({
-            id: 'ancestor-0',
-            label: 'Parent: ...',
-            resourceStates: [mockState],
-        });
-
-        await runEdit([mockParentGroup]);
+        await editCommand(ctx, {});
 
         const currentChangeId = repo.getChangeId('@');
-        expect(currentChangeId).toBe(ids.parent.changeId);
+        expect(currentChangeId).toBe(ids.child.changeId);
+    });
+
+    test('handles errors during edit and displays error', async () => {
+        vi.spyOn(jj, 'edit').mockRejectedValue(new Error('Edit failed'));
+
+        await editCommand(ctx, { revision: 'some-rev' });
+
+        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error editing commit');
     });
 });

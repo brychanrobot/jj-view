@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
-import { openCommitDetails } from '../jj-commit-details-editor-provider';
 
 export interface ShowDetailsPayload {
     revision?: string;
@@ -12,7 +11,7 @@ export interface ShowDetailsPayload {
 export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDetailsPayload): Promise<void> {
     const {
         repo,
-        host: { ui },
+        host: { ui, nav },
     } = ctx;
     const { jj } = repo;
     const revision = payload?.revision || '@';
@@ -22,7 +21,7 @@ export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDeta
         if (!logEntry) {
             throw new Error(`No log entry found for revision: ${revision}`);
         }
-        await openCommitDetails(
+        await nav.openCommitDetails(
             jj.workspaceRoot,
             logEntry.change_id,
             logEntry.change_id_shortest,

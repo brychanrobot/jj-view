@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { advanceBookmarkCommand } from '../../commands/bookmark-advance';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createAdvanceBookmarkPayload } from '../../vscode/payloads/bookmark-advance.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -33,17 +32,12 @@ describe('advanceBookmarkCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runAdvanceBookmark = async (args: unknown[]) => {
-        const payload = createAdvanceBookmarkPayload(args);
-        return await advanceBookmarkCommand(ctx, payload);
-    };
-
     test('advances bookmark with revision argument directly', async () => {
         repo.bookmark('test-bookmark', '@');
         await jj.new({ message: 'child' });
         const [child] = await jj.getLog({ revision: '@' });
 
-        await runAdvanceBookmark([child.change_id]);
+        await advanceBookmarkCommand(ctx, { revision: child.change_id });
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(
@@ -58,7 +52,7 @@ describe('advanceBookmarkCommand', () => {
 
         ctx.host.ui.setNextRevisionPromptResponse(child.commit_id);
 
-        await runAdvanceBookmark([]);
+        await advanceBookmarkCommand(ctx, {});
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(

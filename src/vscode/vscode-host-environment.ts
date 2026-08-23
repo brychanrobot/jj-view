@@ -18,6 +18,7 @@ import type {
     HostUi,
     HostViews,
 } from '../common/host-environment';
+import { openCommitDetails } from '../jj-commit-details-editor-provider';
 import type { JjRepository } from '../jj-repository';
 import { getFsPathFromUri, toFileUri, type Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
@@ -131,13 +132,13 @@ export class VsCodeHostUi implements HostUi {
         }
     }
 
-    setCommitInput(value: string): void {
+    setScmDescriptionInputValue(value: string): void {
         if (this.sourceControl) {
             this.sourceControl.inputBox.value = value;
         }
     }
 
-    getCommitInput(): string | undefined {
+    getScmDescriptionInputValue(): string | undefined {
         return this.sourceControl?.inputBox.value;
     }
 }
@@ -193,6 +194,16 @@ export class VsCodeHostNavigation implements HostNavigation {
             output: outputUri,
         };
         await vscode.commands.executeCommand('_open.mergeEditor', args);
+    }
+
+    async openCommitDetails(
+        repoRoot: string,
+        changeId: string,
+        shortestChangeId?: string,
+        isDivergent?: boolean,
+        changeIdOffset?: number,
+    ): Promise<void> {
+        await openCommitDetails(repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset);
     }
 
     async openFile(uri: Uri): Promise<void> {

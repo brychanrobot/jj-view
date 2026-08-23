@@ -5,20 +5,21 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { absorbCommand } from '../../commands/absorb';
-import type { CommentsManager } from '../../comments-manager';
-import type { JjScmProvider } from '../../jj-scm-provider';
-import { createAbsorbPayload } from '../../vscode/payloads/absorb.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
-import { buildGraph, TestRepo } from '../test-repo';
-import { createMock } from '../test-utils';
+import { absorbCommand } from '../commands/absorb';
+import type { CommentsManager } from '../comments-manager';
+import type { JjScmProvider } from '../jj-scm-provider';
+import { createAbsorbPayload } from '../vscode/payloads/absorb.payload';
+import { VSCodeCommandContext } from '../vscode/vscode-command-context';
+import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
+import { buildGraph, TestRepo } from './test-repo';
+import { createMock } from './test-utils';
 
 suite('Absorb Integration Test', function () {
     this.timeout(60000);
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
     let outputChannel: vscode.LogOutputChannel;
-    let contextHelper: import('../integration-test-utils').TestRepositoryContext;
+    let contextHelper: TestRepositoryContext;
     let cmdCtx: VSCodeCommandContext;
 
     setup(async () => {
@@ -26,7 +27,6 @@ suite('Absorb Integration Test', function () {
         await repo.init();
 
         outputChannel = vscode.window.createOutputChannel('JJ Test', { log: true });
-        const { createTestRepositoryContext } = await import('../integration-test-utils');
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         scmProvider = contextHelper.scmProvider;
         cmdCtx = new VSCodeCommandContext(scmProvider.repo, scmProvider.outputChannel, createMock<CommentsManager>({}));

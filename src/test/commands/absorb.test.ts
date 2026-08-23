@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absorbCommand } from '../../commands/absorb';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createAbsorbPayload } from '../../vscode/payloads/absorb.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -35,11 +34,6 @@ describe('absorbCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runAbsorb = async (args: unknown[]) => {
-        const payload = createAbsorbPayload(args);
-        await absorbCommand(ctx, payload);
-    };
-
     it('should absorb working copy changes', async () => {
         const fileName = 'file.txt';
         await buildGraph(repo, [
@@ -53,7 +47,7 @@ describe('absorbCommand', () => {
             },
         ]);
 
-        await runAbsorb([]);
+        await absorbCommand(ctx, {});
 
         expect(mockJjRepo.refresh).toHaveBeenCalledTimes(1);
         expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after absorb' });
@@ -82,9 +76,7 @@ describe('absorbCommand', () => {
         ]);
 
         const commitBId = ids.B.commitId;
-        const arg = { commitId: commitBId };
-
-        await runAbsorb([arg]);
+        await absorbCommand(ctx, { fromRevision: commitBId });
 
         expect(mockJjRepo.refresh).toHaveBeenCalledTimes(1);
         expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after absorb' });
