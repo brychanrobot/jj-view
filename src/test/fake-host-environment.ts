@@ -37,7 +37,7 @@ export class FakeHostUi implements HostUi {
     public errorMessages: { error: unknown; prefix: string }[] = [];
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
-    public commitInput: string | undefined = undefined;
+    public scmDescriptionInputValue: string | undefined = undefined;
 
     get warningResponse(): string | undefined {
         return this.warningResponses[0];
@@ -141,12 +141,12 @@ export class FakeHostUi implements HostUi {
         this.statusBarMessages.push({ message, timeoutMs });
     }
 
-    setCommitInput(value: string): void {
-        this.commitInput = value;
+    setScmDescriptionInputValue(value: string): void {
+        this.scmDescriptionInputValue = value;
     }
 
-    getCommitInput(): string | undefined {
-        return this.commitInput;
+    getScmDescriptionInputValue(): string | undefined {
+        return this.scmDescriptionInputValue;
     }
 }
 
@@ -154,6 +154,13 @@ export class FakeHostNavigation implements HostNavigation {
     public diffsOpened: { leftUri: Uri; rightUri: Uri; title: string }[] = [];
     public multiDiffsOpened: { title: string; resources: { leftUri: Uri; rightUri: Uri; label: string }[] }[] = [];
     public mergeEditorsOpened: Uri[] = [];
+    public commitDetailsOpened: {
+        repoRoot: string;
+        changeId: string;
+        shortestChangeId?: string;
+        isDivergent?: boolean;
+        changeIdOffset?: number;
+    }[] = [];
     public filesOpened: Uri[] = [];
     public foldersOpened: { folderUri: Uri; forceNewWindow?: boolean }[] = [];
     public externalUrlsOpened: string[] = [];
@@ -172,6 +179,16 @@ export class FakeHostNavigation implements HostNavigation {
 
     async openMergeEditor(resourceUri: Uri): Promise<void> {
         this.mergeEditorsOpened.push(resourceUri);
+    }
+
+    async openCommitDetails(
+        repoRoot: string,
+        changeId: string,
+        shortestChangeId?: string,
+        isDivergent?: boolean,
+        changeIdOffset?: number,
+    ): Promise<void> {
+        this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset });
     }
 
     async openFile(uri: Uri): Promise<void> {

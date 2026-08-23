@@ -15,10 +15,6 @@ import {
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import {
-    createSquashRevisionIntoAncestorPayload,
-    createSquashRevisionIntoParentPayload,
-} from '../../vscode/payloads/squash-revision.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -47,16 +43,6 @@ describe('squashRevisionIntoParentCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runSquashIntoParent = async (args: unknown[]) => {
-        const payload = createSquashRevisionIntoParentPayload(args);
-        await squashRevisionIntoParentCommand(ctx, payload);
-    };
-
-    const runSquashIntoAncestor = async (args: unknown[]) => {
-        const payload = createSquashRevisionIntoAncestorPayload(args);
-        await squashRevisionIntoAncestorCommand(ctx, payload);
-    };
-
     test('squashes all changes to parent (implicit)', async () => {
         const fileName = 'file.txt';
 
@@ -80,7 +66,7 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
 
         const parentContent = repo.getFileContent('@-', fileName);
         expect(parentContent).toBe('child content');
@@ -111,7 +97,7 @@ describe('squashRevisionIntoParentCommand', () => {
             value: p1CommitId,
         });
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
 
         const p1Content = repo.getFileContent(p1ChangeId, fileName);
         expect(p1Content).toBe('child modified');
@@ -130,7 +116,7 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
 
         expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
 
@@ -164,7 +150,7 @@ describe('squashRevisionIntoParentCommand', () => {
             value: p2CommitId,
         });
 
-        await runSquashIntoParent([childChangeId]);
+        await squashRevisionIntoParentCommand(ctx, { revision: childChangeId });
 
         expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
 
@@ -187,7 +173,7 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
 
         expect(ctx.host.nav.filesOpened).toHaveLength(0);
 
@@ -208,7 +194,7 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
 
         expect(ctx.host.nav.filesOpened).toHaveLength(0);
 
@@ -235,7 +221,7 @@ describe('squashRevisionIntoParentCommand', () => {
             value: ids.p1.commitId,
         });
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
         expect(ctx.host.nav.filesOpened).toHaveLength(0);
         expect(repo.getDescription(ids.p1.changeId)).toBe('Child Description');
     });
@@ -259,7 +245,7 @@ describe('squashRevisionIntoParentCommand', () => {
             value: ids.p2.commitId,
         });
 
-        await runSquashIntoParent([]);
+        await squashRevisionIntoParentCommand(ctx, {});
         expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
     });
 
@@ -270,7 +256,7 @@ describe('squashRevisionIntoParentCommand', () => {
             { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
         ]);
 
-        await runSquashIntoParent([ids.child.changeId]);
+        await squashRevisionIntoParentCommand(ctx, { revision: ids.child.changeId });
 
         expect(ctx.host.nav.filesOpened).toHaveLength(0);
         expect(repo.getDescription(ids.p.changeId)).toBe('');
@@ -286,7 +272,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         ctx.host.ui.setNextRevisionPromptResponse(ids.base.changeId);
 
-        await runSquashIntoAncestor([ids.child.changeId]);
+        await squashRevisionIntoAncestorCommand(ctx, { revision: ids.child.changeId });
 
         expect(repo.getFileContent(ids.base.changeId, 'child.txt')).toBe('child');
     });
@@ -363,31 +349,5 @@ describe('squashRevisionIntoParentCommand', () => {
         expect(fs.existsSync(msgPath)).toBe(false);
 
         expect(ctx.host.ui.warningMessages).toContain('Squash message is empty. Aborting.');
-    });
-
-    describe('squash revision payload creators target revision extraction', () => {
-        test('createSquashRevisionIntoParentPayload extracts targetParent from object arg', () => {
-            const payload = createSquashRevisionIntoParentPayload([{ revision: 'rev1', targetParent: 'parent1' }]);
-            expect(payload.revision).toBe('rev1');
-            expect(payload.targetParent).toBe('parent1');
-        });
-
-        test('createSquashRevisionIntoParentPayload extracts targetParent from multiple revision args', () => {
-            const payload = createSquashRevisionIntoParentPayload(['rev1', 'parent1']);
-            expect(payload.revision).toBe('rev1');
-            expect(payload.targetParent).toBe('parent1');
-        });
-
-        test('createSquashRevisionIntoAncestorPayload extracts ancestorRevision from object arg', () => {
-            const payload = createSquashRevisionIntoAncestorPayload([{ revision: 'rev1', ancestorRevision: 'anc1' }]);
-            expect(payload.revision).toBe('rev1');
-            expect(payload.ancestorRevision).toBe('anc1');
-        });
-
-        test('createSquashRevisionIntoAncestorPayload extracts ancestorRevision from multiple revision args', () => {
-            const payload = createSquashRevisionIntoAncestorPayload(['rev1', 'anc1']);
-            expect(payload.revision).toBe('rev1');
-            expect(payload.ancestorRevision).toBe('anc1');
-        });
     });
 });

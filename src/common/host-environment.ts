@@ -41,8 +41,8 @@ export interface HostUi {
     }): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
-    setCommitInput?(value: string): void;
-    getCommitInput?(): string | undefined;
+    setScmDescriptionInputValue?(value: string): void;
+    getScmDescriptionInputValue?(): string | undefined;
 }
 
 export interface HostConfig {
@@ -55,6 +55,13 @@ export interface HostNavigation {
     openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void>;
     openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void>;
     openMergeEditor(resourceUri: Uri): Promise<void>;
+    openCommitDetails(
+        repoRoot: string,
+        changeId: string,
+        shortestChangeId?: string,
+        isDivergent?: boolean,
+        changeIdOffset?: number,
+    ): Promise<void>;
     openFile(uri: Uri): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
     openExternal(url: string): Promise<void>;

@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { maybeFormatDescriptionOnSave } from './command-utils';
 
-export async function commitPromptCommand(ctx: CommandContext, scmProvider?: JjScmProvider): Promise<void> {
+export async function commitPromptCommand(ctx: CommandContext): Promise<void> {
     const { jj } = ctx.repo;
-    const inputBoxValue = scmProvider?.sourceControl.inputBox.value;
+    const inputBoxValue = ctx.host.ui.getScmDescriptionInputValue?.();
     const defaultValue = inputBoxValue || (await jj.getDescription('@'));
 
     const input = await ctx.host.ui.showInputBox({
@@ -24,11 +23,7 @@ export async function commitPromptCommand(ctx: CommandContext, scmProvider?: JjS
     try {
         const message = await maybeFormatDescriptionOnSave(input, ctx);
         await ctx.host.ui.withProgress('Committing...', () => jj.commit(message));
-        if (scmProvider) {
-            await scmProvider.refresh({ reason: 'after commit' });
-        } else {
-            await ctx.repo.refresh();
-        }
+        await ctx.repo.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
         await ctx.host.ui.showError(err, 'Error committing change');
     }

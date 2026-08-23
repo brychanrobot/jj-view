@@ -8,7 +8,6 @@ import type { CodeForgeService } from '../../code-forge-service';
 import { advanceBookmarkAndUploadCommand } from '../../commands/bookmark-advance-upload';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createAdvanceBookmarkAndUploadPayload } from '../../vscode/payloads/bookmark-advance-upload.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -60,8 +59,7 @@ describe('advanceBookmarkAndUploadCommand', () => {
         await jj.new({ message: 'child' });
         const [child] = await jj.getLog({ revision: '@' });
 
-        const payload = createAdvanceBookmarkAndUploadPayload([child.change_id]);
-        await advanceBookmarkAndUploadCommand(ctx, payload);
+        await advanceBookmarkAndUploadCommand(ctx, { revision: child.change_id });
 
         const [childLog] = await jj.getLog({ revision: '@' });
         expect(childLog.bookmarks).toEqual(

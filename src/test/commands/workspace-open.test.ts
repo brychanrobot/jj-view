@@ -8,10 +8,6 @@ import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } 
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import {
-    createWorkspaceOpenInCurrentWindowPayload,
-    createWorkspaceOpenInNewWindowPayload,
-} from '../../vscode/payloads/workspace-open.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -37,8 +33,7 @@ describe('workspace open commands', () => {
     test('opens the workspace from a context-menu argument in the current window', async () => {
         const workspace = repo.workspaceAdd('feature');
 
-        const payload = createWorkspaceOpenInCurrentWindowPayload([{ workspaceName: 'feature' }]);
-        await workspaceOpenInCurrentWindowCommand(ctx, payload);
+        await workspaceOpenInCurrentWindowCommand(ctx, { workspaceName: 'feature' });
 
         expect(ctx.host.nav.foldersOpened).toEqual([
             {
@@ -51,8 +46,7 @@ describe('workspace open commands', () => {
     test('opens the selected workspace in a new window', async () => {
         const workspace = repo.workspaceAdd('feature');
 
-        const payload = createWorkspaceOpenInNewWindowPayload([{ workspaceName: 'feature' }]);
-        await workspaceOpenInNewWindowCommand(ctx, payload);
+        await workspaceOpenInNewWindowCommand(ctx, { workspaceName: 'feature' });
 
         expect(ctx.host.nav.foldersOpened).toEqual([
             {
@@ -69,8 +63,7 @@ describe('workspace open commands', () => {
             description: workspace.path,
         });
 
-        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
-        await workspaceOpenInCurrentWindowCommand(ctx, payload);
+        await workspaceOpenInCurrentWindowCommand(ctx, {});
 
         expect(ctx.host.nav.foldersOpened).toEqual([
             {
@@ -84,16 +77,14 @@ describe('workspace open commands', () => {
         repo.workspaceAdd('feature');
         ctx.host.ui.setNextQuickPickResponse(undefined);
 
-        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
-        await workspaceOpenInCurrentWindowCommand(ctx, payload);
+        await workspaceOpenInCurrentWindowCommand(ctx, {});
 
         expect(ctx.host.nav.foldersOpened).toHaveLength(0);
         expect(ctx.host.ui.errorMessages).toHaveLength(0);
     });
 
     test('reports an error when the workspace root cannot be resolved', async () => {
-        const payload = createWorkspaceOpenInCurrentWindowPayload([{ workspaceName: 'missing' }]);
-        await workspaceOpenInCurrentWindowCommand(ctx, payload);
+        await workspaceOpenInCurrentWindowCommand(ctx, { workspaceName: 'missing' });
 
         expect(ctx.host.ui.errorMessages[0].prefix).toContain('Failed to open workspace "missing"');
         expect(ctx.host.nav.foldersOpened).toHaveLength(0);
@@ -102,8 +93,7 @@ describe('workspace open commands', () => {
     test('reports an error when workspace names cannot be resolved', async () => {
         repo.dispose();
 
-        const payload = createWorkspaceOpenInCurrentWindowPayload([]);
-        await workspaceOpenInCurrentWindowCommand(ctx, payload);
+        await workspaceOpenInCurrentWindowCommand(ctx, {});
 
         expect(ctx.host.ui.errorMessages[0].prefix).toContain('Failed to resolve workspace');
         expect(ctx.host.nav.foldersOpened).toHaveLength(0);

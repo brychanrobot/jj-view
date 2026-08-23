@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
     squashFilesIntoAncestorCommand,
@@ -12,12 +11,6 @@ import {
 } from '../../commands/squash-files';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { Uri } from '../../uri-utils';
-import {
-    createSquashFilesIntoAncestorPayload,
-    createSquashFilesIntoChildPayload,
-    createSquashFilesIntoParentPayload,
-} from '../../vscode/payloads/squash-files.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -45,21 +38,6 @@ describe('squash-files commands', () => {
         vi.clearAllMocks();
     });
 
-    const runSquashFilesIntoParent = async (args: unknown[]) => {
-        const payload = createSquashFilesIntoParentPayload(args);
-        await squashFilesIntoParentCommand(ctx, payload);
-    };
-
-    const runSquashFilesIntoAncestor = async (args: unknown[]) => {
-        const payload = createSquashFilesIntoAncestorPayload(args);
-        await squashFilesIntoAncestorCommand(ctx, payload);
-    };
-
-    const runSquashFilesIntoChild = async (args: unknown[]) => {
-        const payload = createSquashFilesIntoChildPayload(args);
-        await squashFilesIntoChildCommand(ctx, payload);
-    };
-
     describe('squashFilesIntoParentCommand', () => {
         test('squashes specific file to parent', async () => {
             const fileName = 'file.txt';
@@ -83,10 +61,7 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            const fileUri = Uri.file(path.join(repo.path, fileName));
-            const args = [{ resourceUri: fileUri }];
-
-            await runSquashFilesIntoParent(args);
+            await squashFilesIntoParentCommand(ctx, { paths: [fileName] });
 
             const parentContent = repo.getFileContent('@-', fileName);
             expect(parentContent).toBe('child content');
@@ -118,10 +93,7 @@ describe('squash-files commands', () => {
 
             ctx.host.ui.setNextRevisionPromptResponse(ids.grandparent.changeId);
 
-            const fileUri = Uri.file(path.join(repo.path, fileName));
-            const args = [{ resourceUri: fileUri }];
-
-            await runSquashFilesIntoAncestor(args);
+            await squashFilesIntoAncestorCommand(ctx, { paths: [fileName] });
 
             const gpContent = repo.getFileContent(ids.grandparent.changeId, fileName);
             expect(gpContent).toBe('child content');
@@ -147,10 +119,7 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            const fileUri = Uri.file(path.join(repo.path, fileName));
-            const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
-
-            await runSquashFilesIntoChild(args);
+            await squashFilesIntoChildCommand(ctx, { paths: [fileName], revision: ids.parent.changeId });
 
             expect(repo.getFileContent(ids.child.changeId, fileName)).toBe('parent modified');
         });
@@ -169,10 +138,7 @@ describe('squash-files commands', () => {
 
             ctx.host.ui.setNextRevisionPromptResponse(ids.child2.changeId);
 
-            const fileUri = Uri.file(path.join(repo.path, fileName));
-            const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
-
-            await runSquashFilesIntoChild(args);
+            await squashFilesIntoChildCommand(ctx, { paths: [fileName], revision: ids.parent.changeId });
 
             expect(repo.getFileContent(ids.child2.changeId, fileName)).toBe('parent modified');
         });
@@ -181,52 +147,9 @@ describe('squash-files commands', () => {
             const fileName = 'file.txt';
             const ids = await buildGraph(repo, [{ label: 'only', description: 'only', files: { [fileName]: 'mod' } }]);
 
-            const fileUri = Uri.file(path.join(repo.path, fileName));
-            const args = [{ resourceUri: fileUri }, { revision: ids.only.changeId }];
-
-            await runSquashFilesIntoChild(args);
+            await squashFilesIntoChildCommand(ctx, { paths: [fileName], revision: ids.only.changeId });
 
             expect(ctx.host.ui.errorMessages[0].prefix).toBe('Squash Error');
-        });
-    });
-
-    describe('payload creators target revision extraction', () => {
-        test('createSquashFilesIntoAncestorPayload extracts ancestorRevision from object arg', () => {
-            const fileUri = Uri.file(path.join(repo.path, 'file.txt'));
-            const payload = createSquashFilesIntoAncestorPayload([
-                { resourceUri: fileUri },
-                { revision: 'srcRev', ancestorRevision: 'targetAncestor' },
-            ]);
-            expect(payload.revision).toBe('srcRev');
-            expect(payload.ancestorRevision).toBe('targetAncestor');
-        });
-
-        test('createSquashFilesIntoAncestorPayload extracts ancestorRevision from multiple revision args', () => {
-            const fileUri = Uri.file(path.join(repo.path, 'file.txt'));
-            const payload = createSquashFilesIntoAncestorPayload([
-                { resourceUri: fileUri },
-                'srcRev',
-                'targetAncestor',
-            ]);
-            expect(payload.revision).toBe('srcRev');
-            expect(payload.ancestorRevision).toBe('targetAncestor');
-        });
-
-        test('createSquashFilesIntoChildPayload extracts childRevision from object arg', () => {
-            const fileUri = Uri.file(path.join(repo.path, 'file.txt'));
-            const payload = createSquashFilesIntoChildPayload([
-                { resourceUri: fileUri },
-                { revision: 'srcRev', childRevision: 'targetChild' },
-            ]);
-            expect(payload.revision).toBe('srcRev');
-            expect(payload.childRevision).toBe('targetChild');
-        });
-
-        test('createSquashFilesIntoChildPayload extracts childRevision from multiple revision args', () => {
-            const fileUri = Uri.file(path.join(repo.path, 'file.txt'));
-            const payload = createSquashFilesIntoChildPayload([{ resourceUri: fileUri }, 'srcRev', 'targetChild']);
-            expect(payload.revision).toBe('srcRev');
-            expect(payload.childRevision).toBe('targetChild');
         });
     });
 });

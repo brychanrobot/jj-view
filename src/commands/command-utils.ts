@@ -294,8 +294,8 @@ export interface DescriptionFormatContext {
             get<T>(key: string): T | undefined;
         };
         ui?: {
-            setCommitInput?(value: string): void;
-            getCommitInput?(): string | undefined;
+            setScmDescriptionInputValue?(value: string): void;
+            getScmDescriptionInputValue?(): string | undefined;
         };
     };
 }
@@ -313,8 +313,8 @@ export async function maybeFormatDescriptionOnSave(
     const bodyWidthRuler = ctx.host.config.get<number>('commit.bodyWidthRuler') ?? 72;
     description = await formatCommitDescription(description, bodyWidthRuler);
 
-    if (revision === '@' && ctx.host.ui?.setCommitInput) {
-        ctx.host.ui.setCommitInput(description);
+    if (revision === '@' && ctx.host.ui?.setScmDescriptionInputValue) {
+        ctx.host.ui.setScmDescriptionInputValue(description);
     }
     return description;
 }

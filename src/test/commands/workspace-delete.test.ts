@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { workspaceDeleteCommand } from '../../commands/workspace-delete';
 import type { JjRepository } from '../../jj-repository';
@@ -65,29 +66,29 @@ describe('workspace delete command', () => {
     });
 
     test('deletes the workspace when confirmed', async () => {
-        repo.workspaceAdd('feature');
+        const workspace = repo.workspaceAdd('feature');
         const YES = 'Yes, Delete Workspace';
         ctx.host.ui.setNextWarningResponse(YES);
         const refreshSpy = vi.spyOn(mockJjRepo, 'refresh').mockResolvedValue(undefined);
-        const forgetSpy = vi.spyOn(jj, 'workspaceForget');
 
         await workspaceDeleteCommand(ctx, { workspaceName: 'feature' });
 
         expect(ctx.host.ui.warningMessages[0]).toContain('forget AND delete the directory for workspace "feature"');
-        expect(forgetSpy).toHaveBeenCalledWith('feature');
+        expect(repo.listWorkspaces()).not.toContain('feature');
+        expect(fs.existsSync(workspace.path)).toBe(false);
         expect(refreshSpy).toHaveBeenCalled();
     });
 
     test('does not delete the workspace when not confirmed', async () => {
-        repo.workspaceAdd('feature');
+        const workspace = repo.workspaceAdd('feature');
         ctx.host.ui.setNextWarningResponse(undefined);
         const refreshSpy = vi.spyOn(mockJjRepo, 'refresh').mockResolvedValue(undefined);
-        const forgetSpy = vi.spyOn(jj, 'workspaceForget');
 
         await workspaceDeleteCommand(ctx, { workspaceName: 'feature' });
 
         expect(ctx.host.ui.warningMessages[0]).toContain('forget AND delete the directory for workspace "feature"');
-        expect(forgetSpy).not.toHaveBeenCalled();
+        expect(repo.listWorkspaces()).toContain('feature');
+        expect(fs.existsSync(workspace.path)).toBe(true);
         expect(refreshSpy).not.toHaveBeenCalled();
     });
 });

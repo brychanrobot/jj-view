@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { maybeFormatDescriptionOnSave } from './command-utils';
 
-export async function describePromptCommand(ctx: CommandContext, scmProvider?: JjScmProvider): Promise<void> {
+export async function describePromptCommand(ctx: CommandContext): Promise<void> {
     const { jj } = ctx.repo;
-    const inputBoxValue = scmProvider?.sourceControl.inputBox.value;
+    const inputBoxValue = ctx.host.ui.getScmDescriptionInputValue?.();
     const defaultValue = inputBoxValue || (await jj.getDescription('@'));
 
     const input = await ctx.host.ui.showInputBox({
@@ -24,11 +23,7 @@ export async function describePromptCommand(ctx: CommandContext, scmProvider?: J
     try {
         const description = await maybeFormatDescriptionOnSave(input, ctx);
         await ctx.host.ui.withProgress('Setting description...', () => jj.describe(description));
-        if (scmProvider) {
-            await scmProvider.refresh({ reason: 'after describe' });
-        } else {
-            await ctx.repo.refresh();
-        }
+        await ctx.repo.refresh({ reason: 'after describe' });
     } catch (err: unknown) {
         await ctx.host.ui.showError(err, 'Error setting description');
     }

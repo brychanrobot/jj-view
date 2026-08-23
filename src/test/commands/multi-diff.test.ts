@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { showMultiFileDiffCommand } from '../../commands/multi-diff';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createShowMultiFileDiffPayload } from '../../vscode/payloads/multi-diff.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -30,14 +29,13 @@ describe('showMultiFileDiffCommand', () => {
         vi.clearAllMocks();
     });
 
-    it('opens vscode.changes with correct 3-tuple URIs using change ID', async () => {
+    it('opens multi-diff with correct 3-tuple URIs using change ID', async () => {
         const FILE_NAME = 'file1.txt';
         repo.writeFile(FILE_NAME, 'content 1');
         repo.describe('test commit description');
         const changeId = repo.getChangeId('@');
 
-        const payload = createShowMultiFileDiffPayload([changeId]);
-        await showMultiFileDiffCommand(ctx, payload);
+        await showMultiFileDiffCommand(ctx, { revision: changeId });
 
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
         const multiDiff = ctx.host.nav.multiDiffsOpened[0];
@@ -70,8 +68,7 @@ describe('showMultiFileDiffCommand', () => {
         repo.writeFile('file.txt', 'content');
         const changeId = repo.getChangeId('@');
 
-        const payload = createShowMultiFileDiffPayload(['@']);
-        await showMultiFileDiffCommand(ctx, payload);
+        await showMultiFileDiffCommand(ctx, { revision: '@' });
 
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
         const multiDiff = ctx.host.nav.multiDiffsOpened[0];
@@ -80,19 +77,8 @@ describe('showMultiFileDiffCommand', () => {
         expect(modified.fragment).toContain(`revision=${changeId}`);
     });
 
-    it('works with Webview Context payload', async () => {
-        repo.writeFile('file1.txt', 'A');
-        const commitId = repo.getCommitId('@');
-
-        const payload = createShowMultiFileDiffPayload([{ commitId }]);
-        await showMultiFileDiffCommand(ctx, payload);
-
-        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
-    });
-
     it('shows info message when no changes found', async () => {
-        const payload = createShowMultiFileDiffPayload(['@']);
-        await showMultiFileDiffCommand(ctx, payload);
+        await showMultiFileDiffCommand(ctx, { revision: '@' });
 
         expect(ctx.host.ui.infoMessages[0]).toContain('No changes found in revision');
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);

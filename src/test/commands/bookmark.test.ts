@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { setBookmarkCommand } from '../../commands/bookmark';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createSetBookmarkPayload } from '../../vscode/payloads/bookmark.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -33,18 +32,13 @@ describe('setBookmarkCommand', () => {
         vi.clearAllMocks();
     });
 
-    const runSetBookmark = async (args: unknown[]) => {
-        const payload = createSetBookmarkPayload(args);
-        await setBookmarkCommand(ctx, payload);
-    };
-
     test('sets bookmark when selected from list', async () => {
         repo.bookmark('feature-a', '@');
 
         ctx.host.ui.setNextSelectOrCreateResponse('feature-a');
 
         const commitId = repo.getChangeId('@');
-        await runSetBookmark([{ commitId }]);
+        await setBookmarkCommand(ctx, { revision: commitId });
 
         const bookmarks = repo.getBookmarks('@');
         expect(bookmarks).toContain('feature-a');
@@ -54,7 +48,7 @@ describe('setBookmarkCommand', () => {
         ctx.host.ui.setNextSelectOrCreateResponse('new-feature');
 
         const commitId = repo.getChangeId('@');
-        await runSetBookmark([{ commitId }]);
+        await setBookmarkCommand(ctx, { revision: commitId });
 
         const bookmarks = repo.getBookmarks('@');
         expect(bookmarks).toContain('new-feature');

@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareAllFilesWithRevisionCommand } from '../../commands/compare-all-files-with-revision';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { createCompareAllFilesWithRevisionPayload } from '../../vscode/payloads/compare-all-files-with-revision.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -31,7 +30,7 @@ describe('compareAllFilesWithRevisionCommand', () => {
         vi.clearAllMocks();
     });
 
-    it('opens vscode.changes with expected file list', async () => {
+    it('opens multi-diff with expected file list', async () => {
         const ids = await buildGraph(repo, [
             { label: 'v1', files: { 'file1.txt': 'v1\n', 'file2.txt': 'v1\n' } },
             { label: 'v2', parents: ['v1'], files: { 'file1.txt': 'v2\n' } },
@@ -43,8 +42,7 @@ describe('compareAllFilesWithRevisionCommand', () => {
         repo.deleteFile('file2.txt');
         repo.writeFile('file3.txt', 'unique added file\n');
 
-        const payload = createCompareAllFilesWithRevisionPayload([parentId]);
-        await compareAllFilesWithRevisionCommand(ctx, payload);
+        await compareAllFilesWithRevisionCommand(ctx, { revision: parentId });
 
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
         const multiDiff = ctx.host.nav.multiDiffsOpened[0];
@@ -77,8 +75,7 @@ describe('compareAllFilesWithRevisionCommand', () => {
         const ids = await buildGraph(repo, [{ label: 'v1', files: { 'file1.txt': 'v1\n' } }]);
         const parentId = ids.v1.changeId;
 
-        const payload = createCompareAllFilesWithRevisionPayload([parentId]);
-        await compareAllFilesWithRevisionCommand(ctx, payload);
+        await compareAllFilesWithRevisionCommand(ctx, { revision: parentId });
 
         expect(ctx.host.ui.infoMessages).toContain(`No differences found between ${parentId} and working copy.`);
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);

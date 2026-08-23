@@ -9,7 +9,6 @@ import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '.
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import { createSquashHunkIntoParentPayload } from '../../vscode/payloads/squash-selection.payload';
 import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -70,23 +69,11 @@ describe('squash-selection commands', () => {
             repo.edit(ids.modified.changeId);
 
             const uri = Uri.file(path.join(repo.path, fileName));
-            const changes = [
-                {
-                    originalStartLineNumber: 2,
-                    originalEndLineNumber: 2,
-                    modifiedStartLineNumber: 2,
-                    modifiedEndLineNumber: 2,
-                },
-                {
-                    originalStartLineNumber: 4,
-                    originalEndLineNumber: 4,
-                    modifiedStartLineNumber: 4,
-                    modifiedEndLineNumber: 4,
-                },
-            ];
 
-            const payload = createSquashHunkIntoParentPayload([uri, changes, 1]);
-            await squashHunkIntoParentCommand(ctx, payload);
+            await squashHunkIntoParentCommand(ctx, {
+                uri,
+                ranges: [{ startLine: 3, endLine: 3 }],
+            });
 
             const parentContent = repo.getFileContent('@-', fileName);
             expect(parentContent).toBe('line1\nline2\nline3\nmodified4\nline5\n');

@@ -65,8 +65,8 @@ describe('FakeHostEnvironment', () => {
             ui.setStatusBarMessage('status', 1000);
             expect(ui.statusBarMessages).toEqual([{ message: 'status', timeoutMs: 1000 }]);
 
-            ui.setCommitInput('my commit msg');
-            expect(ui.getCommitInput()).toBe('my commit msg');
+            ui.setScmDescriptionInputValue('my commit msg');
+            expect(ui.getScmDescriptionInputValue()).toBe('my commit msg');
         });
     });
 
@@ -105,6 +105,17 @@ describe('FakeHostEnvironment', () => {
 
             await nav.closeTab(leftUri);
             expect(nav.closedTabs).toContain(leftUri);
+
+            await nav.openCommitDetails('/root', 'change123', 'c12', false, 0);
+            expect(nav.commitDetailsOpened).toEqual([
+                {
+                    repoRoot: '/root',
+                    changeId: 'change123',
+                    shortestChangeId: 'c12',
+                    isDivergent: false,
+                    changeIdOffset: 0,
+                },
+            ]);
         });
     });
 

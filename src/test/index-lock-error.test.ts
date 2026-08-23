@@ -6,13 +6,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, type Mock, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { JjService } from '../../jj-service';
-import { showJjError } from '../../vscode/vscode-ui-helpers';
-import { TestRepo } from '../test-repo';
-import { createMockLogOutputChannel } from '../test-utils';
+import { JjService } from '../jj-service';
+import { showJjError } from '../vscode/vscode-ui-helpers';
+import { TestRepo } from './test-repo';
+import { createMockLogOutputChannel } from './test-utils';
 
 vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
+    const { createVscodeMock } = await import('./vscode-mock');
     return createVscodeMock({
         // Overrides
         window: { showErrorMessage: vi.fn() },
