@@ -4,112 +4,77 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { openChangesCommand, openFileCommand } from '../../commands/open';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import type { JjResourceState } from '../../scm-resource-state';
 import { Uri } from '../../uri-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
-import { createOpenChangesPayload } from '../../vscode/payloads/open-changes.payload';
-import { createOpenFilePayload } from '../../vscode/payloads/open-file.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { createMock } from '../test-utils';
-import { setActiveTextEditor } from '../vscode-mock';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('openFileCommand', () => {
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
-        ctx = new VSCodeCommandContext(
-            createMock<JjRepository>({}),
-            createMock<JjLoggerChannel>({}),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(createMock<JjRepository>({}));
     });
 
     afterEach(() => {
         vi.clearAllMocks();
-        setActiveTextEditor(undefined);
     });
 
-    test('does nothing if no args and no active text editor', async () => {
-        const payload = createOpenFilePayload([]);
-        await openFileCommand(ctx, payload);
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+    test('does nothing if no args and no resourceUri', async () => {
+        await openFileCommand(ctx, {});
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
     });
 
-    test('executes vscode.open from SourceControlResourceState', async () => {
-        const resourceState = createMock<vscode.SourceControlResourceState>({
+    test('executes openFile from resourceUri with revision query', async () => {
+        await openFileCommand(ctx, {
             resourceUri: Uri.parse('file:///foo?jj-revision=@'),
         });
 
-        const payload = createOpenFilePayload([resourceState]);
-        await openFileCommand(ctx, payload);
-
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'vscode.open',
+        expect(ctx.host.nav.filesOpened).toEqual([
             expect.objectContaining({
                 scheme: 'file',
                 path: '/foo',
                 query: '',
             }),
-        );
+        ]);
     });
 
-    test('executes vscode.open from a historical URI (jj-view scheme)', async () => {
+    test('executes openFile from a historical URI (jj-view scheme)', async () => {
         const uri = Uri.parse('jj-view:///foo/bar.txt?base=c123&side=left');
 
-        const payload = createOpenFilePayload([uri]);
-        await openFileCommand(ctx, payload);
+        await openFileCommand(ctx, { resourceUri: uri });
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'vscode.open',
+        expect(ctx.host.nav.filesOpened).toEqual([
             expect.objectContaining({
                 scheme: 'file',
                 path: '/foo/bar.txt',
                 query: '',
             }),
-        );
+        ]);
     });
 
-    test('executes vscode.open from activeTextEditor fallback when args are empty', async () => {
-        setActiveTextEditor(
-            createMock<vscode.TextEditor>({
-                document: createMock<vscode.TextDocument>({
-                    uri: Uri.parse('jj-edit:///baz/qux.ts?revision=rev123'),
-                }),
-            }),
-        );
+    test('executes openFile from jj-edit scheme URI', async () => {
+        await openFileCommand(ctx, {
+            resourceUri: Uri.parse('jj-edit:///baz/qux.ts?revision=rev123'),
+        });
 
-        const payload = createOpenFilePayload([]);
-        await openFileCommand(ctx, payload);
-
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'vscode.open',
+        expect(ctx.host.nav.filesOpened).toEqual([
             expect.objectContaining({
                 scheme: 'file',
                 path: '/baz/qux.ts',
                 query: '',
             }),
-        );
+        ]);
     });
 });
 
 describe('openChangesCommand', () => {
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
-        ctx = new VSCodeCommandContext(
-            createMock<JjRepository>({}),
-            createMock<JjLoggerChannel>({}),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(createMock<JjRepository>({}));
     });
 
     afterEach(() => {
@@ -117,9 +82,8 @@ describe('openChangesCommand', () => {
     });
 
     test('does nothing if no resource state', async () => {
-        const payload = createOpenChangesPayload([undefined]);
-        await openChangesCommand(ctx, payload);
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        await openChangesCommand(ctx, {});
+        expect(ctx.host.nav.diffsOpened).toHaveLength(0);
     });
 
     test('does nothing if resource state has no leftUri or rightUri', async () => {
@@ -128,9 +92,8 @@ describe('openChangesCommand', () => {
             revision: '@',
         });
 
-        const payload = createOpenChangesPayload([resourceState]);
-        await openChangesCommand(ctx, payload);
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        await openChangesCommand(ctx, { resourceState });
+        expect(ctx.host.nav.diffsOpened).toHaveLength(0);
     });
 
     test('executes the diffCommand with its URIs and title', async () => {
@@ -144,14 +107,14 @@ describe('openChangesCommand', () => {
             diffTitle: 'foo.txt (Working Copy)',
         });
 
-        const payload = createOpenChangesPayload([resourceState]);
-        await openChangesCommand(ctx, payload);
+        await openChangesCommand(ctx, { resourceState });
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'vscode.diff',
-            leftUri,
-            rightUri,
-            'foo.txt (Working Copy)',
-        );
+        expect(ctx.host.nav.diffsOpened).toEqual([
+            {
+                leftUri,
+                rightUri,
+                title: 'foo.txt (Working Copy)',
+            },
+        ]);
     });
 });

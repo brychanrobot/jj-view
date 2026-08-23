@@ -6,31 +6,19 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CodeForgeService } from '../../code-forge-service';
 import { advanceBookmarkAndUploadCommand } from '../../commands/bookmark-advance-upload';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { createAdvanceBookmarkAndUploadPayload } from '../../vscode/payloads/bookmark-advance-upload.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel, FakeConfigStore } from '../test-utils';
-
-const fakeConfigStore = new FakeConfigStore();
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        workspace: {
-            getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-        },
-    });
-});
+import { createMock } from '../test-utils';
 
 describe('advanceBookmarkAndUploadCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let remoteRepo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -55,7 +43,7 @@ describe('advanceBookmarkAndUploadCommand', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
         });
 
-        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {

@@ -4,31 +4,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { newMergeChangeCommand } from '../../commands/merge';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createNewMergeChangePayload } from '../../vscode/payloads/merge.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock, resetMockQuickPick } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
+import { asMock } from '../vitest-utils';
 
 describe('newMergeChangeCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -42,22 +33,7 @@ describe('newMergeChangeCommand', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
             getSelectedCommitIds: vi.fn().mockReturnValue([]),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
-
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            acceptCallback();
-        });
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -107,17 +83,14 @@ describe('newMergeChangeCommand', () => {
     test('ignores valid string array and shows warning', async () => {
         const args = ['rev1', 'rev2'] as unknown as { revision: string }[];
 
-        // Mock input box to return nothing to simulate cancellation/empty input after invalid arg ignored
-        asMock(vscode.window.showInputBox).mockResolvedValue(undefined);
+        ctx.host.ui.setNextInputBoxResponse(undefined);
 
         const payload = createNewMergeChangePayload(args, scmProvider);
         await newMergeChangeCommand(ctx, payload);
 
-        // Should NOT create merge
-        expect(mockJjRepo.refresh).not.toHaveBeenCalled();
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            expect.stringContaining('Need at least 1 revision to create a change.'),
-            'Show Log',
+        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Merge Error');
+        expect((ctx.host.ui.errorMessages[0].error as Error).message).toContain(
+            'Need at least 1 revision to create a change.',
         );
     });
 

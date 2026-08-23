@@ -3,110 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { discardChangeCommand } from '../../commands/discard-change';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
-
-// Track created documents for mocking
-const mockDocuments = new Map<
-    string,
-    {
-        getText: () => string;
-        lineAt: (line: number) => { rangeIncludingLineBreak: { end: vscode.Position } };
-        save: () => Promise<boolean>;
-    }
->();
-
-vi.mock('vscode', () => {
-    class MockUri {
-        constructor(
-            public fsPath: string,
-            public scheme: string = 'file',
-            public query: string = '',
-        ) {}
-        static file(fsPath: string) {
-            return new MockUri(fsPath);
-        }
-        toString() {
-            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}`;
-        }
-        with(params: { scheme?: string; query?: string }) {
-            return new MockUri(this.fsPath, params.scheme ?? this.scheme, params.query ?? this.query);
-        }
-    }
-
-    return {
-        Uri: MockUri,
-        Position: class {
-            constructor(
-                public line: number,
-                public character: number,
-            ) {}
-        },
-        Range: class {
-            constructor(
-                public startLine: number | vscode.Position,
-                public startChar: number | vscode.Position,
-                public endLine?: number,
-                public endChar?: number,
-            ) {}
-        },
-        window: {
-            showErrorMessage: vi.fn(),
-        },
-        workspace: {
-            openTextDocument: vi.fn().mockImplementation((uri: { fsPath: string; scheme?: string }) => {
-                const doc = mockDocuments.get(uri.toString?.() ?? uri.fsPath);
-                if (doc) {
-                    return Promise.resolve(doc);
-                }
-                // Fallback: read from filesystem
-                const content = fs.existsSync(uri.fsPath) ? fs.readFileSync(uri.fsPath, 'utf-8') : '';
-                const lines = content.split('\n');
-                return Promise.resolve({
-                    getText: (range?: { startLine: number; startChar: number }) => {
-                        if (!range) {
-                            return content;
-                        }
-                        // Simplified range extraction
-                        return content;
-                    },
-                    lineAt: (line: number) => ({
-                        rangeIncludingLineBreak: {
-                            end: { line, character: (lines[line] || '').length + 1 },
-                        },
-                    }),
-                    save: vi.fn().mockResolvedValue(true),
-                });
-            }),
-            applyEdit: vi.fn().mockResolvedValue(true),
-        },
-        WorkspaceEdit: class {
-            private edits: Array<{ uri: Uri; range: vscode.Range; text: string }> = [];
-            replace(uri: Uri, range: vscode.Range, text: string) {
-                this.edits.push({ uri, range, text });
-            }
-            getEdits() {
-                return this.edits;
-            }
-        },
-    };
-});
+import { createMock } from '../test-utils';
 
 describe('discardChangeCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -116,8 +27,7 @@ describe('discardChangeCommand', () => {
             jj,
             rootUri: Uri.file(repo.path),
         });
-        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
-        mockDocuments.clear();
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -132,15 +42,15 @@ describe('discardChangeCommand', () => {
 
         // Test with null uri
         await discardChangeCommand(ctx, { uri: null as unknown as Uri, changes: [], index: 0 });
-        expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toHaveLength(0);
 
         // Test with invalid index
         await discardChangeCommand(ctx, { uri: fileUri, changes: [], index: 0 });
-        expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toHaveLength(0);
 
         // Test with non-array changes
         await discardChangeCommand(ctx, { uri: fileUri, changes: 'invalid', index: 0 });
-        expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toHaveLength(0);
     });
 
     test('validates LineChange structure', async () => {
@@ -152,7 +62,7 @@ describe('discardChangeCommand', () => {
         // Invalid change object (missing properties)
         const invalidChanges = [{ originalStartLineNumber: 1 }];
         await discardChangeCommand(ctx, { uri: fileUri, changes: invalidChanges, index: 0 });
-        expect(vscode.workspace.applyEdit).not.toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toHaveLength(0);
     });
 
     test('discards change for parent content', async () => {
@@ -176,7 +86,7 @@ describe('discardChangeCommand', () => {
 
         await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
-        expect(vscode.workspace.applyEdit).toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toContain(fileUri);
     });
 
     test('handles deletion discard (empty modified range)', async () => {
@@ -200,8 +110,7 @@ describe('discardChangeCommand', () => {
 
         await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
-        // Should attempt to apply an edit
-        expect(vscode.workspace.applyEdit).toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toContain(fileUri);
     });
 
     test('handles addition discard (empty original range)', async () => {
@@ -225,6 +134,6 @@ describe('discardChangeCommand', () => {
 
         await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
 
-        expect(vscode.workspace.applyEdit).toHaveBeenCalled();
+        expect(ctx.host.documents.savedUris).toContain(fileUri);
     });
 });

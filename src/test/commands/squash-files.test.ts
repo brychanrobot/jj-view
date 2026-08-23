@@ -5,42 +5,29 @@
 
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
     squashFilesIntoParentCommand,
 } from '../../commands/squash-files';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
     createSquashFilesIntoParentPayload,
 } from '../../vscode/payloads/squash-files.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        window: {
-            showErrorMessage: vi.fn(),
-        },
-    });
-});
 
 describe('squash-files commands', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
+    let ctx: FakeCommandContext;
+
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
@@ -51,22 +38,7 @@ describe('squash-files commands', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
         });
 
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
-
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            acceptCallback();
-        });
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -144,16 +116,12 @@ describe('squash-files commands', () => {
                 },
             ]);
 
-            mockQuickPick.value = ids.grandparent.changeId;
-            setSelectedItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
-            setActiveItems(mockQuickPick, [{ label: 'grandparent', detail: ids.grandparent.changeId }]);
+            ctx.host.ui.setNextRevisionPromptResponse(ids.grandparent.changeId);
 
             const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }];
 
             await runSquashFilesIntoAncestor(args);
-
-            expect(mockQuickPick.show).toHaveBeenCalled();
 
             const gpContent = repo.getFileContent(ids.grandparent.changeId, fileName);
             expect(gpContent).toBe('child content');
@@ -199,16 +167,13 @@ describe('squash-files commands', () => {
                 { label: 'child2', parents: ['parent'] },
             ]);
 
-            mockQuickPick.value = ids.child2.changeId;
-            setSelectedItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
-            setActiveItems(mockQuickPick, [{ label: 'child2', detail: ids.child2.changeId }]);
+            ctx.host.ui.setNextRevisionPromptResponse(ids.child2.changeId);
 
             const fileUri = Uri.file(path.join(repo.path, fileName));
             const args = [{ resourceUri: fileUri }, { revision: ids.parent.changeId }];
 
             await runSquashFilesIntoChild(args);
 
-            expect(mockQuickPick.show).toHaveBeenCalled();
             expect(repo.getFileContent(ids.child2.changeId, fileName)).toBe('parent modified');
         });
 
@@ -220,6 +185,8 @@ describe('squash-files commands', () => {
             const args = [{ resourceUri: fileUri }, { revision: ids.only.changeId }];
 
             await runSquashFilesIntoChild(args);
+
+            expect(ctx.host.ui.errorMessages[0].prefix).toBe('Squash Error');
         });
     });
 

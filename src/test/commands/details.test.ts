@@ -6,13 +6,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { showDetailsCommand } from '../../commands/details';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import type { JjResourceState } from '../../scm-resource-state';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createShowDetailsPayload } from '../../vscode/payloads/details.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -25,7 +23,7 @@ describe('showDetailsCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -33,11 +31,7 @@ describe('showDetailsCommand', () => {
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
         mockJjRepo = createMock<JjRepository>({ jj });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {

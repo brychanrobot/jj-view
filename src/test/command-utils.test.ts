@@ -350,7 +350,7 @@ describe('maybeFormatDescriptionOnSave', () => {
         expect(result).toBe(raw);
     });
 
-    it('formats description and updates ctx.ui.setCommitInput when revision is @', async () => {
+    it('formats description and updates ctx.host.ui.setCommitInput when revision is @', async () => {
         const setCommitInput = vi.fn();
         const ctx = {
             repo: jjRepo,

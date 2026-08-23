@@ -12,7 +12,7 @@ export interface WorkspaceForgetPayload {
 
 export async function workspaceForgetCommand(ctx: CommandContext, payload?: WorkspaceForgetPayload): Promise<void> {
     const { jj } = ctx.repo;
-    const workspaceName = payload?.workspaceName ?? (await resolveWorkspaceName(ctx, []));
+    const workspaceName = await resolveWorkspaceName(ctx, payload?.workspaceName);
     if (!workspaceName) {
         return;
     }

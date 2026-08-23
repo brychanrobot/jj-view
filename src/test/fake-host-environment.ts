@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as fs from 'node:fs';
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext, CommandServices } from '../common/command-context';
 import type {
@@ -37,6 +38,26 @@ export class FakeHostUi implements HostUi {
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
     public commitInput: string | undefined = undefined;
+
+    get warningResponse(): string | undefined {
+        return this.warningResponses[0];
+    }
+
+    set warningResponse(val: string | undefined) {
+        this.warningResponses = val !== undefined ? [val] : [];
+    }
+
+    setNextInfoResponse(response: string | undefined): void {
+        this.infoResponses.push(response);
+    }
+
+    setNextWarningResponse(response: string | undefined): void {
+        this.warningResponses.push(response);
+    }
+
+    setNextErrorResponse(response: string | undefined): void {
+        this.errorResponses.push(response);
+    }
 
     setNextInputBoxResponse(response: string | undefined): void {
         this.inputBoxResponses.push(response);
@@ -212,7 +233,14 @@ export class FakeHostDocuments implements HostDocuments {
     }
 
     async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
-        const text = this.virtualDocs.get(uri.fsPath) ?? '';
+        let text = this.virtualDocs.get(uri.fsPath);
+        if (text === undefined) {
+            if (fs.existsSync(uri.fsPath)) {
+                text = fs.readFileSync(uri.fsPath, 'utf8');
+            } else {
+                text = '';
+            }
+        }
         if (endLine1Based < startLine1Based) {
             return '';
         }
@@ -227,18 +255,33 @@ export class FakeHostDocuments implements HostDocuments {
         lineRange: { startLine1Based: number; endLine1Based: number },
         replacementText: string,
     ): Promise<void> {
-        const text = this.virtualDocs.get(uri.fsPath) ?? '';
+        let text = this.virtualDocs.get(uri.fsPath);
+        if (text === undefined) {
+            if (fs.existsSync(uri.fsPath)) {
+                text = fs.readFileSync(uri.fsPath, 'utf8');
+            } else {
+                text = '';
+            }
+        }
         const lines = text.split(/\r?\n/);
         const start = Math.max(0, lineRange.startLine1Based - 1);
         const end = Math.max(start, lineRange.endLine1Based);
         const replacementLines = replacementText.length > 0 ? replacementText.split(/\r?\n/) : [];
         lines.splice(start, end - start, ...replacementLines);
-        this.virtualDocs.set(uri.fsPath, lines.join('\n'));
+        const updated = lines.join('\n');
+        this.virtualDocs.set(uri.fsPath, updated);
         this.savedUris.push(uri);
+        if (fs.existsSync(uri.fsPath)) {
+            fs.writeFileSync(uri.fsPath, updated, 'utf8');
+        }
     }
 
     async saveIfDirty(uri: Uri): Promise<void> {
         this.savedUris.push(uri);
+        const text = this.virtualDocs.get(uri.fsPath);
+        if (text !== undefined && fs.existsSync(uri.fsPath)) {
+            fs.writeFileSync(uri.fsPath, text, 'utf8');
+        }
     }
 
     getOpenDocumentText(uri: Uri): string | undefined {
@@ -389,7 +432,7 @@ export class FakeCommandContext implements CommandContext {
             clear: () => {},
             dispose: () => {},
             name: 'test',
-            logLevel: 1 as never,
+            logLevel: 3,
             onDidChangeLogLevel: () => ({ dispose: () => {} }),
         },
         readonly comments?: CommentsManager,

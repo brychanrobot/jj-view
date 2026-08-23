@@ -6,58 +6,28 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import {
     completeSquashRevisionCommand,
     getSquashStorageDir,
     squashRevisionIntoAncestorCommand,
     squashRevisionIntoParentCommand,
 } from '../../commands/squash-revision';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import {
     createSquashRevisionIntoAncestorPayload,
     createSquashRevisionIntoParentPayload,
 } from '../../vscode/payloads/squash-revision.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        commands: {
-            executeCommand: vi.fn(),
-        },
-        window: {
-            showQuickPick: vi.fn(),
-            showTextDocument: vi.fn(),
-            showErrorMessage: vi.fn(),
-            tabGroups: {
-                all: [],
-                close: vi.fn(),
-            },
-        },
-        workspace: {
-            openTextDocument: vi.fn(),
-            textDocuments: [],
-        },
-        TabInputText: class MockTabInputText {
-            constructor(public uri: Uri) {}
-        },
-    });
-});
 
 describe('squashRevisionIntoParentCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -70,22 +40,7 @@ describe('squashRevisionIntoParentCommand', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
         });
 
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
-
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            acceptCallback();
-        });
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -150,14 +105,13 @@ describe('squashRevisionIntoParentCommand', () => {
         expect(parents.length).toBe(2);
         expect(parents).toContain(p1ChangeId);
 
-        vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
+        ctx.host.ui.setNextQuickPickResponse({
             detail: p1CommitId,
             label: 'Parent 1',
+            value: p1CommitId,
         });
 
         await runSquashIntoParent([]);
-
-        expect(vscode.window.showQuickPick).toHaveBeenCalled();
 
         const p1Content = repo.getFileContent(p1ChangeId, fileName);
         expect(p1Content).toBe('child modified');
@@ -178,7 +132,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([]);
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
 
         const storageDir = getSquashStorageDir(repo.path);
         const metaPath = path.join(storageDir, 'SQUASH_META.json');
@@ -204,15 +158,15 @@ describe('squashRevisionIntoParentCommand', () => {
         const childChangeId = ids.child.changeId;
         const p2CommitId = ids.p2.commitId;
 
-        vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
+        ctx.host.ui.setNextQuickPickResponse({
             detail: p2CommitId,
             label: 'Parent 2',
+            value: p2CommitId,
         });
 
         await runSquashIntoParent([childChangeId]);
 
-        expect(vscode.window.showQuickPick).toHaveBeenCalled();
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
 
         const storageDir = getSquashStorageDir(repo.path);
         const meta = JSON.parse(fs.readFileSync(path.join(storageDir, 'SQUASH_META.json'), 'utf-8'));
@@ -235,7 +189,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([]);
 
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
 
         const parentDesc = repo.getDescription('@-');
         expect(parentDesc).toBe('Child Description');
@@ -256,7 +210,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([]);
 
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
 
         const parentDesc = repo.getDescription('@-');
         expect(parentDesc).toBe('Parent Description');
@@ -275,13 +229,14 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
+        ctx.host.ui.setNextQuickPickResponse({
             detail: ids.p1.commitId,
             label: 'Parent 1',
+            value: ids.p1.commitId,
         });
 
         await runSquashIntoParent([]);
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
         expect(repo.getDescription(ids.p1.changeId)).toBe('Child Description');
     });
 
@@ -298,13 +253,14 @@ describe('squashRevisionIntoParentCommand', () => {
             },
         ]);
 
-        vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
+        ctx.host.ui.setNextQuickPickResponse({
             detail: ids.p2.commitId,
             label: 'Parent 2',
+            value: ids.p2.commitId,
         });
 
         await runSquashIntoParent([]);
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened.length).toBeGreaterThan(0);
     });
 
     test('squashRevisionIntoParentCommand for non-working copy with no descriptions', async () => {
@@ -316,7 +272,7 @@ describe('squashRevisionIntoParentCommand', () => {
 
         await runSquashIntoParent([ids.child.changeId]);
 
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
         expect(repo.getDescription(ids.p.changeId)).toBe('');
     });
 
@@ -328,13 +284,9 @@ describe('squashRevisionIntoParentCommand', () => {
             { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
         ]);
 
-        mockQuickPick.value = ids.base.changeId;
-        setSelectedItems(mockQuickPick, [{ label: 'base', detail: ids.base.changeId }]);
-        setActiveItems(mockQuickPick, [{ label: 'base', detail: ids.base.changeId }]);
+        ctx.host.ui.setNextRevisionPromptResponse(ids.base.changeId);
 
         await runSquashIntoAncestor([ids.child.changeId]);
-
-        expect(mockQuickPick.show).toHaveBeenCalled();
 
         expect(repo.getFileContent(ids.base.changeId, 'child.txt')).toBe('child');
     });
@@ -352,21 +304,6 @@ describe('squashRevisionIntoParentCommand', () => {
 
         fs.writeFileSync(metaPath, JSON.stringify({ revision: '@', parentRev: ids.parent.commitId }));
         fs.writeFileSync(msgPath, 'New combined description\n\n# Comment');
-
-        const msgUri = Uri.file(msgPath);
-        const mockTab = createMock<vscode.Tab>({
-            input: new (class {
-                uri = msgUri;
-            })(),
-        });
-        Object.defineProperty(vscode.window.tabGroups, 'all', {
-            value: [
-                createMock<vscode.TabGroup>({
-                    tabs: [mockTab],
-                }),
-            ],
-            configurable: true,
-        });
 
         await completeSquashRevisionCommand(ctx, { message: 'New combined description' });
 
@@ -418,21 +355,6 @@ describe('squashRevisionIntoParentCommand', () => {
         fs.writeFileSync(metaPath, JSON.stringify({ revision: '@', parentRev: ids.parent.commitId }));
         fs.writeFileSync(msgPath, 'JJ: comment only');
 
-        const msgUri = Uri.file(msgPath);
-        const mockTab = createMock<vscode.Tab>({
-            input: new (class {
-                uri = msgUri;
-            })(),
-        });
-        Object.defineProperty(vscode.window.tabGroups, 'all', {
-            value: [
-                createMock<vscode.TabGroup>({
-                    tabs: [mockTab],
-                }),
-            ],
-            configurable: true,
-        });
-
         await completeSquashRevisionCommand(ctx, { message: 'JJ: comment only' });
 
         expect(repo.getDescription('@-')).toBe('Parent');
@@ -440,7 +362,7 @@ describe('squashRevisionIntoParentCommand', () => {
         expect(fs.existsSync(metaPath)).toBe(false);
         expect(fs.existsSync(msgPath)).toBe(false);
 
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Squash message is empty. Aborting.');
+        expect(ctx.host.ui.warningMessages).toContain('Squash message is empty. Aborting.');
     });
 
     describe('squash revision payload creators target revision extraction', () => {

@@ -5,24 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { commitCommand } from '../../commands/commit';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('commitCommand', () => {
     let repo: TestRepo;
     let jj: JjService;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -32,11 +25,7 @@ describe('commitCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -93,15 +82,8 @@ describe('commitCommand', () => {
     });
 
     test('formats description when commit.formatDescriptionOnSave is enabled', async () => {
-        vi.spyOn(ctx.host.config, 'get').mockImplementation((key: string) => {
-            if (key === 'commit.formatDescriptionOnSave') {
-                return true;
-            }
-            if (key === 'commit.bodyWidthRuler') {
-                return 20;
-            }
-            return undefined;
-        });
+        ctx.host.config.set('commit.formatDescriptionOnSave', true);
+        ctx.host.config.set('commit.bodyWidthRuler', 20);
 
         repo.new(undefined, 'initial');
         const initialId = repo.getChangeId('@');

@@ -14,7 +14,7 @@ export interface WorkspaceDeletePayload {
 
 export async function workspaceDeleteCommand(ctx: CommandContext, payload?: WorkspaceDeletePayload): Promise<void> {
     const { jj } = ctx.repo;
-    const workspaceName = payload?.workspaceName || (await resolveWorkspaceName(ctx, []));
+    const workspaceName = await resolveWorkspaceName(ctx, payload?.workspaceName);
     if (!workspaceName) {
         return;
     }

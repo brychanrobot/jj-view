@@ -34,13 +34,11 @@ async function openWorkspace(
     providedWorkspaceName: string | undefined,
     forceNewWindow: boolean,
 ): Promise<void> {
-    let workspaceName: string | undefined = providedWorkspaceName;
+    let workspaceName: string | undefined;
     const { jj } = ctx.repo;
 
     try {
-        if (!workspaceName) {
-            workspaceName = await resolveWorkspaceName(ctx, []);
-        }
+        workspaceName = await resolveWorkspaceName(ctx, providedWorkspaceName);
         if (!workspaceName) {
             return;
         }

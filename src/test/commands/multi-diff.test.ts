@@ -4,39 +4,26 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { showMultiFileDiffCommand } from '../../commands/multi-diff';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { Uri } from '../../uri-utils';
 import { createShowMultiFileDiffPayload } from '../../vscode/payloads/multi-diff.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        commands: { executeCommand: vi.fn() },
-        window: { showInformationMessage: vi.fn(), showErrorMessage: vi.fn() },
-    });
-});
+import { createMock } from '../test-utils';
 
 describe('showMultiFileDiffCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let mockOutputChannel: vscode.LogOutputChannel;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
         mockJjRepo = createMock<JjRepository>({ jj });
-        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
-        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -52,24 +39,20 @@ describe('showMultiFileDiffCommand', () => {
         const payload = createShowMultiFileDiffPayload([changeId]);
         await showMultiFileDiffCommand(ctx, payload);
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalled();
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        if (!call) {
-            throw new Error('vscode.changes command was not called');
-        }
-        const [, title, resourceTuples] = call;
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const multiDiff = ctx.host.nav.multiDiffsOpened[0];
 
         // Title should include short change ID and description
-        expect(title).toContain(changeId.slice(0, 8));
-        expect(title).toContain('test commit description');
+        expect(multiDiff.title).toContain(changeId.slice(0, 8));
+        expect(multiDiff.title).toContain('test commit description');
 
-        const tuples = resourceTuples as [Uri, Uri, Uri][];
-        expect(tuples).toHaveLength(1);
+        const { resources } = multiDiff;
+        expect(resources).toHaveLength(1);
 
-        const [label, original, modified] = tuples[0];
+        const { label, leftUri: original, rightUri: modified } = resources[0];
 
         // Label should be the modified URI (display identifier)
-        expect(label.path).toContain(FILE_NAME);
+        expect(label).toContain(FILE_NAME);
 
         // Original (left) should reference parent revision
         expect(original.scheme).toBe('jj-view');
@@ -90,14 +73,9 @@ describe('showMultiFileDiffCommand', () => {
         const payload = createShowMultiFileDiffPayload(['@']);
         await showMultiFileDiffCommand(ctx, payload);
 
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        expect(call).toBeDefined();
-
-        const tuples = call?.[2] as [Uri, Uri, Uri][];
-        expect(tuples).toHaveLength(1);
-
-        // Modified side should use change ID, not '@', with jj-edit scheme
-        const modified = tuples[0][2];
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const multiDiff = ctx.host.nav.multiDiffsOpened[0];
+        const modified = multiDiff.resources[0].rightUri;
         expect(modified.scheme).toBe('jj-edit');
         expect(modified.fragment).toContain(`revision=${changeId}`);
     });
@@ -109,24 +87,14 @@ describe('showMultiFileDiffCommand', () => {
         const payload = createShowMultiFileDiffPayload([{ commitId }]);
         await showMultiFileDiffCommand(ctx, payload);
 
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        expect(call).toBeDefined();
-
-        const tuples = call?.[2] as [Uri, Uri, Uri][];
-        expect(tuples).toHaveLength(1);
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
     });
 
     it('shows info message when no changes found', async () => {
         const payload = createShowMultiFileDiffPayload(['@']);
         await showMultiFileDiffCommand(ctx, payload);
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            expect.stringContaining('No changes found in revision'),
-        );
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
-            'vscode.changes',
-            expect.anything(),
-            expect.anything(),
-        );
+        expect(ctx.host.ui.infoMessages[0]).toContain('No changes found in revision');
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);
     });
 });
