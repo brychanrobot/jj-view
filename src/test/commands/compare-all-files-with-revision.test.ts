@@ -5,44 +5,26 @@
 
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../../commands/compare-all-files-with-revision';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { Uri } from '../../uri-utils';
 import { createCompareAllFilesWithRevisionPayload } from '../../vscode/payloads/compare-all-files-with-revision.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        commands: { executeCommand: vi.fn() },
-        window: {
-            showInformationMessage: vi.fn(),
-            showErrorMessage: vi.fn(),
-            showInputBox: vi.fn(),
-            showQuickPick: vi.fn(),
-        },
-    });
-});
+import { createMock } from '../test-utils';
 
 describe('compareAllFilesWithRevisionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
-    let mockOutputChannel: vscode.LogOutputChannel;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
         mockJjRepo = createMock<JjRepository>({ jj });
-        mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn(), show: vi.fn(), error: vi.fn() });
-        ctx = new VSCodeCommandContext(mockJjRepo, mockOutputChannel, createMock<CommentsManager>({}));
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -64,21 +46,16 @@ describe('compareAllFilesWithRevisionCommand', () => {
         const payload = createCompareAllFilesWithRevisionPayload([parentId]);
         await compareAllFilesWithRevisionCommand(ctx, payload);
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'vscode.changes',
-            expect.stringContaining('Compare'),
-            expect.any(Array),
-        );
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const multiDiff = ctx.host.nav.multiDiffsOpened[0];
+        expect(multiDiff.title).toContain('Compare');
 
-        const call = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === 'vscode.changes');
-        const resourceTuples = call?.[2] as [Uri, Uri, Uri][];
-
-        const simplified = resourceTuples.map((t) => ({
-            path: path.basename(t[0].fsPath),
-            leftScheme: t[1].scheme,
-            leftFragment: t[1].fragment,
-            rightScheme: t[2].scheme,
-            rightFragment: t[2].fragment,
+        const simplified = multiDiff.resources.map((t) => ({
+            path: path.basename(t.rightUri.fsPath),
+            leftScheme: t.leftUri.scheme,
+            leftFragment: t.leftUri.fragment,
+            rightScheme: t.rightUri.scheme,
+            rightFragment: t.rightUri.fragment,
         }));
         simplified.sort((a, b) => a.path.localeCompare(b.path));
 
@@ -103,9 +80,7 @@ describe('compareAllFilesWithRevisionCommand', () => {
         const payload = createCompareAllFilesWithRevisionPayload([parentId]);
         await compareAllFilesWithRevisionCommand(ctx, payload);
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            `No differences found between ${parentId} and working copy.`,
-        );
-        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        expect(ctx.host.ui.infoMessages).toContain(`No differences found between ${parentId} and working copy.`);
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);
     });
 });

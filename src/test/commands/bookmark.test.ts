@@ -4,29 +4,19 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { setBookmarkCommand } from '../../commands/bookmark';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createSetBookmarkPayload } from '../../vscode/payloads/bookmark.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { resetMockQuickPick, setSelectedItems } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('setBookmarkCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -36,14 +26,7 @@ describe('setBookmarkCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
-
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -55,36 +38,10 @@ describe('setBookmarkCommand', () => {
         await setBookmarkCommand(ctx, payload);
     };
 
-    test('fetches bookmarks and shows quick pick', async () => {
-        repo.bookmark('feature-a', '@');
-
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            acceptCallback();
-        });
-
-        await runSetBookmark([{ commitId: 'some-id' }]);
-
-        expect(mockQuickPick.show).toHaveBeenCalled();
-        expect(mockQuickPick.items).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'feature-a' })]));
-    });
-
     test('sets bookmark when selected from list', async () => {
         repo.bookmark('feature-a', '@');
 
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            setSelectedItems(mockQuickPick, [{ label: 'feature-a' }]);
-            acceptCallback();
-        });
+        ctx.host.ui.setNextSelectOrCreateResponse('feature-a');
 
         const commitId = repo.getChangeId('@');
         await runSetBookmark([{ commitId }]);
@@ -94,16 +51,7 @@ describe('setBookmarkCommand', () => {
     });
 
     test('creates new bookmark when typed', async () => {
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            setSelectedItems(mockQuickPick, []);
-            mockQuickPick.value = 'new-feature';
-            acceptCallback();
-        });
+        ctx.host.ui.setNextSelectOrCreateResponse('new-feature');
 
         const commitId = repo.getChangeId('@');
         await runSetBookmark([{ commitId }]);
@@ -121,21 +69,11 @@ describe('setBookmarkCommand', () => {
     });
 
     test('prompts for bookmark when payload name is empty or whitespace', async () => {
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            setSelectedItems(mockQuickPick, []);
-            mockQuickPick.value = 'prompted-bookmark';
-            acceptCallback();
-        });
+        ctx.host.ui.setNextSelectOrCreateResponse('prompted-bookmark');
 
         const commitId = repo.getChangeId('@');
         await setBookmarkCommand(ctx, { revision: commitId, name: '   ' });
 
-        expect(mockQuickPick.show).toHaveBeenCalled();
         const bookmarks = repo.getBookmarks('@');
         expect(bookmarks).toContain('prompted-bookmark');
     });

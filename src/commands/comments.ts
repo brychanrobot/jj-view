@@ -13,7 +13,7 @@ import {
     type CommentThread,
     CommentThreadCollapsibleState,
     CommentThreadState,
-} from '../comments-manager';
+} from '../comments-types';
 import type { CommandContext } from '../common/command-context';
 
 export type { Comment, CommentAuthorInformation, CommentBody, CommentReaction, CommentThread };

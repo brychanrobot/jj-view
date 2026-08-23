@@ -7,26 +7,19 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { restoreCommand } from '../../commands/restore';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createRestorePayload } from '../../vscode/payloads/restore.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('restoreCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -36,11 +29,7 @@ describe('restoreCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {

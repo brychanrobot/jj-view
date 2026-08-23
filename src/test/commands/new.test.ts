@@ -5,25 +5,18 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { newCommand } from '../../commands/new';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createNewPayload } from '../../vscode/payloads/new.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('newCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -33,11 +26,7 @@ describe('newCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {

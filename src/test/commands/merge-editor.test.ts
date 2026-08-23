@@ -4,29 +4,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { openMergeEditorCommand } from '../../commands/merge-editor';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { Uri } from '../../uri-utils';
 import { createOpenMergeEditorPayload } from '../../vscode/payloads/merge-editor.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
+import { FakeCommandContext } from '../fake-host-environment';
+import { createMock } from '../test-utils';
 
 describe('openMergeEditorCommand', () => {
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         mockJjRepo = createMock<JjRepository>({
             rootUri: Uri.file('/test'),
         });
-        ctx = new VSCodeCommandContext(mockJjRepo, createMockLogOutputChannel(), createMock<CommentsManager>({}));
+        ctx = new FakeCommandContext(mockJjRepo);
         ctx.host.nav.openMergeEditor = vi.fn();
     });
 
@@ -62,9 +55,6 @@ describe('openMergeEditorCommand', () => {
         const payload = createOpenMergeEditorPayload([resource]);
         await openMergeEditorCommand(ctx, payload);
 
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            expect.stringContaining('Error opening merge editor: boom'),
-            'Show Log',
-        );
+        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error opening merge editor');
     });
 });

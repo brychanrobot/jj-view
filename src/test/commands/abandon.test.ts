@@ -4,37 +4,24 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { abandonCommand } from '../../commands/abandon';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
 import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createAbandonPayload } from '../../vscode/payloads/abandon.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { asMock, resetMockQuickPick, setActiveItems, setSelectedItems } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock({
-        window: {
-            showQuickPick: vi.fn(),
-            showInformationMessage: vi.fn(),
-            showErrorMessage: vi.fn(),
-        },
-    });
-});
+import { asMock } from '../vitest-utils';
 
 describe('abandonCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let scmProvider: JjScmProvider;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -58,11 +45,7 @@ describe('abandonCommand', () => {
             refresh: vi.fn().mockResolvedValue(undefined),
         });
 
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -188,22 +171,9 @@ describe('abandonCommand', () => {
         const c1 = repo.getChangeId('@');
         repo.new();
 
-        const mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
-        let acceptCallback: () => void = () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            acceptCallback();
-        });
-        setSelectedItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
-        setActiveItems(mockQuickPick, [{ label: 'any', detail: c1 }]);
+        ctx.host.ui.setNextRevisionPromptResponse(c1);
 
         await runAbandon([]);
-
-        expect(mockQuickPick.show).toHaveBeenCalled();
 
         expectChangeAbandoned(c1);
     });

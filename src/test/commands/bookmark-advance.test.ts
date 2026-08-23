@@ -4,29 +4,19 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { advanceBookmarkCommand } from '../../commands/bookmark-advance';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createAdvanceBookmarkPayload } from '../../vscode/payloads/bookmark-advance.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
-import { resetMockQuickPick, setSelectedItems } from '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('advanceBookmarkCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
-    let ctx: VSCodeCommandContext;
-    let mockQuickPick: vscode.QuickPick<vscode.QuickPickItem>;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -36,14 +26,7 @@ describe('advanceBookmarkCommand', () => {
             jj,
             refresh: vi.fn().mockResolvedValue(undefined),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-        );
-
-        mockQuickPick = vi.mocked(vscode.window.createQuickPick)();
-        resetMockQuickPick(mockQuickPick);
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -73,15 +56,7 @@ describe('advanceBookmarkCommand', () => {
         await jj.new({ message: 'child' });
         const [child] = await jj.getLog({ revision: '@' });
 
-        let acceptCallback: () => Promise<void> = async () => {};
-        vi.mocked(mockQuickPick.onDidAccept).mockImplementation((cb: () => Promise<void>) => {
-            acceptCallback = cb;
-            return { dispose: () => {} };
-        });
-        vi.mocked(mockQuickPick.show).mockImplementation(() => {
-            setSelectedItems(mockQuickPick, [{ label: child.commit_id, detail: child.commit_id }]);
-            acceptCallback();
-        });
+        ctx.host.ui.setNextRevisionPromptResponse(child.commit_id);
 
         await runAdvanceBookmark([]);
 

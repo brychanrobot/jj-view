@@ -6,27 +6,20 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { setDescriptionCommand } from '../../commands/describe';
-import type { CommentsManager } from '../../comments-manager';
 import type { JjRepository } from '../../jj-repository';
 import type { JjScmProvider } from '../../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import type { JjLoggerChannel } from '../../utils/output-channel';
 import { createSetDescriptionPayload } from '../../vscode/payloads/describe.payload';
-import { VSCodeCommandContext } from '../../vscode/vscode-command-context';
+import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock, createMockLogOutputChannel } from '../test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('setDescriptionCommand', () => {
     let jj: JjService;
     let repo: TestRepo;
     let mockJjRepo: JjRepository;
     let scmProvider: JjScmProvider;
-    let ctx: VSCodeCommandContext;
+    let ctx: FakeCommandContext;
 
     beforeEach(() => {
         repo = new TestRepo();
@@ -43,12 +36,7 @@ describe('setDescriptionCommand', () => {
             }),
             outputChannel: createMockLogOutputChannel({ appendLine: vi.fn() }),
         });
-        ctx = new VSCodeCommandContext(
-            mockJjRepo,
-            createMock<JjLoggerChannel>(NO_OP_LOGGER),
-            createMock<CommentsManager>({}),
-            scmProvider.sourceControl,
-        );
+        ctx = new FakeCommandContext(mockJjRepo);
     });
 
     afterEach(() => {
@@ -119,20 +107,13 @@ describe('setDescriptionCommand', () => {
     });
 
     test('updates SCM input box when formatDescriptionOnSave is enabled for @', async () => {
-        vi.spyOn(ctx.host.config, 'get').mockImplementation((key: string) => {
-            if (key === 'commit.formatDescriptionOnSave') {
-                return true;
-            }
-            if (key === 'commit.bodyWidthRuler') {
-                return 20;
-            }
-            return undefined;
-        });
+        ctx.host.config.set('commit.formatDescriptionOnSave', true);
+        ctx.host.config.set('commit.bodyWidthRuler', 20);
 
         const longMsg = 'Title\n\nThis is a very long line in the body that will be wrapped by the formatter.';
         await setDescriptionCommand(ctx, { description: longMsg, revision: '@' });
 
-        expect(scmProvider.sourceControl.inputBox.value).toBe(
+        expect(ctx.host.ui.getCommitInput()).toBe(
             'Title\n\nThis is a very long\nline in the body\nthat will be wrapped\nby the formatter.',
         );
     });
