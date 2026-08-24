@@ -12,6 +12,11 @@ export interface FileAndRevisionPayload {
     revision?: string;
 }
 
+import { isLineChangeArray, type LineChange } from '../../commands/command-utils';
+
+export type { LineChange };
+export { isLineChangeArray };
+
 /**
  * Extracts a file URI (falling back to the active text editor document) and an optional revision.
  */

@@ -37,6 +37,7 @@ describe('setDescriptionCommand', () => {
         expect(result).toBe('new description');
         const description = repo.getDescription('@');
         expect(description.trim()).toBe('new description');
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after describe' });
     });
 
     test('updates description with empty string when empty message is provided', async () => {

@@ -6,27 +6,10 @@
 import type { CommandContext } from '../common/command-context';
 import { getOriginalResourceUri, Uri } from '../uri-utils';
 
-export interface LineChange {
-    readonly originalStartLineNumber: number;
-    readonly originalEndLineNumber: number;
-    readonly modifiedStartLineNumber: number;
-    readonly modifiedEndLineNumber: number;
-}
+import { isLineChangeArray, type LineChange } from './command-utils';
 
-export function isLineChangeArray(changes: unknown): changes is LineChange[] {
-    if (!Array.isArray(changes)) {
-        return false;
-    }
-    return changes.every((c) => {
-        const change = c as LineChange;
-        return (
-            typeof change.originalStartLineNumber === 'number' &&
-            typeof change.originalEndLineNumber === 'number' &&
-            typeof change.modifiedStartLineNumber === 'number' &&
-            typeof change.modifiedEndLineNumber === 'number'
-        );
-    });
-}
+export type { LineChange };
+export { isLineChangeArray };
 
 export interface DiscardChangePayload {
     uri?: Uri;

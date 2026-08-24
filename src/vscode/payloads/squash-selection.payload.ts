@@ -3,30 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type * as vscode from 'vscode';
+import { isLineChangeArray } from '../../commands/command-utils';
 import type { SquashHunkIntoParentPayload, SquashSelectionIntoParentPayload } from '../../commands/squash-selection';
 import type { Uri } from '../../uri-utils';
-
-interface LineChange {
-    readonly originalStartLineNumber: number;
-    readonly originalEndLineNumber: number;
-    readonly modifiedStartLineNumber: number;
-    readonly modifiedEndLineNumber: number;
-}
-
-function isLineChangeArray(changes: unknown): changes is LineChange[] {
-    if (!Array.isArray(changes)) {
-        return false;
-    }
-    return changes.every((c) => {
-        const change = c as LineChange;
-        return (
-            typeof change.originalStartLineNumber === 'number' &&
-            typeof change.originalEndLineNumber === 'number' &&
-            typeof change.modifiedStartLineNumber === 'number' &&
-            typeof change.modifiedEndLineNumber === 'number'
-        );
-    });
-}
 
 export function createSquashHunkIntoParentPayload(args: unknown[]): SquashHunkIntoParentPayload {
     const uri = args[0] as Uri | undefined;

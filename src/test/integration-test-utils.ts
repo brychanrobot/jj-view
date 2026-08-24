@@ -8,11 +8,14 @@ import * as path from 'node:path';
 import type * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from '../code-forge-registry';
+import type { CommentsManager } from '../comments-manager';
 import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjScmProvider } from '../jj-scm-provider';
 import { Uri } from '../uri-utils';
+import { VSCodeCommandContext } from '../vscode/vscode-command-context';
+import { VsCodeHostEnvironment } from '../vscode/vscode-host-environment';
 import { createMock } from './test-utils';
 
 export interface TestRepositoryContext {
@@ -245,4 +248,19 @@ export function stubCommand(
             }
             return original(command, ...args);
         });
+}
+
+/**
+ * Creates a valid VSCodeCommandContext with a VsCodeHostEnvironment for integration tests.
+ */
+export function createIntegrationCommandContext(
+    scmProvider: JjScmProvider,
+    comments?: CommentsManager,
+): VSCodeCommandContext {
+    const host = new VsCodeHostEnvironment({
+        repo: scmProvider.repo,
+        log: scmProvider.outputChannel,
+        sourceControl: scmProvider.sourceControl,
+    });
+    return new VSCodeCommandContext(scmProvider.repo, host, scmProvider.outputChannel, comments);
 }
