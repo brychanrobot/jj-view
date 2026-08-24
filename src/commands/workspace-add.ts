@@ -7,7 +7,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { CommandContext } from '../common/command-context';
 import { Uri } from '../uri-utils';
-import { getJjViewConfig } from '../utils/config-utils';
 import { getErrorMessage } from './command-utils';
 
 export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
@@ -17,7 +16,7 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
         const mainRoot = await jj.getMainWorkspaceRoot();
 
         // 2. Get workspaces location from config
-        let workspacesLocation = getJjViewConfig<string>('workspacesLocation', '.workspaces') ?? '.workspaces';
+        let workspacesLocation = ctx.host.config.get<string>('workspacesLocation') ?? '.workspaces';
 
         // Resolve relative paths against the main repo root
         if (!path.isAbsolute(workspacesLocation)) {

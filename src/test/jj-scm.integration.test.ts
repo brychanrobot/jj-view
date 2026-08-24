@@ -26,8 +26,8 @@ import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/com
 import { createSquashFilesIntoParentPayload } from '../vscode/payloads/squash-files.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
-import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import {
+    createIntegrationCommandContext,
     createTestRepositoryContext,
     stubCommand,
     stubConfig,
@@ -367,11 +367,7 @@ suite('JJ SCM Provider Integration Test', () => {
         const range = new vscode.Range(1, 0, 1, 5);
         editor.selection = new vscode.Selection(range.start, range.end);
 
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         await squashSelectionIntoParentCommand(cmdCtx, createSquashSelectionIntoParentPayload(editor));
 
         // Parent should be: A\nB_mod\nC (B_mod moved, C_mod stays in WC so Parent has original C)
@@ -486,11 +482,7 @@ suite('JJ SCM Provider Integration Test', () => {
             throw new Error('Should find resource state for modified file');
         }
 
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         await squashRevisionIntoParentCommand(cmdCtx, createSquashRevisionIntoParentPayload([resourceState]));
 
         const parentContent = repo.getFileContent('@-', 'squash-test.txt');
@@ -519,11 +511,7 @@ suite('JJ SCM Provider Integration Test', () => {
         assert.strictEqual(group.resourceStates.length, 2);
 
         // Call command directly
-        const headerCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const headerCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         await squashRevisionIntoParentCommand(headerCtx, createSquashRevisionIntoParentPayload([group]));
 
         await scmProvider.refresh({ forceSnapshot: true });
@@ -593,11 +581,7 @@ suite('JJ SCM Provider Integration Test', () => {
         ]);
         await scmProvider.refresh({ forceSnapshot: true });
 
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         await squashRevisionIntoParentCommand(cmdCtx, createSquashRevisionIntoParentPayload([{ id: 'working-copy' }]));
 
         const squashMsgPath = path.join(getSquashStorageDir(repo.path), 'SQUASH_MSG');
@@ -605,11 +589,7 @@ suite('JJ SCM Provider Integration Test', () => {
         // Verify creation
         assert.ok(require('node:fs').existsSync(squashMsgPath), 'SQUASH_MSG should be created (Cond 1)');
 
-        const completeCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const completeCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         await completeSquashRevisionCommand(completeCtx, { message: 'Parent Desc\n\nChild Desc' });
         assert.ok(!require('node:fs').existsSync(squashMsgPath), 'Cleanup success');
 
@@ -675,11 +655,7 @@ suite('JJ SCM Provider Integration Test', () => {
 
         // Call squash with just the revision string
         try {
-            const cmdCtx = new VSCodeCommandContext(
-                scmProvider.repo,
-                scmProvider.outputChannel,
-                createMock<CommentsManager>({}),
-            );
+            const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
             await squashRevisionIntoParentCommand(cmdCtx, createSquashRevisionIntoParentPayload([revision]));
         } catch (e) {
             assert.fail(`Squash should not throw when passed a string revision. Error: ${e}`);
@@ -834,11 +810,7 @@ suite('JJ SCM Provider Integration Test', () => {
         repo.writeFile('file1.txt', 'wc\n');
 
         try {
-            const ctx = new VSCodeCommandContext(
-                scmProvider.repo,
-                scmProvider.outputChannel,
-                createMock<CommentsManager>({}),
-            );
+            const ctx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
             const payload = createCompareAllFilesWithRevisionPayload([ids.v1.changeId]);
             await compareAllFilesWithRevisionCommand(ctx, payload);
             // Wait for the comparison editor to be open before finishing the test

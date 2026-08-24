@@ -15,8 +15,7 @@ import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { Uri } from '../uri-utils';
 import { createDiscardChangePayload } from '../vscode/payloads/discard-change.payload';
 import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
-import { VSCodeCommandContext } from '../vscode/vscode-command-context';
-import { createTestRepositoryContext } from './integration-test-utils';
+import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
@@ -124,11 +123,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Discard Command
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         const payload = createDiscardChangePayload([fileUri, changes, 0]);
         await discardChangeCommand(cmdCtx, payload);
 
@@ -175,11 +170,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Discard Command
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         const payload = createDiscardChangePayload([fileUri, changes, 0]);
         await discardChangeCommand(cmdCtx, payload);
 
@@ -221,11 +212,7 @@ suite('Quick Diff Commands Integration Test', () => {
         ];
 
         // Execute Squash Command
-        const cmdCtx = new VSCodeCommandContext(
-            scmProvider.repo,
-            scmProvider.outputChannel,
-            createMock<CommentsManager>({}),
-        );
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
         const payload = createSquashHunkIntoParentPayload([fileUri, changes, 0]);
         await squashHunkIntoParentCommand(cmdCtx, payload);
 

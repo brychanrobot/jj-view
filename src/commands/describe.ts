@@ -20,7 +20,7 @@ export async function setDescriptionCommand(
 
     try {
         await ctx.host.ui.withProgress('Setting description...', () => ctx.repo.jj.describe(description, revision));
-        ctx.repo.refresh({ reason: 'after describe' });
+        await ctx.repo.refresh({ reason: 'after describe' });
         return description;
     } catch (e: unknown) {
         await ctx.host.ui.showError(e, 'Error setting description');

@@ -21,8 +21,7 @@ import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
 import { createNewPayload } from '../vscode/payloads/new.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
-import { VSCodeCommandContext } from '../vscode/vscode-command-context';
-import { createTestRepositoryContext } from './integration-test-utils';
+import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
@@ -110,31 +109,31 @@ suite('Webview Commands End-to-End Integration Test', () => {
         executeCommandStub = sinon.stub(vscode.commands, 'executeCommand');
         executeCommandStub.callsFake(async (command: string, ...args: unknown[]) => {
             if (command === 'jj-view.abandon') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 const payload = createAbandonPayload(args, scm);
                 return abandonCommand(ctx, payload);
             }
             if (command === 'jj-view.squashRevisionIntoParent') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 const payload = createSquashRevisionIntoParentPayload(args);
                 return squashRevisionIntoParentCommand(ctx, payload);
             }
             if (command === 'jj-view.new') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 const payload = createNewPayload(args);
                 return newCommand(ctx, payload);
             }
             if (command === 'jj-view.edit') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 const payload = createEditPayload(args);
                 return editCommand(ctx, payload);
             }
             if (command === 'jj-view.undo') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 return undoCommand(ctx);
             }
             if (command === 'jj-view.redo') {
-                const ctx = new VSCodeCommandContext(scm.repo, scm.outputChannel, createMock<CommentsManager>({}));
+                const ctx = createIntegrationCommandContext(scm, createMock<CommentsManager>({}));
                 return redoCommand(ctx);
             }
             if (command === 'jj-view.refresh') {

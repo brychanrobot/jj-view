@@ -12,7 +12,34 @@ import { formatCommitDescription } from '../utils/format-utils';
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
 function hasResourceUri(arg: unknown): arg is { resourceUri: Uri } {
-    return typeof arg === 'object' && arg !== null && 'resourceUri' in arg;
+    return (
+        typeof arg === 'object' &&
+        arg !== null &&
+        'resourceUri' in arg &&
+        Uri.isUri((arg as { resourceUri: unknown }).resourceUri)
+    );
+}
+
+export interface LineChange {
+    readonly originalStartLineNumber: number;
+    readonly originalEndLineNumber: number;
+    readonly modifiedStartLineNumber: number;
+    readonly modifiedEndLineNumber: number;
+}
+
+export function isLineChangeArray(changes: unknown): changes is LineChange[] {
+    if (!Array.isArray(changes)) {
+        return false;
+    }
+    return changes.every((c) => {
+        const change = c as LineChange;
+        return (
+            typeof change.originalStartLineNumber === 'number' &&
+            typeof change.originalEndLineNumber === 'number' &&
+            typeof change.modifiedStartLineNumber === 'number' &&
+            typeof change.modifiedEndLineNumber === 'number'
+        );
+    });
 }
 
 function hasResourceStates(arg: unknown): arg is { resourceStates: unknown[] } {
@@ -255,18 +282,7 @@ export function extractUriFromArgs(args: unknown[]): Uri | undefined {
     return undefined;
 }
 export function extractFileUri(args: unknown[]): Uri | undefined {
-    const uri = extractUriFromArgs(args);
-    if (uri) {
-        return uri;
-    }
-    const firstArg = args[0];
-    if (firstArg && typeof firstArg === 'object' && firstArg !== null && 'resourceUri' in firstArg) {
-        const state = firstArg as { resourceUri: unknown };
-        if (Uri.isUri(state.resourceUri)) {
-            return state.resourceUri;
-        }
-    }
-    return undefined;
+    return extractUriFromArgs(args);
 }
 
 export function getErrorMessage(error: unknown): string {
