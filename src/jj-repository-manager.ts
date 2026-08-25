@@ -8,6 +8,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from './code-forge-registry';
+import { type Event, EventEmitter } from './common/events';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
@@ -41,17 +42,17 @@ export class JjRepositoryManager implements vscode.Disposable {
     private _normalizedWorkspaceFolders: string[] | undefined;
     private readonly _realNormalizedPathCache = new Map<string, Promise<string>>();
 
-    private readonly _onDidOpenRepository = new vscode.EventEmitter<JjRepository>();
-    readonly onDidOpenRepository = this._onDidOpenRepository.event;
+    private readonly _onDidOpenRepository = new EventEmitter<JjRepository>();
+    readonly onDidOpenRepository: Event<JjRepository> = this._onDidOpenRepository.event;
 
-    private readonly _onDidCloseRepository = new vscode.EventEmitter<JjRepository>();
-    readonly onDidCloseRepository = this._onDidCloseRepository.event;
+    private readonly _onDidCloseRepository = new EventEmitter<JjRepository>();
+    readonly onDidCloseRepository: Event<JjRepository> = this._onDidCloseRepository.event;
 
-    private readonly _onDidChangeFocusedRepository = new vscode.EventEmitter<JjRepository | undefined>();
-    readonly onDidChangeFocusedRepository = this._onDidChangeFocusedRepository.event;
+    private readonly _onDidChangeFocusedRepository = new EventEmitter<JjRepository | undefined>();
+    readonly onDidChangeFocusedRepository: Event<JjRepository | undefined> = this._onDidChangeFocusedRepository.event;
 
-    private readonly _onDidChangeRepositories = new vscode.EventEmitter<JjRepository[]>();
-    readonly onDidChangeRepositories = this._onDidChangeRepositories.event;
+    private readonly _onDidChangeRepositories = new EventEmitter<JjRepository[]>();
+    readonly onDidChangeRepositories: Event<JjRepository[]> = this._onDidChangeRepositories.event;
 
     private static readonly LAST_FOCUSED_REPO_KEY = 'jj-view.lastFocusedRepoPath';
     private static readonly DISCOVERED_REPOS_KEY = 'jj-view.discoveredRepoPaths';
@@ -1080,7 +1081,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this.normalizePath(pathA) === this.normalizePath(pathB);
     }
 
-    private fireEvent<T>(emitter: vscode.EventEmitter<T>, value: T): void {
+    private fireEvent<T>(emitter: EventEmitter<T>, value: T): void {
         if (!this._disposed) {
             emitter.fire(value);
         }

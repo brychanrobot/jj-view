@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import type { AuthManageItem } from './code-forge-provider';
+import { type Disposable, type Event, EventEmitter } from './common/events';
 import type { JjLoggerChannel } from './utils/output-channel';
 
 export type AuthToken = string;
@@ -29,13 +30,13 @@ export interface AlternativeChoice {
     execute: () => Promise<AuthResult>;
 }
 
-export class CodeForgeAuthManager implements vscode.Disposable {
+export class CodeForgeAuthManager implements Disposable {
     private promptedThisSession = new Set<string>();
     private unavailableProviders = new Set<string>();
     private registeredProviderIds = new Set<string>();
 
-    private readonly _onDidAuthenticate = new vscode.EventEmitter<string>();
-    public readonly onDidAuthenticate: vscode.Event<string> = this._onDidAuthenticate.event;
+    private readonly _onDidAuthenticate = new EventEmitter<string>();
+    public readonly onDidAuthenticate: Event<string> = this._onDidAuthenticate.event;
 
     constructor(
         private readonly context: vscode.ExtensionContext,

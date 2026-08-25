@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type * as vscode from 'vscode';
+import type { Event } from './common/events';
 import type { CodeForgeChangeInfo, CommitParent } from './jj-types';
 
 export interface GitRemote {
@@ -27,7 +27,7 @@ export interface CodeForgeProvider {
     readonly changeTerm: 'CL' | 'PR' | 'Change';
 
     /** Fires when change cache statuses or states are updated */
-    readonly onDidUpdate: vscode.Event<void>;
+    readonly onDidUpdate: Event<void>;
 
     /** Determines if this provider is active for the current workspace and remotes */
     detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean>;
@@ -47,6 +47,8 @@ export interface CodeForgeProvider {
     /** Hook called when the provider starts or stops being the active provider */
     activate(): void;
     deactivate(): void;
+    /** Hook to dispose provider resources */
+    dispose?(): void;
     /** Hook to clear provider's cached data */
     clearCache(): void;
     /** Check if authentication is currently configured/available for this provider */
@@ -89,6 +91,11 @@ export interface CodeForgeCommentThread {
     comments: CodeForgeComment[];
 }
 
-export interface AuthManageItem extends vscode.QuickPickItem {
+export interface AuthManageItem {
+    label: string;
+    description?: string;
+    detail?: string;
+    picked?: boolean;
+    alwaysShow?: boolean;
     execute(): Promise<void>;
 }

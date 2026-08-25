@@ -6,23 +6,25 @@ import * as vscode from 'vscode';
 import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
+import { type Disposable, disposeSafely, type Event, EventEmitter } from './common/events';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
 import { getJjViewConfig } from './utils/config-utils';
 import type { JjLoggerChannel } from './utils/output-channel';
 import { TimerBucket } from './utils/timer-bucket';
 
-export class CodeForgeService implements vscode.Disposable {
+export class CodeForgeService implements Disposable {
     private poller: NodeJS.Timeout | undefined;
-    private activeProviderDisposable: vscode.Disposable | undefined;
-    private disposables: vscode.Disposable[] = [];
+    private activeProviderDisposable: Disposable | undefined;
+    private disposables: Disposable[] = [];
     private isDisposed = false;
     private backoffTimers = new TimerBucket();
-    private _onDidUpdate = new vscode.EventEmitter<void>();
-    public readonly onDidUpdate = this._onDidUpdate.event;
+    private _onDidUpdate = new EventEmitter<void>();
+    public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
-    private _onDidActiveProviderChange = new vscode.EventEmitter<CodeForgeProvider | undefined>();
-    public readonly onDidActiveProviderChange = this._onDidActiveProviderChange.event;
+    private _onDidActiveProviderChange = new EventEmitter<CodeForgeProvider | undefined>();
+    public readonly onDidActiveProviderChange: Event<CodeForgeProvider | undefined> =
+        this._onDidActiveProviderChange.event;
 
     private _initPromise: Promise<void>;
     private lastRefreshTime: number = 0;
@@ -84,17 +86,47 @@ export class CodeForgeService implements vscode.Disposable {
         return this._initPromise;
     }
 
-    public dispose() {
+    public dispose(): void {
+        if (this.isDisposed) {
+            return;
+        }
         this.isDisposed = true;
         this.stopPolling();
-        this.backoffTimers.dispose();
-        this.activeProviderDisposable?.dispose();
-        this.activeProviderInstance?.deactivate();
-        for (const disposable of this.disposables) {
-            disposable?.dispose();
+        this.safeDispose(this.backoffTimers, 'backoff timers');
+        this.safeDispose(this.activeProviderDisposable, 'active provider');
+        this.safeDeactivate(this.activeProviderInstance);
+        for (const provider of this.providers.values()) {
+            if (typeof provider.dispose === 'function') {
+                const disposeFn = provider.dispose.bind(provider);
+                this.safeDispose({ dispose: disposeFn }, `provider ${provider.id}`);
+            }
         }
-        this._onDidActiveProviderChange.dispose();
-        this._onDidUpdate.dispose();
+        this.providers.clear();
+        for (const disposable of this.disposables) {
+            this.safeDispose(disposable, 'subscription');
+        }
+        this.disposables = [];
+        this.safeDispose(this._onDidActiveProviderChange, 'active provider change emitter');
+        this.safeDispose(this._onDidUpdate, 'update emitter');
+        this.activeProviderDisposable = undefined;
+        this.activeProviderInstance = undefined;
+    }
+
+    private safeDispose(disposable: Disposable | undefined, description: string): void {
+        disposeSafely(disposable, (err) => {
+            this.outputChannel?.error(`[CodeForgeService] Error disposing ${description}: ${err}`);
+        });
+    }
+
+    private safeDeactivate(provider: CodeForgeProvider | undefined): void {
+        if (!provider) {
+            return;
+        }
+        try {
+            provider.deactivate();
+        } catch (err) {
+            this.outputChannel?.error(`[CodeForgeService] Error deactivating active provider: ${err}`);
+        }
     }
 
     public get isEnabled(): boolean {

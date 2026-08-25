@@ -5,14 +5,13 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type * as vscode from 'vscode';
 import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
+import { AsyncEventEmitter, type Disposable } from './common/events';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
 import type { Uri } from './uri-utils';
-import { AsyncEventEmitter } from './utils/async-event-emitter';
 import { getJjViewConfig } from './utils/config-utils';
 import { DebouncingQueue } from './utils/debouncing-queue';
 import type { JjLoggerChannel } from './utils/output-channel';
@@ -22,7 +21,7 @@ interface RefreshPayload {
     reasons: Set<string>;
 }
 
-export class JjRepository implements vscode.Disposable {
+export class JjRepository implements Disposable {
     private readonly _jj: JjService;
     private readonly _watcher: ChangeDetectionManager;
     private readonly _codeForge: CodeForgeService;
@@ -163,11 +162,12 @@ export class JjRepository implements vscode.Disposable {
         await this._watcher.awaitWatchersReady();
     }
 
-    async dispose() {
+    async dispose(): Promise<void> {
         if (this._disposed) {
             return;
         }
         this._disposed = true;
+        this._onDidStatusChange.dispose();
         this._codeForge.dispose();
         await this._watcher.dispose();
 

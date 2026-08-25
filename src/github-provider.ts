@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
+
 import { z } from 'zod';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
@@ -13,6 +13,7 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
+import { type Event, EventEmitter } from './common/events';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
@@ -163,8 +164,8 @@ export class GitHubProvider implements CodeForgeProvider {
     private repo: string | undefined;
     private allowedOwners = new Set<string>();
 
-    private _onDidUpdate = new vscode.EventEmitter<void>();
-    public readonly onDidUpdate = this._onDidUpdate.event;
+    private _onDidUpdate = new EventEmitter<void>();
+    public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
@@ -773,6 +774,10 @@ export class GitHubProvider implements CodeForgeProvider {
 
     public deactivate(): void {
         this.outputChannel?.info('[GitHubProvider] Deactivated');
+    }
+
+    public dispose(): void {
+        this._onDidUpdate.dispose();
     }
 
     private async getSessionToken(): Promise<string | undefined> {

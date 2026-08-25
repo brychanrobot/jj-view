@@ -117,6 +117,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     const processTracker = new JjProcessTracker();
+    context.subscriptions.push(processTracker);
     const processStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     processStatusBarItem.command = 'jj-view.showProcessMonitor';
     context.subscriptions.push(processStatusBarItem);
