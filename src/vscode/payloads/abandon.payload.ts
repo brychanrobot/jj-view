@@ -4,9 +4,9 @@
  */
 import type { AbandonPayload } from '../../commands/abandon';
 import { extractRevisions, isCurrentWorkingCopyResourceGroup } from '../../commands/command-utils';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
-export function createAbandonPayload(args: unknown[], scmProvider?: JjScmProvider): AbandonPayload {
+export function createAbandonPayload(args: unknown[], scmProvider?: VsCodeScmProvider): AbandonPayload {
     let revisions: string[] = [];
 
     if (args.some((arg) => isCurrentWorkingCopyResourceGroup(arg))) {

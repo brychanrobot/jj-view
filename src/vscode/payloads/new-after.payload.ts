@@ -5,9 +5,9 @@
 
 import { resolveRevisionsWithSelection } from '../../commands/command-utils';
 import type { NewAfterPayload } from '../../commands/new-after';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
-export function createNewAfterPayload(args: unknown[], scmProvider?: JjScmProvider): NewAfterPayload {
+export function createNewAfterPayload(args: unknown[], scmProvider?: VsCodeScmProvider): NewAfterPayload {
     const revisions = resolveRevisionsWithSelection(args, scmProvider);
     return { revisions };
 }

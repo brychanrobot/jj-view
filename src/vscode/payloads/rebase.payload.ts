@@ -4,11 +4,11 @@
  */
 import { extractRevision } from '../../commands/command-utils';
 import type { RebaseOntoSelectedPayload } from '../../commands/rebase';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createRebaseOntoSelectedPayload(
     args: unknown[],
-    scmProvider?: JjScmProvider,
+    scmProvider?: VsCodeScmProvider,
 ): RebaseOntoSelectedPayload {
     const argRevision = extractRevision(args);
     const selectedIds = scmProvider?.getSelectedCommitIds() ?? [];

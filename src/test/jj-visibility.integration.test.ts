@@ -5,13 +5,13 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjScmProvider } from '../jj-scm-provider';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Visibility Integration Test', () => {
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let outputChannel: vscode.LogOutputChannel;
     let repo: TestRepo;

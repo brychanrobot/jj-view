@@ -5,9 +5,9 @@
 
 import { extractRevisions } from '../../commands/command-utils';
 import type { SetDescriptionPayload } from '../../commands/describe';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
-export function createSetDescriptionPayload(args: unknown[], scmProvider?: JjScmProvider): SetDescriptionPayload {
+export function createSetDescriptionPayload(args: unknown[], scmProvider?: VsCodeScmProvider): SetDescriptionPayload {
     let description = typeof args[0] === 'string' ? args[0] : undefined;
     const revisionArgs = description ? args.slice(1) : args;
     const revision =

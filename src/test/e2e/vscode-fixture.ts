@@ -1157,6 +1157,12 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
             }
             logPerf('cleanupAfterTest: close auxiliary windows', start);
 
+            if (this.page && !this.page.isClosed()) {
+                try {
+                    await this.page.keyboard.press('Escape');
+                } catch {}
+            }
+
             const cleanupEvalStart = Date.now();
             try {
                 let evaluateDone = false;

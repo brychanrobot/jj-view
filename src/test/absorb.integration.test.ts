@@ -7,8 +7,8 @@ import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { absorbCommand } from '../commands/absorb';
 import type { CommentsManager } from '../comments-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { createAbsorbPayload } from '../vscode/payloads/absorb.payload';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import type { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import {
     createIntegrationCommandContext,
@@ -21,7 +21,7 @@ import { createMock } from './test-utils';
 suite('Absorb Integration Test', function () {
     this.timeout(60000);
     let repo: TestRepo;
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let outputChannel: vscode.LogOutputChannel;
     let contextHelper: TestRepositoryContext;
     let cmdCtx: VSCodeCommandContext;

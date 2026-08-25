@@ -8,6 +8,7 @@ import { ACK_REPLY_TEXT, DONE_REPLY_TEXT } from '../../comments-constants';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
 import {
+    dismissQuickInput,
     expectBadgeLink,
     expectNotificationToast,
     focusJJLog,
@@ -325,6 +326,7 @@ test.describe('GitHub Integration E2E', () => {
         }).toPass({ timeout: 15000 });
 
         await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
+        await dismissQuickInput(page);
     });
 
     test('Detects PR from fork targeting mainline repo', async ({ vscode }) => {

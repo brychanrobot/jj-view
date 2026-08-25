@@ -12,8 +12,8 @@ import type { CommentsManager } from '../comments-manager';
 import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { Uri } from '../uri-utils';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { VSCodeCommandContext } from '../vscode/vscode-command-context';
 import { VsCodeHostEnvironment } from '../vscode/vscode-host-environment';
 import { createMock } from './test-utils';
@@ -23,7 +23,7 @@ export interface TestRepositoryContext {
     repository: JjRepository;
     repositoryManager: JjRepositoryManager;
     workspaceState: vscode.Memento;
-    scmProvider: JjScmProvider;
+    scmProvider: VsCodeScmProvider;
     dispose(): Promise<void>;
 }
 
@@ -254,7 +254,7 @@ export function stubCommand(
  * Creates a valid VSCodeCommandContext with a VsCodeHostEnvironment for integration tests.
  */
 export function createIntegrationCommandContext(
-    scmProvider: JjScmProvider,
+    scmProvider: VsCodeScmProvider,
     comments?: CommentsManager,
 ): VSCodeCommandContext {
     const host = new VsCodeHostEnvironment({
