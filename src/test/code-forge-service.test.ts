@@ -47,6 +47,7 @@ class MockProvider implements CodeForgeProvider {
     private cache = new Map<string, CodeForgeChangeInfo>();
     private emitter = new vscode.EventEmitter<void>();
     readonly onDidUpdate = this.emitter.event;
+    public dispose?: () => void;
 
     constructor(
         public readonly id = 'mock-provider',
@@ -334,5 +335,79 @@ describe('CodeForgeService Tests', () => {
         expect(commits[1].codeForgeNeedsUpload).toBe(true);
 
         service.dispose();
+    });
+
+    test('CodeForgeRegistry unregistration disposable does not delete newer factory with same id', () => {
+        const reg = new CodeForgeRegistry();
+        const factory1 = {
+            id: 'forge-x',
+            create: () => new MockProvider('forge-x', 'Forge 1'),
+        };
+        const factory2 = {
+            id: 'forge-x',
+            create: () => new MockProvider('forge-x', 'Forge 2'),
+        };
+
+        const sub1 = reg.register(factory1);
+        expect(reg.getFactories()).toHaveLength(1);
+        expect(reg.getFactories()[0]).toBe(factory1);
+
+        // Disposing sub1 unregisters factory1
+        sub1.dispose();
+        expect(reg.getFactories()).toHaveLength(0);
+
+        // Register factory2 with same id
+        const sub2 = reg.register(factory2);
+        expect(reg.getFactories()).toHaveLength(1);
+        expect(reg.getFactories()[0]).toBe(factory2);
+
+        // Disposing sub1 again should NOT unregister factory2
+        sub1.dispose();
+        expect(reg.getFactories()).toHaveLength(1);
+        expect(reg.getFactories()[0]).toBe(factory2);
+
+        // Disposing sub2 unregisters factory2
+        sub2.dispose();
+        expect(reg.getFactories()).toHaveLength(0);
+
+        reg.dispose();
+    });
+
+    test('CodeForgeService dispose is idempotent and cleans up providers and emitters', async () => {
+        const mockProvider = new MockProvider('mock-disposable', 'Mock Disposable', true);
+        const disposeSpy = vi.fn();
+        mockProvider.dispose = disposeSpy;
+        const deactivateSpy = vi.spyOn(mockProvider, 'deactivate');
+
+        registry.register({
+            id: 'mock-disposable',
+            create: () => mockProvider,
+        });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        await service.awaitReady();
+
+        expect(service.isEnabled).toBe(true);
+        expect(service.activeProvider).toBe(mockProvider);
+
+        const updateListener = vi.fn();
+        service.onDidUpdate(updateListener);
+
+        // First dispose
+        service.dispose();
+
+        expect(deactivateSpy).toHaveBeenCalledTimes(1);
+        expect(disposeSpy).toHaveBeenCalledTimes(1);
+        expect(service.activeProvider).toBeUndefined();
+        expect(service.isEnabled).toBe(false);
+
+        // Force refresh after dispose does not fire listeners
+        service.forceRefresh();
+        expect(updateListener).not.toHaveBeenCalled();
+
+        // Second dispose should be safe and idempotent
+        expect(() => service.dispose()).not.toThrow();
+        expect(deactivateSpy).toHaveBeenCalledTimes(1);
+        expect(disposeSpy).toHaveBeenCalledTimes(1);
     });
 });

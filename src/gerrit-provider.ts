@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
+
 import { z } from 'zod';
 import type {
     ChangeStatusRequest,
@@ -11,6 +11,7 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
+import { type Event, EventEmitter } from './common/events';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
@@ -107,8 +108,8 @@ export class GerritProvider implements CodeForgeProvider {
     private authChecked = false;
     private lastAuthTime = 0;
 
-    private _onDidUpdate = new vscode.EventEmitter<void>();
-    public readonly onDidUpdate = this._onDidUpdate.event;
+    private _onDidUpdate = new EventEmitter<void>();
+    public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
     constructor(private outputChannel?: JjLoggerChannel) {}
 
@@ -777,5 +778,9 @@ export class GerritProvider implements CodeForgeProvider {
 
     public deactivate(): void {
         this.outputChannel?.info('[GerritProvider] Deactivated');
+    }
+
+    public dispose(): void {
+        this._onDidUpdate.dispose();
     }
 }

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { AsyncEventEmitter } from '../utils/async-event-emitter';
+import { AsyncEventEmitter } from '../common/events';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { DebouncingQueue } from '../utils/debouncing-queue';
 import { FakeConfigStore } from './test-utils';

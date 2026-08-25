@@ -319,6 +319,23 @@ describe('JjProcessTracker Unit Tests', () => {
         expect(history[0].stderr).toBe('stderr text');
         expect(history[0].error).toContain('stderr text');
     });
+
+    test('dispose cleans up event emitter and prevents future notifications', () => {
+        const tracker = new JjProcessTracker();
+        const listener = vi.fn();
+        tracker.onDidChangeProcesses(listener);
+
+        tracker.dispose();
+
+        tracker.startTrackingProcess({
+            command: 'jj log',
+            args: ['log'],
+            status: 'running',
+            childProcess: createMock<ChildProcess>({}),
+        });
+
+        expect(listener).not.toHaveBeenCalled();
+    });
 });
 
 describe('isProcessTerminated Unit Tests', () => {

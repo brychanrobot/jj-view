@@ -4,7 +4,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
-import { AsyncEventEmitter } from './utils/async-event-emitter';
+import { type Disposable, type Event, EventEmitter } from './common/events';
 
 export type JjProcessStatus = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
 
@@ -41,7 +41,7 @@ export interface JjProcessMetrics {
     avgDurationMs: number;
 }
 
-export class JjProcessTracker {
+export class JjProcessTracker implements Disposable {
     private readonly _activeTasks = new Map<number, JjProcessTask>();
     private readonly _history: JjProcessTask[] = [];
     private readonly _maxHistorySize = 50;
@@ -49,8 +49,8 @@ export class JjProcessTracker {
     private _totalCompletedCount = 0;
     private _totalCompletedDurationMs = 0;
 
-    private readonly _onDidChangeProcesses = new AsyncEventEmitter<void>();
-    public readonly onDidChangeProcesses = this._onDidChangeProcesses.event;
+    private readonly _onDidChangeProcesses = new EventEmitter<void>();
+    public readonly onDidChangeProcesses: Event<void> = this._onDidChangeProcesses.event;
 
     private _nextId = 1;
 
@@ -214,6 +214,10 @@ export class JjProcessTracker {
             totalCount: this._totalCompletedCount,
             avgDurationMs,
         };
+    }
+
+    public dispose(): void {
+        this._onDidChangeProcesses.dispose();
     }
 }
 

@@ -114,4 +114,22 @@ describe('JjRepository.refresh error handling', () => {
         await jjRepo.dispose();
         expect(jjRepo.activeRefresh).toBeUndefined();
     });
+
+    test('dispose() cleans up onDidStatusChange event emitter', async () => {
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel(),
+        );
+
+        const statusListener = vi.fn();
+        jjRepo.onDidStatusChange(statusListener);
+
+        await jjRepo.dispose();
+
+        // Refresh on disposed repository should not fire listener
+        await jjRepo.refresh({ forceSnapshot: true });
+        expect(statusListener).not.toHaveBeenCalled();
+    });
 });

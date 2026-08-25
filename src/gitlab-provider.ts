@@ -12,6 +12,7 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
+import { type Event, EventEmitter } from './common/events';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { getJjViewConfig } from './utils/config-utils';
@@ -99,8 +100,8 @@ export class GitLabProvider implements CodeForgeProvider {
     private forkResolutionPromiseHasToken = false;
     private extensionPromptShown = false;
 
-    private _onDidUpdate = new vscode.EventEmitter<void>();
-    public readonly onDidUpdate = this._onDidUpdate.event;
+    private _onDidUpdate = new EventEmitter<void>();
+    public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
     private hasWarned403 = false;
 
@@ -880,6 +881,10 @@ export class GitLabProvider implements CodeForgeProvider {
 
     public deactivate(): void {
         this.outputChannel?.info('[GitLabProvider] Deactivated');
+    }
+
+    public dispose(): void {
+        this._onDidUpdate.dispose();
     }
 
     private async getSessionToken(prompt = false): Promise<string | undefined> {
