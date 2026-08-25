@@ -257,7 +257,20 @@ export function createIntegrationCommandContext(
     scmProvider: VsCodeScmProvider,
     comments?: CommentsManager,
 ): VSCodeCommandContext {
+    const context = createMock<vscode.ExtensionContext>({
+        globalState: createMock<vscode.ExtensionContext['globalState']>({
+            get: () => undefined,
+            update: () => Promise.resolve(),
+            setKeysForSync: () => {},
+        }),
+        secrets: createMock<vscode.SecretStorage>({
+            get: () => Promise.resolve(undefined),
+            store: () => Promise.resolve(),
+            delete: () => Promise.resolve(),
+        }),
+    });
     const host = new VsCodeHostEnvironment({
+        context,
         repo: scmProvider.repo,
         log: scmProvider.outputChannel,
         sourceControl: scmProvider.sourceControl,

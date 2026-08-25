@@ -61,7 +61,6 @@ import { workspaceForgetCommand } from '../commands/workspace-forget';
 import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../commands/workspace-open';
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext } from '../common/command-context';
-import type { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
@@ -121,6 +120,7 @@ import {
     createWorkspaceOpenInCurrentWindowPayload,
     createWorkspaceOpenInNewWindowPayload,
 } from './payloads/workspace-open.payload';
+import type { VsCodeLogWebviewProvider } from './providers/vscode-log-webview-provider';
 import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { VsCodeHostEnvironment } from './vscode-host-environment';
@@ -132,7 +132,7 @@ export interface RegisterCommandsOptions {
     scmProviders: Map<string, VsCodeScmProvider>;
     outputChannel: JjLoggerChannel;
     commentsManager: CommentsManager;
-    logWebviewProvider: JjLogWebviewProvider;
+    logWebviewProvider: VsCodeLogWebviewProvider;
 }
 
 export function registerCommands(options: RegisterCommandsOptions): void {
@@ -344,23 +344,25 @@ export function registerCommands(options: RegisterCommandsOptions): void {
     for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {
         context.subscriptions.push(
             vscode.commands.registerCommand(`jj-view.hideCommitAction.${actionId}`, () =>
-                logWebviewProvider.toggleActionVisibility(actionId),
+                logWebviewProvider.controller.toggleAction(actionId),
             ),
             vscode.commands.registerCommand(`jj-view.toggleCommitAction.${actionId}.on`, () =>
-                logWebviewProvider.toggleActionVisibility(actionId),
+                logWebviewProvider.controller.toggleAction(actionId),
             ),
             vscode.commands.registerCommand(`jj-view.toggleCommitAction.${actionId}.off`, () =>
-                logWebviewProvider.toggleActionVisibility(actionId),
+                logWebviewProvider.controller.toggleAction(actionId),
             ),
         );
     }
 
     const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
-        await logWebviewProvider.refresh();
+        await logWebviewProvider.controller.refresh();
     });
     context.subscriptions.push(refreshDisposable);
 
-    const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () => logWebviewProvider.refresh());
+    const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () =>
+        logWebviewProvider.controller.refresh(),
+    );
     context.subscriptions.push(refreshCmd);
 }
 

@@ -5,11 +5,13 @@
 import * as fs from 'node:fs';
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext, CommandServices } from '../common/command-context';
+import { type Event, EventEmitter } from '../common/events';
 import type {
     HostAuth,
     HostAuthSession,
     HostCommands,
     HostConfig,
+    HostConfigurationChangeEvent,
     HostDisposable,
     HostDocuments,
     HostEnvironment,
@@ -222,9 +224,15 @@ export class FakeHostNavigation implements HostNavigation {
 
 export class FakeHostConfig implements HostConfig {
     private readonly values = new Map<string, unknown>();
+    private readonly _onDidChangeConfiguration = new EventEmitter<HostConfigurationChangeEvent>();
+    public readonly onDidChangeConfiguration: Event<HostConfigurationChangeEvent> =
+        this._onDidChangeConfiguration.event;
 
     set<T>(key: string, value: T): void {
         this.values.set(key, value);
+        this._onDidChangeConfiguration.fire({
+            affectsConfiguration: (section: string) => section === key || section === `jj-view.${key}`,
+        });
     }
 
     get<T>(key: string): T | undefined;
@@ -237,7 +245,7 @@ export class FakeHostConfig implements HostConfig {
     }
 
     async update<T>(key: string, value: T): Promise<void> {
-        this.values.set(key, value);
+        this.set(key, value);
     }
 }
 

@@ -1,0 +1,125 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import * as vscode from 'vscode';
+
+vi.mock('vscode', async () => {
+    const { createVscodeMock } = await import('./vscode-mock');
+    return createVscodeMock();
+});
+
+import { CodeForgeRegistry } from '../code-forge-registry';
+import { CommitDetailsController } from '../controllers/commit-details-controller';
+import { JjRepositoryManager } from '../jj-repository-manager';
+import { Uri } from '../uri-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
+import { TestRepo } from './test-repo';
+import { createMock, createMockLogOutputChannel } from './test-utils';
+
+describe('CommitDetailsController Domain Unit Tests', () => {
+    let testRepo: TestRepo;
+    let repositoryManager: JjRepositoryManager;
+    let fakeHost: FakeHostEnvironment;
+    let controller: CommitDetailsController;
+    let postedMessages: unknown[];
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        postedMessages = [];
+        testRepo = new TestRepo();
+        testRepo.init();
+
+        const registry = new CodeForgeRegistry();
+        const outputChannel = createMockLogOutputChannel({
+            appendLine: () => {},
+        });
+        const workspaceState = createMock<vscode.Memento>({
+            get: vi.fn().mockReturnValue(undefined),
+            update: vi.fn().mockResolvedValue(undefined),
+        });
+
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+
+        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
+            uri: Uri.file(testRepo.path),
+        });
+        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repo) {
+            throw new Error('Failed to register repo in test');
+        }
+
+        fakeHost = new FakeHostEnvironment();
+
+        controller = new CommitDetailsController('@', repo, fakeHost);
+        controller.addMessenger({
+            postMessage: (m) => postedMessages.push(m),
+        });
+    });
+
+    afterEach(async () => {
+        controller.dispose();
+        await repositoryManager.dispose();
+    });
+
+    test('loads commit details and changes from real repository', async () => {
+        testRepo.writeFile('file.txt', 'hello world\n');
+        testRepo.describe('initial commit description');
+
+        const log = await controller.load();
+
+        expect(log).toBeDefined();
+        expect(controller.logEntry).toBeDefined();
+        expect(controller.logEntry?.description).toContain('initial commit description');
+        expect(controller.changes?.length).toBeGreaterThan(0);
+    });
+
+    test('preserves draft description when reloading commit data', async () => {
+        testRepo.writeFile('file.txt', 'hello\n');
+        testRepo.describe('persisted description');
+
+        await controller.load();
+        expect(controller.draftDescription).toBe('persisted description');
+
+        // User types a draft
+        controller.updateDraft('in-progress draft editing');
+        expect(controller.draftDescription).toBe('in-progress draft editing');
+
+        // Background reload happens
+        await controller.load();
+        expect(controller.draftDescription).toBe('in-progress draft editing');
+        expect(controller.persistedDescription).toBe('persisted description');
+    });
+
+    test('saves commit description to real repository', async () => {
+        testRepo.writeFile('file.txt', 'data\n');
+        testRepo.describe('old description');
+
+        await controller.load();
+        const saved = await controller.save('new updated description');
+
+        expect(saved).toBe(true);
+        expect(controller.draftDescription).toBe('new updated description');
+        expect(controller.persistedDescription).toBe('new updated description');
+
+        // Verify with real log on disk
+        const log = testRepo.log();
+        expect(log).toContain('new updated description');
+    });
+
+    test('handles descriptionChanged RPC message', async () => {
+        const handled = await controller.handleMessage({
+            type: 'descriptionChanged',
+            payload: {
+                description: 'typed from webview',
+                selectionStart: 5,
+                selectionEnd: 5,
+            },
+        });
+
+        expect(handled).toBe(true);
+        expect(controller.draftDescription).toBe('typed from webview');
+    });
+});

@@ -5,14 +5,14 @@
 
 import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
-import { getFsPathFromUri, Uri } from './uri-utils';
+import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 
 /**
  * Parse a jj-edit URI to extract revision and file path.
  * URI format: jj-edit:///relative/path#root=<repoRoot>&revision=<changeId>
  */
 function parseEditUri(uri: Uri): { revision: string; filePath: string } {
-    const params = new URLSearchParams(uri.fragment);
+    const params = getUriParams(uri);
     const revision = params.get('revision');
     if (!revision) {
         throw vscode.FileSystemError.Unavailable('Missing revision in jj-edit URI');
