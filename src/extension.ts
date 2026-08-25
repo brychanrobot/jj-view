@@ -18,20 +18,23 @@ import { checkGitColocation } from './git-colocation';
 import { GitHubProvider } from './github-provider';
 import { GitLabProvider } from './gitlab-provider';
 import { JjContextKey } from './jj-context-keys';
-import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
-import { JjMergeContentProvider } from './jj-merge-provider';
+import { JjEditFsService } from './jj-edit-fs-service';
+import { JjMergeService } from './jj-merge-service';
 import { JjProcessTracker } from './jj-process-tracker';
 import { JjRepositoryManager } from './jj-repository-manager';
-import { JjViewFileSystemProvider } from './jj-view-fs-provider';
+import { JjViewFsService } from './jj-view-fs-service';
 import { getUriParams } from './uri-utils';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 import { VsCodeCommentsProvider } from './vscode/providers/vscode-comments-provider';
 import { VsCodeCommitDetailsEditorProvider } from './vscode/providers/vscode-commit-details-editor-provider';
+import { VsCodeEditFsProvider } from './vscode/providers/vscode-edit-fs-provider';
 import { VsCodeLogWebviewProvider } from './vscode/providers/vscode-log-webview-provider';
+import { VsCodeMergeContentProvider } from './vscode/providers/vscode-merge-provider';
 import { VsCodeProcessMonitorProvider } from './vscode/providers/vscode-process-monitor-provider';
 import { VsCodeScmProvider } from './vscode/providers/vscode-scm-provider';
+import { VsCodeViewFsProvider } from './vscode/providers/vscode-view-fs-provider';
 import { registerVSCodeCommands } from './vscode/register-commands';
 import { registerProcessMonitorCommands } from './vscode/register-process-monitor-commands';
 import { VsCodeHostEnvironment } from './vscode/vscode-host-environment';
@@ -301,8 +304,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
     );
 
-    const viewFileSystemProvider = new JjViewFileSystemProvider(repositoryManager);
-    const editFileSystemProvider = new JjEditFileSystemProvider(repositoryManager);
+    const viewFsService = new JjViewFsService(repositoryManager);
+    const viewFileSystemProvider = new VsCodeViewFsProvider(viewFsService);
+
+    const editFsService = new JjEditFsService(repositoryManager);
+    const editFileSystemProvider = new VsCodeEditFsProvider(editFsService);
 
     // Register FileSystemProvider for read-only access to old file versions (for diffs)
     context.subscriptions.push(
@@ -320,7 +326,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 if (!repo) {
                     return '';
                 }
-                const mergeProvider = new JjMergeContentProvider(repo.jj);
+                const mergeService = new JjMergeService(repo.jj);
+                const mergeProvider = new VsCodeMergeContentProvider(mergeService);
                 return mergeProvider.provideTextDocumentContent(uri);
             },
         }),

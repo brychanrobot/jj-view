@@ -13,14 +13,13 @@ import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { JjViewFsService } from '../jj-view-fs-service';
-import { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
-describe('VsCodeViewFsProvider', () => {
+describe('JjViewFsService Unit Tests', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
-    let provider: VsCodeViewFsProvider;
+    let service: JjViewFsService;
 
     beforeEach(async () => {
         repo = new TestRepo();
@@ -37,46 +36,60 @@ describe('VsCodeViewFsProvider', () => {
 
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
 
-        // Register the real repository
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
             uri: Uri.file(repo.path),
         });
         await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
 
-        const service = new JjViewFsService(repoManager);
-        provider = new VsCodeViewFsProvider(service);
+        service = new JjViewFsService(repoManager);
     });
 
     afterEach(async () => {
         await repoManager.dispose();
+        repo.dispose();
     });
 
-    it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
+    it('throws error when no repository is found', async () => {
         const outsideUri = Uri.parse('jj-view:///outside/file.txt#root=/outside&revision=@');
-        await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
+        await expect(service.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
     });
 
-    it('readFile retrieves file content from a revision on a different chain', async () => {
+    it('reads file content at a specific revision', async () => {
         const nodes = await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'f.txt': 'initial content' } },
-            { label: 'chainA', parents: ['initial'], description: 'chainA', files: { 'f.txt': 'chain A content' } },
-            {
-                label: 'chainB',
-                parents: ['initial'],
-                description: 'chainB',
-                files: { 'f.txt': 'chain B content' },
-                isCurrentWorkingCopy: true,
-            },
+            { label: 'initial', description: 'initial', files: { 'f.txt': 'version 1' } },
         ]);
 
         const uri = Uri.from({
             scheme: 'jj-view',
             path: '/f.txt',
-            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.chainA.changeId}`,
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.initial.changeId}`,
         });
 
-        const bytes = await provider.readFile(uri);
-        const text = Buffer.from(bytes).toString('utf8');
-        expect(text).toBe('chain A content');
+        const bytes = await service.readFile(uri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('version 1');
+    });
+
+    it('invalidates cache and emits onDidChangeFile', async () => {
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial', files: { 'f.txt': 'initial content' } },
+        ]);
+
+        const uri = Uri.from({
+            scheme: 'jj-view',
+            path: '/f.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.initial.changeId}`,
+        });
+
+        await service.readFile(uri);
+
+        let firedUris: Uri[] = [];
+        service.onDidChangeFile((uris) => {
+            firedUris = uris;
+        });
+
+        const invalidated = service.invalidateCache();
+        expect(invalidated.length).toBe(1);
+        expect(firedUris.length).toBe(1);
+        expect(firedUris[0].toString()).toBe(uri.toString());
     });
 });

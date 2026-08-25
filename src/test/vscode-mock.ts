@@ -286,6 +286,18 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         dispose = vi.fn();
     }
 
+    class ThemeColor {
+        constructor(public id: string) {}
+    }
+
+    class FileDecoration {
+        constructor(
+            public badge?: string,
+            public tooltip?: string,
+            public color?: ThemeColor,
+        ) {}
+    }
+
     let mockWorkspaceFolders: { uri: MockUri; name: string; index: number }[] = [
         {
             uri: new MockUri('/root'),
@@ -305,6 +317,8 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         CommentThreadState,
         CommentMode,
         MarkdownString,
+        ThemeColor,
+        FileDecoration,
         comments: {
             createCommentController: vi.fn().mockImplementation((id: string, label: string) => {
                 return new MockCommentController(id, label);

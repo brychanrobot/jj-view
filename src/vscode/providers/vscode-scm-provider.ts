@@ -7,18 +7,19 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DiffTabCleaner } from '../../diff-tab-cleaner';
 import { JjContextKey, ScmContextValue } from '../../jj-context-keys';
-import { JjDecorationProvider } from '../../jj-decoration-provider';
-import type { JjEditFileSystemProvider } from '../../jj-edit-fs-provider';
+import { JjDecorationModel } from '../../jj-decoration-model';
 import type { JjRepository } from '../../jj-repository';
 import type { JjRepositoryManager } from '../../jj-repository-manager';
 import type { JjService } from '../../jj-service';
 import type { JjStatusEntry } from '../../jj-types';
-import type { JjViewFileSystemProvider } from '../../jj-view-fs-provider';
 import { ScmModel, type ScmSnapshot } from '../../scm-model';
 import { createJjResourceState, type JjResourceState } from '../../scm-resource-state';
 import { getRepoRelativePath, type Uri } from '../../uri-utils';
 import { getJjViewConfig } from '../../utils/config-utils';
 import type { JjLoggerChannel } from '../../utils/output-channel';
+import { VsCodeDecorationProvider } from './vscode-decoration-provider';
+import type { VsCodeEditFsProvider } from './vscode-edit-fs-provider';
+import type { VsCodeViewFsProvider } from './vscode-view-fs-provider';
 
 export class VsCodeScmProvider implements vscode.Disposable {
     private _disposed = false;
@@ -32,7 +33,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
     private readonly _diffTabCleaner: DiffTabCleaner;
 
     public readonly scmModel: ScmModel;
-    public readonly decorationProvider: JjDecorationProvider;
+    public readonly decorationProvider: VsCodeDecorationProvider;
 
     get parentMutable(): boolean {
         return this.scmModel.parentMutable;
@@ -69,8 +70,8 @@ export class VsCodeScmProvider implements vscode.Disposable {
         public readonly repo: JjRepository,
         public readonly outputChannel: JjLoggerChannel,
         public readonly repositoryManager: JjRepositoryManager,
-        public readonly viewFileSystemProvider?: JjViewFileSystemProvider,
-        public readonly editProvider?: JjEditFileSystemProvider,
+        public readonly viewFileSystemProvider?: VsCodeViewFsProvider,
+        public readonly editProvider?: VsCodeEditFsProvider,
         public readonly isFocused: () => boolean = () => true,
         scmModel?: ScmModel,
     ) {
@@ -84,7 +85,8 @@ export class VsCodeScmProvider implements vscode.Disposable {
             `Jujutsu (${folderName})`,
             repo.rootUri,
         );
-        this.decorationProvider = new JjDecorationProvider(this.jj, workspaceRoot);
+        const decorationModel = new JjDecorationModel(this.jj, workspaceRoot);
+        this.decorationProvider = new VsCodeDecorationProvider(decorationModel);
 
         const belongsToRepo = (uri: Uri) => {
             return this.repositoryManager.getRepositoryForUri(uri) === this.repo;

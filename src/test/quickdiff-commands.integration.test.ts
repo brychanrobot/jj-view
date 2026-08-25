@@ -10,11 +10,11 @@ import * as vscode from 'vscode';
 import { discardChangeCommand } from '../commands/discard-change';
 import { squashHunkIntoParentCommand } from '../commands/squash-selection';
 import type { CommentsManager } from '../comments-manager';
-import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { Uri } from '../uri-utils';
 import { createDiscardChangePayload } from '../vscode/payloads/discard-change.payload';
 import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
+import type { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
 import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -23,7 +23,7 @@ suite('Quick Diff Commands Integration Test', () => {
     let repo: TestRepo;
     let canonicalPath: string;
     let scmProvider: VsCodeScmProvider;
-    let viewFileSystemProvider: JjViewFileSystemProvider;
+    let viewFileSystemProvider: VsCodeViewFsProvider;
     let jjViewProviderDisposable: vscode.Disposable | undefined;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
