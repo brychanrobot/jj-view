@@ -5,11 +5,10 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
-import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjLogEntry } from '../jj-types';
 import { Uri } from '../uri-utils';
-import { createTestRepositoryContext } from './integration-test-utils';
+import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
+import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
@@ -26,23 +25,28 @@ function createMockWebviewView() {
         options: {},
         html: '',
         onDidReceiveMessage: () => ({ dispose: () => {} }),
-        asWebviewUri: (uri: Uri) => uri,
-        cspSource: '',
-        postMessage: async (message: unknown) => {
-            sentMessages.push(message as UpdateMessage);
-            return true;
+        postMessage: (message: unknown) => {
+            if (typeof message === 'object' && message !== null && 'type' in message) {
+                const msg = message as { type: string };
+                if (msg.type === 'update') {
+                    sentMessages.push(message as UpdateMessage);
+                }
+            }
+            return Promise.resolve(true);
         },
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        cspSource: 'https://*.vscode-cdn.net',
     });
 
     const mockWebviewView = createMock<vscode.WebviewView>({
         webview: mockWebview,
-        viewType: 'jj-view.logView',
+        visible: true,
         onDidChangeVisibility: (listener: (e: undefined) => void) => {
             visibilityListener = listener;
             return { dispose: () => {} };
         },
         onDidDispose: () => ({ dispose: () => {} }),
-        visible: true,
+        show: () => {},
     });
 
     return {
@@ -54,10 +58,10 @@ function createMockWebviewView() {
 }
 
 suite('Webview Visibility Integration Test', () => {
-    let provider: JjLogWebviewProvider;
+    let provider: VsCodeLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
+    let contextHelper: TestRepositoryContext;
 
     setup(async () => {
         repo = new TestRepo();
@@ -69,11 +73,9 @@ suite('Webview Visibility Integration Test', () => {
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
 
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
-        provider = new JjLogWebviewProvider(
+        provider = new VsCodeLogWebviewProvider(
             extensionUri,
             contextHelper.repository,
-            commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({
@@ -108,7 +110,7 @@ suite('Webview Visibility Integration Test', () => {
             createMock<vscode.CancellationToken>({}),
         );
 
-        await provider.refresh();
+        await provider.controller.refresh();
         assert.strictEqual(sentMessages.length, 1, 'Should have sent initial update message');
         const initialCommits = sentMessages[0].commits;
         assert.ok(
@@ -122,7 +124,7 @@ suite('Webview Visibility Integration Test', () => {
 
         // 3. Perform a change while hidden
         repo.describe('Updated Commit while hidden');
-        await provider.refresh();
+        await provider.controller.refresh();
 
         // provider.refresh() calls _renderCommits, so it will postMessage
         const messagesCountWhileHidden = sentMessages.length;

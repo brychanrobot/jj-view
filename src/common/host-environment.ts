@@ -2,10 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
 import type { Uri } from '../uri-utils';
+import type { Event } from './events';
 
 export interface HostDisposable {
     dispose(): void;
+}
+
+export interface HostConfigurationChangeEvent {
+    affectsConfiguration(section: string): boolean;
 }
 
 export interface HostUi {
@@ -49,6 +55,7 @@ export interface HostConfig {
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
     update?<T>(key: string, value: T): Promise<void>;
+    readonly onDidChangeConfiguration?: Event<HostConfigurationChangeEvent>;
 }
 
 export interface HostNavigation {
@@ -112,7 +119,7 @@ export interface HostAuth {
 export interface HostCommands {
     registerCommand<T extends (...args: never[]) => unknown>(commandId: string, callback: T): HostDisposable;
     executeCommand<R = unknown>(commandId: string, ...args: unknown[]): Promise<R>;
-    setContextKey?(key: string, value: unknown): Promise<void>;
+    setContextKey(key: string, value: unknown): Promise<void>;
 }
 
 export interface HostViews {
@@ -127,9 +134,9 @@ export interface HostEnvironment {
     readonly nav: HostNavigation;
     readonly config: HostConfig;
     readonly documents: HostDocuments;
-    readonly storage?: HostStorage;
-    readonly secrets?: HostSecrets;
-    readonly auth?: HostAuth;
-    readonly commands?: HostCommands;
-    readonly views?: HostViews;
+    readonly storage: HostStorage;
+    readonly secrets: HostSecrets;
+    readonly auth: HostAuth;
+    readonly commands: HostCommands;
+    readonly views: HostViews;
 }

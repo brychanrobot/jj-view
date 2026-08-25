@@ -17,12 +17,9 @@ import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
 import { GitHubProvider } from './github-provider';
 import { GitLabProvider } from './gitlab-provider';
-import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provider';
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
-import { JjLogWebviewProvider } from './jj-log-webview-provider';
 import { JjMergeContentProvider } from './jj-merge-provider';
-import { JjProcessMonitorProvider } from './jj-process-monitor-provider';
 import { JjProcessTracker } from './jj-process-tracker';
 import { JjRepositoryManager } from './jj-repository-manager';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
@@ -31,6 +28,9 @@ import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 import { VsCodeCommentsProvider } from './vscode/providers/vscode-comments-provider';
+import { VsCodeCommitDetailsEditorProvider } from './vscode/providers/vscode-commit-details-editor-provider';
+import { VsCodeLogWebviewProvider } from './vscode/providers/vscode-log-webview-provider';
+import { VsCodeProcessMonitorProvider } from './vscode/providers/vscode-process-monitor-provider';
 import { VsCodeScmProvider } from './vscode/providers/vscode-scm-provider';
 import { registerVSCodeCommands } from './vscode/register-commands';
 import { registerProcessMonitorCommands } from './vscode/register-process-monitor-commands';
@@ -379,9 +379,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         scm?.refresh();
     };
 
-    const commitDetailsProvider = new JjCommitDetailsEditorProvider(context.extensionUri, repositoryManager);
+    const commitDetailsProvider = new VsCodeCommitDetailsEditorProvider(
+        context.extensionUri,
+        repositoryManager,
+        context,
+    );
     context.subscriptions.push(
-        vscode.window.registerCustomEditorProvider(JjCommitDetailsEditorProvider.viewType, commitDetailsProvider, {
+        commitDetailsProvider,
+        vscode.window.registerCustomEditorProvider(VsCodeCommitDetailsEditorProvider.viewType, commitDetailsProvider, {
             webviewOptions: {
                 retainContextWhenHidden: true,
             },
@@ -389,7 +394,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     // Get an initial repo for webview log startup
-    const logWebviewProvider = new JjLogWebviewProvider(
+    const logWebviewProvider = new VsCodeLogWebviewProvider(
         context.extensionUri,
         undefined,
         (ids) => {
@@ -403,17 +408,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         outputChannel,
     );
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(JjLogWebviewProvider.viewType, logWebviewProvider),
+        logWebviewProvider,
+        vscode.window.registerWebviewViewProvider(VsCodeLogWebviewProvider.viewType, logWebviewProvider),
     );
 
-    const processMonitorProvider = new JjProcessMonitorProvider(context.extensionUri, processTracker);
+    const processMonitorProvider = new VsCodeProcessMonitorProvider(context.extensionUri, processTracker, context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(JjProcessMonitorProvider.viewType, processMonitorProvider),
+        processMonitorProvider,
+        vscode.window.registerWebviewViewProvider(VsCodeProcessMonitorProvider.viewType, processMonitorProvider),
     );
 
     context.subscriptions.push(
         commitDetailsProvider.onDidClosePanel((changeId) => {
-            logWebviewProvider.handlePanelClosed(changeId);
+            logWebviewProvider.controller.handlePanelClosed(changeId);
         }),
     );
 
@@ -440,7 +447,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
                 // Refresh webview and commit details panel in parallel
                 await Promise.all([
-                    logWebviewProvider.refresh(event.reason),
+                    logWebviewProvider.controller.refresh(event.reason),
                     commitDetailsProvider.refresh(event.reason),
                 ]);
             }

@@ -6,19 +6,18 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
-import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { Uri } from '../uri-utils';
-import { createTestRepositoryContext } from './integration-test-utils';
+import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
+import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('Webview Selection Integration Test', () => {
-    let provider: JjLogWebviewProvider;
+    let provider: VsCodeLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;
     let executeCommandStub: sinon.SinonStub;
     let repo: TestRepo;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
+    let contextHelper: TestRepositoryContext;
 
     // Mock Webview
     const mockWebview = createMock<vscode.Webview>({
@@ -57,11 +56,9 @@ suite('Webview Selection Integration Test', () => {
         });
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
 
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
-        provider = new JjLogWebviewProvider(
+        provider = new VsCodeLogWebviewProvider(
             extensionUri,
             contextHelper.repository,
-            commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({

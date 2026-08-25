@@ -10,7 +10,9 @@ import { extractUriFromArgs, getErrorMessage } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjService } from '../jj-service';
-import { getUriParams, Uri } from '../uri-utils';
+import { createCommitDetailsUri, getUriParams, Uri } from '../uri-utils';
+import { getJjViewConfig } from '../utils/config-utils';
+import { formatCommitTitle } from '../utils/jj-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 
@@ -270,4 +272,102 @@ export function resolveRepository(
     }
 
     return { repo, scm };
+}
+
+/**
+ * Closes all tabs in the workspace that match the given predicate.
+ */
+export async function closeMatchingTabs(predicate: (tab: vscode.Tab) => boolean): Promise<void> {
+    const tabsToClose: vscode.Tab[] = [];
+    for (const tabGroup of vscode.window.tabGroups.all) {
+        for (const tab of tabGroup.tabs) {
+            if (predicate(tab)) {
+                tabsToClose.push(tab);
+            }
+        }
+    }
+    if (tabsToClose.length > 0) {
+        await vscode.window.tabGroups.close(tabsToClose);
+    }
+}
+
+/**
+ * Closes commit details custom editor tabs matching the given repository root predicate.
+ */
+export async function closeCommitDetailsTabs(
+    predicate: (repoRoot?: string) => boolean,
+    viewType: string = 'jj-view.commitDetailsEditor',
+): Promise<void> {
+    await closeMatchingTabs((tab) => {
+        if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
+            return false;
+        }
+        try {
+            const query = getUriParams(tab.input.uri);
+            const repoRoot = query.get('repoRoot') || undefined;
+            return predicate(repoRoot);
+        } catch {
+            return predicate(undefined);
+        }
+    });
+}
+
+/**
+ * Closes other commit details custom editor tabs for the given workspace root.
+ */
+export async function closeOtherCommitDetailsTabs(
+    currentUri: Uri,
+    workspaceRoot: string | undefined,
+    viewType: string = 'jj-view.commitDetailsEditor',
+): Promise<void> {
+    await closeMatchingTabs((tab) => {
+        if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
+            return false;
+        }
+        if (tab.input.uri.toString() === currentUri.toString()) {
+            return false;
+        }
+        try {
+            const query = getUriParams(tab.input.uri);
+            const tabRepoRoot = query.get('repoRoot');
+            return !tabRepoRoot || tabRepoRoot === workspaceRoot;
+        } catch {
+            return true;
+        }
+    });
+}
+
+/**
+ * Opens the custom editor for commit details.
+ */
+export async function openCommitDetails(
+    repoRoot: string,
+    changeId: string,
+    changeIdShortest?: string,
+    isDivergent?: boolean,
+    changeIdOffset?: number,
+): Promise<void> {
+    const minLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+    const title = formatCommitTitle(
+        {
+            change_id: changeId,
+            change_id_shortest: changeIdShortest,
+            is_divergent: isDivergent,
+            change_id_offset: changeIdOffset,
+        },
+        minLength,
+    );
+
+    const uri = createCommitDetailsUri({
+        repoRoot,
+        changeId,
+        title,
+    });
+
+    await closeOtherCommitDetailsTabs(uri, repoRoot);
+
+    await vscode.commands.executeCommand('vscode.openWith', uri, 'jj-view.commitDetailsEditor', {
+        preview: true,
+        viewColumn: vscode.ViewColumn.Active,
+    });
 }

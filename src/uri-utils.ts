@@ -229,3 +229,30 @@ export function getRepoRelativePath(uri: Uri, root: string): string {
     }
     return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
 }
+
+/**
+ * Creates a custom editor URI for a commit details view.
+ */
+export function createCommitDetailsUri(params: { repoRoot: string; changeId: string; title: string }): Uri {
+    const fragmentParams = new URLSearchParams();
+    fragmentParams.set('changeId', params.changeId);
+    fragmentParams.set('repoRoot', params.repoRoot);
+
+    return Uri.from({
+        scheme: 'jj-commit',
+        authority: 'commit',
+        path: `/${params.title}`,
+        fragment: fragmentParams.toString(),
+    });
+}
+
+/**
+ * Extracts commit details document information from a custom editor URI.
+ */
+export function parseCommitDetailsUri(uri: Uri): { changeId: string; repoRoot?: Uri } {
+    const params = getUriParams(uri);
+    const changeId = params.get('changeId') || '';
+    const repoRootPath = params.get('repoRoot');
+    const repoRoot = repoRootPath ? Uri.file(repoRootPath) : undefined;
+    return { changeId, repoRoot };
+}

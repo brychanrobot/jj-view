@@ -13,27 +13,30 @@ import { redoCommand } from '../commands/redo';
 import { squashRevisionIntoParentCommand } from '../commands/squash-revision';
 import { undoCommand } from '../commands/undo';
 import type { CommentsManager } from '../comments-manager';
-import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
-import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import { Uri } from '../uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
 import { createNewPayload } from '../vscode/payloads/new.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
+import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
-import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
+import {
+    createIntegrationCommandContext,
+    createTestRepositoryContext,
+    type TestRepositoryContext,
+} from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', () => {
     let scm: VsCodeScmProvider;
-    let provider: JjLogWebviewProvider;
+    let provider: VsCodeLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
     let executeCommandStub: sinon.SinonStub;
     let outputChannel: vscode.LogOutputChannel;
-    let contextHelper: import('./integration-test-utils').TestRepositoryContext;
+    let contextHelper: TestRepositoryContext;
 
     // Mock Webview
     const mockWebview = createMock<vscode.Webview>({
@@ -95,11 +98,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         contextHelper = await createTestRepositoryContext(repo.path, outputChannel);
         scm = contextHelper.scmProvider;
 
-        const commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, contextHelper.repositoryManager);
-        provider = new JjLogWebviewProvider(
+        provider = new VsCodeLogWebviewProvider(
             extensionUri,
             contextHelper.repository,
-            commitDetailsProvider,
             () => {},
             mockContext,
             scm.outputChannel,

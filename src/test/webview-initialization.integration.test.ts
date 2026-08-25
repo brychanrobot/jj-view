@@ -6,10 +6,9 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from '../code-forge-service';
-import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
-import { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepository } from '../jj-repository';
 import { Uri } from '../uri-utils';
+import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -45,11 +44,10 @@ function createMockWebviewView() {
 }
 
 suite('Webview Initialization Integration Test', () => {
-    let provider: JjLogWebviewProvider;
+    let provider: VsCodeLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
     let testContext: Awaited<ReturnType<typeof createTestRepositoryContext>>;
-    let commitDetailsProvider: JjCommitDetailsEditorProvider;
     let extensionUri: Uri;
     let outputChannel: ReturnType<typeof createMockLogOutputChannel>;
 
@@ -64,11 +62,9 @@ suite('Webview Initialization Integration Test', () => {
         testContext = await createTestRepositoryContext(repo.path, outputChannel);
         disposables.push(testContext);
 
-        commitDetailsProvider = new JjCommitDetailsEditorProvider(extensionUri, testContext.repositoryManager);
-        provider = new JjLogWebviewProvider(
+        provider = new VsCodeLogWebviewProvider(
             extensionUri,
             testContext.repository,
-            commitDetailsProvider,
             () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({
@@ -104,7 +100,7 @@ suite('Webview Initialization Integration Test', () => {
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
-        await provider.refresh();
+        await provider.controller.refresh();
 
         // 2. Simulate Refocus: Create NEW view and resolve it
         const { view: newView, webview: newWebview } = createMockWebviewView();
@@ -136,7 +132,7 @@ suite('Webview Initialization Integration Test', () => {
         );
 
         // Populate cache
-        await provider.refresh();
+        await provider.controller.refresh();
         const htmlBefore = webview.html;
 
         // Simulate Hiding
@@ -152,10 +148,9 @@ suite('Webview Initialization Integration Test', () => {
     });
 
     test('repository getter returns undefined until updateRepository is called', async () => {
-        const unattachedProvider = new JjLogWebviewProvider(
+        const unattachedProvider = new VsCodeLogWebviewProvider(
             extensionUri,
             /* repo */ undefined,
-            commitDetailsProvider,
             /* onSelectionChange */ () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({
@@ -193,10 +188,9 @@ suite('Webview Initialization Integration Test', () => {
             }),
         });
 
-        const unattachedProvider = new JjLogWebviewProvider(
+        const unattachedProvider = new VsCodeLogWebviewProvider(
             extensionUri,
             /* repo */ undefined,
-            commitDetailsProvider,
             /* onSelectionChange */ () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({
@@ -239,10 +233,9 @@ suite('Webview Initialization Integration Test', () => {
             }),
         });
 
-        const unattachedProvider = new JjLogWebviewProvider(
+        const unattachedProvider = new VsCodeLogWebviewProvider(
             extensionUri,
             /* repo */ undefined,
-            commitDetailsProvider,
             /* onSelectionChange */ () => {},
             createMock<vscode.ExtensionContext>({
                 globalState: createMock<vscode.ExtensionContext['globalState']>({

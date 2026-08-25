@@ -59,7 +59,7 @@ export async function showCommentsCommand(ctx: CommandContext, payload?: ShowCom
         return;
     }
     await commentsManager.showCommentsForChange(changeId);
-    await ctx.host.commands?.executeCommand('workbench.action.focusCommentsPanel').catch(() => {});
+    await ctx.host.commands.executeCommand('workbench.action.focusCommentsPanel').catch(() => {});
 }
 
 export async function replyCommentCommand(ctx: CommandContext, payload?: ReplyCommentPayload): Promise<void> {

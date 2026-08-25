@@ -4,11 +4,13 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import type { Event } from '../common/events';
 import type {
     HostAuth,
     HostAuthSession,
     HostCommands,
     HostConfig,
+    HostConfigurationChangeEvent,
     HostDisposable,
     HostDocuments,
     HostEnvironment,
@@ -18,12 +20,11 @@ import type {
     HostUi,
     HostViews,
 } from '../common/host-environment';
-import { openCommitDetails } from '../jj-commit-details-editor-provider';
 import type { JjRepository } from '../jj-repository';
 import { getFsPathFromUri, toFileUri, type Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
-import { promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
+import { openCommitDetails, promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
 
 export class VsCodeHostUi implements HostUi {
     constructor(
@@ -144,10 +145,26 @@ export class VsCodeHostUi implements HostUi {
 }
 
 export class VsCodeHostConfig implements HostConfig {
+    readonly onDidChangeConfiguration: Event<HostConfigurationChangeEvent> = (listener, thisArgs, disposables) => {
+        const disposable = vscode.workspace.onDidChangeConfiguration((e) => {
+            listener.call(thisArgs, {
+                affectsConfiguration: (section: string) => e.affectsConfiguration(section),
+            });
+        });
+        if (disposables) {
+            disposables.push(disposable);
+        }
+        return disposable;
+    };
+
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
     get<T>(key: string, defaultValue?: T): T | undefined {
         return getJjViewConfig<T>(key, defaultValue) ?? defaultValue;
+    }
+
+    async update<T>(key: string, value: T): Promise<void> {
+        await vscode.workspace.getConfiguration('jj-view').update(key, value, vscode.ConfigurationTarget.Global);
     }
 }
 
@@ -388,26 +405,24 @@ export class VsCodeHostEnvironment implements HostEnvironment {
     readonly nav: HostNavigation;
     readonly config: HostConfig;
     readonly documents: HostDocuments;
-    readonly storage?: HostStorage;
-    readonly secrets?: HostSecrets;
-    readonly auth?: HostAuth;
-    readonly commands?: HostCommands;
-    readonly views?: HostViews;
+    readonly storage: HostStorage;
+    readonly secrets: HostSecrets;
+    readonly auth: HostAuth;
+    readonly commands: HostCommands;
+    readonly views: HostViews;
 
-    constructor(options?: {
+    constructor(options: {
+        context: vscode.ExtensionContext;
         repo?: JjRepository;
         log?: JjLoggerChannel;
         sourceControl?: { inputBox: { value: string } };
-        context?: vscode.ExtensionContext;
     }) {
-        this.ui = new VsCodeHostUi(options?.repo, options?.log, options?.sourceControl);
+        this.ui = new VsCodeHostUi(options.repo, options.log, options.sourceControl);
         this.nav = new VsCodeHostNavigation();
         this.config = new VsCodeHostConfig();
         this.documents = new VsCodeHostDocuments();
-        if (options?.context) {
-            this.storage = new VsCodeHostStorage(options.context.workspaceState);
-            this.secrets = new VsCodeHostSecrets(options.context.secrets);
-        }
+        this.storage = new VsCodeHostStorage(options.context.globalState);
+        this.secrets = new VsCodeHostSecrets(options.context.secrets);
         this.auth = new VsCodeHostAuth();
         this.commands = new VsCodeHostCommands();
         this.views = new VsCodeHostViews();

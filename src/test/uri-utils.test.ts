@@ -7,10 +7,12 @@ import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { JjStatusEntry } from '../jj-types';
 import {
+    createCommitDetailsUri,
     createDiffUris,
     createRevisionUri,
     getFsPathFromUri,
     getRevisionFromUri,
+    parseCommitDetailsUri,
     toFileUri,
     toForwardSlash,
     Uri,
@@ -325,5 +327,35 @@ describe('getFsPathFromUri edge cases', () => {
 
         const result = getFsPathFromUri(uri);
         expect(result).toBe(fsPath);
+    });
+});
+
+describe('createCommitDetailsUri and parseCommitDetailsUri', () => {
+    it('creates and parses a commit details URI round-trip', () => {
+        const uri = createCommitDetailsUri({
+            repoRoot: '/workspace/my-repo',
+            changeId: 'kkmospmw',
+            title: 'Commit: kkm',
+        });
+
+        expect(uri.scheme).toBe('jj-commit');
+        expect(uri.authority).toBe('commit');
+        expect(uri.path).toBe('/Commit: kkm');
+
+        const parsed = parseCommitDetailsUri(uri);
+        expect(parsed.changeId).toBe('kkmospmw');
+        expect(parsed.repoRoot?.fsPath).toBeSameFsPath('/workspace/my-repo');
+    });
+
+    it('gracefully handles missing parameters in parseCommitDetailsUri', () => {
+        const uri = Uri.from({
+            scheme: 'jj-commit',
+            authority: 'commit',
+            path: '/Commit: abc',
+        });
+
+        const parsed = parseCommitDetailsUri(uri);
+        expect(parsed.changeId).toBe('');
+        expect(parsed.repoRoot).toBeUndefined();
     });
 });
