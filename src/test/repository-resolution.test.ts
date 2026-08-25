@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import type { JjRepository } from '../jj-repository';
 import { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -28,9 +28,9 @@ import { setActiveTextEditor } from './vscode-mock';
 describe('resolveRepository', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
-    let scmProviders: Map<string, JjScmProvider>;
+    let scmProviders: Map<string, VsCodeScmProvider>;
     let resolvedRepo: JjRepository;
-    let mockScm: JjScmProvider;
+    let mockScm: VsCodeScmProvider;
 
     beforeEach(async () => {
         repo = new TestRepo();
@@ -55,7 +55,7 @@ describe('resolveRepository', () => {
         }
         resolvedRepo = registered;
 
-        mockScm = createMock<JjScmProvider>({
+        mockScm = createMock<VsCodeScmProvider>({
             repo: resolvedRepo,
         });
         scmProviders = new Map();

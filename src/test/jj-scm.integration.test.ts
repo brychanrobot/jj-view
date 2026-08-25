@@ -10,6 +10,8 @@ import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
+import { setDescriptionCommand } from '../commands/describe';
+import { openMergeEditorCommand } from '../commands/merge-editor';
 import { squashFilesIntoParentCommand } from '../commands/squash-files';
 import {
     completeSquashRevisionCommand,
@@ -19,13 +21,15 @@ import {
 import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
 import type { CommentsManager } from '../comments-manager';
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjResourceState } from '../scm-resource-state';
 import { toFileUri, Uri } from '../uri-utils';
 import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/compare-all-files-with-revision.payload';
+import { createSetDescriptionPayload } from '../vscode/payloads/describe.payload';
+import { createOpenMergeEditorPayload } from '../vscode/payloads/merge-editor.payload';
 import { createSquashFilesIntoParentPayload } from '../vscode/payloads/squash-files.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import {
     createIntegrationCommandContext,
     createTestRepositoryContext,
@@ -38,7 +42,7 @@ import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ SCM Provider Integration Test', () => {
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let contextHelper: TestRepositoryContext;
     let sandbox: sinon.SinonSandbox;
 
@@ -427,7 +431,10 @@ suite('JJ SCM Provider Integration Test', () => {
         const executeStub = stubCommand(sandbox, '_open.mergeEditor', () => null);
 
         // Call openMergeEditor
-        await scmProvider.openMergeEditor(conflictGroup.resourceStates);
+        await openMergeEditorCommand(
+            createIntegrationCommandContext(scmProvider),
+            createOpenMergeEditorPayload(conflictGroup.resourceStates),
+        );
 
         // Verify the argument format
         const mergeEditorCall = executeStub.getCalls().find((call) => call.args[0] === '_open.mergeEditor');
@@ -536,7 +543,10 @@ suite('JJ SCM Provider Integration Test', () => {
         // We need to simulate the user typing in the box and running command
         scmProvider.sourceControl.inputBox.value = 'updated description';
 
-        await scmProvider.setDescription(scmProvider.sourceControl.inputBox.value);
+        await setDescriptionCommand(
+            createIntegrationCommandContext(scmProvider),
+            createSetDescriptionPayload([scmProvider.sourceControl.inputBox.value]),
+        );
 
         const desc = repo.getDescription('@');
         assert.strictEqual(desc, 'updated description');

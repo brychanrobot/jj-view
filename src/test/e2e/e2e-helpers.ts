@@ -856,6 +856,17 @@ export function locateQuickInputItem(page: Page, label: string | RegExp): Locato
 }
 
 /**
+ * Dismisses any open QuickInput widget by pressing Escape, ensuring it is closed.
+ */
+export async function dismissQuickInput(page: Page, timeout: number = 2000): Promise<void> {
+    const quickInput = locateQuickInputWidget(page).filter({ visible: true });
+    if (await quickInput.isVisible()) {
+        await page.keyboard.press('Escape');
+        await expect(quickInput).not.toBeVisible({ timeout });
+    }
+}
+
+/**
  * Waits for the VS Code QuickInput widget to be visible and returns the input locator.
  */
 export async function waitForQuickInput(page: Page, timeout: number = 10000): Promise<Locator> {

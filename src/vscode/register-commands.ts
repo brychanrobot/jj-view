@@ -64,7 +64,6 @@ import type { CommandContext } from '../common/command-context';
 import type { JjLogWebviewProvider } from '../jj-log-webview-provider';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
 import type { JjLoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
@@ -122,6 +121,7 @@ import {
     createWorkspaceOpenInCurrentWindowPayload,
     createWorkspaceOpenInNewWindowPayload,
 } from './payloads/workspace-open.payload';
+import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { VsCodeHostEnvironment } from './vscode-host-environment';
 import { resolveRepository } from './vscode-ui-helpers';
@@ -129,7 +129,7 @@ import { resolveRepository } from './vscode-ui-helpers';
 export interface RegisterCommandsOptions {
     context: vscode.ExtensionContext;
     repositoryManager: JjRepositoryManager;
-    scmProviders: Map<string, JjScmProvider>;
+    scmProviders: Map<string, VsCodeScmProvider>;
     outputChannel: JjLoggerChannel;
     commentsManager: CommentsManager;
     logWebviewProvider: JjLogWebviewProvider;
@@ -138,7 +138,7 @@ export interface RegisterCommandsOptions {
 export function registerCommands(options: RegisterCommandsOptions): void {
     const { context, repositoryManager, scmProviders, outputChannel, commentsManager, logWebviewProvider } = options;
 
-    function resolveRepositoryLocal(args: unknown[]): { repo: JjRepository; scm?: JjScmProvider } | undefined {
+    function resolveRepositoryLocal(args: unknown[]): { repo: JjRepository; scm?: VsCodeScmProvider } | undefined {
         const res = resolveRepository(args, repositoryManager, scmProviders);
         if (!res?.repo) {
             return undefined;
@@ -148,7 +148,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
 
     function registerCommandWithPayload<TPayload, TReturn = unknown>(
         commandId: string,
-        payloadCreator: (args: unknown[], scm?: JjScmProvider) => TPayload,
+        payloadCreator: (args: unknown[], scm?: VsCodeScmProvider) => TPayload,
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {

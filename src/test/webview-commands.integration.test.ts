@@ -15,18 +15,18 @@ import { undoCommand } from '../commands/undo';
 import type { CommentsManager } from '../comments-manager';
 import { JjCommitDetailsEditorProvider } from '../jj-commit-details-editor-provider';
 import { JjLogWebviewProvider } from '../jj-log-webview-provider';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { Uri } from '../uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
 import { createNewPayload } from '../vscode/payloads/new.payload';
 import { createSquashRevisionIntoParentPayload } from '../vscode/payloads/squash-revision.payload';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', () => {
-    let scm: JjScmProvider;
+    let scm: VsCodeScmProvider;
     let provider: JjLogWebviewProvider;
     let messageHandler: (m: unknown) => Promise<void>;
     let repo: TestRepo;

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { MergeCommandArg, NewMergeChangePayload } from '../../commands/merge';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
-export function createNewMergeChangePayload(args: unknown[], scmProvider?: JjScmProvider): NewMergeChangePayload {
+export function createNewMergeChangePayload(args: unknown[], scmProvider?: VsCodeScmProvider): NewMergeChangePayload {
     const revisions: string[] = [];
     for (const arg of args) {
         const mergeArg = arg as MergeCommandArg | undefined;

@@ -6,14 +6,14 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { Uri } from '../uri-utils';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
 suite('JjScmProvider provideOriginalResource Integration Test', () => {
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let repo: TestRepo;
 

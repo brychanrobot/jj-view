@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CodeForgeAuthManager } from './code-forge-auth';
@@ -10,6 +11,7 @@ import type { CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import { CodeForgeRegistry } from './code-forge-registry';
 import type { CodeForgeService } from './code-forge-service';
+import { getSquashStorageDir, isSquashInProgress } from './commands/squash-revision';
 import { CommentsManager } from './comments-manager';
 import { GerritProvider } from './gerrit-provider';
 import { checkGitColocation } from './git-colocation';
@@ -19,22 +21,24 @@ import { JjCommitDetailsEditorProvider } from './jj-commit-details-editor-provid
 import { JjContextKey } from './jj-context-keys';
 import { JjEditFileSystemProvider } from './jj-edit-fs-provider';
 import { JjLogWebviewProvider } from './jj-log-webview-provider';
+import { JjMergeContentProvider } from './jj-merge-provider';
 import { JjProcessMonitorProvider } from './jj-process-monitor-provider';
 import { JjProcessTracker } from './jj-process-tracker';
 import { JjRepositoryManager } from './jj-repository-manager';
-import { JjScmProvider } from './jj-scm-provider';
 import { JjViewFileSystemProvider } from './jj-view-fs-provider';
+import { getUriParams } from './uri-utils';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
 import { VsCodeCommentsProvider } from './vscode/providers/vscode-comments-provider';
+import { VsCodeScmProvider } from './vscode/providers/vscode-scm-provider';
 import { registerVSCodeCommands } from './vscode/register-commands';
 import { registerProcessMonitorCommands } from './vscode/register-process-monitor-commands';
 import { VsCodeHostEnvironment } from './vscode/vscode-host-environment';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;
-    scmProviders: Map<string, JjScmProvider>;
+    scmProviders: Map<string, VsCodeScmProvider>;
     commentsManager: CommentsManager;
     commentsProvider: VsCodeCommentsProvider;
     registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
@@ -307,7 +311,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     // Register FileSystemProvider for editable access to mutable revision files
     context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editFileSystemProvider));
 
-    const scmProviders = new Map<string, JjScmProvider>();
+    // Register ContentProvider for virtual merge output documents
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', {
+            provideTextDocumentContent(uri) {
+                const repo = repositoryManager.getRepositoryForUri(uri);
+                if (!repo) {
+                    return '';
+                }
+                const mergeProvider = new JjMergeContentProvider(repo.jj);
+                return mergeProvider.provideTextDocumentContent(uri);
+            },
+        }),
+    );
+
+    // Handle saving of virtual merge output
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(async (doc) => {
+            if (doc.uri.scheme === 'jj-merge-output') {
+                const query = getUriParams(doc.uri);
+                const fsPath = query.get('path');
+                if (fsPath) {
+                    try {
+                        await fs.writeFile(fsPath, doc.getText());
+                    } catch (e) {
+                        vscode.window.showErrorMessage(`Failed to save merge result: ${e}`);
+                    }
+                }
+            }
+        }),
+    );
+
+    // Finalize squash when the SQUASH_MSG tab is closed
+    context.subscriptions.push(
+        vscode.window.tabGroups.onDidChangeTabs(async (e) => {
+            for (const tab of e.closed) {
+                if (tab.input instanceof vscode.TabInputText && path.basename(tab.input.uri.fsPath) === 'SQUASH_MSG') {
+                    const focused = repositoryManager.focusedRepository;
+                    if (!focused) {
+                        return;
+                    }
+                    const storageDir = getSquashStorageDir(focused.jj.workspaceRoot);
+                    const metaPath = path.join(storageDir, 'SQUASH_META.json');
+
+                    try {
+                        await fs.access(metaPath);
+                        if (isSquashInProgress(focused.jj.workspaceRoot)) {
+                            return;
+                        }
+
+                        await vscode.commands.executeCommand('jj-view.completeSquashRevision');
+                    } catch {
+                        // No pending squash, ignore
+                    }
+                }
+            }
+        }),
+    );
+
+    const scmProviders = new Map<string, VsCodeScmProvider>();
     const activeScmSubscriptions = new Map<string, vscode.Disposable>();
 
     // Wire up edit provider refresh
@@ -358,7 +420,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     repositoryManager.onDidOpenRepository((repo) => {
         const repoPrefix = path.basename(repo.rootUri.fsPath);
         const repoOutputChannel = new JjOutputChannel(realOutputChannel, repoPrefix);
-        const scmProvider = new JjScmProvider(
+        const scmProvider = new VsCodeScmProvider(
             context,
             repo,
             repoOutputChannel,
@@ -483,7 +545,7 @@ export function handleTerminalExecution(
     commandLine: string,
     codeForgeService: CodeForgeService,
     outputChannel: JjLoggerChannel,
-    scmProvider: JjScmProvider,
+    scmProvider: VsCodeScmProvider,
 ): boolean {
     const cmd = commandLine.trim();
     if (cmd.startsWith('jj') && (cmd.includes('upload') || cmd.includes('git push'))) {

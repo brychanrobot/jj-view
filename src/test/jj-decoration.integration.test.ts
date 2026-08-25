@@ -6,14 +6,14 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { toFileUri, Uri } from '../uri-utils';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 suite('JJ Decoration Integration Test', () => {
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let repo: TestRepo;
 

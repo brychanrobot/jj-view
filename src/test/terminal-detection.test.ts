@@ -14,20 +14,20 @@ vi.mock('vscode', async () => {
 
 // Import after mock
 import type { CodeForgeService } from '../code-forge-service';
-import type { JjScmProvider } from '../jj-scm-provider';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('handleTerminalExecution', () => {
     let codeForgeService: CodeForgeService;
     let outputChannel: vscode.LogOutputChannel;
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
 
     beforeEach(() => {
         codeForgeService = createMock<CodeForgeService>({
             requestRefreshWithBackoffs: vi.fn(),
         });
         outputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
-        scmProvider = createMock<JjScmProvider>({
+        scmProvider = createMock<VsCodeScmProvider>({
             refresh: vi.fn().mockResolvedValue(undefined),
         });
     });

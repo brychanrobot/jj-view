@@ -7,17 +7,17 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjViewFileSystemProvider } from '../jj-view-fs-provider';
 import { Uri } from '../uri-utils';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
 suite('Quick Diff Integration Test', () => {
     let jj: JjService;
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let viewFileSystemProvider: JjViewFileSystemProvider;
     let repo: TestRepo;
     let canonicalPath: string;

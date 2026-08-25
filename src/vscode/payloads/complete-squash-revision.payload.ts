@@ -5,11 +5,11 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { type CompleteSquashRevisionPayload, getSquashStorageDir } from '../../commands/squash-revision';
-import type { JjScmProvider } from '../../jj-scm-provider';
+import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createCompleteSquashRevisionPayload(
     args: unknown[],
-    scmProvider?: JjScmProvider,
+    scmProvider?: VsCodeScmProvider,
 ): CompleteSquashRevisionPayload {
     if (typeof args[0] === 'string') {
         return { message: args[0] };

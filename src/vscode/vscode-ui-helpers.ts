@@ -9,10 +9,10 @@ import * as vscode from 'vscode';
 import { extractUriFromArgs, getErrorMessage } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjScmProvider } from '../jj-scm-provider';
 import { JjService } from '../jj-service';
 import { getUriParams, Uri } from '../uri-utils';
 import type { JjLoggerChannel } from '../utils/output-channel';
+import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 
 function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
     return typeof arg === 'object' && arg !== null && 'id' in arg && 'resourceStates' in arg;
@@ -183,8 +183,8 @@ export async function showJjError(
 export function resolveRepository(
     args: unknown[],
     repositoryManager: JjRepositoryManager,
-    scmProviders: Map<string, JjScmProvider>,
-): { repo?: JjRepository; scm?: JjScmProvider } | undefined {
+    scmProviders: Map<string, VsCodeScmProvider>,
+): { repo?: JjRepository; scm?: VsCodeScmProvider } | undefined {
     const firstArg = args[0];
 
     // 1. Check if first arg is a VS Code SourceControlResourceGroup owned by one of our providers
@@ -264,7 +264,7 @@ export function resolveRepository(
         return undefined;
     }
 
-    let scm: JjScmProvider | undefined;
+    let scm: VsCodeScmProvider | undefined;
     if (repo) {
         scm = scmProviders.get(repo.rootUri.fsPath);
     }

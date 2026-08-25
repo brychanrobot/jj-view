@@ -5,7 +5,6 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
 import type { JjResourceState } from '../scm-resource-state';
 import { Uri } from '../uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
@@ -44,6 +43,7 @@ import {
     createWorkspaceOpenInCurrentWindowPayload,
     createWorkspaceOpenInNewWindowPayload,
 } from '../vscode/payloads/workspace-open.payload';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createMock } from './test-utils';
 
 describe('vscode payloads', () => {
@@ -60,7 +60,7 @@ describe('vscode payloads', () => {
         });
 
         it('falls back to selected revisions from scmProvider', () => {
-            const scmProvider = createMock<JjScmProvider>({
+            const scmProvider = createMock<VsCodeScmProvider>({
                 getSelectedCommitIds: vi.fn().mockReturnValue(['sel1', 'sel2']),
             });
             const payload = createAbandonPayload([], scmProvider);
@@ -97,7 +97,7 @@ describe('vscode payloads', () => {
 
     describe('commit payload', () => {
         it('extracts description from scmProvider input box', () => {
-            const scmProvider = createMock<JjScmProvider>({
+            const scmProvider = createMock<VsCodeScmProvider>({
                 sourceControl: createMock<vscode.SourceControl>({
                     inputBox: createMock<vscode.SourceControlInputBox>({ value: 'commit msg' }),
                 }),
@@ -178,7 +178,7 @@ describe('vscode payloads', () => {
 
     describe('rebase payload', () => {
         it('extracts source and destination revisions', () => {
-            const scmProvider = createMock<JjScmProvider>({
+            const scmProvider = createMock<VsCodeScmProvider>({
                 getSelectedCommitIds: vi.fn().mockReturnValue(['dest1']),
             });
             const payload = createRebaseOntoSelectedPayload([{ commitId: 'src1' }], scmProvider);

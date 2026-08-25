@@ -5,13 +5,13 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import type { JjScmProvider } from '../jj-scm-provider';
+import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
 suite('Button Visibility Integration Test', () => {
-    let scmProvider: JjScmProvider;
+    let scmProvider: VsCodeScmProvider;
     let executeCommandStub: sinon.SinonStub;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
     let repo: TestRepo;
