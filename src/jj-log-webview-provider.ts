@@ -429,7 +429,7 @@ export class JjLogWebviewProvider implements vscode.WebviewViewProvider {
                     commitId: c.commit_id ?? '',
                     changeId: c.change_id,
                     description: c.description,
-                    bookmarks: c.bookmarks?.filter((b) => !b.remote).map((b) => b.name),
+                    bookmarks: (c.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name),
                 })),
             );
 

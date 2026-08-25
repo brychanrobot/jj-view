@@ -27,13 +27,16 @@ import { JjViewFileSystemProvider } from './jj-view-fs-provider';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
+import { VsCodeCommentsProvider } from './vscode/providers/vscode-comments-provider';
 import { registerVSCodeCommands } from './vscode/register-commands';
 import { registerProcessMonitorCommands } from './vscode/register-process-monitor-commands';
+import { VsCodeHostEnvironment } from './vscode/vscode-host-environment';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;
     scmProviders: Map<string, JjScmProvider>;
     commentsManager: CommentsManager;
+    commentsProvider: VsCodeCommentsProvider;
     registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
 }
 
@@ -167,8 +170,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
     );
 
-    const commentsManager = new CommentsManager(repositoryManager);
+    const hostEnvironment = new VsCodeHostEnvironment({ context, log: outputChannel });
+    const commentsManager = new CommentsManager(repositoryManager, hostEnvironment);
     context.subscriptions.push(commentsManager);
+    const commentsProvider = new VsCodeCommentsProvider(commentsManager);
+    context.subscriptions.push(commentsProvider);
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -467,6 +473,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         repositoryManager,
         scmProviders,
         commentsManager,
+        commentsProvider,
         registerCodeForgeProvider: (factory: CodeForgeProviderFactory) => codeForgeRegistry.register(factory),
     };
 }

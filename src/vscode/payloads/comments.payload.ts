@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { extractRevision } from '../../commands/command-utils';
 import {
     type AckCommentPayload,
     type Comment,
@@ -60,8 +61,15 @@ function fromVscodeCommentThreadCollapsibleState(
 }
 
 function fromVscodeComment(comment: vscode.Comment): Comment {
+    let bodyValue: string | undefined;
+    if (typeof comment.body === 'string') {
+        bodyValue = comment.body;
+    } else if (typeof comment.body === 'object' && comment.body !== null && 'value' in comment.body) {
+        bodyValue = comment.body.value;
+    }
+
     return {
-        body: typeof comment.body === 'string' ? { value: comment.body } : { value: comment.body.value },
+        body: bodyValue !== undefined ? { value: bodyValue } : undefined,
         mode: fromVscodeCommentMode(comment.mode),
         author: comment.author ? { name: comment.author.name, iconPath: comment.author.iconPath } : undefined,
         contextValue: comment.contextValue,
@@ -76,8 +84,24 @@ function fromVscodeComment(comment: vscode.Comment): Comment {
     };
 }
 
-function fromVscodeCommentThread(thread: vscode.CommentThread): CommentThread {
+function extractThreadId(thread: vscode.CommentThread): string | undefined {
+    if ('id' in thread && typeof thread.id === 'string' && thread.id.length > 0) {
+        return thread.id;
+    }
+    if (!thread.contextValue) {
+        return undefined;
+    }
+    const match = /^(?:resolved|unresolved):(.+)$/.exec(thread.contextValue);
+    return match ? match[1] : undefined;
+}
+
+function fromVscodeCommentThread(thread: vscode.CommentThread): CommentThread | undefined {
+    const threadId = extractThreadId(thread);
+    if (!threadId) {
+        return undefined;
+    }
     return {
+        id: threadId,
         uri: thread.uri,
         range: thread.range && {
             start: { line: thread.range.start.line, character: thread.range.start.character },
@@ -94,8 +118,12 @@ function fromVscodeCommentReply(reply: vscode.CommentReply | undefined): Comment
     if (!reply) {
         return undefined;
     }
+    const thread = fromVscodeCommentThread(reply.thread);
+    if (!thread) {
+        return undefined;
+    }
     return {
-        thread: fromVscodeCommentThread(reply.thread),
+        thread,
         text: reply.text,
     };
 }
@@ -115,7 +143,7 @@ function isVscodeCommentThread(arg: unknown): arg is vscode.CommentThread {
 }
 
 export function createShowCommentsPayload(args: unknown[]): ShowCommentsPayload {
-    const changeId = args[0] as string | undefined;
+    const changeId = typeof args[0] === 'string' ? args[0] : extractRevision(args);
     return { changeId };
 }
 

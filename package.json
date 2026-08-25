@@ -1154,12 +1154,12 @@
                 {
                     "command": "jj-view.resolveCommentThread",
                     "group": "inline@5",
-                    "when": "commentController =~ /jj-view/ && commentThread == unresolved"
+                    "when": "commentController =~ /jj-view/ && commentThread =~ /^unresolved/"
                 },
                 {
                     "command": "jj-view.unresolveCommentThread",
                     "group": "inline@5",
-                    "when": "commentController =~ /jj-view/ && commentThread == resolved"
+                    "when": "commentController =~ /jj-view/ && commentThread =~ /^resolved/"
                 }
             ]
         },

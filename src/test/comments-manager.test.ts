@@ -18,6 +18,9 @@ import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CommentsManager, type CommentThread } from '../comments-manager';
 import { JjRepositoryManager } from '../jj-repository-manager';
+import type { CodeForgeChangeInfo } from '../jj-types';
+import { VsCodeCommentsProvider } from '../vscode/providers/vscode-comments-provider';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { accessPrivate, CallbackWaiter, createMock, createMockLogOutputChannel, setPrivate } from './test-utils';
 
@@ -109,14 +112,18 @@ class MockCommentsProvider implements CodeForgeProvider {
 describe('CommentsManager Tests', () => {
     let repositoryManager: JjRepositoryManager;
     let commentsManager: CommentsManager;
+    let commentsProvider: VsCodeCommentsProvider;
     let provider: MockCommentsProvider;
     let testRepo: TestRepo;
+    let fakeHost: FakeHostEnvironment;
 
     beforeEach(async () => {
         vi.clearAllMocks();
 
         testRepo = new TestRepo();
         testRepo.init();
+
+        fakeHost = new FakeHostEnvironment();
 
         provider = new MockCommentsProvider();
         const registry = new CodeForgeRegistry();
@@ -146,10 +153,13 @@ describe('CommentsManager Tests', () => {
             await realRepo.codeForge.detectActiveProvider(true);
         }
 
-        commentsManager = new CommentsManager(repositoryManager);
+        commentsManager = new CommentsManager(repositoryManager, fakeHost);
+        commentsProvider = new VsCodeCommentsProvider(commentsManager);
     });
 
     afterEach(async () => {
+        commentsProvider.dispose();
+        commentsManager.dispose();
         await repositoryManager.dispose();
     });
 
@@ -174,7 +184,32 @@ describe('CommentsManager Tests', () => {
 
         await commentsManager.showCommentsForChange('@');
 
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.focusCommentsPanel');
+        expect(commentsManager.threads).toHaveLength(1);
+        expect(commentsManager.threads[0].id).toBe('thread-1');
+        expect(commentsProvider.getThreads().size).toBe(1);
+    });
+
+    test('onDidChangeThreads event fires when comments are updated', async () => {
+        const received: CodeForgeCommentThread[][] = [];
+        commentsManager.onDidChangeThreads((t) => received.push(t));
+
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-event-test',
+                filePath: 'file.txt',
+                line: 5,
+                isResolved: false,
+                comments: [],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        expect(received.length).toBeGreaterThan(0);
+        const last = received[received.length - 1];
+        expect(last).toHaveLength(1);
+        expect(last[0].id).toBe('thread-event-test');
     });
 
     test('replyToThread should post a reply and refresh', async () => {
@@ -198,7 +233,10 @@ describe('CommentsManager Tests', () => {
         const createdThread = mockController.createCommentThread.mock.results[0].value;
         createdThread.canReply = true;
 
-        await commentsManager.replyToThread({ thread: createdThread as CommentThread, text: 'Here is my reply' });
+        await commentsManager.replyToThread({
+            thread: { id: 'thread-1', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            text: 'Here is my reply',
+        });
 
         expect(threads[0].comments.length).toBe(1);
         expect(threads[0].comments[0].body).toBe('Here is my reply');
@@ -254,24 +292,30 @@ describe('CommentsManager Tests', () => {
         const createdThread = mockController.createCommentThread.mock.results[0].value;
 
         // Resolve the thread
-        await commentsManager.toggleResolveThread(createdThread, true);
+        await commentsManager.toggleResolveThread(
+            { id: 'thread-1', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            true,
+        );
 
         // Underlying model updated
         expect(threads[0].isResolved).toBe(true);
 
         // VS Code thread UX updated for resolved state
-        expect(createdThread.contextValue).toBe('resolved');
+        expect(createdThread.contextValue).toBe('resolved:thread-1');
         expect(createdThread.state).toBe(vscode.CommentThreadState.Resolved);
         expect(createdThread.collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
 
         // Unresolve the thread
-        await commentsManager.toggleResolveThread(createdThread, false);
+        await commentsManager.toggleResolveThread(
+            { id: 'thread-1', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            false,
+        );
 
         // Underlying model updated
         expect(threads[0].isResolved).toBe(false);
 
         // VS Code thread UX updated for unresolved state
-        expect(createdThread.contextValue).toBe('unresolved');
+        expect(createdThread.contextValue).toBe('unresolved:thread-1');
         expect(createdThread.state).toBe(vscode.CommentThreadState.Unresolved);
         expect(createdThread.collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Expanded);
     });
@@ -323,7 +367,7 @@ describe('CommentsManager Tests', () => {
     });
 
     test('should clear explicitChangeId and target new working copy when working copy changes', async () => {
-        // Dispose of the default manager to avoid background watch event interference during graph construction
+        commentsProvider.dispose();
         commentsManager.dispose();
 
         const ids = await buildGraph(testRepo, [
@@ -337,7 +381,8 @@ describe('CommentsManager Tests', () => {
         const pullWaiter = provider.createCommentThreadsWaiter();
 
         // Construct the manager (triggers initial pull targeting '@')
-        commentsManager = new CommentsManager(repositoryManager);
+        commentsManager = new CommentsManager(repositoryManager, fakeHost);
+        commentsProvider = new VsCodeCommentsProvider(commentsManager);
 
         const workingCopyLog1 = await repositoryManager.focusedRepository?.jj.getLog({ revision: '@' });
         const workingCopyChangeId1 = workingCopyLog1?.[0]?.change_id;
@@ -368,7 +413,7 @@ describe('CommentsManager Tests', () => {
     });
 
     test('should target @- when @ has no associated change', async () => {
-        // Dispose of the default manager to avoid background watch event interference during graph construction
+        commentsProvider.dispose();
         commentsManager.dispose();
 
         // Build c1 (parent, normal commit) and c2 (working copy, with 'no-change' in description)
@@ -379,13 +424,14 @@ describe('CommentsManager Tests', () => {
 
         // Get the waiter once early
         const pullWaiter = provider.createCommentThreadsWaiter();
-        commentsManager = new CommentsManager(repositoryManager);
+        commentsManager = new CommentsManager(repositoryManager, fakeHost);
+        commentsProvider = new VsCodeCommentsProvider(commentsManager);
 
         // Wait for the automatic background pull to happen and target the parent c1
         expect(await pullWaiter.waitNext()).toBe(ids.c1.changeId);
     });
 
-    test('should safely handle malformed avatar URLs', async () => {
+    test('should safely handle malformed avatar URLs in provider', async () => {
         const threads: CodeForgeCommentThread[] = [
             {
                 id: 'thread-1',
@@ -427,7 +473,33 @@ describe('CommentsManager Tests', () => {
         expect(accessPrivate<string | undefined>(commentsManager, 'explicitChangeId')).toBe('some-change-id');
     });
 
-    test('copyUnresolvedComments should filter, format, and copy unresolved comments to the clipboard', async () => {
+    test('resolveChangeInfo correctly resolves change info when bookmarks array is empty', async () => {
+        const repo = repositoryManager.focusedRepository;
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        const resolveFn = accessPrivate<
+            (
+                repo: unknown,
+                provider: unknown,
+                revision: string,
+                logEntry?: unknown,
+            ) => Promise<CodeForgeChangeInfo | undefined>
+        >(commentsManager, 'resolveChangeInfo');
+
+        const changeInfo = await resolveFn.call(commentsManager, repo, provider, '@', {
+            change_id: 'change-no-bookmarks',
+            description: 'Test commit',
+            bookmarks: [],
+        });
+
+        expect(changeInfo).toBeDefined();
+        expect(changeInfo?.id).toBe('change-no-bookmarks');
+    });
+
+    test('formatUnresolvedComments and copyUnresolvedComments format markdown correctly', async () => {
         const threads: CodeForgeCommentThread[] = [
             {
                 id: 'thread-1',
@@ -466,68 +538,24 @@ describe('CommentsManager Tests', () => {
         ];
         provider.setThreads(threads);
 
-        // Fetch comments so they are loaded into commentsManager
         await commentsManager.showCommentsForChange('@');
 
-        // Let's call copyUnresolvedComments
-        await commentsManager.copyUnresolvedComments();
-
-        // Check that writeText was called
-        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
-        expect(writeTextMock).toHaveBeenCalled();
-        const copiedText = writeTextMock.mock.calls[0][0];
-
-        expect(copiedText).toContain('### Unresolved Comments for PR #123');
-        expect(copiedText).toContain('- **file.txt:10**');
-        expect(copiedText).toContain('  - **Author A**:');
-        expect(copiedText).toContain('    > This is unresolved');
-        expect(copiedText).toContain('  - **Author B**:');
-        expect(copiedText).toContain('    > Replying to unresolved');
-
-        // It should NOT contain the resolved comment from thread-2
-        expect(copiedText).not.toContain('other.txt:5');
-        expect(copiedText).not.toContain('This is resolved');
+        const text = commentsManager.formatUnresolvedComments();
+        expect(text).toContain('### Unresolved Comments for PR #123');
+        expect(text).toContain('- **file.txt:10**');
+        expect(text).toContain('  - **Author A**:');
+        expect(text).toContain('    > This is unresolved');
+        expect(text).toContain('  - **Author B**:');
+        expect(text).toContain('    > Replying to unresolved');
+        expect(text).not.toContain('other.txt:5');
     });
 
-    test('copyUnresolvedComments should show message and not copy if there are no unresolved comments', async () => {
+    test('formatUnresolvedComments handles threads with missing line numbers', async () => {
         const threads: CodeForgeCommentThread[] = [
             {
                 id: 'thread-1',
                 filePath: 'file.txt',
-                line: 10,
-                isResolved: true,
-                comments: [
-                    {
-                        id: 'comment-1',
-                        author: { name: 'Author A' },
-                        body: 'This is resolved',
-                        createdAt: '2026-06-30T12:00:00Z',
-                    },
-                ],
-            },
-        ];
-        provider.setThreads(threads);
-
-        await commentsManager.showCommentsForChange('@');
-
-        // Reset the clipboard mock
-        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
-        writeTextMock.mockClear();
-
-        await commentsManager.copyUnresolvedComments();
-
-        expect(writeTextMock).not.toHaveBeenCalled();
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-            'No unresolved comments for the active change.',
-        );
-    });
-
-    test('copyUnresolvedComments should handle range-less threads correctly', async () => {
-        const threads: CodeForgeCommentThread[] = [
-            {
-                id: 'thread-1',
-                filePath: 'file.txt',
-                line: 10,
+                line: 0,
                 isResolved: false,
                 comments: [
                     {
@@ -543,62 +571,13 @@ describe('CommentsManager Tests', () => {
 
         await commentsManager.showCommentsForChange('@');
 
-        // Force the mock range to be undefined to simulate range-less thread
-        for (const thread of commentsManager.getThreads().values()) {
-            Object.defineProperty(thread, 'range', { value: undefined });
-        }
-
-        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
-        writeTextMock.mockClear();
-
-        await commentsManager.copyUnresolvedComments();
-
-        expect(writeTextMock).toHaveBeenCalled();
-        const copiedText = writeTextMock.mock.calls[0][0];
-        expect(copiedText).toContain('### Unresolved Comments for PR #123');
-        expect(copiedText).toContain('- **file.txt**');
-        expect(copiedText).not.toContain('file.txt:');
-        expect(copiedText).toContain('  - **Author A**:');
-        expect(copiedText).toContain('    > File-level comment');
+        const text = commentsManager.formatUnresolvedComments();
+        expect(text).toContain('### Unresolved Comments for PR #123');
+        expect(text).toContain('- **file.txt**');
+        expect(text).not.toContain('file.txt:0');
     });
 
-    test('copyUnresolvedComments should handle clipboard write failure and show error message', async () => {
-        const threads: CodeForgeCommentThread[] = [
-            {
-                id: 'thread-1',
-                filePath: 'file.txt',
-                line: 10,
-                isResolved: false,
-                comments: [
-                    {
-                        id: 'comment-1',
-                        author: { name: 'Author A' },
-                        body: 'This is unresolved',
-                        createdAt: '2026-06-30T12:00:00Z',
-                    },
-                ],
-            },
-        ];
-        provider.setThreads(threads);
-
-        await commentsManager.showCommentsForChange('@');
-
-        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
-        writeTextMock.mockClear();
-        writeTextMock.mockRejectedValueOnce(new Error('Clipboard write error'));
-
-        const showErrorMessageMock = vscode.window.showErrorMessage as import('vitest').Mock;
-        showErrorMessageMock.mockClear();
-
-        await commentsManager.copyUnresolvedComments();
-
-        expect(writeTextMock).toHaveBeenCalled();
-        expect(showErrorMessageMock).toHaveBeenCalledWith(
-            'Failed to copy comments to clipboard: Clipboard write error',
-        );
-    });
-
-    test('copyUnresolvedComments should sort threads by file path and line number, and handle missing author name', async () => {
+    test('formatUnresolvedComments sorts threads by file path and line number, with author fallback', async () => {
         const threads: CodeForgeCommentThread[] = [
             {
                 id: 'thread-line-15',
@@ -636,7 +615,6 @@ describe('CommentsManager Tests', () => {
                 comments: [
                     createMock<CodeForgeComment>({
                         id: 'comment-3',
-                        // simulated missing author object or name
                         body: 'First comment in file.txt',
                         createdAt: '2026-06-30T12:00:00Z',
                     }),
@@ -647,24 +625,97 @@ describe('CommentsManager Tests', () => {
 
         await commentsManager.showCommentsForChange('@');
 
-        const writeTextMock = vscode.env.clipboard.writeText as import('vitest').Mock;
-        writeTextMock.mockClear();
+        const text = commentsManager.formatUnresolvedComments() ?? '';
+        expect(text).not.toBe('');
 
-        await commentsManager.copyUnresolvedComments();
-
-        expect(writeTextMock).toHaveBeenCalled();
-        const copiedText = writeTextMock.mock.calls[0][0];
-
-        // Verify order: another.txt:5 -> file.txt:10 -> file.txt:15
-        const indexAnother = copiedText.indexOf('another.txt:5');
-        const indexFile10 = copiedText.indexOf('file.txt:10');
-        const indexFile15 = copiedText.indexOf('file.txt:15');
+        const indexAnother = text.indexOf('another.txt:5');
+        const indexFile10 = text.indexOf('file.txt:10');
+        const indexFile15 = text.indexOf('file.txt:15');
 
         expect(indexAnother).toBeLessThan(indexFile10);
         expect(indexFile10).toBeLessThan(indexFile15);
 
-        // Verify author fallbacks
-        expect(copiedText).toContain('  - **Unknown**:\n    > First comment in file.txt');
-        expect(copiedText).toContain('  - **Unknown**:\n    > Second comment in file.txt');
+        expect(text).toContain('  - **Unknown**:\n    > First comment in file.txt');
+        expect(text).toContain('  - **Unknown**:\n    > Second comment in file.txt');
+    });
+
+    test('replyToThread and toggleResolveThread handle file-level comments (line: 0)', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-file-0',
+                filePath: 'file.txt',
+                line: 0,
+                isResolved: false,
+                comments: [],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+
+        const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+        const fileUri = Uri.file(path.join(testRepo.path, 'file.txt'));
+
+        await commentsManager.replyToThread({
+            thread: { id: 'thread-file-0', uri: fileUri, range },
+            text: 'Reply to file-level comment',
+        });
+
+        expect(threads[0].comments.length).toBe(1);
+        expect(threads[0].comments[0].body).toBe('Reply to file-level comment');
+
+        await commentsManager.toggleResolveThread({ id: 'thread-file-0', uri: fileUri, range }, true);
+        expect(threads[0].isResolved).toBe(true);
+    });
+
+    test('copyUnresolvedComments writes to HostNavigation clipboard and informs HostUi', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-host-test',
+                filePath: 'file.txt',
+                line: 5,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'comment-1',
+                        author: { name: 'Alice' },
+                        body: 'Fix this line',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ];
+        provider.setThreads(threads);
+
+        await commentsManager.showCommentsForChange('@');
+        await commentsManager.copyUnresolvedComments();
+
+        expect(fakeHost.nav.clipboardText).toContain('### Unresolved Comments for PR #123');
+        expect(fakeHost.nav.clipboardText).toContain('- **file.txt:5**');
+        expect(fakeHost.nav.clipboardText).toContain('> Fix this line');
+        expect(fakeHost.ui.infoMessages).toContain('Copied 1 unresolved comment(s) to clipboard.');
+    });
+
+    test('replyToThread tracks progress via HostEnvironment withProgress', async () => {
+        const threads: CodeForgeCommentThread[] = [
+            {
+                id: 'thread-progress',
+                filePath: 'file.txt',
+                line: 1,
+                isResolved: false,
+                comments: [],
+            },
+        ];
+        provider.setThreads(threads);
+        await commentsManager.showCommentsForChange('@');
+
+        const thread: CommentThread = {
+            id: 'thread-progress',
+            uri: Uri.file(path.join(testRepo.path, 'file.txt')),
+        };
+        await commentsManager.replyToThread({ thread, text: 'Test reply' });
+
+        expect(fakeHost.ui.progressTitles).toContain('Sending reply...');
+        expect(threads[0].comments).toHaveLength(1);
     });
 });

@@ -156,7 +156,7 @@ export const JjLogEntrySchema = z.object({
     /** Nearest ancestors that are visible in the graph. */
     nearest_visible_ancestors: z.array(z.string()).optional(),
     /** Bookmarks pointing to this revision. */
-    bookmarks: z.array(JjBookmarkSchema).optional(),
+    bookmarks: z.array(JjBookmarkSchema).default([]),
     /** Tags pointing to this revision. */
     tags: z.array(z.string()).optional(),
     /** Names of the working copies using this revision. */

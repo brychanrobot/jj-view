@@ -53,11 +53,13 @@ export interface UnresolveCommentThreadPayload {
 }
 
 export async function showCommentsCommand(ctx: CommandContext, payload?: ShowCommentsPayload): Promise<void> {
+    const commentsManager = ctx.services?.commentsManager;
     const changeId = payload?.changeId;
-    if (!changeId) {
+    if (!commentsManager || !changeId) {
         return;
     }
-    await ctx.services?.commentsManager?.showCommentsForChange(changeId);
+    await commentsManager.showCommentsForChange(changeId);
+    await ctx.host.commands?.executeCommand('workbench.action.focusCommentsPanel').catch(() => {});
 }
 
 export async function replyCommentCommand(ctx: CommandContext, payload?: ReplyCommentPayload): Promise<void> {
@@ -132,6 +134,5 @@ export async function unresolveCommentThreadCommand(
 }
 
 export async function copyUnresolvedCommentsCommand(ctx: CommandContext): Promise<void> {
-    const commentsManager = ctx.services?.commentsManager;
-    await commentsManager?.copyUnresolvedComments();
+    await ctx.services?.commentsManager?.copyUnresolvedComments();
 }

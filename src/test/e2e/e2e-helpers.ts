@@ -1554,7 +1554,9 @@ export async function waitForCommentThreadsCount(vscode: VSCodeFixture, minCount
     await expect
         .poll(async () => {
             return await vscode.evaluate((_, api) => {
-                return api.commentsManager.getThreads().size;
+                return api.commentsProvider
+                    ? api.commentsProvider.getThreads().size
+                    : api.commentsManager.getThreads().length;
             });
         })
         .toBeGreaterThanOrEqual(minCount);
@@ -1571,9 +1573,13 @@ export async function waitForThreadState(
     await expect
         .poll(async () => {
             return await vscode.evaluate((_, api) => {
-                const thread = Array.from(api.commentsManager.getThreads().values())[0];
+                const thread = api.commentsProvider
+                    ? Array.from(api.commentsProvider.getThreads().values())[0]
+                    : undefined;
                 return {
-                    contextValue: thread?.contextValue,
+                    contextValue: thread?.contextValue
+                        ? (thread.contextValue.split(':')[0] as 'resolved' | 'unresolved')
+                        : undefined,
                     collapsibleState: thread?.collapsibleState,
                 };
             });
