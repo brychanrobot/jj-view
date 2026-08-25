@@ -11,16 +11,15 @@ vi.mock('vscode', () => createVscodeMock());
 
 import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
+import { JjEditFsService } from '../jj-edit-fs-service';
 import { JjRepositoryManager } from '../jj-repository-manager';
-import { JjViewFsService } from '../jj-view-fs-service';
-import { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
-describe('VsCodeViewFsProvider', () => {
+describe('JjEditFsService Unit Tests', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
-    let provider: VsCodeViewFsProvider;
+    let service: JjEditFsService;
 
     beforeEach(async () => {
         repo = new TestRepo();
@@ -37,46 +36,48 @@ describe('VsCodeViewFsProvider', () => {
 
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
 
-        // Register the real repository
         vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
             uri: Uri.file(repo.path),
         });
         await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
 
-        const service = new JjViewFsService(repoManager);
-        provider = new VsCodeViewFsProvider(service);
+        service = new JjEditFsService(repoManager);
     });
 
     afterEach(async () => {
         await repoManager.dispose();
+        repo.dispose();
     });
 
-    it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {
-        const outsideUri = Uri.parse('jj-view:///outside/file.txt#root=/outside&revision=@');
-        await expect(provider.readFile(outsideUri)).rejects.toThrowError('No Jujutsu repository found');
-    });
-
-    it('readFile retrieves file content from a revision on a different chain', async () => {
+    it('reads file from historical revision', async () => {
         const nodes = await buildGraph(repo, [
-            { label: 'initial', description: 'initial', files: { 'f.txt': 'initial content' } },
-            { label: 'chainA', parents: ['initial'], description: 'chainA', files: { 'f.txt': 'chain A content' } },
-            {
-                label: 'chainB',
-                parents: ['initial'],
-                description: 'chainB',
-                files: { 'f.txt': 'chain B content' },
-                isCurrentWorkingCopy: true,
-            },
+            { label: 'initial', description: 'initial', files: { 'file.txt': 'hello from initial' } },
         ]);
 
         const uri = Uri.from({
-            scheme: 'jj-view',
-            path: '/f.txt',
-            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.chainA.changeId}`,
+            scheme: 'jj-edit',
+            path: '/file.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.initial.changeId}`,
         });
 
-        const bytes = await provider.readFile(uri);
-        const text = Buffer.from(bytes).toString('utf8');
-        expect(text).toBe('chain A content');
+        const content = await service.readFile(uri);
+        expect(Buffer.from(content).toString('utf8')).toBe('hello from initial');
+    });
+
+    it('writes file changes into revision atomically', async () => {
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial', files: { 'file.txt': 'original' } },
+        ]);
+
+        const uri = Uri.from({
+            scheme: 'jj-edit',
+            path: '/file.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${nodes.initial.changeId}`,
+        });
+
+        await service.writeFile(uri, Buffer.from('modified content\n', 'utf8'));
+
+        const updated = await service.readFile(uri);
+        expect(Buffer.from(updated).toString('utf8')).toBe('modified content\n');
     });
 });

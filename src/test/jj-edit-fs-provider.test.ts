@@ -13,15 +13,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjEditFileSystemProvider } from '../jj-edit-fs-provider';
+import { JjEditFsService } from '../jj-edit-fs-service';
 import { JjRepositoryManager } from '../jj-repository-manager';
+import { VsCodeEditFsProvider } from '../vscode/providers/vscode-edit-fs-provider';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
-describe('JjEditFileSystemProvider', () => {
+describe('VsCodeEditFsProvider', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
-    let provider: JjEditFileSystemProvider;
+    let provider: VsCodeEditFsProvider;
     let onDidChangeFileFired: vscode.FileChangeEvent[][] = [];
 
     function getUri(filename: string, revision: string | null = '@') {
@@ -59,7 +60,8 @@ describe('JjEditFileSystemProvider', () => {
         });
         await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
 
-        provider = new JjEditFileSystemProvider(repoManager);
+        const service = new JjEditFsService(repoManager);
+        provider = new VsCodeEditFsProvider(service);
         provider.onDidChangeFile((events) => {
             onDidChangeFileFired.push(events);
         });

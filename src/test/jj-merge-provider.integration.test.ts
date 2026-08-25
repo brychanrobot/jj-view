@@ -6,14 +6,15 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjMergeContentProvider } from '../jj-merge-provider';
+import { JjMergeService } from '../jj-merge-service';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
+import { VsCodeMergeContentProvider } from '../vscode/providers/vscode-merge-provider';
 import { TestRepo } from './test-repo';
 
 suite('JJ Merge Provider Integration Test', () => {
     let jj: JjService;
-    let provider: JjMergeContentProvider;
+    let provider: VsCodeMergeContentProvider;
     let registration: vscode.Disposable;
     let repo: TestRepo;
 
@@ -22,7 +23,8 @@ suite('JJ Merge Provider Integration Test', () => {
         repo.init();
         // JjService uses process.env
         jj = new JjService(repo.path, NO_OP_LOGGER); // JjService takes path
-        provider = new JjMergeContentProvider(jj);
+        const mergeService = new JjMergeService(jj);
+        provider = new VsCodeMergeContentProvider(mergeService);
         registration = vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', provider);
     });
 
