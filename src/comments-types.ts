@@ -57,7 +57,7 @@ export interface Comment {
 }
 
 export interface CommentThread {
-    id?: string;
+    id: string;
     uri: Uri;
     range?: CommentRange;
     comments?: readonly Comment[];

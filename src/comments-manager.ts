@@ -4,41 +4,34 @@
  */
 
 import * as path from 'node:path';
-import * as vscode from 'vscode';
-import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
+import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { CommentThread } from './comments-types';
+import { type Disposable, type Event, EventEmitter } from './common/events';
+import type { HostEnvironment } from './common/host-environment';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
-import { Uri } from './uri-utils';
 
 export * from './comments-types';
 
-export class CommentsManager implements vscode.Disposable {
-    private commentController: vscode.CommentController;
-    private threads = new Map<string, vscode.CommentThread>(); // threadId -> vscode.CommentThread
+export class CommentsManager implements Disposable {
+    private _threads: CodeForgeCommentThread[] = [];
     private activeChangeId: string | undefined;
     private activeChangeInfo: CodeForgeChangeInfo | undefined;
     private activeRepoPath: string | undefined;
-    private disposables: vscode.Disposable[] = [];
-    private repoDisposables: vscode.Disposable[] = [];
+    private disposables: Disposable[] = [];
+    private repoDisposables: Disposable[] = [];
     private explicitChangeId: string | undefined;
     private lastWorkingCopyId: string | undefined;
     private activeLoadController?: AbortController;
 
-    public getThreads(): Map<string, vscode.CommentThread> {
-        return this.threads;
-    }
+    private readonly _onDidChangeThreads = new EventEmitter<CodeForgeCommentThread[]>();
+    public readonly onDidChangeThreads: Event<CodeForgeCommentThread[]> = this._onDidChangeThreads.event;
 
-    constructor(private readonly repositoryManager: JjRepositoryManager) {
-        this.commentController = vscode.comments.createCommentController('jj-view.comments', 'JJ Comments');
-        this.disposables.push(this.commentController);
-
-        // Set commenting range provider to return undefined, so users reply to existing comments only
-        this.commentController.commentingRangeProvider = {
-            provideCommentingRanges: () => undefined,
-        };
-
+    constructor(
+        private readonly repositoryManager: JjRepositoryManager,
+        private readonly host: HostEnvironment,
+    ) {
         // Clear comments when active repository changes
         this.disposables.push(
             this.repositoryManager.onDidChangeFocusedRepository(() => {
@@ -55,7 +48,27 @@ export class CommentsManager implements vscode.Disposable {
         this.updateRepoSubscriptions();
     }
 
-    private updateRepoSubscriptions() {
+    public get threads(): readonly CodeForgeCommentThread[] {
+        return this._threads;
+    }
+
+    public getThreads(): readonly CodeForgeCommentThread[] {
+        return this._threads;
+    }
+
+    public get activeChange(): CodeForgeChangeInfo | undefined {
+        return this.activeChangeInfo;
+    }
+
+    public get currentChangeId(): string | undefined {
+        return this.activeChangeId;
+    }
+
+    public get currentRepoPath(): string | undefined {
+        return this.activeRepoPath;
+    }
+
+    private updateRepoSubscriptions(): void {
         for (const d of this.repoDisposables) {
             d.dispose();
         }
@@ -102,8 +115,9 @@ export class CommentsManager implements vscode.Disposable {
             if (!logEntry) {
                 return undefined;
             }
-            const bookmarks =
-                logEntry.bookmarks?.filter((b: JjBookmark) => !b.remote).map((b: JjBookmark) => b.name) || [];
+            const bookmarks = (logEntry.bookmarks ?? [])
+                .filter((b: JjBookmark) => !b.remote)
+                .map((b: JjBookmark) => b.name);
             return activeProvider.getCachedChangeInfo(logEntry.change_id, logEntry.description, bookmarks);
         } catch {
             // Ignore error
@@ -257,7 +271,7 @@ export class CommentsManager implements vscode.Disposable {
     }
 
     /**
-     * Loads and renders comment threads from the forge provider for a specific revision.
+     * Loads comment threads from the forge provider for a specific revision.
      */
     private async loadCommentsForChange(changeInfo: CodeForgeChangeInfo, signal: AbortSignal): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
@@ -275,7 +289,7 @@ export class CommentsManager implements vscode.Disposable {
             return;
         }
 
-        // Clear existing threads immediately if switching to a different change to avoid stale UI state
+        // Clear existing threads immediately if switching to a different change to avoid stale state
         if (this.activeChangeId !== providerChangeId) {
             this.clearThreads();
             this.activeChangeId = undefined;
@@ -293,7 +307,8 @@ export class CommentsManager implements vscode.Disposable {
             this.activeChangeId = providerChangeId;
             this.activeChangeInfo = changeInfo;
             this.activeRepoPath = repo.rootUri.fsPath;
-            this.updateCommentThreads(threadsList);
+            this._threads = threadsList;
+            this._onDidChangeThreads.fire(threadsList);
         } catch {
             // Ignore/log
         }
@@ -325,130 +340,11 @@ export class CommentsManager implements vscode.Disposable {
             this.activeChangeInfo = undefined;
             this.activeRepoPath = undefined;
         }
-        // Focus the native comments panel
-        await vscode.commands.executeCommand('workbench.action.focusCommentsPanel');
     }
 
-    private clearThreads() {
-        for (const thread of this.threads.values()) {
-            thread.dispose();
-        }
-        this.threads.clear();
-    }
-
-    /**
-     * Maps a CodeForge provider comment to a VS Code comment structure.
-     */
-    private mapToVscodeComment(c: CodeForgeComment): vscode.Comment {
-        let avatarUri: Uri | undefined;
-        if (c.author?.avatarUrl) {
-            try {
-                avatarUri = Uri.parse(c.author.avatarUrl);
-            } catch {
-                // Ignore malformed avatar URIs
-            }
-        }
-        return {
-            body: new vscode.MarkdownString(c.body),
-            author: {
-                name: c.author?.name || 'Unknown',
-                iconPath: avatarUri,
-            },
-            label: c.isDraft ? 'Draft' : undefined,
-            mode: vscode.CommentMode.Preview,
-        };
-    }
-
-    /**
-     * Syncs a CodeForge comment thread with a VS Code CommentThread instance,
-     * updating comments, position, and resolution state.
-     */
-    private syncCommentThread(thread: CodeForgeCommentThread, activeRepoPath: string): vscode.CommentThread {
-        const fileUri = Uri.file(path.join(activeRepoPath, thread.filePath ?? ''));
-        const line = Math.max(0, (thread.line ?? 1) - 1);
-        const range = new vscode.Range(line, 0, line, 0);
-
-        const comments = thread.comments.map((c) => this.mapToVscodeComment(c));
-
-        const expectedCollapsibleState = thread.isResolved
-            ? vscode.CommentThreadCollapsibleState.Collapsed
-            : vscode.CommentThreadCollapsibleState.Expanded;
-
-        let vscodeThread = this.threads.get(thread.id);
-        if (!vscodeThread) {
-            vscodeThread = this.commentController.createCommentThread(fileUri, range, comments);
-            vscodeThread.canReply = true;
-            vscodeThread.collapsibleState = expectedCollapsibleState;
-            this.threads.set(thread.id, vscodeThread);
-        } else {
-            vscodeThread.comments = comments;
-            vscodeThread.range = range; // Update range!
-            // Only update collapsibleState if the resolution state has transitioned
-            const previousResolved = vscodeThread.contextValue === 'resolved';
-            if (previousResolved !== thread.isResolved) {
-                vscodeThread.collapsibleState = expectedCollapsibleState;
-            }
-        }
-
-        // Set context value to allow resolve/unresolve actions
-        vscodeThread.contextValue = thread.isResolved ? 'resolved' : 'unresolved';
-        vscodeThread.state = thread.isResolved
-            ? vscode.CommentThreadState.Resolved
-            : vscode.CommentThreadState.Unresolved;
-
-        return vscodeThread;
-    }
-
-    /**
-     * Batch updates VS Code SCM comment threads based on a list from the forge provider,
-     * removing threads that are no longer present.
-     */
-    private updateCommentThreads(threadsList: CodeForgeCommentThread[]) {
-        if (!this.activeRepoPath) {
-            this.clearThreads();
-            return;
-        }
-
-        const activeThreadIds = new Set<string>();
-
-        for (const thread of threadsList) {
-            if (!thread.filePath || thread.line === undefined) {
-                continue;
-            }
-
-            activeThreadIds.add(thread.id);
-            this.syncCommentThread(thread, this.activeRepoPath);
-        }
-
-        // Dispose threads that are no longer active
-        for (const [id, thread] of this.threads.entries()) {
-            if (!activeThreadIds.has(id)) {
-                thread.dispose();
-                this.threads.delete(id);
-            }
-        }
-    }
-
-    private findThreadId(thread: CommentThread): string | undefined {
-        if (thread.id && this.threads.has(thread.id)) {
-            return thread.id;
-        }
-
-        const threadUri = thread.uri.toString();
-        const threadRange = thread.range;
-
-        for (const [id, t] of this.threads.entries()) {
-            if (
-                t.uri.toString() === threadUri &&
-                t.range?.start.line === threadRange?.start.line &&
-                t.range?.start.character === threadRange?.start.character &&
-                t.range?.end.line === threadRange?.end.line &&
-                t.range?.end.character === threadRange?.end.character
-            ) {
-                return id;
-            }
-        }
-        return undefined;
+    private clearThreads(): void {
+        this._threads = [];
+        this._onDidChangeThreads.fire([]);
     }
 
     public async replyToThread(reply: { thread: CommentThread; text?: string }, resolved?: boolean): Promise<void> {
@@ -463,7 +359,7 @@ export class CommentsManager implements vscode.Disposable {
             return;
         }
 
-        const threadId = this.findThreadId(reply.thread);
+        const threadId = reply.thread.id;
         if (!threadId) {
             return;
         }
@@ -473,21 +369,17 @@ export class CommentsManager implements vscode.Disposable {
         > &
             CodeForgeProvider;
 
+        const replyText = reply.text ?? '';
+        const executeReply = async () => {
+            await provider.replyToCommentThread(changeId, threadId, replyText, resolved);
+            await this.refreshActiveChangeComments();
+            repo.codeForge.requestRefreshWithBackoffs();
+        };
+
         try {
-            await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: 'Sending reply...',
-                    cancellable: false,
-                },
-                async () => {
-                    await provider.replyToCommentThread(changeId, threadId, reply.text ?? '', resolved);
-                    await this.refreshActiveChangeComments();
-                    repo.codeForge.requestRefreshWithBackoffs();
-                },
-            );
+            await this.host.ui.withProgress('Sending reply...', executeReply);
         } catch (err) {
-            vscode.window.showErrorMessage(`Failed to send reply: ${err}`);
+            await this.host.ui.showError(err, 'Failed to send reply');
         }
     }
 
@@ -503,7 +395,7 @@ export class CommentsManager implements vscode.Disposable {
             return;
         }
 
-        const threadId = this.findThreadId(thread);
+        const threadId = thread.id;
         if (!threadId) {
             return;
         }
@@ -513,64 +405,62 @@ export class CommentsManager implements vscode.Disposable {
         > &
             CodeForgeProvider;
 
+        const executeToggle = async () => {
+            await provider.resolveCommentThread(changeId, threadId, resolved);
+            await this.refreshActiveChangeComments();
+            repo.codeForge.requestRefreshWithBackoffs();
+        };
+
         try {
-            await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: resolved ? 'Resolving thread...' : 'Unresolving thread...',
-                    cancellable: false,
-                },
-                async () => {
-                    await provider.resolveCommentThread(changeId, threadId, resolved);
-                    await this.refreshActiveChangeComments();
-                    repo.codeForge.requestRefreshWithBackoffs();
-                },
-            );
+            await this.host.ui.withProgress(resolved ? 'Resolving thread...' : 'Unresolving thread...', executeToggle);
         } catch (err) {
-            vscode.window.showErrorMessage(`Failed to toggle resolve: ${err}`);
+            await this.host.ui.showError(err, 'Failed to toggle resolve');
         }
     }
 
-    public async copyUnresolvedComments(): Promise<void> {
-        const unresolvedThreads = Array.from(this.threads.values()).filter(
-            (thread) => thread.state === vscode.CommentThreadState.Unresolved,
-        );
-
+    public formatUnresolvedComments(workspaceRoot?: string): string | undefined {
+        const unresolvedThreads = this._threads.filter((thread) => !thread.isResolved);
         if (unresolvedThreads.length === 0) {
-            vscode.window.showInformationMessage('No unresolved comments for the active change.');
-            return;
+            return undefined;
         }
 
-        unresolvedThreads.sort((a, b) => {
-            const pathA = a.uri.fsPath;
-            const pathB = b.uri.fsPath;
+        const root = workspaceRoot ?? this.activeRepoPath;
+        const sorted = [...unresolvedThreads].sort((a, b) => {
+            const pathA = a.filePath ?? '';
+            const pathB = b.filePath ?? '';
             if (pathA !== pathB) {
                 return pathA.localeCompare(pathB);
             }
-            const lineA = a.range?.start.line ?? 0;
-            const lineB = b.range?.start.line ?? 0;
+            const lineA = a.line ?? 0;
+            const lineB = b.line ?? 0;
             return lineA - lineB;
         });
 
         const info = this.activeChangeInfo;
-        let changeLabel = '';
-        if (info) {
-            changeLabel = ` for ${info.displayLabel}`;
-        }
-
+        const changeLabel = info ? ` for ${info.displayLabel}` : '';
         let result = `### Unresolved Comments${changeLabel}\n\n`;
 
-        for (const thread of unresolvedThreads) {
-            const relativePath = vscode.workspace.asRelativePath(thread.uri);
-            if (thread.range) {
-                const lineNum = thread.range.start.line + 1;
-                result += `- **${relativePath}:${lineNum}**\n`;
-            } else {
-                result += `- **${relativePath}**\n`;
+        for (const thread of sorted) {
+            let relativePath = '';
+            if (thread.filePath) {
+                const fullPath = path.isAbsolute(thread.filePath)
+                    ? thread.filePath
+                    : root
+                      ? path.join(root, thread.filePath)
+                      : thread.filePath;
+                relativePath = root ? path.relative(root, fullPath) : thread.filePath;
             }
+            const displayPath = relativePath || thread.filePath || 'unknown';
+
+            if (thread.line !== undefined && thread.line > 0) {
+                result += `- **${displayPath}:${thread.line}**\n`;
+            } else {
+                result += `- **${displayPath}**\n`;
+            }
+
             for (const comment of thread.comments) {
                 const author = comment.author?.name || 'Unknown';
-                const body = typeof comment.body === 'string' ? comment.body : (comment.body?.value ?? '');
+                const body = comment.body ?? '';
                 const indentedBody = body
                     .split(/\r?\n/)
                     .map((line) => `    > ${line}`)
@@ -579,15 +469,23 @@ export class CommentsManager implements vscode.Disposable {
             }
         }
 
+        return `${result.trim()}\n`;
+    }
+
+    public async copyUnresolvedComments(): Promise<void> {
+        const text = this.formatUnresolvedComments();
+        if (!text) {
+            await this.host.ui.showInformation('No unresolved comments for the active change.');
+            return;
+        }
+
+        const unresolvedCount = this._threads.filter((t) => !t.isResolved).length;
+
         try {
-            await vscode.env.clipboard.writeText(`${result.trim()}\n`);
-            vscode.window.showInformationMessage(
-                `Copied ${unresolvedThreads.length} unresolved comment(s) to clipboard.`,
-            );
+            await this.host.nav.copyToClipboard(text);
+            await this.host.ui.showInformation(`Copied ${unresolvedCount} unresolved comment(s) to clipboard.`);
         } catch (error) {
-            vscode.window.showErrorMessage(
-                `Failed to copy comments to clipboard: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            await this.host.ui.showError(error, 'Failed to copy comments to clipboard');
         }
     }
 
@@ -599,8 +497,11 @@ export class CommentsManager implements vscode.Disposable {
         for (const d of this.repoDisposables) {
             d.dispose();
         }
+        this.repoDisposables = [];
         for (const d of this.disposables) {
             d.dispose();
         }
+        this.disposables = [];
+        this._onDidChangeThreads.dispose();
     }
 }

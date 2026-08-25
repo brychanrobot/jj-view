@@ -293,7 +293,9 @@ export class CodeForgeService implements Disposable {
         const remoteSet = new Set(remoteParents);
         const matches = parents.every((localParent) => {
             const parentCommit = commitMap.get(localParent.commit_id);
-            const parentBookmarks = parentCommit?.bookmarks?.filter((b) => !b.remote).map((b) => b.name);
+            const parentBookmarks = parentCommit
+                ? (parentCommit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name)
+                : undefined;
             const parentInfo = activeProvider.getCachedChangeInfo(
                 localParent.change_id,
                 parentCommit?.description,
@@ -321,7 +323,7 @@ export class CodeForgeService implements Disposable {
                 const info = activeProvider.getCachedChangeInfo(
                     commit.change_id,
                     commit.description,
-                    commit.bookmarks?.filter((b) => !b.remote).map((b) => b.name),
+                    (commit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name),
                 );
                 if (info) {
                     commit.codeForgeChange = info;
