@@ -23,7 +23,7 @@ import type {
 } from '../common/host-environment';
 import type { JjRepository } from '../jj-repository';
 import type { Uri } from '../uri-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
+import type { LoggerChannel } from '../utils/output-channel';
 
 export class FakeHostUi implements HostUi {
     public inputBoxResponses: (string | undefined)[] = [];
@@ -445,7 +445,7 @@ export class FakeCommandContext implements CommandContext {
     constructor(
         readonly repo: JjRepository,
         readonly host: FakeHostEnvironment = new FakeHostEnvironment(),
-        readonly log: JjLoggerChannel = {
+        readonly log: LoggerChannel = {
             info: () => {},
             warn: () => {},
             error: () => {},
@@ -457,8 +457,6 @@ export class FakeCommandContext implements CommandContext {
             clear: () => {},
             dispose: () => {},
             name: 'test',
-            logLevel: 3,
-            onDidChangeLogLevel: () => ({ dispose: () => {} }),
         },
         readonly comments?: CommentsManager,
     ) {

@@ -21,7 +21,7 @@ import { getGerritAuthHeader, resolveGitRoot } from './utils/gerrit-credential-u
 import { detectGerritHost } from './utils/gerrit-host-detection';
 import { resolveGerritChangeKey, stripGerritTrailers } from './utils/gerrit-utils';
 import { convertJjChangeIdToHex } from './utils/jj-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export const GerritFileSchema = z.object({
     status: z.string().optional(),
@@ -111,7 +111,7 @@ export class GerritProvider implements CodeForgeProvider {
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
-    constructor(private outputChannel?: JjLoggerChannel) {}
+    constructor(private outputChannel?: LoggerChannel) {}
 
     public async detect(repoRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const binaryPath = getJjViewConfig<string>('binaryPath', 'jj') || 'jj';

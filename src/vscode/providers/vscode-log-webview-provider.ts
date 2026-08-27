@@ -9,7 +9,7 @@ import { LogViewController } from '../../controllers/log-view-controller';
 import type { JjRepository } from '../../jj-repository';
 import type { JjLogEntry } from '../../jj-types';
 import type { Uri } from '../../uri-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
+import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { closeCommitDetailsTabs } from '../vscode-ui-helpers';
 import { getWebviewHtml } from '../vscode-webview-html';
@@ -21,14 +21,14 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
     private _viewDisposables: vscode.Disposable[] = [];
 
     public readonly controller: LogViewController;
-    public readonly outputChannel?: JjLoggerChannel;
+    public readonly outputChannel?: LoggerChannel;
 
     constructor(
         private readonly _extensionUri: Uri,
         initialRepo: JjRepository | undefined,
         onSelectionChange: (commits: string[]) => void,
         context: vscode.ExtensionContext,
-        outputChannel?: JjLoggerChannel,
+        outputChannel?: LoggerChannel,
     ) {
         this.outputChannel = outputChannel;
 

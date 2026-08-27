@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { toError } from './error-utils';
+import type { LoggerChannel } from './output-channel';
+
 export interface IDisposable {
     dispose(): void;
-}
-
-export interface ILogger {
-    error(error: string | Error, ...args: unknown[]): void;
 }
 
 export interface DebouncingQueueOptions<TPayload> {
@@ -18,8 +17,8 @@ export interface DebouncingQueueOptions<TPayload> {
     getMaxMultiplier?: () => number;
     /** Custom reducer to merge incoming payloads during debouncing */
     mergePayloads?: (accumulated: TPayload, incoming: TPayload) => TPayload;
-    /** Optional logger channel (e.g. JjLoggerChannel) to log task errors */
-    logger?: ILogger;
+    /** Optional logger channel to log task errors */
+    logger?: LoggerChannel;
 }
 
 interface PendingBatch<TPayload> {
@@ -175,7 +174,7 @@ export class DebouncingQueue<TPayload = void> implements IDisposable {
         } catch (err) {
             taskError = err;
             if (this._options?.logger) {
-                this._options.logger.error('DebouncingQueue task error:', err);
+                this._options.logger.error('DebouncingQueue task error:', toError(err));
             } else {
                 console.error('DebouncingQueue task error:', err);
             }

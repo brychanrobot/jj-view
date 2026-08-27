@@ -6,14 +6,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { extractUriFromArgs, getErrorMessage } from '../commands/command-utils';
+import { extractUriFromArgs, getErrorMessage, toError } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjService } from '../jj-service';
 import { createCommitDetailsUri, getUriParams, Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
+
+import type { LoggerChannel } from '../utils/output-channel';
 import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 
 function isSourceControlResourceGroup(arg: unknown): arg is vscode.SourceControlResourceGroup {
@@ -30,13 +31,11 @@ export async function promptForRevision(
     const limit = 200;
 
     try {
-        const commitIds = await jj.getLogIds({
+        const ancestors = await jj.getLog({
             revision: revisionQuery,
             limit,
+            omitChanges: true,
         });
-
-        const entries = await Promise.all(commitIds.map((id) => jj.getLog({ revision: id })));
-        const ancestors = entries.map((e) => e[0]).filter(Boolean);
 
         const items: vscode.QuickPickItem[] = ancestors.map((entry) => {
             const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
@@ -137,7 +136,7 @@ export async function showJjError(
     error: unknown,
     prefix: string,
     jj?: JjService,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
     extraActions: string[] = [],
 ): Promise<string | undefined> {
     const message = getErrorMessage(error);
@@ -163,19 +162,19 @@ export async function showJjError(
     if (!process.env.VITEST) {
         console.error(fullMessage, error);
     }
-    outputChannel?.error(`[Error] ${fullMessage}`);
+    outputChannel?.error(fullMessage, error !== undefined ? toError(error) : undefined);
 
     const SHOW_LOG = 'Show Log';
     const selection = await vscode.window.showErrorMessage(fullMessage, SHOW_LOG, ...extraActions);
 
     if (selection === SHOW_LOG) {
-        outputChannel?.show();
+        outputChannel?.show?.();
     } else if (selection === DELETE_LOCK && lockPath) {
         try {
             await fs.unlink(lockPath);
-            outputChannel?.info(`[Info] Deleted lock file at ${lockPath}`);
+            outputChannel?.info(`Deleted lock file at ${lockPath}`);
         } catch (e) {
-            outputChannel?.error(`[Error] Failed to delete lock file: ${getErrorMessage(e)}`);
+            outputChannel?.error(`Failed to delete lock file: ${getErrorMessage(e)}`, toError(e));
             vscode.window.showErrorMessage(`Failed to delete lock file: ${getErrorMessage(e)}`);
         }
     }

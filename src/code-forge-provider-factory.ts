@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CodeForgeProvider } from './code-forge-provider';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export interface CodeForgeProviderFactory {
     readonly id: string;
-    create(outputChannel?: JjLoggerChannel): CodeForgeProvider;
+    create(outputChannel?: LoggerChannel): CodeForgeProvider;
 }

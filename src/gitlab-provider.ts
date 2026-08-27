@@ -17,7 +17,7 @@ import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
 
@@ -107,7 +107,7 @@ export class GitLabProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: JjLoggerChannel,
+        private outputChannel?: LoggerChannel,
     ) {
         this.authManager.registerProvider(this.id);
     }

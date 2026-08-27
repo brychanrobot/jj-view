@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { type JjEditFsService, parseEditUri } from '../../jj-edit-fs-service';
 import type { JjRepository } from '../../jj-repository';
 import type { Uri } from '../../uri-utils';
+import { getErrorMessage } from '../../utils/error-utils';
 
 export { parseEditUri };
 
@@ -60,7 +61,7 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
         try {
             return await this.service.readFile(uri);
         } catch (e: unknown) {
-            throw vscode.FileSystemError.Unavailable(e instanceof Error ? e.message : String(e));
+            throw vscode.FileSystemError.Unavailable(getErrorMessage(e));
         }
     }
 
@@ -68,7 +69,7 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
         try {
             await this.service.writeFile(uri, content);
         } catch (e: unknown) {
-            throw vscode.FileSystemError.Unavailable(e instanceof Error ? e.message : String(e));
+            throw vscode.FileSystemError.Unavailable(getErrorMessage(e));
         }
     }
 

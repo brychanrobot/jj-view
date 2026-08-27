@@ -23,13 +23,14 @@ import type {
 import type { JjRepository } from '../jj-repository';
 import { getFsPathFromUri, toFileUri, type Uri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
-import type { JjLoggerChannel } from '../utils/output-channel';
+import { getErrorMessage } from '../utils/error-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 import { openCommitDetails, promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
 
 export class VsCodeHostUi implements HostUi {
     constructor(
         private readonly repo?: JjRepository,
-        private readonly log?: JjLoggerChannel,
+        private readonly log?: LoggerChannel,
         private readonly sourceControl?: { inputBox: { value: string } },
     ) {}
 
@@ -78,7 +79,7 @@ export class VsCodeHostUi implements HostUi {
 
     async showError(error: unknown, prefix: string, extraActions?: string[]): Promise<string | undefined> {
         if (!this.repo || !this.log) {
-            const message = `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+            const message = `${prefix}: ${getErrorMessage(error)}`;
             return await vscode.window.showErrorMessage(message, ...(extraActions ?? []));
         }
         return await showJjError(error, prefix, this.repo.jj, this.log, extraActions);
@@ -414,7 +415,7 @@ export class VsCodeHostEnvironment implements HostEnvironment {
     constructor(options: {
         context: vscode.ExtensionContext;
         repo?: JjRepository;
-        log?: JjLoggerChannel;
+        log?: LoggerChannel;
         sourceControl?: { inputBox: { value: string } };
     }) {
         this.ui = new VsCodeHostUi(options.repo, options.log, options.sourceControl);

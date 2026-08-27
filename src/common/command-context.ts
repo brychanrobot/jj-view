@@ -4,7 +4,7 @@
  */
 import type { CommentsManager } from '../comments-manager';
 import type { JjRepository } from '../jj-repository';
-import type { JjLoggerChannel } from '../utils/output-channel';
+import type { LoggerChannel } from '../utils/output-channel';
 import type { HostEnvironment } from './host-environment';
 
 export interface CommandServices {
@@ -14,6 +14,6 @@ export interface CommandServices {
 export interface CommandContext {
     readonly repo: JjRepository;
     readonly host: HostEnvironment;
-    readonly log: JjLoggerChannel;
+    readonly log: LoggerChannel;
     readonly services?: CommandServices;
 }

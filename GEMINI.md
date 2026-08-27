@@ -12,6 +12,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - **Forbidden**: disabling the `any` type check for a line or block. `// @ts-ignore` or `// eslint-disable-line` are not allowed.
 - **Forbidden**: `as unknown as Type` double casting. Use `createMock` utility or proper type narrowing instead.
 - **Early Returns**: Always prefer early returns / guard clauses to avoid deeply nested blocks of conditional logic. Check error or mismatch conditions first, return early, and keep the primary execution path unindented.
+- **No Omnibus Union Parameters**: Avoid polymorphic argument unions (e.g. `param: TypeA | TypeB`, `optionsOrAction?: Options | string`, or `messageOrError: string | Error`) that change parameter semantics based on runtime type checks. Instead, use explicit, separate parameters, dedicated method names, or a clean options object. Every parameter in a function signature must have a single, unambiguous purpose.
 - **Imports**: All imports (static or dynamic) should be placed at the top of the file. Avoid inline/local dynamic `await import(...)` statements inside functions, classes, or test cases unless strictly necessary (e.g., to break circular dependencies or for conditional loading).
 ### Target Environment
 

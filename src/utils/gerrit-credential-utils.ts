@@ -7,7 +7,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fetchWithTimeout } from './fetch-utils';
-import type { JjLoggerChannel } from './output-channel';
+import type { LoggerChannel } from './output-channel';
 
 /**
  * A helper to wrap cp.execFile in a Promise to prevent deep nesting of callbacks.
@@ -147,7 +147,7 @@ export async function getGitCookies(gitDir: string | null, host: string): Promis
 export async function parseCookieFile(
     filePath: string,
     host: string,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | null> {
     try {
         const content = await fs.readFile(filePath, 'utf8');
@@ -192,7 +192,7 @@ export async function parseCookieFile(
 /**
  * LUCI Context Authenticator.
  */
-export async function getLuciToken(outputChannel?: JjLoggerChannel): Promise<string | null> {
+export async function getLuciToken(outputChannel?: LoggerChannel): Promise<string | null> {
     if (!process.env.LUCI_CONTEXT) {
         outputChannel?.debug('[GerritAuth] LUCI_CONTEXT environment variable not set');
         return null;
@@ -250,7 +250,7 @@ async function parseExtraHeaderFile(filePath: string): Promise<{ name: string; v
  */
 export async function getSsoAuth(
     host: string,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | null> {
     const checkCmd = process.platform === 'win32' ? 'where' : 'which';
     outputChannel?.debug(`[GerritAuth] Checking if git-remote-sso helper exists using ${checkCmd}...`);
@@ -310,7 +310,7 @@ export async function getSsoAuth(
 /**
  * GCE Metadata Authenticator.
  */
-export async function getGceAuth(outputChannel?: JjLoggerChannel): Promise<{ name: string; value: string } | null> {
+export async function getGceAuth(outputChannel?: LoggerChannel): Promise<{ name: string; value: string } | null> {
     try {
         const metadataHost = process.env.GCE_METADATA_HOST || 'http://metadata.google.internal';
         outputChannel?.debug(`[GerritAuth] Probing GCE Metadata server at ${metadataHost}...`);
@@ -355,7 +355,7 @@ export async function getGceAuth(outputChannel?: JjLoggerChannel): Promise<{ nam
 export async function getGitCredential(
     gitDir: string | null,
     host: string,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<{ username?: string; password?: string } | null> {
     const args = gitDir ? [`--git-dir=${gitDir}`, 'credential', 'fill'] : ['credential', 'fill'];
     const options = {
@@ -401,7 +401,7 @@ export async function getGitCredential(
 export async function getGerritAuthHeader(
     gerritHost: string,
     gitDir: string | null,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | undefined> {
     let hostname = gerritHost;
     try {

@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import type { AuthManageItem } from './code-forge-provider';
 import { type Disposable, type Event, EventEmitter } from './common/events';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export type AuthToken = string;
 
@@ -40,7 +40,7 @@ export class CodeForgeAuthManager implements Disposable {
 
     constructor(
         private readonly context: vscode.ExtensionContext,
-        private readonly outputChannel?: JjLoggerChannel,
+        private readonly outputChannel?: LoggerChannel,
     ) {}
 
     public dispose(): void {

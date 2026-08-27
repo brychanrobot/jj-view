@@ -16,7 +16,7 @@ import { ScmModel, type ScmSnapshot } from '../../scm-model';
 import { createJjResourceState, type JjResourceState } from '../../scm-resource-state';
 import { getRepoRelativePath, type Uri } from '../../uri-utils';
 import { getJjViewConfig } from '../../utils/config-utils';
-import type { JjLoggerChannel } from '../../utils/output-channel';
+import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeDecorationProvider } from './vscode-decoration-provider';
 import type { VsCodeEditFsProvider } from './vscode-edit-fs-provider';
 import type { VsCodeViewFsProvider } from './vscode-view-fs-provider';
@@ -68,7 +68,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
     constructor(
         public readonly context: vscode.ExtensionContext,
         public readonly repo: JjRepository,
-        public readonly outputChannel: JjLoggerChannel,
+        public readonly outputChannel: LoggerChannel,
         public readonly repositoryManager: JjRepositoryManager,
         public readonly viewFileSystemProvider?: VsCodeViewFsProvider,
         public readonly editProvider?: VsCodeEditFsProvider,

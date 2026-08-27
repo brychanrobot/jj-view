@@ -5,18 +5,19 @@
 
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
-import { WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
 import {
     createWebviewRpcDispatcher,
-    type LoggerLike,
     type WebviewPostMessageLike,
     type WebviewRpcDispatcher,
 } from '../common/webview-rpc-dispatcher';
 import type { JjRepository } from '../jj-repository';
 import type { JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
+import { toError } from '../utils/error-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 
 export interface CommitDetailsControllerOptions {
-    logger?: LoggerLike;
+    logger?: LoggerChannel;
     onEditRecorded?: (edit: { undo: () => void; redo: () => void; label: string }) => void;
     openDiff?: (payload: { file: JjStatusEntry; changeId: string; isImmutable?: boolean }) => Promise<void> | void;
 }
@@ -26,8 +27,8 @@ export class CommitDetailsController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private readonly _messengers = new Set<WebviewPostMessageLike>();
     private _loadVersion = 0;
-    private readonly _logger?: LoggerLike;
-    private readonly _dispatcher: WebviewRpcDispatcher<import('../common/ipc-schemas').WebviewToHostMessage>;
+    private readonly _logger?: LoggerChannel;
+    private readonly _dispatcher: WebviewRpcDispatcher<WebviewToHostMessage>;
 
     private _logEntry?: JjLogEntry;
     private _changes?: readonly JjStatusEntry[];
@@ -178,7 +179,7 @@ export class CommitDetailsController implements Disposable {
 
             return log;
         } catch (err) {
-            this._logger?.error(`[CommitDetailsController] Failed to load commit ${this.changeId}: ${err}`);
+            this._logger?.error(`[CommitDetailsController] Failed to load commit ${this.changeId}`, toError(err));
             return undefined;
         }
     }
@@ -287,7 +288,7 @@ export class CommitDetailsController implements Disposable {
             });
             return true;
         } catch (err) {
-            this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}: ${err}`);
+            this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}`, toError(err));
             this.broadcast({ type: 'saveFailed' });
             await this._host.ui.showError(err, 'Failed to save commit description');
             return false;
@@ -302,12 +303,12 @@ export class CommitDetailsController implements Disposable {
             try {
                 messenger.postMessage(message);
             } catch (e) {
-                this._logger?.error(`[CommitDetailsController] Failed to post message: ${e}`);
+                this._logger?.error('[CommitDetailsController] Failed to post message', toError(e));
             }
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<import('../common/ipc-schemas').WebviewToHostMessage> {
+    private _createRpcDispatcher(): WebviewRpcDispatcher<WebviewToHostMessage> {
         return createWebviewRpcDispatcher(
             WebviewToHostMessageSchema,
             {
@@ -358,5 +359,6 @@ export class CommitDetailsController implements Disposable {
         this._messengers.clear();
         this._onDidUpdate.dispose();
         this._onDidClose.dispose();
+        this._dispatcher.dispose();
     }
 }

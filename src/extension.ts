@@ -26,7 +26,8 @@ import { JjViewFsService } from './jj-view-fs-service';
 import { getUriParams } from './uri-utils';
 import { resolveJjBinary } from './utils/binary-utils';
 import { getJjViewConfig } from './utils/config-utils';
-import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
+import { toError } from './utils/error-utils';
+import { type LoggerChannel, OutputChannel } from './utils/output-channel';
 import { VsCodeCommentsProvider } from './vscode/providers/vscode-comments-provider';
 import { VsCodeCommitDetailsEditorProvider } from './vscode/providers/vscode-commit-details-editor-provider';
 import { VsCodeEditFsProvider } from './vscode/providers/vscode-edit-fs-provider';
@@ -52,7 +53,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const folders = vscode.workspace.workspaceFolders || [];
     const workspaceRoot = folders.length > 0 ? folders[0].uri.fsPath : '';
     const realOutputChannel = vscode.window.createOutputChannel('JJ View', { log: true });
-    const outputChannel = new JjOutputChannel(realOutputChannel);
+    const outputChannel = new OutputChannel(realOutputChannel);
     context.subscriptions.push(realOutputChannel);
 
     // Get preferred binary path configuration
@@ -172,7 +173,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                         }
                     })
                     .catch((e: unknown) => {
-                        outputChannel.error(`Failed to refresh after authentication: ${e}`);
+                        outputChannel.error('Failed to refresh after authentication', toError(e));
                     });
             }
         }),
@@ -434,7 +435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     // SCM Discovery Lifecycle integration
     repositoryManager.onDidOpenRepository((repo) => {
         const repoPrefix = path.basename(repo.rootUri.fsPath);
-        const repoOutputChannel = new JjOutputChannel(realOutputChannel, repoPrefix);
+        const repoOutputChannel = new OutputChannel(realOutputChannel, repoPrefix);
         const scmProvider = new VsCodeScmProvider(
             context,
             repo,
@@ -469,14 +470,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath
         ) {
             logWebviewProvider.updateRepository(repo).catch((err) => {
-                outputChannel.error(`[Extension] Failed to update webview repository: ${err}`);
+                outputChannel.error('[Extension] Failed to update webview repository', toError(err));
             });
         }
 
         // Fire and forget: check if we should warn about git colocation
-        checkGitColocation(repo.jj).catch((e) =>
-            outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}: ${e}`),
-        );
+        checkGitColocation(repo.jj).catch((e) => {
+            outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}`, toError(e));
+        });
     });
 
     repositoryManager.onDidCloseRepository(async (repo) => {
@@ -493,7 +494,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         focusedRepoActiveProviderSub?.dispose();
         if (repo) {
             logWebviewProvider.updateRepository(repo).catch((err) => {
-                outputChannel.error(`[Extension] Failed to update webview repository: ${err}`);
+                outputChannel.error('[Extension] Failed to update webview repository', toError(err));
             });
             const scm = scmProviders.get(repo.rootUri.fsPath);
             if (scm) {
@@ -573,7 +574,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 export function handleTerminalExecution(
     commandLine: string,
     codeForgeService: CodeForgeService,
-    outputChannel: JjLoggerChannel,
+    outputChannel: LoggerChannel,
     scmProvider: VsCodeScmProvider,
 ): boolean {
     const cmd = commandLine.trim();

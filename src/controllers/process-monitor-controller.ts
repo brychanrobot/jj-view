@@ -8,7 +8,6 @@ import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import {
     createWebviewRpcDispatcher,
-    type LoggerLike,
     type WebviewPostMessageLike,
     type WebviewRpcDispatcher,
 } from '../common/webview-rpc-dispatcher';
@@ -19,6 +18,7 @@ import {
     type JjProcessTracker,
 } from '../jj-process-tracker';
 import { CoalescingQueue } from '../utils/coalescing-queue';
+import type { LoggerChannel } from '../utils/output-channel';
 
 export const ProcessMonitorToHostMessageSchema = z.discriminatedUnion('command', [
     z.object({ command: z.literal('killProcess'), id: z.number() }),
@@ -30,14 +30,14 @@ export type ProcessMonitorToHostMessage = z.infer<typeof ProcessMonitorToHostMes
 
 export interface ProcessMonitorControllerOptions {
     messenger?: WebviewPostMessageLike;
-    logger?: LoggerLike;
+    logger?: LoggerChannel;
 }
 
 export class ProcessMonitorController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
     private _messenger?: WebviewPostMessageLike;
-    private readonly _logger?: LoggerLike;
+    private readonly _logger?: LoggerChannel;
     private readonly _updateQueue: CoalescingQueue;
     private readonly _dispatcher: WebviewRpcDispatcher<ProcessMonitorToHostMessage, 'command'>;
 

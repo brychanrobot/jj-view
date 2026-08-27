@@ -285,12 +285,7 @@ export function extractFileUri(args: unknown[]): Uri | undefined {
     return extractUriFromArgs(args);
 }
 
-export function getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-        return error.message;
-    }
-    return String(error);
-}
+export { getErrorMessage, toError } from '../utils/error-utils';
 
 export const RevisionQuery = {
     Parents: 'parents(@)',
