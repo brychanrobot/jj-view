@@ -1170,6 +1170,10 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                 const evaluatePromise = this.evaluate(async (vscode, api) => {
                     const evalStart = Date.now();
 
+                    try {
+                        await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+                    } catch {}
+
                     const hasOpenEditors = vscode.window.tabGroups.all.some((group) => group.tabs.length > 0);
                     if (hasOpenEditors) {
                         try {
@@ -1182,8 +1186,12 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
 
                     const clearStart = Date.now();
                     try {
-                        await api.repositoryManager.clear();
-                        globalThis.logPerf('cleanupAfterTest (eval): repoManager clear', clearStart);
+                        if (typeof api?.resetState === 'function') {
+                            await api.resetState();
+                        } else {
+                            await api?.repositoryManager?.clear();
+                        }
+                        globalThis.logPerf('cleanupAfterTest (eval): resetState', clearStart);
                     } catch {}
 
                     const workspaceFolders = vscode.workspace.workspaceFolders || [];

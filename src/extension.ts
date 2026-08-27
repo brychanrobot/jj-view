@@ -42,6 +42,7 @@ export interface Api {
     commentsManager: CommentsManager;
     commentsProvider: VsCodeCommentsProvider;
     registerCodeForgeProvider(factory: CodeForgeProviderFactory): vscode.Disposable;
+    resetState(): Promise<void>;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<Api> {
@@ -537,6 +538,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         commentsManager,
         commentsProvider,
         registerCodeForgeProvider: (factory: CodeForgeProviderFactory) => codeForgeRegistry.register(factory),
+        resetState: async () => {
+            await authManager.resetAllChoices();
+            try {
+                await authManager.secrets.delete('gitlab_token');
+                await authManager.secrets.delete('github_token');
+            } catch {}
+            for (const key of context.globalState?.keys?.() ?? []) {
+                await context.globalState.update(key, undefined);
+            }
+            for (const key of context.workspaceState?.keys?.() ?? []) {
+                await context.workspaceState.update(key, undefined);
+            }
+            await repositoryManager.clear();
+        },
     };
 }
 
