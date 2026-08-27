@@ -4,18 +4,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createVscodeMock } from './vscode-mock';
-
-vi.mock('vscode', () => createVscodeMock());
-
-import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { JjViewFsService } from '../jj-view-fs-service';
 import { Uri } from '../uri-utils';
 import { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 describe('VsCodeViewFsProvider Unit Tests', () => {
     let testRepo: TestRepo;
@@ -31,16 +27,11 @@ describe('VsCodeViewFsProvider Unit Tests', () => {
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(testRepo.path));
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, host);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         if (!repo) {
             throw new Error('Failed to register repo in test');

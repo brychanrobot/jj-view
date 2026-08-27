@@ -6,15 +6,14 @@
 import { realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { type Event, EventEmitter } from './common/events';
+import type { HostDisposable, HostEnvironment, HostStorage } from './common/host-environment';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
 import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 import { CoalescingQueue } from './utils/coalescing-queue';
-import { getJjViewConfig } from './utils/config-utils';
 import { toError } from './utils/error-utils';
 import { type LoggerChannel, OutputChannel } from './utils/output-channel';
 
@@ -27,17 +26,16 @@ interface DetectedRepoInfo {
 /**
  * Discovers and manages multiple Jujutsu repositories within the workspace.
  */
-export class JjRepositoryManager implements vscode.Disposable {
+export class JjRepositoryManager implements HostDisposable {
     private _repositories: JjRepository[] = [];
     private _focusedRepository: JjRepository | undefined;
     private _binaryPath: string | undefined;
-    private _disposables: vscode.Disposable[] = [];
+    private _disposables: HostDisposable[] = [];
     private readonly _dirToRepoRoot = new Map<string, string | null>();
     private readonly _ignoredAbsolutePaths = new Set<string>();
     private readonly _closingPaths = new Set<string>();
     private readonly _pendingRegistrations = new Map<string, Promise<JjRepository | undefined>>();
     private readonly _pendingRepoRoots = new Map<string, Promise<string | undefined>>();
-    private _lastActiveTab?: vscode.Tab;
     private readonly _scanQueue = new CoalescingQueue(() => this.doScan());
     private _disposed = false;
     private _normalizedWorkspaceFolders: string[] | undefined;
@@ -61,23 +59,20 @@ export class JjRepositoryManager implements vscode.Disposable {
     constructor(
         private readonly _codeForgeRegistry: CodeForgeRegistry,
         private readonly _outputChannel: LoggerChannel,
-        private readonly _workspaceState: vscode.Memento,
+        private readonly _host: HostEnvironment,
         initialBinaryPath?: string,
         private readonly _processTracker?: JjProcessTracker,
     ) {
         this._binaryPath = initialBinaryPath;
         this.updateIgnoredPaths();
 
-        const { activeTab } = vscode.window.tabGroups.activeTabGroup;
-        const activeUri = activeTab ? this.getUriFromTab(activeTab) : undefined;
-        this._lastActiveTab = activeTab;
-
         // 1. Scan and register open editors at startup (only if configured to detect from open editors)
         if (this.shouldDetectFromOpenEditors()) {
             for (const uri of this.getOpenEditorUris()) {
                 this.maybeRegisterRepositoryContainingUri(uri)
                     .then(() => {
-                        if (activeUri && activeUri.toString() === uri.toString()) {
+                        const activeUriNow = this._host.documents.getActiveDocumentUri?.();
+                        if (activeUriNow && activeUriNow.toString() === uri.toString()) {
                             this.tryAutoSwitch(uri);
                         }
                     })
@@ -90,47 +85,38 @@ export class JjRepositoryManager implements vscode.Disposable {
             }
         }
 
-        // 2. Track active tab changes
-        const handleActiveTabChange = async () => {
-            const currentTab = vscode.window.tabGroups.activeTabGroup.activeTab;
-            if (currentTab === this._lastActiveTab) {
-                return;
-            }
-            this._lastActiveTab = currentTab;
-
-            if (!currentTab) {
-                return;
-            }
-
-            const uri = this.getUriFromTab(currentTab);
-            if (!uri) {
-                return;
-            }
-
-            if (this.tryAutoSwitch(uri)) {
-                return;
-            }
-
-            if (!this.shouldDetectFromOpenEditors()) {
-                return;
-            }
-
-            try {
-                await this.maybeRegisterRepositoryContainingUri(uri);
-                // Verify the active tab hasn't changed during the async call
-                const activeTabNow = vscode.window.tabGroups.activeTabGroup.activeTab;
-                if (activeTabNow && this.getUriFromTab(activeTabNow)?.toString() === uri.toString()) {
-                    this.tryAutoSwitch(uri);
-                }
-            } catch (err) {
-                this._outputChannel.error('[RepositoryManager] Error checking active tab URI', toError(err));
-            }
-        };
+        // 2. Track active document changes
+        if (this._host.documents.onDidChangeActiveDocument) {
+            this._disposables.push(
+                this._host.documents.onDidChangeActiveDocument((uri) => {
+                    if (!uri) {
+                        return;
+                    }
+                    if (this.tryAutoSwitch(uri)) {
+                        return;
+                    }
+                    if (!this.shouldDetectFromOpenEditors()) {
+                        return;
+                    }
+                    this.maybeRegisterRepositoryContainingUri(uri)
+                        .then(() => {
+                            const activeUriNow = this._host.documents.getActiveDocumentUri?.();
+                            if (activeUriNow && activeUriNow.toString() === uri.toString()) {
+                                this.tryAutoSwitch(uri);
+                            }
+                        })
+                        .catch((err) => {
+                            this._outputChannel.error(
+                                '[RepositoryManager] Error checking active document URI',
+                                toError(err),
+                            );
+                        });
+                }),
+            );
+        }
 
         this._disposables.push(
-            vscode.window.tabGroups.onDidChangeTabs(handleActiveTabChange),
-            vscode.window.tabGroups.onDidChangeTabGroups(handleActiveTabChange),
-            vscode.workspace.onDidChangeWorkspaceFolders(() => {
+            this._host.workspace.onDidChangeWorkspaceFolders(() => {
                 this._normalizedWorkspaceFolders = undefined;
                 this._realNormalizedPathCache.clear();
                 this.scanForRepositories().catch((err) => {
@@ -152,8 +138,8 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this._codeForgeRegistry;
     }
 
-    get workspaceState(): vscode.Memento {
-        return this._workspaceState;
+    get workspaceState(): HostStorage {
+        return this._host.storage;
     }
 
     get outputChannel(): LoggerChannel {
@@ -198,7 +184,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         this.fireEvent(this._onDidChangeFocusedRepository, repo);
 
         if (repo) {
-            this._workspaceState.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, repo.rootUri.fsPath);
+            this._host.storage.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, repo.rootUri.fsPath);
         }
     }
 
@@ -207,7 +193,7 @@ export class JjRepositoryManager implements vscode.Disposable {
             rootPath: r.rootUri.fsPath,
             storePath: r.storePath,
         }));
-        this._workspaceState.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, data);
+        this._host.storage.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, data);
     }
 
     /**
@@ -216,12 +202,16 @@ export class JjRepositoryManager implements vscode.Disposable {
      * and registers them in bulk.
      */
     async restoreCachedRepositories(): Promise<void> {
-        const stored = this._workspaceState.get<Array<{ rootPath: string; storePath: string }>>(
+        if (this._disposed) {
+            return;
+        }
+
+        const stored = this._host.storage.get<Array<{ rootPath: string; storePath: string }>>(
             JjRepositoryManager.DISCOVERED_REPOS_KEY,
             [],
         );
 
-        if (!stored || stored.length === 0) {
+        if (!Array.isArray(stored) || stored.length === 0) {
             return;
         }
 
@@ -248,14 +238,23 @@ export class JjRepositoryManager implements vscode.Disposable {
             }
         }
 
-        if (loaded.length > 0) {
-            this.registerRepositories(loaded);
-
-            const lastPath = this._workspaceState.get<string>(JjRepositoryManager.LAST_FOCUSED_REPO_KEY);
-            const matched =
-                (lastPath ? loaded.find((r) => this.isSamePath(r.rootUri.fsPath, lastPath)) : undefined) || loaded[0];
-            this.setFocusedRepository(matched);
+        if (loaded.length === 0) {
+            return;
         }
+
+        if (this._disposed) {
+            for (const repo of loaded) {
+                await repo.dispose();
+            }
+            return;
+        }
+
+        this.registerRepositories(loaded);
+
+        const lastPath = this._host.storage.get<string>(JjRepositoryManager.LAST_FOCUSED_REPO_KEY);
+        const matched =
+            (lastPath ? loaded.find((r) => this.isSamePath(r.rootUri.fsPath, lastPath)) : undefined) || loaded[0];
+        this.setFocusedRepository(matched);
     }
 
     /**
@@ -285,7 +284,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         this.updateIgnoredPaths();
 
         // Clean up _closingPaths for folders that are no longer in the workspace
-        const folders = vscode.workspace.workspaceFolders || [];
+        const folders = this._host.workspace.workspaceFolders || [];
         const normalizedFolders = await Promise.all(
             folders.map((folder) => this.getRealNormalizedPath(folder.uri.fsPath)),
         );
@@ -348,17 +347,18 @@ export class JjRepositoryManager implements vscode.Disposable {
 
                 if (autoDetect === true || autoDetect === 'subFolders') {
                     const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
-                    const pattern = new vscode.RelativePattern(folder, glob);
-                    const files = await vscode.workspace.findFiles(pattern, null, 1000);
-                    await Promise.all(
-                        files.map((file) => {
-                            if (this._disposed) {
-                                return Promise.resolve();
-                            }
-                            const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
-                            return addCandidate(rootDir);
-                        }),
-                    );
+                    if (this._host.workspace.findFiles) {
+                        const files = await this._host.workspace.findFiles(glob, folder.uri, 1000);
+                        await Promise.all(
+                            files.map((file) => {
+                                if (this._disposed) {
+                                    return Promise.resolve();
+                                }
+                                const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
+                                return addCandidate(rootDir);
+                            }),
+                        );
+                    }
                 }
             }),
         );
@@ -479,7 +479,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                     this.isSamePath(r.rootUri.fsPath, this._focusedRepository?.rootUri.fsPath),
                 )
             ) {
-                const activeUri = vscode.window.activeTextEditor?.document.uri;
+                const activeUri = this._host.documents.getActiveDocumentUri?.();
                 const matched = activeUri ? this.getRepositoryForUri(activeUri) : undefined;
                 this.setFocusedRepository(matched ?? this._repositories[0]);
             }
@@ -595,7 +595,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
             const jj = new JjService(realDir, NO_OP_LOGGER, {
                 binaryPath: this._binaryPath || 'jj',
-                getConfig: getJjViewConfig,
+                getConfig: <T>(key: string, defaultValue?: T) => this._host.config.get(key, defaultValue as T),
                 processTracker: this._processTracker,
             });
             try {
@@ -761,7 +761,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         if (this._normalizedWorkspaceFolders !== undefined) {
             return this._normalizedWorkspaceFolders;
         }
-        const folders = vscode.workspace.workspaceFolders || [];
+        const folders = this._host.workspace.workspaceFolders || [];
         this._normalizedWorkspaceFolders = await Promise.all(
             folders.map((folder) => this.getRealNormalizedPath(folder.uri.fsPath)),
         );
@@ -845,7 +845,7 @@ export class JjRepositoryManager implements vscode.Disposable {
     }
 
     private sortRepositories(): void {
-        const workspaceFolders = vscode.workspace.workspaceFolders || [];
+        const workspaceFolders = this._host.workspace.workspaceFolders || [];
         const folderPaths = workspaceFolders.map((f) => this.normalizePath(f.uri.fsPath));
 
         this._repositories.sort((a, b) => {
@@ -940,16 +940,7 @@ export class JjRepositoryManager implements vscode.Disposable {
     }
 
     private getOpenEditorUris(): Uri[] {
-        const uris: Uri[] = [];
-        for (const tabGroup of vscode.window.tabGroups.all) {
-            for (const tab of tabGroup.tabs) {
-                const uri = this.getUriFromTab(tab);
-                if (uri) {
-                    uris.push(uri);
-                }
-            }
-        }
-        return uris;
+        return this._host.documents.getOpenDocumentUris?.() ?? [];
     }
 
     /**
@@ -1010,7 +1001,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
     private updateIgnoredPaths(): void {
         const ignoredPaths = this.getIgnoredRepositoriesConfig();
-        const folders = vscode.workspace.workspaceFolders || [];
+        const folders = this._host.workspace.workspaceFolders || [];
 
         this._ignoredAbsolutePaths.clear();
         for (const p of ignoredPaths) {
@@ -1037,26 +1028,6 @@ export class JjRepositoryManager implements vscode.Disposable {
             return true;
         }
         return false;
-    }
-
-    private getUriFromTab(tab: vscode.Tab): Uri | undefined {
-        const { input } = tab;
-        if (input instanceof vscode.TabInputText) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputCustom) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputNotebook) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputTextDiff) {
-            return input.modified;
-        }
-        if (input instanceof vscode.TabInputNotebookDiff) {
-            return input.modified;
-        }
-        return undefined;
     }
 
     /**
@@ -1095,7 +1066,7 @@ export class JjRepositoryManager implements vscode.Disposable {
     }
 
     /**
-     * Retrieves the current configuration for automatic repository detection.
+     * Retrieves the autoRepositoryDetection configuration value.
      *
      * @returns The autoRepositoryDetection configuration value:
      * - true: recursively scan subfolders.
@@ -1104,7 +1075,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * - 'openEditors': only register on-demand when files are opened.
      */
     private getAutoRepositoryDetectionConfig(): boolean | string {
-        return getJjViewConfig<boolean | string>('autoRepositoryDetection', true) ?? true;
+        return this._host.config.get<boolean | string>('autoRepositoryDetection', true) ?? true;
     }
 
     /**
@@ -1113,7 +1084,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @returns An array of path strings configured to scan.
      */
     private getScanRepositoriesConfig(): string[] {
-        return getJjViewConfig<string[]>('scanRepositories', []) ?? [];
+        return this._host.config.get<string[]>('scanRepositories', []) ?? [];
     }
 
     /**
@@ -1122,7 +1093,7 @@ export class JjRepositoryManager implements vscode.Disposable {
      * @returns An array of path strings configured to ignore.
      */
     private getIgnoredRepositoriesConfig(): string[] {
-        return getJjViewConfig<string[]>('ignoredRepositories', []) ?? [];
+        return this._host.config.get<string[]>('ignoredRepositories', []) ?? [];
     }
 
     /**
@@ -1226,8 +1197,8 @@ export class JjRepositoryManager implements vscode.Disposable {
             }
         }
 
-        await this._workspaceState.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, undefined);
-        await this._workspaceState.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, undefined);
+        await this._host.storage.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, undefined);
+        await this._host.storage.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, undefined);
 
         this.fireEvent(this._onDidChangeRepositories, []);
 

@@ -4,19 +4,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock();
-});
-
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { ScmModel, type ScmSnapshot } from '../scm-model';
 import { Uri } from '../uri-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 describe('ScmModel Domain Unit Tests', () => {
     let testRepo: TestRepo;
@@ -32,16 +26,11 @@ describe('ScmModel Domain Unit Tests', () => {
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(testRepo.path));
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, host);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         if (!repo) {
             throw new Error('Failed to register repo in test');

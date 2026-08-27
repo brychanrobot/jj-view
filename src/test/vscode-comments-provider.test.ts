@@ -20,7 +20,7 @@ import { Uri } from '../uri-utils';
 import { VsCodeCommentsProvider } from '../vscode/providers/vscode-comments-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 class MockForgeProvider implements CodeForgeProvider {
     readonly id = 'mock-forge';
@@ -116,16 +116,11 @@ describe('VsCodeCommentsProvider Tests', () => {
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(testRepo.path));
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, host);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const realRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         repositoryManager.tryAutoSwitch(Uri.file(testRepo.path));
 
@@ -133,7 +128,7 @@ describe('VsCodeCommentsProvider Tests', () => {
             await realRepo.codeForge.detectActiveProvider(true);
         }
 
-        commentsManager = new CommentsManager(repositoryManager, new FakeHostEnvironment());
+        commentsManager = new CommentsManager(repositoryManager, host);
         provider = new VsCodeCommentsProvider(commentsManager);
     });
 

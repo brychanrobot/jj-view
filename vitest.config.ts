@@ -8,6 +8,8 @@ export default defineConfig({
     test: {
         include: ['src/test/**/*.test.ts'],
         exclude: ['src/test/**/*.integration.test.ts'], // Exclude integration tests
+        // Temporary global setup to provide vscode mock during host abstraction retrofit
+        setupFiles: ['./src/test/vitest-setup.ts'],
         globals: true,
         testTimeout: 20000,
         hookTimeout: 20000,

@@ -4,43 +4,36 @@
  */
 
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { resolveRepository } from '../common/ui-helpers';
 import type { JjRepository } from '../jj-repository';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { Uri } from '../uri-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock();
-});
+import { createMockLogOutputChannel } from './test-utils';
 
 describe('resolveRepository', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
     let resolvedRepo: JjRepository;
+    let host: FakeHostEnvironment;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
 
-        vscode.workspace.updateWorkspaceFolders(0, null, { uri: Uri.file(repo.path) });
+        host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(repo.path));
 
         const codeForgeRegistry = new CodeForgeRegistry();
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
 
-        repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
+        repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, host);
         const registered = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
         if (!registered) {
             throw new Error('Failed to register repository');

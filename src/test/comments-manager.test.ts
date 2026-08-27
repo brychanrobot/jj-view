@@ -135,17 +135,11 @@ describe('CommentsManager Tests', () => {
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        fakeHost.workspace.addFolder(Uri.file(testRepo.path));
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, fakeHost);
 
         // Register the real repository
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const realRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         repositoryManager.tryAutoSwitch(Uri.file(testRepo.path));
 

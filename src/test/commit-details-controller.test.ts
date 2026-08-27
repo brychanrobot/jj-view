@@ -4,20 +4,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock();
-});
-
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CommitDetailsController } from '../controllers/commit-details-controller';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { Uri } from '../uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
 describe('CommitDetailsController Domain Unit Tests', () => {
     let testRepo: TestRepo;
@@ -32,26 +25,20 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         testRepo = new TestRepo();
         testRepo.init();
 
+        fakeHost = new FakeHostEnvironment();
+        fakeHost.workspace.addFolder(Uri.file(testRepo.path));
+
         const registry = new CodeForgeRegistry();
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, fakeHost);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         if (!repo) {
             throw new Error('Failed to register repo in test');
         }
-
-        fakeHost = new FakeHostEnvironment();
 
         controller = new CommitDetailsController('@', repo, fakeHost);
         controller.addMessenger({

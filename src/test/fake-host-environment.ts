@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext, CommandServices } from '../common/command-context';
 import { type Event, EventEmitter } from '../common/events';
@@ -20,6 +21,9 @@ import type {
     HostStorage,
     HostUi,
     HostViews,
+    HostWorkspace,
+    HostWorkspaceFolder,
+    HostWorkspaceFoldersChangeEvent,
 } from '../common/host-environment';
 import type { JjRepository } from '../jj-repository';
 import type { Uri } from '../uri-utils';
@@ -307,10 +311,14 @@ export class FakeHostDocuments implements HostDocuments {
 
     private activeDocumentUri: Uri | undefined = undefined;
     private activeDocumentSelections: { startLine: number; endLine: number }[] | undefined = undefined;
+    public openDocumentUris: Uri[] = [];
+    private readonly _onDidChangeActiveDocumentEmitter = new EventEmitter<Uri | undefined>();
+    readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocumentEmitter.event;
 
     setActiveDocument(uri: Uri | undefined, selections?: { startLine: number; endLine: number }[]): void {
         this.activeDocumentUri = uri;
         this.activeDocumentSelections = selections;
+        this._onDidChangeActiveDocumentEmitter.fire(uri);
     }
 
     getActiveDocumentUri(): Uri | undefined {
@@ -321,8 +329,44 @@ export class FakeHostDocuments implements HostDocuments {
         return this.activeDocumentSelections;
     }
 
+    getOpenDocumentUris(): Uri[] {
+        return this.openDocumentUris;
+    }
+
     getOpenDocumentText(uri: Uri): string | undefined {
         return this.virtualDocs.get(uri.fsPath);
+    }
+}
+
+export class FakeHostWorkspace implements HostWorkspace {
+    public readonly folders = new Map<string, HostWorkspaceFolder>();
+    private readonly _onDidChangeWorkspaceFoldersEmitter = new EventEmitter<HostWorkspaceFoldersChangeEvent>();
+    readonly onDidChangeWorkspaceFolders: Event<HostWorkspaceFoldersChangeEvent> =
+        this._onDidChangeWorkspaceFoldersEmitter.event;
+
+    get workspaceFolders(): readonly HostWorkspaceFolder[] {
+        return Array.from(this.folders.values());
+    }
+
+    addFolder(uri: Uri, name?: string): void {
+        const folder: HostWorkspaceFolder = {
+            uri,
+            name: name ?? path.basename(uri.fsPath),
+        };
+        this.folders.set(uri.fsPath, folder);
+        this._onDidChangeWorkspaceFoldersEmitter.fire({ added: [folder], removed: [] });
+    }
+
+    removeFolder(uri: Uri): void {
+        const removed = this.folders.get(uri.fsPath);
+        if (removed) {
+            this.folders.delete(uri.fsPath);
+            this._onDidChangeWorkspaceFoldersEmitter.fire({ added: [], removed: [removed] });
+        }
+    }
+
+    async findFiles(_pattern: string, _baseFolderUri?: Uri, _maxResults?: number): Promise<Uri[]> {
+        return [];
     }
 }
 
@@ -339,7 +383,11 @@ export class FakeHostStorage implements HostStorage {
     }
 
     async update(key: string, value: unknown): Promise<void> {
-        this.storage.set(key, value);
+        if (value === undefined) {
+            this.storage.delete(key);
+        } else {
+            this.storage.set(key, value);
+        }
     }
 }
 
@@ -437,6 +485,7 @@ export class FakeHostEnvironment implements HostEnvironment {
     readonly auth: FakeHostAuth;
     readonly commands: FakeHostCommands;
     readonly views: FakeHostViews;
+    readonly workspace: FakeHostWorkspace;
 
     constructor() {
         this.ui = new FakeHostUi();
@@ -448,6 +497,7 @@ export class FakeHostEnvironment implements HostEnvironment {
         this.auth = new FakeHostAuth();
         this.commands = new FakeHostCommands();
         this.views = new FakeHostViews();
+        this.workspace = new FakeHostWorkspace();
     }
 }
 

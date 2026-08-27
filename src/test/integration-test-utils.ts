@@ -9,6 +9,7 @@ import type * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import type { CodeForgeRegistry } from '../code-forge-registry';
 import type { CommentsManager } from '../comments-manager';
+import type { HostStorage } from '../common/host-environment';
 import type { Api } from '../extension';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
@@ -22,7 +23,7 @@ export interface TestRepositoryContext {
     codeForgeRegistry: CodeForgeRegistry;
     repository: JjRepository;
     repositoryManager: JjRepositoryManager;
-    workspaceState: vscode.Memento;
+    workspaceState: HostStorage;
     scmProvider: VsCodeScmProvider;
     dispose(): Promise<void>;
 }

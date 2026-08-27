@@ -129,19 +129,15 @@ describe('Comment Command Handlers with Real CommentsManager', () => {
             create: () => mockForge,
         });
 
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(testRepo.path));
+
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, host);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
         const realRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
         repositoryManager.tryAutoSwitch(Uri.file(testRepo.path));
 
@@ -150,7 +146,6 @@ describe('Comment Command Handlers with Real CommentsManager', () => {
         }
         await realRepo.codeForge.detectActiveProvider(true);
 
-        const host = new FakeHostEnvironment();
         commentsManager = new CommentsManager(repositoryManager, host);
         ctx = new FakeCommandContext(realRepo, host, undefined, commentsManager);
 
