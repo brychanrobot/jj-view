@@ -6,6 +6,7 @@
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import { showJjError } from '../common/ui-helpers';
 import {
     createWebviewRpcDispatcher,
     type WebviewPostMessageLike,
@@ -405,7 +406,7 @@ export class LogViewController implements Disposable {
             await this.refresh('mutationComplete');
             await this._host.commands.executeCommand('jj-view.refresh');
         } catch (err) {
-            await this._host.ui.showError(err, failureMessage);
+            await showJjError(this._host.ui, err, failureMessage, jj, this._logger);
         }
     }
 
@@ -554,13 +555,18 @@ export class LogViewController implements Disposable {
                     const count = msg.payload.commitIds.length;
                     const hasImmutable = Boolean(msg.payload.hasImmutableSelection);
 
-                    if (count !== 1 && this._options?.closeCommitDetailsTabs) {
-                        await this._options.closeCommitDetailsTabs((repoRoot) => {
-                            if (!this._repo) {
-                                return true;
-                            }
-                            return !repoRoot || repoRoot === this._repo.rootUri.fsPath;
-                        });
+                    if (count !== 1) {
+                        const closeTabs =
+                            this._options?.closeCommitDetailsTabs ??
+                            this._host.nav.closeCommitDetailsTabs?.bind(this._host.nav);
+                        if (closeTabs) {
+                            await closeTabs((repoRoot) => {
+                                if (!this._repo) {
+                                    return true;
+                                }
+                                return !repoRoot || repoRoot === this._repo.rootUri.fsPath;
+                            });
+                        }
                     }
 
                     const allowAbandon = count > 0 && !hasImmutable;

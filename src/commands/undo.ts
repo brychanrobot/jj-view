@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export async function undoCommand(ctx: CommandContext): Promise<void> {
     const {
@@ -13,6 +14,6 @@ export async function undoCommand(ctx: CommandContext): Promise<void> {
         await ui.withProgress('Undoing...', () => repo.jj.undo());
         await repo.refresh({ reason: 'undo' });
     } catch (e: unknown) {
-        await ui.showError(e, 'Error undoing');
+        await showJjError(ui, e, 'Error undoing', repo.jj, ctx.log);
     }
 }

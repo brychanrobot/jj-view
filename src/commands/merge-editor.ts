@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import type { JjResourceState } from '../scm-resource-state';
 
 export interface OpenMergeEditorPayload {
@@ -23,6 +24,6 @@ export async function openMergeEditorCommand(ctx: CommandContext, payload?: Open
             await ctx.host.nav.openMergeEditor(r.resourceUri);
         }
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error opening merge editor');
+        await showJjError(ctx.host.ui, e, 'Error opening merge editor', ctx.repo.jj, ctx.log);
     }
 }

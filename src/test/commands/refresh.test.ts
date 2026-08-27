@@ -40,6 +40,6 @@ describe('refreshCommand', () => {
     test('handles refresh error', async () => {
         vi.mocked(mockJjRepo.refresh).mockRejectedValue(new Error('refresh failed'));
         await refreshCommand(ctx);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error refreshing');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Error refreshing');
     });
 });

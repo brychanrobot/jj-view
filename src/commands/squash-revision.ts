@@ -9,6 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -46,37 +47,23 @@ export async function squashRevisionIntoParentCommand(
 ): Promise<void> {
     const revision = payload?.revision || '@';
 
-    const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
-    if (!sourceEntry) {
-        return;
-    }
-
     try {
+        const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
+        if (!sourceEntry) {
+            return;
+        }
+
         let targetParent = payload?.targetParent;
 
         if (!targetParent) {
             if (sourceEntry.parents && sourceEntry.parents.length > 1) {
-                const parentOptions: { label: string; description?: string; detail: string; value: string }[] = [];
+                const items = sourceEntry.parents.map((p) => ({
+                    label: p.change_id.substring(0, 8),
+                    detail: p.commit_id,
+                    value: p.commit_id,
+                }));
 
-                for (let i = 0; i < sourceEntry.parents.length; i++) {
-                    const parentRef = sourceEntry.parents[i].commit_id;
-
-                    const [parentEntry] = await ctx.repo.jj.getLog({ revision: parentRef });
-                    if (parentEntry) {
-                        const shortId = parentEntry.change_id_shortest || parentEntry.change_id.substring(0, 8);
-                        const desc = parentEntry.description?.trim() || '(no description)';
-                        const shortDesc = desc.split('\n')[0].substring(0, 50);
-
-                        parentOptions.push({
-                            label: `Parent ${i + 1}: ${shortId}`,
-                            description: shortDesc,
-                            detail: parentRef,
-                            value: parentRef,
-                        });
-                    }
-                }
-
-                const selected = await ctx.host.ui.showQuickPick(parentOptions, {
+                const selected = await ctx.host.ui.showQuickPick(items, {
                     placeHolder: 'Select which parent to squash into',
                 });
 
@@ -88,7 +75,13 @@ export async function squashRevisionIntoParentCommand(
                 targetParent = chosen;
             } else {
                 if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
-                    await ctx.host.ui.showError(new Error('Cannot squash a root revision.'), 'Squash Revision Error');
+                    await showJjError(
+                        ctx.host.ui,
+                        new Error('Cannot squash a root revision.'),
+                        'Squash Revision Error',
+                        ctx.repo.jj,
+                        ctx.log,
+                    );
                     return;
                 }
                 targetParent = sourceEntry.parents[0].commit_id;
@@ -98,7 +91,7 @@ export async function squashRevisionIntoParentCommand(
         await performSquashRevision(ctx, revision, targetParent, sourceEntry.description);
         await ctx.repo.refresh({ reason: 'after squash revision into parent' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error squashing revision into parent');
+        await showJjError(ctx.host.ui, e, 'Error squashing revision into parent', ctx.repo.jj, ctx.log);
     }
 }
 
@@ -111,7 +104,7 @@ export async function squashRevisionIntoAncestorCommand(
     try {
         let selectedAncestorRev = payload?.ancestorRevision;
         if (!selectedAncestorRev) {
-            selectedAncestorRev = await ctx.host.ui.promptForRevision({
+            selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select which ancestor to squash into',
                 revisionQuery: RevisionQuery.ancestorsExcluding(revision),
             });
@@ -124,7 +117,7 @@ export async function squashRevisionIntoAncestorCommand(
         await performSquashRevision(ctx, revision, selectedAncestorRev, sourceEntry?.description);
         await ctx.repo.refresh({ reason: 'after squash revision into ancestor' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error squashing revision into ancestor');
+        await showJjError(ctx.host.ui, e, 'Error squashing revision into ancestor', ctx.repo.jj, ctx.log);
     }
 }
 
@@ -231,9 +224,9 @@ export async function completeSquashRevisionCommand(
         await ctx.host.ui.showInformation('Squash completed.');
     } catch (e: unknown) {
         if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-            await ctx.host.ui.showError(e, 'No pending squash operation found.');
+            await showJjError(ctx.host.ui, e, 'No pending squash operation found.', ctx.repo.jj, ctx.log);
         } else {
-            await ctx.host.ui.showError(e, 'Failed to complete squash revision.');
+            await showJjError(ctx.host.ui, e, 'Failed to complete squash revision.', ctx.repo.jj, ctx.log);
         }
     } finally {
         await fs.unlink(metaPath).catch(() => {});

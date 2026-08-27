@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface ShowDetailsPayload {
     revision?: string;
@@ -29,6 +30,6 @@ export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDeta
             logEntry.change_id_offset,
         );
     } catch (e: unknown) {
-        await ui.showError(e, 'Error showing details');
+        await showJjError(ui, e, 'Error showing details', jj, ctx.log);
     }
 }

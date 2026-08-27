@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export async function redoCommand(ctx: CommandContext): Promise<void> {
     const {
@@ -13,6 +14,6 @@ export async function redoCommand(ctx: CommandContext): Promise<void> {
         await ui.withProgress('Redoing...', () => repo.jj.redo());
         await repo.refresh({ reason: 'redo' });
     } catch (e: unknown) {
-        await ui.showError(e, 'Error redoing');
+        await showJjError(ui, e, 'Error redoing', repo.jj, ctx.log);
     }
 }

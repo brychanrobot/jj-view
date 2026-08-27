@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { Uri } from '../uri-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
@@ -46,8 +47,8 @@ async function openWorkspace(
         const workspacePath = await jj.getWorkspaceRoot(workspaceName);
         const uri = Uri.file(workspacePath);
         await ctx.host.nav.openFolder(uri, forceNewWindow);
-    } catch (e) {
+    } catch (e: unknown) {
         const prefix = workspaceName ? `Failed to open workspace "${workspaceName}"` : 'Failed to resolve workspace';
-        await ctx.host.ui.showError(e, prefix);
+        await showJjError(ctx.host.ui, e, prefix, ctx.repo.jj, ctx.log);
     }
 }

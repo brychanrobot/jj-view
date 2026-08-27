@@ -40,20 +40,13 @@ describe('FakeHostEnvironment', () => {
             const ui = new FakeHostUi();
             await ui.showInformation('info msg');
             await ui.showWarning('warn msg');
-            await ui.showError(new Error('err msg'), 'Prefix');
+            ui.setNextErrorResponse('Action1');
+            const result = await ui.showErrorMessage('err msg', 'Action1', 'Action2');
 
+            expect(result).toBe('Action1');
             expect(ui.infoMessages).toContain('info msg');
             expect(ui.warningMessages).toContain('warn msg');
-            expect(ui.errorMessages[0].prefix).toBe('Prefix');
-        });
-
-        it('handles revision prompts and select or create', async () => {
-            const ui = new FakeHostUi();
-            ui.setNextRevisionPromptResponse('rev123');
-            expect(await ui.promptForRevision()).toBe('rev123');
-
-            ui.setNextSelectOrCreateResponse('bookmarkA');
-            expect(await ui.promptSelectOrCreate({ items: [{ label: 'bookmarkA' }] })).toBe('bookmarkA');
+            expect(ui.errorMessages).toContain('err msg');
         });
 
         it('handles withProgress and status bar messages', async () => {

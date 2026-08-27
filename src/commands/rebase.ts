@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface CommitMenuContext {
     commitId: string;
@@ -29,7 +30,7 @@ export async function rebaseOntoSelectedCommand(
 
     const destinations = payload?.destinations ?? [];
     if (destinations.length === 0) {
-        await ui.showError(new Error('No commits selected to rebase onto.'), 'Rebase Error');
+        await showJjError(ui, new Error('No commits selected to rebase onto.'), 'Rebase Error', repo.jj, ctx.log);
         return;
     }
 
@@ -39,6 +40,6 @@ export async function rebaseOntoSelectedCommand(
         );
         await repo.refresh();
     } catch (err: unknown) {
-        await ui.showError(err, 'Error rebasing');
+        await showJjError(ui, err, 'Error rebasing', repo.jj, ctx.log);
     }
 }

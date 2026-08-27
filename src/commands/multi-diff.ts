@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { createDiffUris } from '../uri-utils';
 
 export interface ShowMultiFileDiffPayload {
@@ -43,6 +44,6 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
             await ctx.host.nav.openMultiDiff(title, resources);
         });
     } catch (err: unknown) {
-        await ctx.host.ui.showError(err, 'Failed to open multi-file diff');
+        await showJjError(ctx.host.ui, err, 'Failed to open multi-file diff', ctx.repo.jj, ctx.log);
     }
 }

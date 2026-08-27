@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface EditPayload {
     revision?: string;
@@ -18,6 +19,6 @@ export async function editCommand(ctx: CommandContext, payload?: EditPayload): P
         await ctx.host.ui.withProgress('Editing...', () => ctx.repo.jj.edit(revision));
         await ctx.repo.refresh({ reason: 'after edit' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error editing commit');
+        await showJjError(ctx.host.ui, e, 'Error editing commit', ctx.repo.jj, ctx.log);
     }
 }

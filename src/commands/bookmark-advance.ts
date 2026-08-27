@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { RevisionQuery } from './command-utils';
 
 export interface AdvanceBookmarkPayload {
@@ -16,7 +17,7 @@ export async function advanceBookmarkCommand(
     let revision = payload?.revision;
 
     if (!revision) {
-        revision = await ctx.host.ui.promptForRevision({
+        revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select target revision to advance bookmarks to',
             revisionQuery: RevisionQuery.ancestorsIncluding('@'),
         });
@@ -33,7 +34,7 @@ export async function advanceBookmarkCommand(
         await ctx.repo.refresh({ reason: 'after bookmark advance' });
         return revision;
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error advancing bookmarks');
+        await showJjError(ctx.host.ui, e, 'Error advancing bookmarks', ctx.repo.jj, ctx.log);
         throw e;
     }
 }

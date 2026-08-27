@@ -8,6 +8,11 @@ import { expect, type Mock, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import { Uri } from '../uri-utils';
 
+function normalizePathForComparison(filePath: string): string {
+    const resolved = Uri.file(path.resolve(filePath)).fsPath;
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
 expect.extend({
     toBeSameFsPath(received: unknown, expected: unknown) {
         if (typeof received !== 'string' || typeof expected !== 'string') {
@@ -16,8 +21,8 @@ expect.extend({
                 message: () => `expected string paths, but received ${typeof received} and ${typeof expected}`,
             };
         }
-        const normReceived = Uri.file(path.resolve(received)).fsPath;
-        const normExpected = Uri.file(path.resolve(expected)).fsPath;
+        const normReceived = normalizePathForComparison(received);
+        const normExpected = normalizePathForComparison(expected);
         const pass = normReceived === normExpected;
         return {
             pass,

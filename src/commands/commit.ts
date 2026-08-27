@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { maybeFormatDescriptionOnSave } from './command-utils';
 
 export interface CommitPayload {
@@ -18,6 +19,6 @@ export async function commitCommand(ctx: CommandContext, payload?: CommitPayload
         await ctx.host.ui.withProgress('Committing...', () => ctx.repo.jj.commit(description));
         await ctx.repo.refresh({ reason: 'after commit' });
     } catch (err: unknown) {
-        await ctx.host.ui.showError(err, 'Error committing change');
+        await showJjError(ctx.host.ui, err, 'Error committing change', ctx.repo.jj, ctx.log);
     }
 }

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface DeleteBookmarkPayload {
     bookmarkName?: string;
@@ -24,7 +25,7 @@ export async function deleteBookmarkCommand(ctx: CommandContext, payload?: Delet
             const pick = await ctx.host.ui.showQuickPick(items, { placeHolder: 'Select a bookmark to delete' });
             bookmarkName = pick?.value as string | undefined;
         } catch (e: unknown) {
-            await ctx.host.ui.showError(e, 'Failed to fetch bookmarks');
+            await showJjError(ctx.host.ui, e, 'Failed to fetch bookmarks', ctx.repo.jj, ctx.log);
             return;
         }
     }
@@ -40,6 +41,6 @@ export async function deleteBookmarkCommand(ctx: CommandContext, payload?: Delet
         await ctx.repo.refresh({ reason: 'after bookmark delete' });
         await ctx.host.ui.showInformation(`Deleted bookmark "${bookmarkName}".`);
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to delete bookmark');
+        await showJjError(ctx.host.ui, e, 'Failed to delete bookmark', ctx.repo.jj, ctx.log);
     }
 }

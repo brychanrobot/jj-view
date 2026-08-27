@@ -56,6 +56,6 @@ describe('showDetailsCommand', () => {
         await showDetailsCommand(ctx, { revision: 'invalid-nonexistent-rev' });
 
         expect(ctx.host.ui.errorMessages).toHaveLength(1);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error showing details');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Error showing details');
     });
 });

@@ -72,12 +72,11 @@ describe('workspaceAddCommand', () => {
     });
 
     test('handles errors during workspace creation and displays error', async () => {
-        ctx.host.ui.setNextInputBoxResponse('error-ws');
-        vi.spyOn(jj, 'workspaceAdd').mockRejectedValue(new Error('Failed to create'));
+        ctx.host.ui.setNextInputBoxResponse('default');
 
         await workspaceAddCommand(ctx);
 
         expect(ctx.host.ui.errorMessages).toHaveLength(1);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Workspace Add Error');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Workspace Add Error');
     });
 });

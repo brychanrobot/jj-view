@@ -156,7 +156,7 @@ describe('uploadCommand', () => {
 
         await uploadCommand(ctx, { revision: 'feature-x' });
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toContain('Upload failed');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Upload failed');
         expect(ctx.host.nav.settingsOpened).toContain('jj-view.uploadCommand');
     });
 
@@ -178,7 +178,7 @@ describe('uploadCommand', () => {
 
         await uploadCommand(ctx, { revision: 'feature-x' });
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toContain('Upload failed');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Upload failed');
         expect(ctx.host.nav.settingsOpened).toHaveLength(0);
     });
 

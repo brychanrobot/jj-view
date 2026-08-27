@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { maybeFormatDescriptionOnSave } from './command-utils';
 
 export interface SetDescriptionPayload {
@@ -23,7 +24,7 @@ export async function setDescriptionCommand(
         await ctx.repo.refresh({ reason: 'after describe' });
         return description;
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error setting description');
+        await showJjError(ctx.host.ui, e, 'Error setting description', ctx.repo.jj, ctx.log);
         return false;
     }
 }

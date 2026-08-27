@@ -5,6 +5,7 @@
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { getErrorMessage } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 
@@ -46,9 +47,15 @@ export async function workspaceDeleteCommand(ctx: CommandContext, payload?: Work
         });
 
         await ctx.repo.refresh();
-    } catch (e) {
+    } catch (e: unknown) {
         const message = getErrorMessage(e);
-        await ctx.host.ui.showError(new Error(`Failed to delete workspace: ${message}`), 'Workspace Delete Error');
+        await showJjError(
+            ctx.host.ui,
+            new Error(`Failed to delete workspace: ${message}`),
+            'Workspace Delete Error',
+            ctx.repo.jj,
+            ctx.log,
+        );
     }
 }
 

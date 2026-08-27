@@ -70,14 +70,18 @@ describe('workspaceForgetCommand', () => {
     });
 
     test('handles errors during workspace forget and displays error', async () => {
-        repo.workspaceAdd('feature');
         const YES = 'Yes, Forget Workspace';
-        ctx.host.ui.setNextWarningResponse(YES);
-        vi.spyOn(jj, 'workspaceForget').mockRejectedValue(new Error('Forget failed'));
+        const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
+        const brokenRepo = createMock<JjRepository>({
+            jj: brokenJj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        const brokenCtx = new FakeCommandContext(brokenRepo);
+        brokenCtx.host.ui.setNextWarningResponse(YES);
 
-        await workspaceForgetCommand(ctx, { workspaceName: 'feature' });
+        await workspaceForgetCommand(brokenCtx, { workspaceName: 'feature' });
 
-        expect(ctx.host.ui.errorMessages).toHaveLength(1);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Workspace Forget Error');
+        expect(brokenCtx.host.ui.errorMessages).toHaveLength(1);
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Workspace Forget Error');
     });
 });

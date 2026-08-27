@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import type { JjWorkspace } from '../jj-types';
 
 /**
@@ -27,7 +28,7 @@ export async function resolveWorkspaceName(
     const workspaces: JjWorkspace[] = await jj.getWorkspaces();
 
     if (workspaces.length === 0) {
-        await ui.showError(new Error('No workspaces found in this repository.'), 'Workspace Error');
+        await showJjError(ui, new Error('No workspaces found in this repository.'), 'Workspace Error', jj, ctx.log);
         return undefined;
     }
 

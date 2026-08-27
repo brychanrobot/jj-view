@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { getOriginalResourceUri, Uri } from '../uri-utils';
 
 import { isLineChangeArray, type LineChange } from './command-utils';
@@ -59,6 +60,6 @@ export async function discardChangeCommand(ctx: CommandContext, payload?: Discar
             originalTextStr,
         );
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to discard change');
+        await showJjError(ctx.host.ui, e, 'Failed to discard change', ctx.repo.jj, ctx.log);
     }
 }

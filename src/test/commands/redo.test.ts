@@ -46,11 +46,9 @@ describe('redoCommand', () => {
     });
 
     test('handles errors during redo and displays error', async () => {
-        vi.spyOn(jj, 'redo').mockRejectedValue(new Error('Nothing to redo'));
-
         await redoCommand(ctx);
 
         expect(ctx.host.ui.errorMessages).toHaveLength(1);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error redoing');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Error redoing');
     });
 });

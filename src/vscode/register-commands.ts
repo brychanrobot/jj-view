@@ -29,7 +29,6 @@ import { showDetailsCommand } from '../commands/details';
 import { discardChangeCommand } from '../commands/discard-change';
 import { duplicateCommand } from '../commands/duplicate';
 import { editCommand } from '../commands/edit';
-import { focusDescriptionInputCommand } from '../commands/focus-description-input';
 import { newMergeChangeCommand } from '../commands/merge';
 import { openMergeEditorCommand } from '../commands/merge-editor';
 import { showMultiFileDiffCommand } from '../commands/multi-diff';
@@ -61,6 +60,7 @@ import { workspaceForgetCommand } from '../commands/workspace-forget';
 import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../commands/workspace-open';
 import type { CommentsManager } from '../comments-manager';
 import type { CommandContext } from '../common/command-context';
+import { resolveRepository } from '../common/ui-helpers';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
@@ -124,7 +124,6 @@ import type { VsCodeLogWebviewProvider } from './providers/vscode-log-webview-pr
 import type { VsCodeScmProvider } from './providers/vscode-scm-provider';
 import { VSCodeCommandContext } from './vscode-command-context';
 import { VsCodeHostEnvironment } from './vscode-host-environment';
-import { resolveRepository } from './vscode-ui-helpers';
 
 export interface RegisterCommandsOptions {
     context: vscode.ExtensionContext;
@@ -138,12 +137,25 @@ export interface RegisterCommandsOptions {
 export function registerCommands(options: RegisterCommandsOptions): void {
     const { context, repositoryManager, scmProviders, outputChannel, commentsManager, logWebviewProvider } = options;
 
-    function resolveRepositoryLocal(args: unknown[]): { repo: JjRepository; scm?: VsCodeScmProvider } | undefined {
-        const res = resolveRepository(args, repositoryManager, scmProviders);
-        if (!res?.repo) {
+    function resolveRepositoryLocal(
+        args: unknown[],
+        host: VsCodeHostEnvironment,
+    ): { repo: JjRepository; scm?: VsCodeScmProvider } | undefined {
+        const firstArg = args[0];
+        if (firstArg && typeof firstArg === 'object' && 'id' in firstArg && 'resourceStates' in firstArg) {
+            for (const scmProvider of scmProviders.values()) {
+                if (scmProvider.ownsGroup(firstArg as vscode.SourceControlResourceGroup)) {
+                    return { repo: scmProvider.repo, scm: scmProvider };
+                }
+            }
+        }
+
+        const repo = resolveRepository(repositoryManager, { args, host });
+        if (!repo) {
             return undefined;
         }
-        return { repo: res.repo, scm: res.scm };
+        const scm = scmProviders.get(repo.rootUri.fsPath);
+        return { repo, scm };
     }
 
     function registerCommandWithPayload<TPayload, TReturn = unknown>(
@@ -152,22 +164,23 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const resolved = resolveRepositoryLocal(args);
+            const defaultHost = new VsCodeHostEnvironment({ context });
+            const resolved = resolveRepositoryLocal(args, defaultHost);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const host = new VsCodeHostEnvironment({
-                    repo: resolved.repo,
-                    log: outputChannel,
-                    sourceControl: resolved.scm?.sourceControl,
-                    context,
-                });
+                const host = resolved.scm?.sourceControl
+                    ? new VsCodeHostEnvironment({
+                          sourceControl: resolved.scm.sourceControl,
+                          context,
+                      })
+                    : defaultHost;
                 const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 const payload = payloadCreator(args, resolved.scm);
                 return await handler(cmdCtx, payload);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
                 outputChannel.error(message);
-                vscode.window.showErrorMessage(message);
+                await defaultHost.ui.showErrorMessage(message);
                 return;
             }
         });
@@ -178,21 +191,22 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const resolved = resolveRepositoryLocal(args);
+            const defaultHost = new VsCodeHostEnvironment({ context });
+            const resolved = resolveRepositoryLocal(args, defaultHost);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const host = new VsCodeHostEnvironment({
-                    repo: resolved.repo,
-                    log: outputChannel,
-                    sourceControl: resolved.scm?.sourceControl,
-                    context,
-                });
+                const host = resolved.scm?.sourceControl
+                    ? new VsCodeHostEnvironment({
+                          sourceControl: resolved.scm.sourceControl,
+                          context,
+                      })
+                    : defaultHost;
                 const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 return await handler(cmdCtx, ...args);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
                 outputChannel.error(message);
-                vscode.window.showErrorMessage(message);
+                await defaultHost.ui.showErrorMessage(message);
                 return;
             }
         });
@@ -210,7 +224,12 @@ export function registerCommands(options: RegisterCommandsOptions): void {
     );
 
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
-    context.subscriptions.push(registerCommand('jj-view.focusDescriptionInput', focusDescriptionInputCommand));
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
+            const host = new VsCodeHostEnvironment({ context });
+            await host.nav.focusScmInput?.();
+        }),
+    );
 
     context.subscriptions.push(
         registerCommandWithPayload('jj-view.showComments', createShowCommentsPayload, showCommentsCommand),

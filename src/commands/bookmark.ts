@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { promptSelectOrCreate, showJjError } from '../common/ui-helpers';
 
 export interface SetBookmarkPayload {
     revision?: string;
@@ -20,7 +21,7 @@ export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookm
         if (!name) {
             const bookmarks = await ctx.host.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
 
-            name = await ctx.host.ui.promptSelectOrCreate({
+            name = await promptSelectOrCreate(ctx.host.ui, {
                 placeHolder: 'Select a bookmark to move, or type a new name to create',
                 items: bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, description: 'Move bookmark' })),
             });
@@ -33,6 +34,6 @@ export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookm
         await ctx.host.ui.withProgress(`Setting bookmark ${name}...`, () => ctx.repo.jj.moveBookmark(name, revision));
         await ctx.repo.refresh({ reason: 'after bookmark set' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error setting bookmark');
+        await showJjError(ctx.host.ui, e, 'Error setting bookmark', ctx.repo.jj, ctx.log);
     }
 }

@@ -74,12 +74,16 @@ describe('deleteBookmarkCommand', () => {
     });
 
     test('handles errors during bookmark deletion and displays error', async () => {
-        repo.bookmark('feature-1', '@');
-        vi.spyOn(jj, 'deleteBookmark').mockRejectedValue(new Error('Delete failed'));
+        const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
+        const brokenRepo = createMock<JjRepository>({
+            jj: brokenJj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        const brokenCtx = new FakeCommandContext(brokenRepo);
 
-        await deleteBookmarkCommand(ctx, { bookmarkName: 'feature-1' });
+        await deleteBookmarkCommand(brokenCtx, { bookmarkName: 'feature-1' });
 
-        expect(ctx.host.ui.errorMessages).toHaveLength(1);
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Failed to delete bookmark');
+        expect(brokenCtx.host.ui.errorMessages).toHaveLength(1);
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Failed to delete bookmark');
     });
 });

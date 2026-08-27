@@ -20,19 +20,13 @@ import type {
     HostUi,
     HostViews,
 } from '../common/host-environment';
-import type { JjRepository } from '../jj-repository';
-import { getFsPathFromUri, toFileUri, type Uri } from '../uri-utils';
+import type { Uri } from '../uri-utils';
+import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri } from '../uri-utils';
 import { getJjViewConfig } from '../utils/config-utils';
-import { getErrorMessage } from '../utils/error-utils';
-import type { LoggerChannel } from '../utils/output-channel';
-import { openCommitDetails, promptForRevision, showJjError, withDelayedProgress } from './vscode-ui-helpers';
+import { formatCommitTitle } from '../utils/jj-utils';
 
 export class VsCodeHostUi implements HostUi {
-    constructor(
-        private readonly repo?: JjRepository,
-        private readonly log?: LoggerChannel,
-        private readonly sourceControl?: { inputBox: { value: string } },
-    ) {}
+    constructor(private readonly sourceControl?: { inputBox: { value: string } }) {}
 
     async showInputBox(options?: {
         prompt?: string;
@@ -45,9 +39,50 @@ export class VsCodeHostUi implements HostUi {
 
     async showQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
-        options?: { placeHolder?: string; title?: string },
+        options?: {
+            placeHolder?: string;
+            title?: string;
+            matchOnDescription?: boolean;
+            matchOnDetail?: boolean;
+            acceptCustomValue?: boolean;
+        },
     ): Promise<T | undefined> {
-        return await vscode.window.showQuickPick(items, options);
+        const quickPick = vscode.window.createQuickPick<T & vscode.QuickPickItem>();
+        quickPick.items = items as (T & vscode.QuickPickItem)[];
+        if (options?.placeHolder) {
+            quickPick.placeholder = options.placeHolder;
+        }
+        if (options?.title) {
+            quickPick.title = options.title;
+        }
+        if (options?.matchOnDescription !== undefined) {
+            quickPick.matchOnDescription = options.matchOnDescription;
+        }
+        if (options?.matchOnDetail !== undefined) {
+            quickPick.matchOnDetail = options.matchOnDetail;
+        }
+        quickPick.ignoreFocusOut = true;
+
+        return new Promise<T | undefined>((resolve) => {
+            quickPick.onDidAccept(() => {
+                const selected = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
+                if (selected) {
+                    resolve(selected);
+                } else if (options?.acceptCustomValue && quickPick.value.trim().length > 0) {
+                    const custom = quickPick.value.trim();
+                    const customItem = Object.assign({} as T, { label: custom, value: custom, detail: custom });
+                    resolve(customItem);
+                } else {
+                    resolve(undefined);
+                }
+                quickPick.dispose();
+            });
+            quickPick.onDidHide(() => {
+                resolve(undefined);
+                quickPick.dispose();
+            });
+            quickPick.show();
+        });
     }
 
     async showMultiQuickPick<T extends { label: string; value?: unknown }>(
@@ -77,53 +112,49 @@ export class VsCodeHostUi implements HostUi {
         return await vscode.window.showWarningMessage(message, ...allActions);
     }
 
-    async showError(error: unknown, prefix: string, extraActions?: string[]): Promise<string | undefined> {
-        if (!this.repo || !this.log) {
-            const message = `${prefix}: ${getErrorMessage(error)}`;
-            return await vscode.window.showErrorMessage(message, ...(extraActions ?? []));
-        }
-        return await showJjError(error, prefix, this.repo.jj, this.log, extraActions);
-    }
-
-    async promptForRevision(options?: {
-        placeHolder?: string;
-        revisionQuery?: string;
-        emptyPrompt?: string;
-    }): Promise<string | undefined> {
-        if (!this.repo) {
+    async showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined> {
+        if (actions.length === 0) {
+            void vscode.window.showErrorMessage(message);
             return undefined;
         }
-        return await promptForRevision(this.repo.jj, options);
-    }
-
-    async promptSelectOrCreate(options: {
-        placeHolder?: string;
-        items: { label: string; description?: string }[];
-    }): Promise<string | undefined> {
-        return await new Promise<string | undefined>((resolve) => {
-            const quickPick = vscode.window.createQuickPick();
-            quickPick.placeholder = options.placeHolder;
-            quickPick.items = options.items;
-            quickPick.matchOnDescription = true;
-
-            quickPick.onDidAccept(() => {
-                const selection = quickPick.selectedItems[0];
-                const selectedName = selection ? selection.label : quickPick.value.trim();
-                resolve(selectedName || undefined);
-                quickPick.dispose();
-            });
-
-            quickPick.onDidHide(() => {
-                resolve(undefined);
-                quickPick.dispose();
-            });
-
-            quickPick.show();
-        });
+        return await vscode.window.showErrorMessage(message, ...actions);
     }
 
     async withProgress<T>(title: string, task: () => Promise<T>): Promise<T> {
-        return await withDelayedProgress(title, task());
+        let taskCompleted = false;
+        let progressComplete: (() => void) | undefined;
+
+        const timer = setTimeout(() => {
+            if (taskCompleted) {
+                return;
+            }
+            void vscode.window
+                .withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title,
+                        cancellable: false,
+                    },
+                    () =>
+                        new Promise<void>((resolve) => {
+                            progressComplete = resolve;
+                            if (taskCompleted) {
+                                resolve();
+                            }
+                        }),
+                )
+                .then(undefined, () => {});
+        }, 100);
+
+        try {
+            return await task();
+        } finally {
+            taskCompleted = true;
+            clearTimeout(timer);
+            if (progressComplete) {
+                progressComplete();
+            }
+        }
     }
 
     setStatusBarMessage(message: string, timeoutMs?: number): void {
@@ -221,7 +252,69 @@ export class VsCodeHostNavigation implements HostNavigation {
         isDivergent?: boolean,
         changeIdOffset?: number,
     ): Promise<void> {
-        await openCommitDetails(repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset);
+        const minLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+        const title = formatCommitTitle(
+            {
+                change_id: changeId,
+                change_id_shortest: shortestChangeId,
+                is_divergent: isDivergent,
+                change_id_offset: changeIdOffset,
+            },
+            minLength,
+        );
+
+        const uri = createCommitDetailsUri({
+            repoRoot,
+            changeId,
+            title,
+        });
+
+        await this.closeOtherCommitDetailsTabs(uri, repoRoot);
+
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'jj-view.commitDetailsEditor', {
+            preview: true,
+            viewColumn: vscode.ViewColumn.Active,
+        });
+    }
+
+    async closeCommitDetailsTabs(
+        predicate: (repoRoot?: string) => boolean,
+        viewType: string = 'jj-view.commitDetailsEditor',
+    ): Promise<void> {
+        await closeMatchingTabs((tab) => {
+            if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
+                return false;
+            }
+            try {
+                const query = getUriParams(tab.input.uri);
+                const repoRoot = query.get('repoRoot') || undefined;
+                return predicate(repoRoot);
+            } catch {
+                return predicate(undefined);
+            }
+        });
+    }
+
+    private async closeOtherCommitDetailsTabs(
+        currentUri: Uri,
+        workspaceRoot: string | undefined,
+        viewType: string = 'jj-view.commitDetailsEditor',
+    ): Promise<void> {
+        await closeMatchingTabs((tab) => {
+            if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
+                return false;
+            }
+            if (tab.input.uri.toString() === currentUri.toString()) {
+                return false;
+            }
+            try {
+                const query = getUriParams(tab.input.uri);
+                const tabRepoRoot = query.get('repoRoot');
+                return !tabRepoRoot || tabRepoRoot === workspaceRoot;
+            } catch {
+                return true;
+            }
+        });
     }
 
     async openFile(uri: Uri): Promise<void> {
@@ -252,6 +345,20 @@ export class VsCodeHostNavigation implements HostNavigation {
 
     async closeTab(uri: Uri): Promise<void> {
         await closeTabsForUri(uri);
+    }
+}
+
+export async function closeMatchingTabs(predicate: (tab: vscode.Tab) => boolean): Promise<void> {
+    const tabsToClose: vscode.Tab[] = [];
+    for (const tabGroup of vscode.window.tabGroups.all) {
+        for (const tab of tabGroup.tabs) {
+            if (predicate(tab)) {
+                tabsToClose.push(tab);
+            }
+        }
+    }
+    if (tabsToClose.length > 0) {
+        await vscode.window.tabGroups.close(tabsToClose);
     }
 }
 
@@ -306,6 +413,17 @@ export class VsCodeHostDocuments implements HostDocuments {
     getOpenDocumentText(uri: Uri): string | undefined {
         const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
         return doc?.getText();
+    }
+
+    getActiveDocumentUri(): Uri | undefined {
+        return vscode.window.activeTextEditor?.document.uri;
+    }
+
+    getActiveDocumentSelections(): { startLine: number; endLine: number }[] | undefined {
+        return vscode.window.activeTextEditor?.selections.map((s) => ({
+            startLine: s.start.line,
+            endLine: s.end.line,
+        }));
     }
 
     private getSafeRange(doc: vscode.TextDocument, startLine1Based: number, endLine1Based: number): vscode.Range {
@@ -414,11 +532,9 @@ export class VsCodeHostEnvironment implements HostEnvironment {
 
     constructor(options: {
         context: vscode.ExtensionContext;
-        repo?: JjRepository;
-        log?: LoggerChannel;
         sourceControl?: { inputBox: { value: string } };
     }) {
-        this.ui = new VsCodeHostUi(options.repo, options.log, options.sourceControl);
+        this.ui = new VsCodeHostUi(options.sourceControl);
         this.nav = new VsCodeHostNavigation();
         this.config = new VsCodeHostConfig();
         this.documents = new VsCodeHostDocuments();

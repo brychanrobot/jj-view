@@ -3,38 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// sort-imports-ignore (needed so that we can import after `vscode` is mocked)
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
+import { CodeForgeRegistry } from '../code-forge-registry';
+import { resolveRepository } from '../common/ui-helpers';
+import type { JjRepository } from '../jj-repository';
+import { JjRepositoryManager } from '../jj-repository-manager';
 import { Uri } from '../uri-utils';
-import { resolveRepository } from '../vscode/vscode-ui-helpers';
+import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
+import { TestRepo } from './test-repo';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
     return createVscodeMock();
 });
 
-// Import after mock
-import * as path from 'node:path';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import type { JjRepository } from '../jj-repository';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
-import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
-import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
-import { setActiveTextEditor } from './vscode-mock';
-
 describe('resolveRepository', () => {
     let repo: TestRepo;
     let repoManager: JjRepositoryManager;
-    let scmProviders: Map<string, VsCodeScmProvider>;
     let resolvedRepo: JjRepository;
-    let mockScm: VsCodeScmProvider;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
+
+        vscode.workspace.updateWorkspaceFolders(0, null, { uri: Uri.file(repo.path) });
 
         const codeForgeRegistry = new CodeForgeRegistry();
         const outputChannel = createMockLogOutputChannel({
@@ -46,20 +41,11 @@ describe('resolveRepository', () => {
         });
 
         repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(repo.path),
-        });
         const registered = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
         if (!registered) {
             throw new Error('Failed to register repository');
         }
         resolvedRepo = registered;
-
-        mockScm = createMock<VsCodeScmProvider>({
-            repo: resolvedRepo,
-        });
-        scmProviders = new Map();
-        scmProviders.set(resolvedRepo.rootUri.fsPath, mockScm);
     });
 
     afterEach(async () => {
@@ -69,54 +55,25 @@ describe('resolveRepository', () => {
     it('resolves repository from SourceControlResourceState argument', () => {
         const mockState = { resourceUri: Uri.file(path.join(repo.path, 'file.txt')) };
 
-        const result = resolveRepository([mockState], repoManager, scmProviders);
+        const result = resolveRepository(repoManager, { args: [mockState] });
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
+        expect(result).toBe(resolvedRepo);
     });
 
     it('resolves repository from SourceControl object argument', () => {
         const mockSCM = { rootUri: Uri.file(repo.path) };
 
-        const result = resolveRepository([mockSCM], repoManager, scmProviders);
+        const result = resolveRepository(repoManager, { args: [mockSCM] });
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
-    });
-
-    it('resolves repository from SourceControlResourceGroup argument', () => {
-        const mockGroup = createMock<vscode.SourceControlResourceGroup>({
-            id: 'working-copy',
-            label: 'Working Copy',
-            resourceStates: [],
-        });
-        mockScm.ownsGroup = vi.fn().mockReturnValue(true);
-
-        const result = resolveRepository([mockGroup], repoManager, scmProviders);
-
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
-        expect(mockScm.ownsGroup).toHaveBeenCalledWith(mockGroup);
+        expect(result).toBe(resolvedRepo);
     });
 
     it('resolves repository from active text editor when no arguments provided', () => {
         const activeUri = Uri.file(path.join(repo.path, 'other.txt'));
-        setActiveTextEditor(
-            createMock<vscode.TextEditor>({
-                document: createMock<vscode.TextDocument>({ uri: activeUri }),
-            }),
-        );
 
-        const result = resolveRepository([], repoManager, scmProviders);
+        const result = resolveRepository(repoManager, { activeUri });
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
-
-        setActiveTextEditor(undefined);
+        expect(result).toBe(resolvedRepo);
     });
 
     it('resolves repository from active custom jj-commit editor', () => {
@@ -125,35 +82,24 @@ describe('resolveRepository', () => {
             path: '/Commit:%20abc123',
             fragment: `changeId=abc12345&repoRoot=${encodeURIComponent(repo.path)}`,
         });
-        setActiveTextEditor(
-            createMock<vscode.TextEditor>({
-                document: createMock<vscode.TextDocument>({ uri: commitUri }),
-            }),
-        );
 
-        const result = resolveRepository([], repoManager, scmProviders);
+        const result = resolveRepository(repoManager, { activeUri: commitUri });
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
-
-        setActiveTextEditor(undefined);
+        expect(result).toBe(resolvedRepo);
     });
 
     it('falls back to focused repository when arg and active editor are not in any repository', () => {
         repoManager.setFocusedRepository(resolvedRepo);
 
-        const result = resolveRepository([], repoManager, scmProviders);
+        const result = resolveRepository(repoManager);
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
+        expect(result).toBe(resolvedRepo);
     });
 
     it('returns undefined if no repository is resolved', () => {
         repoManager.setFocusedRepository(undefined);
 
-        const result = resolveRepository([], repoManager, scmProviders);
+        const result = resolveRepository(repoManager);
 
         expect(result).toBeUndefined();
     });
@@ -182,10 +128,8 @@ describe('resolveRepository', () => {
         // Resource URI is inside the symlink path
         const mockState = { resourceUri: Uri.file(path.join(symlinkPath, 'file.txt')) };
 
-        const result = resolveRepository([mockState], repoManager, scmProviders);
+        const result = resolveRepository(repoManager, { args: [mockState] });
 
-        expect(result).toBeDefined();
-        expect(result?.repo).toBe(resolvedRepo);
-        expect(result?.scm).toBe(mockScm);
+        expect(result).toBe(resolvedRepo);
     });
 });
