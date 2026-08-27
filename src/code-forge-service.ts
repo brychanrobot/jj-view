@@ -10,7 +10,7 @@ import { type Disposable, disposeSafely, type Event, EventEmitter } from './comm
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
 import { getJjViewConfig } from './utils/config-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 import { TimerBucket } from './utils/timer-bucket';
 
 export class CodeForgeService implements Disposable {
@@ -38,7 +38,7 @@ export class CodeForgeService implements Disposable {
         public readonly workspaceRoot: string,
         private jjService: JjService,
         private registry: CodeForgeRegistry,
-        private outputChannel?: JjLoggerChannel,
+        private outputChannel?: LoggerChannel,
     ) {
         for (const factory of this.registry.getFactories()) {
             this.providers.set(factory.id, factory.create(this.outputChannel));

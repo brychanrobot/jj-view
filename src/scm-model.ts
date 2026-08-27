@@ -10,8 +10,9 @@ import type { JjService } from './jj-service';
 import type { CommitParent, JjLogEntry, JjStatusEntry } from './jj-types';
 import { encodeJjViewQuery, getRepoRelativePath, getRevisionFromUri, Uri } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
+import { toError } from './utils/error-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export interface ScmAncestorEntry {
     entry: JjLogEntry;
@@ -55,7 +56,7 @@ export class ScmModel implements Disposable {
 
     constructor(
         public readonly repo: JjRepository,
-        public readonly outputChannel: JjLoggerChannel,
+        public readonly outputChannel: LoggerChannel,
     ) {
         this.disposables.push(
             this.repo.onDidStatusChange(async (event) => {
@@ -193,7 +194,7 @@ export class ScmModel implements Disposable {
 
             await this._onDidChangeSnapshot.fire(this._snapshot);
         } catch (e: unknown) {
-            this.outputChannel.error(`[${this.repo.rootUri.fsPath}] Error calculating SCM snapshot: ${e}`);
+            this.outputChannel.error(`[${this.repo.rootUri.fsPath}] Error calculating SCM snapshot`, toError(e));
         } finally {
             if (!this._disposed) {
                 const duration = performance.now() - start;

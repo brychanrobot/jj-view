@@ -277,12 +277,11 @@ test.describe('SCM Pane E2E', () => {
         const repo = new TestRepo();
         repo.init();
         const commits = await buildGraph(repo, [
-            { label: 'base', description: '', files: { 'base.txt': '0' } },
-            { label: 'target', parents: ['base'], description: '', files: { 't.txt': '0' } },
-            { label: 'middle', parents: ['target'], description: 'middle message', files: { 'm.txt': '0' } },
+            { label: 'base', description: 'base commit', files: { 'base.txt': '0' } },
+            { label: 'target', description: '', files: { 't.txt': '0' } },
+            { label: 'middle', description: 'middle message', files: { 'm.txt': '0' } },
             {
                 label: 'source',
-                parents: ['middle'],
                 description: 'source message',
                 files: { 's.txt': '0', 's2.txt': '0' },
                 isCurrentWorkingCopy: true,
@@ -296,8 +295,8 @@ test.describe('SCM Pane E2E', () => {
         // 1. Squash Revision into Ancestor
         // We'll squash 'middle' into 'target'
         await clickScmAction(page, /middle message/, SCM_ACTIONS.SquashRevisionIntoAncestor);
-        // Pick 'target' from quickpick. Since it has no description, it will show '(no description)'
-        await pickQuickPickItem(page, '(no description)');
+        // Pick 'target' by its unique short changeId from quickpick
+        await pickQuickPickItem(page, commits.target.changeId.substring(0, 8));
 
         await expect(async () => {
             const log = repo.log();
@@ -307,12 +306,19 @@ test.describe('SCM Pane E2E', () => {
             expect(targetFiles).toContain('m.txt');
         }).toPass({ timeout: 10000 });
 
+        // Wait for SCM tree to settle: m.txt and t.txt should be in the same group
+        await expectFileInScmGroup(page, /middle message/i, 'm.txt');
+        await expectFileInScmGroup(page, /middle message/i, 't.txt');
+
         // 2. Squash Files into Ancestor
         // We'll squash s.txt from 'source' (WC) into 'base'
         // Hover over s.txt row and click squash into ancestor
         await clickScmAction(page, /^s\.txt\b/, SCM_ACTIONS.SquashFilesIntoAncestor);
-        // Pick 'base' from quickpick.
-        await pickQuickPickItem(page, '(no description)');
+        // Pick 'base' by its unique description / short changeId from quickpick
+        await pickQuickPickItem(page, 'base commit');
+
+        // Wait for SCM tree to show s.txt under base commit group
+        await expectFileInScmGroup(page, /base commit/i, 's.txt');
 
         await expect(async () => {
             const baseFiles = repo.getFiles(commits.base.changeId);

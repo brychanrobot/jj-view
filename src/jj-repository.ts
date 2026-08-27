@@ -14,7 +14,7 @@ import { JjService } from './jj-service';
 import type { Uri } from './uri-utils';
 import { getJjViewConfig } from './utils/config-utils';
 import { DebouncingQueue } from './utils/debouncing-queue';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 interface RefreshPayload {
     forceSnapshot: boolean;
@@ -34,40 +34,15 @@ export class JjRepository implements Disposable {
         public readonly rootUri: Uri,
         public readonly storePath: string,
         registry: CodeForgeRegistry,
-        outputChannel: JjLoggerChannel,
+        outputChannel: LoggerChannel,
         binaryPath?: string,
         processTracker?: JjProcessTracker,
     ) {
-        this._jj = new JjService(
-            rootUri.fsPath,
-            {
-                info: (msg) => {
-                    try {
-                        outputChannel.info(msg);
-                    } catch {}
-                },
-                warn: (msg) => {
-                    try {
-                        outputChannel.warn(msg);
-                    } catch {}
-                },
-                error: (msg) => {
-                    try {
-                        outputChannel.error(msg);
-                    } catch {}
-                },
-                debug: (msg) => {
-                    try {
-                        outputChannel.debug(msg);
-                    } catch {}
-                },
-            },
-            {
-                binaryPath,
-                getConfig: getJjViewConfig,
-                processTracker,
-            },
-        );
+        this._jj = new JjService(rootUri.fsPath, outputChannel, {
+            binaryPath,
+            getConfig: getJjViewConfig,
+            processTracker,
+        });
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
 
         this._refreshQueue = new DebouncingQueue<RefreshPayload>(

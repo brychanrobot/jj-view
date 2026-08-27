@@ -5,6 +5,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createWebviewRpcClient, createWebviewRpcDispatcher } from '../common/webview-rpc-dispatcher';
+import type { LoggerChannel } from '../utils/output-channel';
 
 describe('WebviewRpcDispatcher', () => {
     const testSchema = z.discriminatedUnion('type', [
@@ -77,7 +78,8 @@ describe('WebviewRpcDispatcher', () => {
     });
 
     test('automatically dispatches baseline logMessage to logger', async () => {
-        const mockLogger = {
+        const mockLogger: LoggerChannel = {
+            debug: vi.fn(),
             info: vi.fn(),
             warn: vi.fn(),
             error: vi.fn(),
@@ -107,23 +109,83 @@ describe('WebviewRpcDispatcher', () => {
         expect(mockLogger.error).toHaveBeenCalledWith('Failure: Details');
     });
 
+    test('logs error and invokes onError on validation failure for known message types', async () => {
+        const mockLogger: LoggerChannel = {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+        };
+        const onError = vi.fn();
+
+        const dispatcher = createWebviewRpcDispatcher(testSchema, { ping: vi.fn() }, { logger: mockLogger, onError });
+
+        const invalidMsg = { type: 'count', amount: 'not a number' };
+        const result = await dispatcher.dispatch(invalidMsg);
+
+        expect(result).toBe(false);
+        expect(mockLogger.error).toHaveBeenCalledWith('Webview RPC validation failed', expect.any(Error));
+        expect(onError).toHaveBeenCalledWith(expect.any(Error), invalidMsg);
+    });
+
+    test('logs error and invokes onError when handler throws', async () => {
+        const mockLogger: LoggerChannel = {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+        };
+        const onError = vi.fn();
+        const handlerError = new Error('Handler crash');
+
+        const dispatcher = createWebviewRpcDispatcher(
+            testSchema,
+            {
+                ping: () => {
+                    throw handlerError;
+                },
+            },
+            { logger: mockLogger, onError },
+        );
+
+        const validMsg = { type: 'ping', value: 'boom' };
+        const result = await dispatcher.dispatch(validMsg);
+
+        expect(result).toBe(false);
+        expect(mockLogger.error).toHaveBeenCalledWith('Webview RPC handler error (ping)', handlerError);
+        expect(onError).toHaveBeenCalledWith(handlerError, validMsg);
+    });
+
+    test('rejects pending requests when dispatcher is disposed', async () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, {});
+        const pending = dispatcher.registerPendingRequest('req_123');
+
+        dispatcher.dispose();
+
+        await expect(pending).rejects.toThrowError('WebviewRpcDispatcher disposed');
+    });
+
     test('dispatches custom logMessage handler with raw message', async () => {
         const customLogMessageHandler = vi.fn(async (_message) => {
             await Promise.resolve();
         });
 
+        const schemaWithLog = z.discriminatedUnion('type', [
+            z.object({ type: z.literal('ping'), value: z.string() }),
+            z.object({
+                type: z.literal('logMessage'),
+                payload: z.object({ level: z.enum(['info', 'warn', 'error']), message: z.string() }),
+            }),
+        ]);
+
         const rawLogMessage = {
-            type: 'logMessage',
-            payload: { level: 'info', message: 'custom log message' },
+            type: 'logMessage' as const,
+            payload: { level: 'info' as const, message: 'custom log message' },
         };
 
-        const dispatcher = createWebviewRpcDispatcher(
-            testSchema,
-            {
-                logMessage: customLogMessageHandler,
-            } as never,
-            {},
-        );
+        const dispatcher = createWebviewRpcDispatcher(schemaWithLog, {
+            logMessage: customLogMessageHandler,
+        });
 
         const handled = await dispatcher.dispatch(rawLogMessage);
 
@@ -169,9 +231,9 @@ describe('createWebviewRpcClient', () => {
         };
 
         const client = createWebviewRpcClient(mockWebview, testSchema);
+        const untypedCount = client.count as (payload: Record<string, unknown>) => Promise<unknown>;
 
-        // @ts-expect-error testing invalid payload type at runtime
-        expect(() => client.count({ amount: 'invalid' })).toThrowError(/Invalid RPC message 'count'/);
+        expect(() => untypedCount({ amount: 'invalid' })).toThrowError(/Invalid RPC message 'count'/);
         expect(mockWebview.postMessage).not.toHaveBeenCalled();
     });
 

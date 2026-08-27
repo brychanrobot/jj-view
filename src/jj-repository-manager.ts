@@ -15,7 +15,8 @@ import { JjService, NO_OP_LOGGER } from './jj-service';
 import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 import { CoalescingQueue } from './utils/coalescing-queue';
 import { getJjViewConfig } from './utils/config-utils';
-import { type JjLoggerChannel, JjOutputChannel } from './utils/output-channel';
+import { toError } from './utils/error-utils';
+import { type LoggerChannel, OutputChannel } from './utils/output-channel';
 
 interface DetectedRepoInfo {
     rootPath: string;
@@ -59,7 +60,7 @@ export class JjRepositoryManager implements vscode.Disposable {
 
     constructor(
         private readonly _codeForgeRegistry: CodeForgeRegistry,
-        private readonly _outputChannel: JjLoggerChannel,
+        private readonly _outputChannel: LoggerChannel,
         private readonly _workspaceState: vscode.Memento,
         initialBinaryPath?: string,
         private readonly _processTracker?: JjProcessTracker,
@@ -82,7 +83,8 @@ export class JjRepositoryManager implements vscode.Disposable {
                     })
                     .catch((err) => {
                         this._outputChannel.error(
-                            `[RepositoryManager] Error checking open editor URI at start: ${err}`,
+                            '[RepositoryManager] Error checking open editor URI at start',
+                            toError(err),
                         );
                     });
             }
@@ -121,7 +123,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                     this.tryAutoSwitch(uri);
                 }
             } catch (err) {
-                this._outputChannel.error(`[RepositoryManager] Error checking active tab URI: ${err}`);
+                this._outputChannel.error('[RepositoryManager] Error checking active tab URI', toError(err));
             }
         };
 
@@ -132,7 +134,7 @@ export class JjRepositoryManager implements vscode.Disposable {
                 this._normalizedWorkspaceFolders = undefined;
                 this._realNormalizedPathCache.clear();
                 this.scanForRepositories().catch((err) => {
-                    this._outputChannel.error(`[RepositoryManager] Error scanning on workspace change: ${err}`);
+                    this._outputChannel.error('[RepositoryManager] Error scanning on workspace change', toError(err));
                 });
             }),
         );
@@ -154,7 +156,7 @@ export class JjRepositoryManager implements vscode.Disposable {
         return this._workspaceState;
     }
 
-    get outputChannel(): JjLoggerChannel {
+    get outputChannel(): LoggerChannel {
         return this._outputChannel;
     }
 
@@ -171,7 +173,8 @@ export class JjRepositoryManager implements vscode.Disposable {
             repo.jj.binaryPath = binPath;
             repo.refresh({ reason: 'binary path set' }).catch((err) => {
                 this._outputChannel.error(
-                    `[RepositoryManager] Failed to refresh repo ${repo.rootUri.fsPath} on binary path change: ${err}`,
+                    `[RepositoryManager] Failed to refresh repo ${repo.rootUri.fsPath} on binary path change`,
+                    toError(err),
                 );
             });
         }
@@ -238,7 +241,10 @@ export class JjRepositoryManager implements vscode.Disposable {
                 const repo = await this.createRepository(item.rootPath, item.storePath);
                 loaded.push(repo);
             } catch (err) {
-                this._outputChannel.error(`[RepositoryManager] Failed to restore cached repo ${item.rootPath}: ${err}`);
+                this._outputChannel.error(
+                    `[RepositoryManager] Failed to restore cached repo ${item.rootPath}`,
+                    toError(err),
+                );
             }
         }
 
@@ -421,7 +427,8 @@ export class JjRepositoryManager implements vscode.Disposable {
                     newRepos.push(repo);
                 } catch (err) {
                     this._outputChannel.error(
-                        `[RepositoryManager] Error creating repository for ${info.rootPath}: ${err}`,
+                        `[RepositoryManager] Error creating repository for ${info.rootPath}`,
+                        toError(err),
                     );
                 }
             }
@@ -715,7 +722,7 @@ export class JjRepositoryManager implements vscode.Disposable {
     private async createRepository(rootPath: string, storePath?: string): Promise<JjRepository> {
         const resolvedStorePath = storePath ?? (await this.resolveStorePath(path.join(rootPath, '.jj', 'repo')));
         const repoPrefix = path.basename(rootPath);
-        const repoOutputChannel = new JjOutputChannel(this._outputChannel, repoPrefix);
+        const repoOutputChannel = new OutputChannel(this._outputChannel, repoPrefix);
         return new JjRepository(
             Uri.file(rootPath),
             resolvedStorePath,

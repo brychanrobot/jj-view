@@ -11,7 +11,7 @@ import { DirectoryWatcher } from './directory-watcher';
 import type { JjService } from './jj-service';
 import { Poller } from './poller';
 import { getJjViewConfig } from './utils/config-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export class ChangeDetectionManager implements vscode.Disposable {
     private _disposed = false;
@@ -63,7 +63,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
     constructor(
         private workspaceRoot: string,
         private jj: JjService,
-        private outputChannel: JjLoggerChannel,
+        private outputChannel: LoggerChannel,
         private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
         private readonly watcherBackend?: BackendType,
     ) {

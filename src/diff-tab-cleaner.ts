@@ -9,7 +9,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { JjService } from './jj-service';
 import { getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import { toError } from './utils/error-utils';
+import type { LoggerChannel } from './utils/output-channel';
 
 interface CollectedTabs {
     uniqueRevisions: Set<string>;
@@ -23,7 +24,7 @@ export class DiffTabCleaner {
     constructor(
         private readonly jj: JjService,
         private readonly belongsToRepo: (uri: Uri) => boolean,
-        private readonly outputChannel?: JjLoggerChannel,
+        private readonly outputChannel?: LoggerChannel,
     ) {}
 
     /**
@@ -45,7 +46,7 @@ export class DiffTabCleaner {
 
             this.closeTabs(tabsToClose);
         } catch (err) {
-            this.outputChannel?.error(`[DiffTabCleaner] Failed to check/close invalid diff editors: ${err}`);
+            this.outputChannel?.error('[DiffTabCleaner] Failed to check/close invalid diff editors', toError(err));
         }
     }
 
@@ -199,7 +200,7 @@ export class DiffTabCleaner {
     private closeTabs(tabs: vscode.Tab[]): void {
         tabs.forEach((tab) => {
             vscode.window.tabGroups.close(tab).then(undefined, (err) => {
-                this.outputChannel?.error(`[DiffTabCleaner] Failed to close tab: ${err}`);
+                this.outputChannel?.error('[DiffTabCleaner] Failed to close tab', toError(err));
             });
         });
     }

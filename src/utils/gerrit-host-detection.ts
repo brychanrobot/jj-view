@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import type { GitRemote } from '../code-forge-provider';
 import { getJjViewConfig } from './config-utils';
 import { getGitConfig } from './gerrit-credential-utils';
-import type { JjLoggerChannel } from './output-channel';
+import type { LoggerChannel } from './output-channel';
 
 /**
  * Normalizes a Gerrit host URL by cleaning trailing slashes, prepending protocol,
@@ -33,7 +33,7 @@ export function normalizeHostUrl(hostUrl: string): string {
 /**
  * Resolves the Gerrit host from the configured VS Code setting.
  */
-function getHostFromSettings(outputChannel?: JjLoggerChannel): string | undefined {
+function getHostFromSettings(outputChannel?: LoggerChannel): string | undefined {
     outputChannel?.debug('[GerritDetector] Checking VS Code settings for jj-view.gerrit.host...');
     const settingHost = getJjViewConfig<string>('gerrit.host')?.trim();
     if (settingHost) {
@@ -53,7 +53,7 @@ function getHostFromSettings(outputChannel?: JjLoggerChannel): string | undefine
  */
 async function getHostFromGitConfig(
     gitRoot: string | null,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<string | undefined> {
     if (!gitRoot) {
         outputChannel?.debug('[GerritDetector] Git root is null, skipping git config check');
@@ -86,7 +86,7 @@ async function getHostFromGitConfig(
     return undefined;
 }
 
-async function getHostFromGitReview(repoRoot: string, outputChannel?: JjLoggerChannel): Promise<string | undefined> {
+async function getHostFromGitReview(repoRoot: string, outputChannel?: LoggerChannel): Promise<string | undefined> {
     const gitreviewPath = path.join(repoRoot, '.gitreview');
     outputChannel?.debug(`[GerritDetector] Checking .gitreview file at: ${gitreviewPath}`);
     try {
@@ -197,7 +197,7 @@ export function parseRemoteUrl(url: string): string | undefined {
 async function getHostFromRemotes(
     remotes: GitRemote[],
     probeFn: (host: string) => Promise<boolean>,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<string | undefined> {
     outputChannel?.debug(`[GerritDetector] Scanning ${remotes.length} remotes for Gerrit host candidates`);
     const origin = remotes.find((r) => r.name === 'origin');
@@ -243,7 +243,7 @@ export async function detectGerritHost(
     gitRoot: string | null,
     remotes: GitRemote[],
     probeFn: (host: string) => Promise<boolean>,
-    outputChannel?: JjLoggerChannel,
+    outputChannel?: LoggerChannel,
 ): Promise<string | undefined> {
     outputChannel?.debug(`[GerritDetector] Starting host detection for repoRoot=${repoRoot}, gitRoot=${gitRoot}`);
 

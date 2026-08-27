@@ -17,7 +17,7 @@ import { type Event, EventEmitter } from './common/events';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import type { LoggerChannel } from './utils/output-channel';
 
 export const GitHubPrNodeSchema = z.object({
     id: z.string(),
@@ -169,7 +169,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: JjLoggerChannel,
+        private outputChannel?: LoggerChannel,
     ) {
         this.authManager.registerProvider(this.id);
     }

@@ -64,7 +64,7 @@ import type { CommandContext } from '../common/command-context';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../jj-types';
-import type { JjLoggerChannel } from '../utils/output-channel';
+import type { LoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
 import { createAbsorbPayload } from './payloads/absorb.payload';
 import { createSetBookmarkPayload } from './payloads/bookmark.payload';
@@ -130,7 +130,7 @@ export interface RegisterCommandsOptions {
     context: vscode.ExtensionContext;
     repositoryManager: JjRepositoryManager;
     scmProviders: Map<string, VsCodeScmProvider>;
-    outputChannel: JjLoggerChannel;
+    outputChannel: LoggerChannel;
     commentsManager: CommentsManager;
     logWebviewProvider: VsCodeLogWebviewProvider;
 }

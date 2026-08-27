@@ -83,7 +83,7 @@ Consolidate all environment capabilities into canonical, reusable interfaces loc
    - View registry: `registerWebviewProvider`, `registerEditorProvider`, `registerFileSystemProvider`, `registerDecorationProvider`.
 10. **`AppContext` & `RepoContext`**:
     - `AppContext`: Global application state (`host: HostEnvironment`, `repositoryManager: JjRepositoryManager`, `codeForgeRegistry: CodeForgeRegistry`, `authManager: CodeForgeAuthManager`, `processTracker: JjProcessTracker`).
-    - `RepoContext`: Repository-scoped execution context passed to commands, containing `{ repo: JjRepository; host: HostEnvironment; log: JjLoggerChannel; comments?: CommentsManager }` with convenience accessors `ui`, `nav`, `config`, `documents`.
+    - `RepoContext`: Repository-scoped execution context passed to commands, containing `{ repo: JjRepository; host: HostEnvironment; log: LoggerChannel; comments?: CommentsManager }` with convenience accessors `ui`, `nav`, `config`, `documents`.
 
 #### Migration Steps for Phase 1:
 - Replace `CommandContext` with `RepoContext` across all command signatures in `src/commands/*.ts`.

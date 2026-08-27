@@ -7,7 +7,8 @@ import { type AsyncSubscription, type BackendType, type Event, subscribe } from 
 import * as vscode from 'vscode';
 import { Uri } from './uri-utils';
 import { isWatchmanAvailable } from './utils/binary-utils';
-import type { JjLoggerChannel } from './utils/output-channel';
+import { toError } from './utils/error-utils';
+import type { LoggerChannel } from './utils/output-channel';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 
@@ -21,7 +22,7 @@ export class DirectoryWatcher implements vscode.Disposable {
     constructor(
         private readonly path: string,
         private readonly callback: DirectoryWatcherCallback,
-        private readonly outputChannel: JjLoggerChannel,
+        private readonly outputChannel: LoggerChannel,
         private readonly name: string = 'DirectoryWatcher',
         backend?: BackendType,
     ) {
@@ -64,7 +65,7 @@ export class DirectoryWatcher implements vscode.Disposable {
                     this.path,
                     (err, events) => {
                         if (err) {
-                            this.log(`[${this.name}] Error: ${err}`);
+                            this.logError(`[${this.name}] Error`, err);
                             return;
                         }
                         if (events.length > 0) {
@@ -83,7 +84,7 @@ export class DirectoryWatcher implements vscode.Disposable {
                 this._subscription = sub;
                 this.log(`[${this.name}] Started.`);
             } catch (err) {
-                this.log(`[${this.name}] Failed to start: ${err}`);
+                this.logError(`[${this.name}] Failed to start`, err);
                 const errorMessage = err instanceof Error ? err.message : String(err);
                 if (
                     errorMessage.includes('inotify_add_watch') ||
@@ -121,7 +122,7 @@ export class DirectoryWatcher implements vscode.Disposable {
             try {
                 await this._subscription.unsubscribe();
             } catch (err) {
-                this.log(`[${this.name}] Failed to unsubscribe: ${err}`);
+                this.logError(`[${this.name}] Failed to unsubscribe`, err);
             }
             this._subscription = undefined;
         }
@@ -141,6 +142,17 @@ export class DirectoryWatcher implements vscode.Disposable {
         }
         try {
             this.outputChannel.info(message);
+        } catch {
+            // Ignore errors if channel is closed/disposed
+        }
+    }
+
+    private logError(message: string, err?: unknown) {
+        if (this._disposed) {
+            return;
+        }
+        try {
+            this.outputChannel.error(message, err !== undefined ? toError(err) : undefined);
         } catch {
             // Ignore errors if channel is closed/disposed
         }

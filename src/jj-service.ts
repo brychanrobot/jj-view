@@ -30,6 +30,10 @@ import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-ty
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
 import { AsyncCache } from './utils/async-cache';
+import { getErrorMessage } from './utils/error-utils';
+import { type LoggerChannel, NO_OP_LOGGER } from './utils/output-channel';
+
+export { NO_OP_LOGGER };
 
 export interface JjLogOptions {
     revision?: string;
@@ -46,20 +50,6 @@ const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
 const IS_WINDOWS = process.platform === 'win32';
 const NO_OP_EDITOR = IS_WINDOWS ? 'cmd.exe /c exit 0' : 'true';
-
-export type JjServiceLogger = {
-    info(message: string): void;
-    warn(message: string): void;
-    error(message: string): void;
-    debug(message: string): void;
-};
-
-export const NO_OP_LOGGER: JjServiceLogger = {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-};
 
 export type JjServiceConfigProvider<S = never> = <T>(key: string, defaultValue?: T, scope?: S) => T | undefined;
 
@@ -87,16 +77,12 @@ export class JjService {
 
     constructor(
         public readonly workspaceRoot: string,
-        public readonly logger: JjServiceLogger,
-        options?: string | JjServiceOptions,
+        public readonly logger: LoggerChannel = NO_OP_LOGGER,
+        options?: JjServiceOptions,
     ) {
-        if (typeof options === 'string') {
-            this.binaryPath = options;
-        } else {
-            this.binaryPath = options?.binaryPath ?? 'jj';
-            this._getConfig = options?.getConfig;
-            this.processTracker = options?.processTracker;
-        }
+        this.binaryPath = options?.binaryPath ?? 'jj';
+        this._getConfig = options?.getConfig;
+        this.processTracker = options?.processTracker;
     }
 
     private getReadTimeoutMs(): number {
@@ -170,7 +156,7 @@ export class JjService {
     }
 
     static isIndexLockError(error: unknown): boolean {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return message.includes('index.lock') || message.includes('Could not acquire lock');
     }
 

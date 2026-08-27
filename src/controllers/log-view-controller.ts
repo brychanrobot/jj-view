@@ -5,10 +5,9 @@
 
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
-import { WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
 import {
     createWebviewRpcDispatcher,
-    type LoggerLike,
     type WebviewPostMessageLike,
     type WebviewRpcDispatcher,
 } from '../common/webview-rpc-dispatcher';
@@ -17,11 +16,13 @@ import type { JjRepository } from '../jj-repository';
 import type { JjService } from '../jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from '../jj-types';
 import { CoalescingQueue } from '../utils/coalescing-queue';
+import { toError } from '../utils/error-utils';
 import { canAbsorbCommit } from '../utils/jj-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 
 export interface LogViewControllerOptions {
     messenger?: WebviewPostMessageLike;
-    logger?: LoggerLike;
+    logger?: LoggerChannel;
     onSelectionChange?: (commitIds: string[]) => void;
     closeCommitDetailsTabs?: (predicate: (repoRoot?: string) => boolean) => Promise<void> | void;
 }
@@ -32,8 +33,8 @@ export class LogViewController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
     private _messenger?: WebviewPostMessageLike;
-    private readonly _logger?: LoggerLike;
-    private readonly _dispatcher: WebviewRpcDispatcher<import('../common/ipc-schemas').WebviewToHostMessage>;
+    private readonly _logger?: LoggerChannel;
+    private readonly _dispatcher: WebviewRpcDispatcher<WebviewToHostMessage>;
     private readonly _refreshQueue: CoalescingQueue;
 
     private _commits: readonly JjLogEntry[] = [];
@@ -149,12 +150,12 @@ export class LogViewController implements Disposable {
         const cf = repo.codeForge;
         this._codeForgeDisposable = cf.onDidUpdate(() => {
             this.refreshCodeForge().catch((e) => {
-                this._logger?.error(`[LogViewController] CodeForge update failed: ${e}`);
+                this._logger?.error('[LogViewController] CodeForge update failed', toError(e));
             });
         });
 
         cf.detectActiveProvider(true).catch((e) => {
-            this._logger?.error(`Code forge detection failed: ${e}`);
+            this._logger?.error('Code forge detection failed', toError(e));
         });
     }
 
@@ -207,12 +208,12 @@ export class LogViewController implements Disposable {
 
             this.setCommits(commits);
         } catch (e) {
-            this._logger?.error(`[LogViewController] Failed to fetch log: ${e}`);
+            this._logger?.error('[LogViewController] Failed to fetch log', toError(e));
             return;
         }
 
         this.refreshCodeForge().catch((e) => {
-            this._logger?.error(`[LogViewController] Background refreshCodeForge failed: ${e}`);
+            this._logger?.error('[LogViewController] Background refreshCodeForge failed', toError(e));
         });
     }
 
@@ -358,7 +359,7 @@ export class LogViewController implements Disposable {
                 this.setCommits(this._commits);
             }
         } catch (e) {
-            this._logger?.error(`[LogViewController] CodeForge refresh failed: ${e}`);
+            this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
         }
     }
 
@@ -383,7 +384,7 @@ export class LogViewController implements Disposable {
             try {
                 this._messenger.postMessage(message);
             } catch (e) {
-                this._logger?.error(`[LogViewController] Failed to post message: ${e}`);
+                this._logger?.error('[LogViewController] Failed to post message', toError(e));
             }
         }
     }
@@ -408,7 +409,7 @@ export class LogViewController implements Disposable {
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<import('../common/ipc-schemas').WebviewToHostMessage> {
+    private _createRpcDispatcher(): WebviewRpcDispatcher<WebviewToHostMessage> {
         return createWebviewRpcDispatcher(
             WebviewToHostMessageSchema,
             {
@@ -427,7 +428,7 @@ export class LogViewController implements Disposable {
                             this._logger?.error(`[LogViewController] Blocked insecure scheme: ${parsed.protocol}`);
                         }
                     } catch (e) {
-                        this._logger?.error(`[LogViewController] Invalid URL: ${msg.payload.url}, ${e}`);
+                        this._logger?.error(`[LogViewController] Invalid URL: ${msg.payload.url}`, toError(e));
                     }
                 },
                 newChild: async (msg) => {
@@ -601,5 +602,6 @@ export class LogViewController implements Disposable {
         this._disposables.length = 0;
         this._onDidUpdateCommits.dispose();
         this._onDidChangeSelection.dispose();
+        this._dispatcher.dispose();
     }
 }

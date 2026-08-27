@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import { DebouncingQueue, type ILogger } from '../../utils/debouncing-queue';
+import { DebouncingQueue } from '../../utils/debouncing-queue';
+import type { LoggerChannel } from '../../utils/output-channel';
 
 describe('DebouncingQueue (Exhaustive)', () => {
     let taskFn: Mock;
@@ -556,7 +557,12 @@ describe('DebouncingQueue (Exhaustive)', () => {
 
         test('routes errors to optional logger when provided', async () => {
             const loggerError = vi.fn();
-            const mockLogger: ILogger = { error: loggerError };
+            const mockLogger: LoggerChannel = {
+                debug: vi.fn(),
+                info: vi.fn(),
+                warn: vi.fn(),
+                error: loggerError,
+            };
             const error = new Error('Logger test error');
             taskFn.mockRejectedValueOnce(error);
 
@@ -571,6 +577,33 @@ describe('DebouncingQueue (Exhaustive)', () => {
 
             await rejectAssertion;
             expect(loggerError).toHaveBeenCalledWith('DebouncingQueue task error:', error);
+            queue.dispose();
+        });
+
+        test('wraps non-Error thrown values into Error instances for logger.error', async () => {
+            const loggerError = vi.fn();
+            const mockLogger: LoggerChannel = {
+                debug: vi.fn(),
+                info: vi.fn(),
+                warn: vi.fn(),
+                error: loggerError,
+            };
+            taskFn.mockRejectedValueOnce('string error message');
+
+            const queue = new DebouncingQueue<string>(taskFn, {
+                getDebounceMillis: () => 100,
+                logger: mockLogger,
+            });
+
+            const p1 = queue.push('error-task');
+            const rejectAssertion = expect(p1).rejects.toBe('string error message');
+            await vi.advanceTimersByTimeAsync(100);
+
+            await rejectAssertion;
+            expect(loggerError).toHaveBeenCalledWith(
+                'DebouncingQueue task error:',
+                expect.objectContaining({ message: 'string error message' }),
+            );
             queue.dispose();
         });
     });

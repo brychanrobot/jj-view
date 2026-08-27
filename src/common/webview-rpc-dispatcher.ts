@@ -4,6 +4,9 @@
  */
 import { z } from 'zod';
 
+import { toError } from '../utils/error-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+
 export type DiscriminatedMessage<K extends string = 'type'> = {
     [P in K]: string;
 };
@@ -12,15 +15,9 @@ export type MessageHandlerMap<TMessage extends DiscriminatedMessage<K>, K extend
     [V in TMessage[K]]?: (message: Extract<TMessage, Record<K, V>>) => unknown | Promise<unknown>;
 };
 
-export interface LoggerLike {
-    info?(message: string, ...args: unknown[]): void;
-    warn?(message: string, ...args: unknown[]): void;
-    error(message: string, ...args: unknown[]): void;
-}
-
 export interface WebviewRpcDispatcherOptions<K extends string = 'type'> {
     discriminatorKey?: K;
-    logger?: LoggerLike;
+    logger?: LoggerChannel;
     messenger?: WebviewPostMessageLike;
     onError?: (error: unknown, rawMessage: unknown) => void;
 }
@@ -62,6 +59,13 @@ export class WebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K ex
         return new Promise((resolve, reject) => {
             this.pendingRequests.set(requestId, { resolve, reject });
         });
+    }
+
+    public dispose(): void {
+        for (const pending of this.pendingRequests.values()) {
+            pending.reject(new Error('WebviewRpcDispatcher disposed'));
+        }
+        this.pendingRequests.clear();
     }
 
     private handleRpcResponse(rawMessage: unknown): boolean {
@@ -143,15 +147,15 @@ export class WebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K ex
                 }
                 return true;
             } catch (err) {
-                const errorMessage = err instanceof Error ? err.message : String(err);
-                this.options?.logger?.error(`Webview RPC handler error (${String(typeValue)})`, err);
+                const error = toError(err);
+                this.options?.logger?.error(`Webview RPC handler error (${String(typeValue)})`, error);
                 this.options?.onError?.(err, rawMessage);
 
                 if (requestId && this.options?.messenger) {
                     this.options.messenger.postMessage({
                         type: '__rpc_response__',
                         requestId,
-                        error: errorMessage,
+                        error: error.message,
                     });
                 }
                 return false;
