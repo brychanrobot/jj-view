@@ -5,6 +5,8 @@
 import { vi } from 'vitest';
 import type * as vscode from 'vscode';
 
+import { Uri } from '../uri-utils';
+
 let activeTextEditorState: unknown;
 
 /**
@@ -12,51 +14,6 @@ let activeTextEditorState: unknown;
  */
 export function setActiveTextEditor(editor: Partial<vscode.TextEditor> | undefined): void {
     activeTextEditorState = editor;
-}
-
-/**
- * Helper to parse a URI string into components for MockUri.
- * Example inputs:
- * - "jj-edit:///foo/bar.txt?revision=@" -> scheme="jj-edit", path="/foo/bar.txt", query="revision=@"
- * - "jj-edit://foo/bar.txt?revision=@" -> scheme="jj-edit", path="foo/bar.txt", query="revision=@"
- * - "/foo/bar.txt" -> scheme="file", path="/foo/bar.txt", query=""
- * - "file:///foo/bar.txt#frag" -> scheme="file", path="/foo/bar.txt", query=""
- */
-function parseUriString(uriString: string): { scheme: string; path: string; query: string; fragment: string } {
-    let scheme = 'file';
-    let rest = uriString;
-
-    const schemeMatch = uriString.match(/^([a-zA-Z0-9.+-]+):\/\/(.*)$/);
-    if (schemeMatch) {
-        scheme = schemeMatch[1];
-        rest = schemeMatch[2];
-    }
-
-    // Parse fragment
-    const hashIndex = rest.indexOf('#');
-    let fragment = '';
-    if (hashIndex !== -1) {
-        fragment = rest.substring(hashIndex + 1);
-        rest = rest.substring(0, hashIndex);
-    }
-
-    // Parse query
-    const queryIndex = rest.indexOf('?');
-    let query = '';
-    let pathPart = rest;
-    if (queryIndex !== -1) {
-        pathPart = rest.substring(0, queryIndex);
-        query = rest.substring(queryIndex + 1);
-    }
-
-    let decodedPath = pathPart;
-    try {
-        decodedPath = decodeURIComponent(pathPart);
-    } catch {
-        // Fallback
-    }
-
-    return { scheme, path: decodedPath, query, fragment };
 }
 
 /**
@@ -170,66 +127,6 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         }
     }
 
-    class MockUri {
-        constructor(
-            public fsPath: string,
-            public scheme: string = 'file',
-            public query: string = '',
-            public path: string = fsPath,
-            public fragment: string = '',
-        ) {
-            if (process.platform === 'win32') {
-                this.fsPath = this.fsPath.replace(/\//g, '\\');
-                // Strip leading backslash if it precedes a drive letter (e.g., \C:\... -> C:\...)
-                if (/^\\[a-zA-Z]:\\/.test(this.fsPath)) {
-                    this.fsPath = this.fsPath.substring(1);
-                }
-                if (/^[a-zA-Z]:\\/.test(this.fsPath)) {
-                    this.fsPath = this.fsPath[0].toLowerCase() + this.fsPath.substring(1);
-                }
-                // For VS Code URIs on Windows, path should always use forward slashes.
-                // If it has a drive letter, it starts with a slash (e.g. /c:/...).
-                let normalizedPath = this.fsPath.replace(/\\/g, '/');
-                if (/^[a-zA-Z]:\//.test(normalizedPath)) {
-                    normalizedPath = `/${normalizedPath}`;
-                }
-                this.path = normalizedPath;
-            }
-        }
-        static file(fsPath: string) {
-            return new MockUri(fsPath);
-        }
-        static from(components: { scheme: string; path: string; query?: string; fragment?: string }) {
-            return new MockUri(
-                components.path,
-                components.scheme,
-                components.query || '',
-                components.path,
-                components.fragment || '',
-            );
-        }
-        static parse(uriString: string) {
-            const parsed = parseUriString(uriString);
-            return new MockUri(parsed.path, parsed.scheme, parsed.query, parsed.path, parsed.fragment);
-        }
-        static joinPath(base: { path: string; scheme: string }, ...paths: string[]) {
-            const combined = [base.path, ...paths].join('/').replace(/\/+/g, '/');
-            return new MockUri(combined, base.scheme, '', combined);
-        }
-        toString() {
-            return `${this.scheme}://${this.fsPath}${this.query ? `?${this.query}` : ''}${this.fragment ? `#${this.fragment}` : ''}`;
-        }
-        with(change: { scheme?: string; query?: string; fragment?: string }) {
-            return new MockUri(
-                this.fsPath,
-                change.scheme ?? this.scheme,
-                change.query ?? this.query,
-                this.path,
-                change.fragment ?? this.fragment,
-            );
-        }
-    }
-
     enum CommentThreadCollapsibleState {
         Collapsed = 0,
         Expanded = 1,
@@ -298,9 +195,9 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         ) {}
     }
 
-    let mockWorkspaceFolders: { uri: MockUri; name: string; index: number }[] = [
+    let mockWorkspaceFolders: { uri: Uri; name: string; index: number }[] = [
         {
-            uri: new MockUri('/root'),
+            uri: Uri.file('/root'),
             name: 'mock-folder',
             index: 0,
         },
@@ -337,7 +234,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         },
         FileSystemError,
 
-        Uri: MockUri,
+        Uri,
         TabInputTextDiff: class MockTabInputTextDiff {
             constructor(
                 public original: unknown,
@@ -421,7 +318,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                     (
                         start: number,
                         deleteCount: number | undefined | null,
-                        ...workspaceFoldersToAdd: { uri: MockUri; name?: string }[]
+                        ...workspaceFoldersToAdd: { uri: Uri; name?: string }[]
                     ) => {
                         const added = workspaceFoldersToAdd.map((f, i) => ({
                             uri: f.uri,
