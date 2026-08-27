@@ -8,6 +8,7 @@ import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-pro
 import type { CommentThread } from './comments-types';
 import { type Disposable, type Event, EventEmitter } from './common/events';
 import type { HostEnvironment } from './common/host-environment';
+import { showJjError } from './common/ui-helpers';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
@@ -378,8 +379,14 @@ export class CommentsManager implements Disposable {
 
         try {
             await this.host.ui.withProgress('Sending reply...', executeReply);
-        } catch (err) {
-            await this.host.ui.showError(err, 'Failed to send reply');
+        } catch (err: unknown) {
+            await showJjError(
+                this.host.ui,
+                err,
+                'Failed to send reply',
+                repo?.jj,
+                this.repositoryManager.outputChannel,
+            );
         }
     }
 
@@ -413,8 +420,14 @@ export class CommentsManager implements Disposable {
 
         try {
             await this.host.ui.withProgress(resolved ? 'Resolving thread...' : 'Unresolving thread...', executeToggle);
-        } catch (err) {
-            await this.host.ui.showError(err, 'Failed to toggle resolve');
+        } catch (err: unknown) {
+            await showJjError(
+                this.host.ui,
+                err,
+                'Failed to toggle resolve',
+                repo?.jj,
+                this.repositoryManager.outputChannel,
+            );
         }
     }
 
@@ -473,7 +486,8 @@ export class CommentsManager implements Disposable {
     }
 
     public async copyUnresolvedComments(): Promise<void> {
-        const text = this.formatUnresolvedComments();
+        const repo = this.repositoryManager.focusedRepository;
+        const text = this.formatUnresolvedComments(repo?.rootUri.fsPath);
         if (!text) {
             await this.host.ui.showInformation('No unresolved comments for the active change.');
             return;
@@ -484,8 +498,14 @@ export class CommentsManager implements Disposable {
         try {
             await this.host.nav.copyToClipboard(text);
             await this.host.ui.showInformation(`Copied ${unresolvedCount} unresolved comment(s) to clipboard.`);
-        } catch (error) {
-            await this.host.ui.showError(error, 'Failed to copy comments to clipboard');
+        } catch (error: unknown) {
+            await showJjError(
+                this.host.ui,
+                error,
+                'Failed to copy comments to clipboard',
+                repo?.jj,
+                this.repositoryManager.outputChannel,
+            );
         }
     }
 

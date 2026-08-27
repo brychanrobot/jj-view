@@ -23,7 +23,13 @@ export interface HostUi {
     }): Promise<string | undefined>;
     showQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
-        options?: { placeHolder?: string; title?: string },
+        options?: {
+            placeHolder?: string;
+            title?: string;
+            matchOnDescription?: boolean;
+            matchOnDetail?: boolean;
+            acceptCustomValue?: boolean;
+        },
     ): Promise<T | undefined>;
     showMultiQuickPick<T extends { label: string; value?: unknown }>(
         items: T[],
@@ -35,16 +41,7 @@ export interface HostUi {
         optionsOrAction?: { modal?: boolean } | string,
         ...actions: string[]
     ): Promise<string | undefined>;
-    showError(error: unknown, prefix: string, extraActions?: string[]): Promise<string | undefined>;
-    promptForRevision(options?: {
-        placeHolder?: string;
-        revisionQuery?: string;
-        emptyPrompt?: string;
-    }): Promise<string | undefined>;
-    promptSelectOrCreate(options: {
-        placeHolder?: string;
-        items: { label: string; description?: string }[];
-    }): Promise<string | undefined>;
+    showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
     setScmDescriptionInputValue?(value: string): void;
@@ -69,6 +66,7 @@ export interface HostNavigation {
         isDivergent?: boolean,
         changeIdOffset?: number,
     ): Promise<void>;
+    closeCommitDetailsTabs?(predicate: (repoRoot?: string) => boolean): Promise<void>;
     openFile(uri: Uri): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
     openExternal(url: string): Promise<void>;
@@ -76,6 +74,11 @@ export interface HostNavigation {
     openSettings(settingId?: string): Promise<void>;
     focusScmInput?(): Promise<void>;
     closeTab(uri: Uri): Promise<void>;
+}
+
+export interface TextSelectionRange {
+    readonly startLine: number;
+    readonly endLine: number;
 }
 
 export interface HostDocuments {
@@ -87,6 +90,8 @@ export interface HostDocuments {
     ): Promise<void>;
     saveIfDirty(uri: Uri): Promise<void>;
     getOpenDocumentText(uri: Uri): string | undefined;
+    getActiveDocumentUri?(): Uri | undefined;
+    getActiveDocumentSelections?(): readonly TextSelectionRange[] | undefined;
 }
 
 export interface HostStorage {

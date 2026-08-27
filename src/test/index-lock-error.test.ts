@@ -4,20 +4,12 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, describe, expect, type Mock, test, vi } from 'vitest';
-import * as vscode from 'vscode';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { showJjError } from '../common/ui-helpers';
 import { JjService } from '../jj-service';
-import { showJjError } from '../vscode/vscode-ui-helpers';
+import { FakeHostUi } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock({
-        // Overrides
-        window: { showErrorMessage: vi.fn() },
-    });
-});
 
 describe('Index Lock Error Handling', () => {
     let repo: TestRepo;
@@ -25,8 +17,6 @@ describe('Index Lock Error Handling', () => {
 
     afterEach(() => {
         vi.clearAllMocks();
-        if (repo) {
-        }
     });
 
     describe('JjService with real lock file', () => {
@@ -42,9 +32,8 @@ describe('Index Lock Error Handling', () => {
             fs.mkdirSync(path.dirname(lockPath), { recursive: true });
             fs.writeFileSync(lockPath, '');
 
-            // Re-mock to return 'Delete Lock File' action
-            const showErrorMessage = vscode.window.showErrorMessage as Mock;
-            showErrorMessage.mockResolvedValueOnce('Delete Lock File');
+            const ui = new FakeHostUi();
+            ui.setNextErrorResponse('Delete Lock File');
 
             try {
                 // This should throw an error because the index is locked during git export
@@ -55,7 +44,7 @@ describe('Index Lock Error Handling', () => {
                 expect(JjService.isIndexLockError(e)).toBe(true);
 
                 const mockOutputChannel = createMockLogOutputChannel();
-                const result = await showJjError(e, 'Prefix', jjService, mockOutputChannel, []);
+                const result = await showJjError(ui, e, 'Prefix', jjService, mockOutputChannel, []);
 
                 // Verify recovery
                 expect(result).toBe('Delete Lock File');
@@ -102,22 +91,15 @@ describe('Index Lock Error Handling', () => {
             jjService = new JjService(testRepo.path, mockLogger);
         });
 
-        afterEach(() => {
-            if (testRepo) {
-            }
-        });
-
         test('adds Delete Lock File action for lock errors with repository root', async () => {
             const error = new Error('Could not acquire lock for index file');
             const mockOutputChannel = createMockLogOutputChannel();
+            const ui = new FakeHostUi();
+            ui.showErrorMessage = vi.fn().mockResolvedValue(undefined);
 
-            // Re-mock to return standard selection
-            const showErrorMessage = vscode.window.showErrorMessage as Mock;
-            showErrorMessage.mockResolvedValueOnce(undefined);
+            await showJjError(ui, error, 'Prefix', jjService, mockOutputChannel, []);
 
-            await showJjError(error, 'Prefix', jjService, mockOutputChannel, []);
-
-            expect(showErrorMessage).toHaveBeenCalledWith(
+            expect(ui.showErrorMessage).toHaveBeenCalledWith(
                 'Prefix: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.',
                 'Show Log',
                 'Delete Lock File',
@@ -132,11 +114,10 @@ describe('Index Lock Error Handling', () => {
             fs.mkdirSync(path.dirname(lockPath), { recursive: true });
             fs.writeFileSync(lockPath, '');
 
-            // Re-mock to return 'Delete Lock File' action
-            const showErrorMessage = vscode.window.showErrorMessage as Mock;
-            showErrorMessage.mockResolvedValueOnce('Delete Lock File');
+            const ui = new FakeHostUi();
+            ui.setNextErrorResponse('Delete Lock File');
 
-            const result = await showJjError(error, 'Prefix', jjService, mockOutputChannel, []);
+            const result = await showJjError(ui, error, 'Prefix', jjService, mockOutputChannel, []);
 
             expect(result).toBe('Delete Lock File');
             expect(fs.existsSync(lockPath)).toBe(false);
@@ -151,12 +132,12 @@ describe('Index Lock Error Handling', () => {
             const emptyDirRepo = new TestRepo(); // not calling init()
             const emptyJjService = new JjService(emptyDirRepo.path, createMockLogOutputChannel());
 
-            const showErrorMessage = vscode.window.showErrorMessage as Mock;
-            showErrorMessage.mockResolvedValueOnce(undefined);
+            const ui = new FakeHostUi();
+            ui.showErrorMessage = vi.fn().mockResolvedValue(undefined);
 
-            await showJjError(error, 'Prefix', emptyJjService, mockOutputChannel, []);
+            await showJjError(ui, error, 'Prefix', emptyJjService, mockOutputChannel, []);
 
-            expect(showErrorMessage).toHaveBeenCalledWith(
+            expect(ui.showErrorMessage).toHaveBeenCalledWith(
                 'Prefix: Could not acquire lock for index file', // Original simple message
                 'Show Log',
                 // No Delete Lock File
@@ -167,12 +148,12 @@ describe('Index Lock Error Handling', () => {
             const error = new Error('Could not acquire lock for index file');
             const mockOutputChannel = createMockLogOutputChannel();
 
-            const showErrorMessage = vscode.window.showErrorMessage as Mock;
-            showErrorMessage.mockResolvedValueOnce(undefined);
+            const ui = new FakeHostUi();
+            ui.showErrorMessage = vi.fn().mockResolvedValue(undefined);
 
-            await showJjError(error, 'Prefix', jjService, mockOutputChannel, ['Delete Lock File']);
+            await showJjError(ui, error, 'Prefix', jjService, mockOutputChannel, ['Delete Lock File']);
 
-            expect(showErrorMessage).toHaveBeenCalledWith(
+            expect(ui.showErrorMessage).toHaveBeenCalledWith(
                 'Prefix: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.',
                 'Show Log',
                 'Delete Lock File',

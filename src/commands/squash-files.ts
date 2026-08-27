@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { RevisionQuery } from './command-utils';
 
 export interface SquashFilesIntoParentPayload {
@@ -39,7 +40,7 @@ export async function squashFilesIntoParentCommand(
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into parent' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error squashing file(s) into parent');
+        await showJjError(ctx.host.ui, e, 'Error squashing file(s) into parent', ctx.repo.jj, ctx.log);
     }
 }
 
@@ -57,7 +58,7 @@ export async function squashFilesIntoAncestorCommand(
     try {
         let selectedAncestorRev = payload?.ancestorRevision;
         if (!selectedAncestorRev) {
-            selectedAncestorRev = await ctx.host.ui.promptForRevision({
+            selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select which ancestor to squash into',
                 revisionQuery: RevisionQuery.ancestorsExcluding(revision),
             });
@@ -76,7 +77,7 @@ export async function squashFilesIntoAncestorCommand(
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into ancestor' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error squashing file(s) into ancestor');
+        await showJjError(ctx.host.ui, e, 'Error squashing file(s) into ancestor', ctx.repo.jj, ctx.log);
     }
 }
 
@@ -98,15 +99,18 @@ export async function squashFilesIntoChildCommand(
         if (!targetChild) {
             if (children.length === 0) {
                 const revDisplay = revision === '@' ? 'the working copy' : revision;
-                await ctx.host.ui.showError(
+                await showJjError(
+                    ctx.host.ui,
                     new Error(`No child commits to squash changes into for ${revDisplay}.`),
                     'Squash Error',
+                    ctx.repo.jj,
+                    ctx.log,
                 );
                 return;
             } else if (children.length === 1) {
                 targetChild = children[0];
             } else {
-                targetChild = await ctx.host.ui.promptForRevision({
+                targetChild = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                     placeHolder: `Select child commit for ${revision}`,
                     revisionQuery: RevisionQuery.children(revision),
                 });
@@ -122,6 +126,6 @@ export async function squashFilesIntoChildCommand(
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into child' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error squashing file(s) into child');
+        await showJjError(ctx.host.ui, e, 'Error squashing file(s) into child', ctx.repo.jj, ctx.log);
     }
 }

@@ -4,6 +4,7 @@
  */
 import * as path from 'node:path';
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { createRevisionUri, type Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -20,13 +21,19 @@ export async function compareFileWithRevisionCommand(
         const fileUri = payload?.fileUri;
 
         if (!fileUri || fileUri.scheme !== 'file') {
-            await ctx.host.ui.showError(new Error('No workspace file selected for comparison.'), 'Compare File Error');
+            await showJjError(
+                ctx.host.ui,
+                new Error('No workspace file selected for comparison.'),
+                'Compare File Error',
+                ctx.repo.jj,
+                ctx.log,
+            );
             return;
         }
 
         let revision = payload?.revision;
         if (!revision) {
-            revision = await ctx.host.ui.promptForRevision({
+            revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
                 emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
@@ -43,6 +50,6 @@ export async function compareFileWithRevisionCommand(
         const title = `${path.basename(fileUri.fsPath)} (${revision} ↔ Working Copy)`;
         await ctx.host.nav.openDiff(leftUri, fileUri, title);
     } catch (err: unknown) {
-        await ctx.host.ui.showError(err, 'Failed to compare file');
+        await showJjError(ctx.host.ui, err, 'Failed to compare file', ctx.repo.jj, ctx.log);
     }
 }

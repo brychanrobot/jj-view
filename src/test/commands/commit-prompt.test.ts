@@ -102,11 +102,16 @@ describe('commitPromptCommand', () => {
     });
 
     test('handles errors during commit and displays error to user', async () => {
-        ctx.host.ui.setNextInputBoxResponse('failing commit');
-        vi.spyOn(jj, 'commit').mockRejectedValue(new Error('Commit failed'));
+        const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
+        const brokenRepo = createMock<JjRepository>({
+            jj: brokenJj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        const brokenCtx = new FakeCommandContext(brokenRepo);
+        brokenCtx.host.ui.setNextInputBoxResponse('failing commit');
 
-        await commitPromptCommand(ctx);
+        await commitPromptCommand(brokenCtx);
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error committing change');
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Error committing change');
     });
 });

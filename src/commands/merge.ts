@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { RevisionQuery } from './command-utils';
 
 export interface MergeCommandArg {
@@ -17,14 +18,14 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
     const revisions: string[] = payload?.revisions ? [...payload.revisions] : [];
 
     if (revisions.length === 0) {
-        const rev1 = await ctx.host.ui.promptForRevision({
+        const rev1 = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select first revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
         });
         if (rev1) {
             revisions.push(rev1);
         }
-        const rev2 = await ctx.host.ui.promptForRevision({
+        const rev2 = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select second revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
         });
@@ -34,7 +35,13 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
     }
 
     if (revisions.length < 1) {
-        await ctx.host.ui.showError(new Error('Need at least 1 revision to create a change.'), 'Merge Error');
+        await showJjError(
+            ctx.host.ui,
+            new Error('Need at least 1 revision to create a change.'),
+            'Merge Error',
+            ctx.repo.jj,
+            ctx.log,
+        );
         return;
     }
 
@@ -42,6 +49,6 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
         await ctx.repo.jj.new({ parents: revisions });
         await ctx.repo.refresh();
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to create merge');
+        await showJjError(ctx.host.ui, e, 'Failed to create merge', ctx.repo.jj, ctx.log);
     }
 }

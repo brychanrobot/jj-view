@@ -52,6 +52,6 @@ describe('openMergeEditorCommand', () => {
 
         await openMergeEditorCommand(ctx, { resourceStates: [resourceState] });
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error opening merge editor');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Error opening merge editor');
     });
 });

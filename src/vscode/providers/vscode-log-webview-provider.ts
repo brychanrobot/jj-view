@@ -11,7 +11,6 @@ import type { JjLogEntry } from '../../jj-types';
 import type { Uri } from '../../uri-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
-import { closeCommitDetailsTabs } from '../vscode-ui-helpers';
 import { getWebviewHtml } from '../vscode-webview-html';
 
 export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -33,15 +32,12 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
         this.outputChannel = outputChannel;
 
         const host = new VsCodeHostEnvironment({
-            repo: initialRepo,
-            log: outputChannel,
             context,
         });
 
         this.controller = new LogViewController(initialRepo, host, {
             logger: outputChannel,
             onSelectionChange,
-            closeCommitDetailsTabs: (predicate) => closeCommitDetailsTabs(predicate),
         });
     }
 

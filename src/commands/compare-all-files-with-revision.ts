@@ -5,6 +5,7 @@
 
 import * as path from 'node:path';
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { createRevisionUri, Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -19,7 +20,7 @@ export async function compareAllFilesWithRevisionCommand(
     try {
         let revision = payload?.revision;
         if (!revision) {
-            revision = await ctx.host.ui.promptForRevision({
+            revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select an ancestor to compare with all files',
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
             });
@@ -59,6 +60,6 @@ export async function compareAllFilesWithRevisionCommand(
             await ctx.host.nav.openMultiDiff(title, resources);
         });
     } catch (err: unknown) {
-        await ctx.host.ui.showError(err, 'Failed to open comparison');
+        await showJjError(ctx.host.ui, err, 'Failed to open comparison', ctx.repo.jj, ctx.log);
     }
 }

@@ -4,7 +4,6 @@
  */
 
 import { ScmContextValue } from '../jj-context-keys';
-import type { JjRepository } from '../jj-repository';
 import type { JjResourceState } from '../scm-resource-state';
 import { getFsPathFromUri, Uri } from '../uri-utils';
 import { formatCommitDescription } from '../utils/format-utils';
@@ -299,7 +298,6 @@ export const RevisionQuery = {
 } as const;
 
 export interface DescriptionFormatContext {
-    repo: JjRepository;
     host: {
         config: {
             get<T>(key: string): T | undefined;

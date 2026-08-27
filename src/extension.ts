@@ -179,7 +179,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
     );
 
-    const hostEnvironment = new VsCodeHostEnvironment({ context, log: outputChannel });
+    const hostEnvironment = new VsCodeHostEnvironment({ context });
     const commentsManager = new CommentsManager(repositoryManager, hostEnvironment);
     context.subscriptions.push(commentsManager);
     const commentsProvider = new VsCodeCommentsProvider(commentsManager);

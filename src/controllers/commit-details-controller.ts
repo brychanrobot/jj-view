@@ -6,6 +6,7 @@
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import { showJjError } from '../common/ui-helpers';
 import {
     createWebviewRpcDispatcher,
     type WebviewPostMessageLike,
@@ -290,7 +291,7 @@ export class CommitDetailsController implements Disposable {
         } catch (err) {
             this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}`, toError(err));
             this.broadcast({ type: 'saveFailed' });
-            await this._host.ui.showError(err, 'Failed to save commit description');
+            await showJjError(this._host.ui, err, 'Failed to save commit description', this.repo?.jj, this._logger);
             return false;
         }
     }

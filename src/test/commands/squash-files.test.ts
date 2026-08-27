@@ -149,7 +149,7 @@ describe('squash-files commands', () => {
 
             await squashFilesIntoChildCommand(ctx, { paths: [fileName], revision: ids.only.changeId });
 
-            expect(ctx.host.ui.errorMessages[0].prefix).toBe('Squash Error');
+            expect(ctx.host.ui.errorMessages[0]).toContain('Squash Error');
         });
     });
 });

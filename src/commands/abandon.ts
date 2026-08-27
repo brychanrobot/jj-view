@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { promptForRevision, showJjError } from '../common/ui-helpers';
 import { RevisionQuery } from './command-utils';
 
 export interface AbandonPayload {
@@ -13,7 +14,7 @@ export async function abandonCommand(ctx: CommandContext, payload?: AbandonPaylo
     let revisions = payload?.revisions ?? [];
 
     if (revisions.length === 0) {
-        const input = await ctx.host.ui.promptForRevision({
+        const input = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select revision to abandon',
             revisionQuery: RevisionQuery.mutable(),
         });
@@ -31,6 +32,6 @@ export async function abandonCommand(ctx: CommandContext, payload?: AbandonPaylo
         await ctx.repo.refresh({ reason: 'abandon' });
         await ctx.host.ui.showInformation(`Abandoned ${revisions.length} change(s).`);
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to abandon');
+        await showJjError(ctx.host.ui, e, 'Failed to abandon', ctx.repo.jj, ctx.log);
     }
 }

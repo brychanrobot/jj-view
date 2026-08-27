@@ -86,7 +86,7 @@ describe('workspace open commands', () => {
     test('reports an error when the workspace root cannot be resolved', async () => {
         await workspaceOpenInCurrentWindowCommand(ctx, { workspaceName: 'missing' });
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toContain('Failed to open workspace "missing"');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Failed to open workspace "missing"');
         expect(ctx.host.nav.foldersOpened).toHaveLength(0);
     });
 
@@ -95,7 +95,7 @@ describe('workspace open commands', () => {
 
         await workspaceOpenInCurrentWindowCommand(ctx, {});
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toContain('Failed to resolve workspace');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Failed to resolve workspace');
         expect(ctx.host.nav.foldersOpened).toHaveLength(0);
     });
 });

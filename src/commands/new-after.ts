@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface NewAfterPayload {
     revisions: string[];
@@ -13,7 +14,13 @@ export async function newAfterCommand(ctx: CommandContext, payload?: NewAfterPay
     const revisions = payload?.revisions ?? ['@'];
 
     if (revisions.length === 0) {
-        await ctx.host.ui.showError(new Error('No commit selected to create a new change after.'), 'New After Error');
+        await showJjError(
+            ctx.host.ui,
+            new Error('No commit selected to create a new change after.'),
+            'New After Error',
+            ctx.repo.jj,
+            ctx.log,
+        );
         return;
     }
 
@@ -21,6 +28,12 @@ export async function newAfterCommand(ctx: CommandContext, payload?: NewAfterPay
         await ctx.host.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ insertAfter: revisions }));
         await ctx.repo.refresh();
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, `Error creating new commit after ${revisions.join(', ')}`);
+        await showJjError(
+            ctx.host.ui,
+            e,
+            `Error creating new commit after ${revisions.join(', ')}`,
+            ctx.repo.jj,
+            ctx.log,
+        );
     }
 }

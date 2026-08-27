@@ -59,12 +59,16 @@ describe('commitCommand', () => {
     });
 
     test('shows an error when jj.commit rejects', async () => {
-        const uiShowErrorSpy = vi.spyOn(ctx.host.ui, 'showError').mockResolvedValue(undefined);
-        vi.spyOn(mockJjRepo.jj, 'commit').mockRejectedValue(new Error('commit failed'));
+        const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
+        const brokenRepo = createMock<JjRepository>({
+            jj: brokenJj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        const brokenCtx = new FakeCommandContext(brokenRepo);
 
-        await commitCommand(ctx, { description: 'feat: error test' });
+        await commitCommand(brokenCtx, { description: 'feat: error test' });
 
-        expect(uiShowErrorSpy).toHaveBeenCalledWith(expect.any(Error), 'Error committing change');
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Error committing change');
     });
 
     test('refreshes the repository after a successful commit', async () => {

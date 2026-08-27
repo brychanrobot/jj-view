@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface DuplicatePayload {
     revision?: string;
@@ -18,6 +19,6 @@ export async function duplicateCommand(ctx: CommandContext, payload?: DuplicateP
         await ctx.host.ui.withProgress('Duplicating...', () => ctx.repo.jj.duplicate(revision));
         await ctx.repo.refresh({ reason: 'after duplicate' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error duplicating commit');
+        await showJjError(ctx.host.ui, e, 'Error duplicating commit', ctx.repo.jj, ctx.log);
     }
 }

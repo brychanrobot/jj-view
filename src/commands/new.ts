@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface NewPayload {
     parents?: string[];
@@ -14,6 +15,6 @@ export async function newCommand(ctx: CommandContext, payload?: NewPayload): Pro
         await ctx.host.ui.withProgress('Creating new change...', () => ctx.repo.jj.new({ parents }));
         await ctx.repo.refresh({ reason: 'after new' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error creating new commit');
+        await showJjError(ctx.host.ui, e, 'Error creating new commit', ctx.repo.jj, ctx.log);
     }
 }

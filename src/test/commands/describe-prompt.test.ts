@@ -85,11 +85,16 @@ describe('describePromptCommand', () => {
     });
 
     test('handles errors during describe and displays error to user', async () => {
-        ctx.host.ui.setNextInputBoxResponse('failing describe');
-        vi.spyOn(jj, 'describe').mockRejectedValue(new Error('Describe failed'));
+        const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
+        const brokenRepo = createMock<JjRepository>({
+            jj: brokenJj,
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+        const brokenCtx = new FakeCommandContext(brokenRepo);
+        brokenCtx.host.ui.setNextInputBoxResponse('failing describe');
 
-        await describePromptCommand(ctx);
+        await describePromptCommand(brokenCtx);
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error setting description');
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Error setting description');
     });
 });

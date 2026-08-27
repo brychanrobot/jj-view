@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface RestorePayload {
     pathsByRevision: Record<string, string[]>;
@@ -28,6 +29,6 @@ export async function restoreCommand(ctx: CommandContext, payload?: RestorePaylo
         }
         await ctx.repo.refresh({ reason: 'after restore' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Error restoring files');
+        await showJjError(ctx.host.ui, e, 'Error restoring files', ctx.repo.jj, ctx.log);
     }
 }

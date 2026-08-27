@@ -31,12 +31,10 @@ export class FakeHostUi implements HostUi {
     public infoResponses: (string | undefined)[] = [];
     public warningResponses: (string | undefined)[] = [];
     public errorResponses: (string | undefined)[] = [];
-    public revisionPromptResponses: (string | undefined)[] = [];
-    public selectOrCreateResponses: (string | undefined)[] = [];
 
     public infoMessages: string[] = [];
     public warningMessages: string[] = [];
-    public errorMessages: { error: unknown; prefix: string }[] = [];
+    public errorMessages: string[] = [];
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
     public scmDescriptionInputValue: string | undefined = undefined;
@@ -69,12 +67,14 @@ export class FakeHostUi implements HostUi {
         this.quickPickResponses.push(response);
     }
 
-    setNextRevisionPromptResponse(response: string | undefined): void {
-        this.revisionPromptResponses.push(response);
+    setNextRevisionPromptResponse(revision: string | undefined): void {
+        this.quickPickResponses.push(
+            revision !== undefined ? { detail: revision, value: revision, label: revision } : undefined,
+        );
     }
 
-    setNextSelectOrCreateResponse(response: string | undefined): void {
-        this.selectOrCreateResponses.push(response);
+    setNextSelectOrCreateResponse(choice: string | undefined): void {
+        this.quickPickResponses.push(choice !== undefined ? { label: choice, customValue: choice } : undefined);
     }
 
     async showInputBox(_options?: {
@@ -88,7 +88,13 @@ export class FakeHostUi implements HostUi {
 
     async showQuickPick<T extends { label: string; value?: unknown }>(
         _items: T[],
-        _options?: { placeHolder?: string; title?: string },
+        _options?: {
+            placeHolder?: string;
+            title?: string;
+            matchOnDescription?: boolean;
+            matchOnDetail?: boolean;
+            acceptCustomValue?: boolean;
+        },
     ): Promise<T | undefined> {
         return this.quickPickResponses.shift() as T | undefined;
     }
@@ -114,24 +120,9 @@ export class FakeHostUi implements HostUi {
         return this.warningResponses.shift();
     }
 
-    async showError(error: unknown, prefix: string, _extraActions?: string[]): Promise<string | undefined> {
-        this.errorMessages.push({ error, prefix });
+    async showErrorMessage(message: string, ..._actions: string[]): Promise<string | undefined> {
+        this.errorMessages.push(message);
         return this.errorResponses.shift();
-    }
-
-    async promptForRevision(_options?: {
-        placeHolder?: string;
-        revisionQuery?: string;
-        emptyPrompt?: string;
-    }): Promise<string | undefined> {
-        return this.revisionPromptResponses.shift();
-    }
-
-    async promptSelectOrCreate(_options: {
-        placeHolder?: string;
-        items: { label: string; description?: string }[];
-    }): Promise<string | undefined> {
-        return this.selectOrCreateResponses.shift();
     }
 
     async withProgress<T>(title: string, task: () => Promise<T>): Promise<T> {
@@ -163,6 +154,7 @@ export class FakeHostNavigation implements HostNavigation {
         isDivergent?: boolean;
         changeIdOffset?: number;
     }[] = [];
+    public closedCommitDetailsPredicates: ((repoRoot?: string) => boolean)[] = [];
     public filesOpened: Uri[] = [];
     public foldersOpened: { folderUri: Uri; forceNewWindow?: boolean }[] = [];
     public externalUrlsOpened: string[] = [];
@@ -191,6 +183,10 @@ export class FakeHostNavigation implements HostNavigation {
         changeIdOffset?: number,
     ): Promise<void> {
         this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset });
+    }
+
+    async closeCommitDetailsTabs(predicate: (repoRoot?: string) => boolean): Promise<void> {
+        this.closedCommitDetailsPredicates.push(predicate);
     }
 
     async openFile(uri: Uri): Promise<void> {
@@ -307,6 +303,22 @@ export class FakeHostDocuments implements HostDocuments {
         if (text !== undefined && fs.existsSync(uri.fsPath)) {
             fs.writeFileSync(uri.fsPath, text, 'utf8');
         }
+    }
+
+    private activeDocumentUri: Uri | undefined = undefined;
+    private activeDocumentSelections: { startLine: number; endLine: number }[] | undefined = undefined;
+
+    setActiveDocument(uri: Uri | undefined, selections?: { startLine: number; endLine: number }[]): void {
+        this.activeDocumentUri = uri;
+        this.activeDocumentSelections = selections;
+    }
+
+    getActiveDocumentUri(): Uri | undefined {
+        return this.activeDocumentUri;
+    }
+
+    getActiveDocumentSelections(): { startLine: number; endLine: number }[] | undefined {
+        return this.activeDocumentSelections;
     }
 
     getOpenDocumentText(uri: Uri): string | undefined {

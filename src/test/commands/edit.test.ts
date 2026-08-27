@@ -58,10 +58,8 @@ describe('editCommand', () => {
     });
 
     test('handles errors during edit and displays error', async () => {
-        vi.spyOn(jj, 'edit').mockRejectedValue(new Error('Edit failed'));
+        await editCommand(ctx, { revision: 'non_existent_rev_123' });
 
-        await editCommand(ctx, { revision: 'some-rev' });
-
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Error editing commit');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Error editing commit');
     });
 });

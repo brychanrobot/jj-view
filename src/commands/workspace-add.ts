@@ -6,6 +6,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { Uri } from '../uri-utils';
 import { getErrorMessage } from './command-utils';
 
@@ -61,8 +62,14 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
             const uri = Uri.file(destination);
             await ctx.host.nav.openFolder(uri, true);
         }
-    } catch (e) {
+    } catch (e: unknown) {
         const message = getErrorMessage(e);
-        await ctx.host.ui.showError(new Error(`Failed to create workspace: ${message}`), 'Workspace Add Error');
+        await showJjError(
+            ctx.host.ui,
+            new Error(`Failed to create workspace: ${message}`),
+            'Workspace Add Error',
+            ctx.repo.jj,
+            ctx.log,
+        );
     }
 }

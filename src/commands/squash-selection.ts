@@ -5,6 +5,7 @@
 
 import * as path from 'node:path';
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 import { getFsPathFromUri, getRevisionFromUri, type Uri } from '../uri-utils';
 
 export interface SquashHunkIntoParentPayload {
@@ -36,7 +37,7 @@ export async function squashHunkIntoParentCommand(
         await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
         await ctx.repo.refresh({ reason: 'after squash hunk into parent' });
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to squash hunk');
+        await showJjError(ctx.host.ui, e, 'Failed to squash hunk', ctx.repo.jj, ctx.log);
     }
 }
 
@@ -57,7 +58,7 @@ export async function squashSelectionIntoParentCommand(
     try {
         await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Failed to squash selection');
+        await showJjError(ctx.host.ui, e, 'Failed to squash selection', ctx.repo.jj, ctx.log);
     } finally {
         await ctx.repo.refresh({ reason: 'after squash selection into parent' });
     }

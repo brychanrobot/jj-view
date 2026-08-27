@@ -126,8 +126,6 @@ export class VsCodeCommitDetailsEditorProvider
 
         const host = new VsCodeHostEnvironment({
             context: this._context,
-            repo,
-            log: this._repositoryManager.outputChannel,
         });
 
         let controller = this._controllers.get(document.changeId);

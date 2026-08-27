@@ -4,6 +4,7 @@
  */
 
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface AbsorbPayload {
     paths?: string[];
@@ -19,6 +20,6 @@ export async function absorbCommand(ctx: CommandContext, payload?: AbsorbPayload
         await ctx.repo.refresh({ reason: 'after absorb' });
         ctx.host.ui.setStatusBarMessage?.('Absorb completed.', 3000);
     } catch (e: unknown) {
-        await ctx.host.ui.showError(e, 'Absorb failed');
+        await showJjError(ctx.host.ui, e, 'Absorb failed', ctx.repo.jj, ctx.log);
     }
 }

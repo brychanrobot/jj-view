@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../common/command-context';
+import { showJjError } from '../common/ui-helpers';
 
 export interface UploadPayload {
     revision?: string;
@@ -54,7 +55,7 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
         }
 
         if (!subcommand) {
-            await ui.showError(new Error('Invalid upload command configuration.'), 'Upload Error');
+            await showJjError(ui, new Error('Invalid upload command configuration.'), 'Upload Error', repo.jj, ctx.log);
             return;
         }
 
@@ -68,7 +69,7 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
     } catch (e: unknown) {
         const CONFIGURE = 'Configure Upload...';
         const extraActions = hasCustomCommand ? [] : [CONFIGURE];
-        const selection = await ui.showError(e, 'Upload failed', extraActions);
+        const selection = await showJjError(ui, e, 'Upload failed', repo.jj, ctx.log, extraActions);
 
         if (selection === CONFIGURE) {
             await nav.openSettings('jj-view.uploadCommand');

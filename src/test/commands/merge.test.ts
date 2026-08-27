@@ -63,9 +63,7 @@ describe('newMergeChangeCommand', () => {
     test('shows error if revisions list is empty', async () => {
         await newMergeChangeCommand(ctx, { revisions: [] });
 
-        expect(ctx.host.ui.errorMessages[0].prefix).toBe('Merge Error');
-        expect((ctx.host.ui.errorMessages[0].error as Error).message).toContain(
-            'Need at least 1 revision to create a change.',
-        );
+        expect(ctx.host.ui.errorMessages[0]).toContain('Merge Error');
+        expect(ctx.host.ui.errorMessages[0]).toContain('Need at least 1 revision to create a change.');
     });
 });
