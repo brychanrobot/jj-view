@@ -856,14 +856,31 @@ export function locateQuickInputItem(page: Page, label: string | RegExp): Locato
 }
 
 /**
- * Dismisses any open QuickInput widget by pressing Escape, ensuring it is closed.
+ * Dismisses any open QuickInput widget using the closeQuickOpen command or Escape key.
  */
-export async function dismissQuickInput(page: Page, timeout: number = 2000): Promise<void> {
-    const quickInput = locateQuickInputWidget(page).filter({ visible: true });
-    if (await quickInput.isVisible()) {
-        await page.keyboard.press('Escape');
-        await expect(quickInput).not.toBeVisible({ timeout });
+export async function dismissQuickInput(page: Page, vscode?: VSCodeFixture, timeout: number = 2000): Promise<void> {
+    if (vscode) {
+        try {
+            await vscode.executeCommand('workbench.action.closeQuickOpen');
+        } catch {}
     }
+    const quickInput = locateQuickInputWidget(page).filter({ visible: true });
+    try {
+        await expect(async () => {
+            if (await quickInput.isVisible()) {
+                if (vscode) {
+                    await vscode.executeCommand('workbench.action.closeQuickOpen');
+                } else {
+                    await quickInput
+                        .locator('input.input')
+                        .focus()
+                        .catch(() => {});
+                    await page.keyboard.press('Escape');
+                }
+            }
+            await expect(quickInput).not.toBeVisible({ timeout: 500 });
+        }).toPass({ timeout });
+    } catch {}
 }
 
 /**

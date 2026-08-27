@@ -296,7 +296,7 @@ test.describe('GitLab Integration E2E', () => {
         }).toPass({ timeout: 15000 });
 
         await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
-        await dismissQuickInput(page);
+        await dismissQuickInput(page, vscode);
     });
 
     test('Shows extension-not-found interstitial when signing in via OAuth without GitLab extension', async ({
@@ -320,7 +320,7 @@ test.describe('GitLab Integration E2E', () => {
         );
 
         await focusSCM(page);
-        await dismissQuickInput(page);
+        await dismissQuickInput(page, vscode);
 
         // Click the Manage Auth button in the Source Control title bar
         const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
