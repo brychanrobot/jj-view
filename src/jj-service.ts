@@ -183,20 +183,40 @@ export class JjService {
 
     private async toRepoRelative(filePath: string): Promise<string> {
         const repoRoot = await this.getRepoRoot();
-        let repoReal = repoRoot;
-        let workspaceReal = this.workspaceRoot;
+        const repoReal = await fs.realpath(repoRoot).catch(() => repoRoot);
+        const workspaceReal = await fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
 
+        if (!path.isAbsolute(filePath)) {
+            const repoToWorkspace = path.relative(repoReal, workspaceReal);
+            return path.normalize(path.join(repoToWorkspace, filePath));
+        }
+
+        const rel = path.relative(repoReal, filePath);
+        if (!rel.startsWith('..')) {
+            return path.normalize(rel);
+        }
+
+        const fileReal = await this.resolveRealPath(filePath);
+        return path.normalize(path.relative(repoReal, fileReal));
+    }
+
+    private async resolveRealPath(filePath: string): Promise<string> {
         try {
-            repoReal = await fs.realpath(repoRoot);
-        } catch {}
-        try {
-            workspaceReal = await fs.realpath(this.workspaceRoot);
+            return await fs.realpath(filePath);
         } catch {}
 
-        const relativeToWorkspace = path.isAbsolute(filePath) ? path.relative(this.workspaceRoot, filePath) : filePath;
-
-        const repoToWorkspace = path.relative(repoReal, workspaceReal);
-        return path.normalize(path.join(repoToWorkspace, relativeToWorkspace));
+        let cur = path.dirname(filePath);
+        const tail: string[] = [path.basename(filePath)];
+        while (cur && cur !== path.dirname(cur)) {
+            try {
+                const parentReal = await fs.realpath(cur);
+                return path.join(parentReal, ...tail);
+            } catch {
+                tail.unshift(path.basename(cur));
+                cur = path.dirname(cur);
+            }
+        }
+        return filePath;
     }
 
     private getScriptPath(scriptBaseName: string): string {
@@ -272,6 +292,8 @@ export class JjService {
             'ui.color="never"',
             '--config',
             'ui.paginate="never"',
+            '--config',
+            'ui.diff-instructions=false',
         ];
 
         if (options.useCachedSnapshot) {
@@ -662,8 +684,16 @@ export class JjService {
                     useCachedSnapshot: true,
                     label: `getDiffForRevision ${revision}`,
                 });
-            } catch {
-                // Expected exit 1
+            } catch (err) {
+                // Verify that batch-diff actually ran and wrote the .complete marker
+                const marker = path.join(rightDir, '.complete');
+                const isCompleted = await fs
+                    .access(marker)
+                    .then(() => true)
+                    .catch(() => false);
+                if (!isCompleted) {
+                    throw err;
+                }
             }
 
             return {
@@ -678,6 +708,14 @@ export class JjService {
 
     async clearCache(): Promise<void> {
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
+    }
+
+    /**
+     * Check if a revision is immutable.
+     */
+    async isImmutable(revision: string): Promise<boolean> {
+        const stdout = await this.run('log', ['-r', revision, '-T', 'immutable', '--no-graph']);
+        return stdout.trim() === 'true';
     }
 
     private async runMutation<T>(op: () => Promise<T>): Promise<T> {
@@ -700,14 +738,20 @@ export class JjService {
      * Serialized via a mutation queue to prevent divergent commits.
      */
     async setFilesContent(revision: string, files: Map<string, string>): Promise<void> {
+        if (files.size === 0) {
+            return;
+        }
+
         return this.runMutation(async () => {
             const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-batch-edit-'));
             try {
-                const writePromises = Array.from(files.entries()).map(([filePath, content]) => {
-                    const relPath = this.toRelative(filePath);
-                    const safeName = relPath.replace(/[\\/]/g, '_');
-                    const tmpPath = path.join(tempDir, `src_${safeName}`);
-                    return fs.writeFile(tmpPath, content, 'utf8').then(() => ({ relPath, tmpPath }));
+                const writePromises = Array.from(files.entries()).map(async ([filePath, content], idx) => {
+                    const repoRelPath = await this.toRepoRelative(filePath);
+                    const workspaceRelPath = this.toRelative(filePath);
+                    const safeName = repoRelPath.replace(/[\\/]/g, '_');
+                    const tmpPath = path.join(tempDir, `src_${idx}_${safeName}`);
+                    await fs.writeFile(tmpPath, content, 'utf8');
+                    return { repoRelPath, workspaceRelPath, tmpPath };
                 });
 
                 const fileList = await Promise.all(writePromises);
@@ -718,13 +762,13 @@ export class JjService {
                 const argsTemplate = ['$left', '$right'];
                 for (const f of fileList) {
                     argsTemplate.push(f.tmpPath.split(path.sep).join('/'));
-                    argsTemplate.push(f.relPath.split(path.sep).join('/'));
+                    argsTemplate.push(f.repoRelPath.split(path.sep).join('/'));
                 }
                 const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, argsTemplate);
 
                 await this.runInternal(
                     'diffedit',
-                    ['-r', revision, '--tool', toolName, ...toolConfig, ...fileList.map((f) => f.relPath)],
+                    ['-r', revision, '--tool', toolName, ...toolConfig, ...fileList.map((f) => f.workspaceRelPath)],
                     { isMutation: true, label: 'setFilesContent' },
                 );
             } finally {

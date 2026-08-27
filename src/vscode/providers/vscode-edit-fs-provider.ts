@@ -23,7 +23,7 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
             this.service.onDidChangeFile((uris) => {
                 const events: vscode.FileChangeEvent[] = uris.map((uri) => ({
                     type: vscode.FileChangeType.Changed,
-                    uri: uri as unknown as vscode.Uri,
+                    uri: vscode.Uri.parse(uri.toString()),
                 }));
                 this._onDidChangeFile.fire(events);
             }),
@@ -89,6 +89,7 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
     }
 
     dispose(): void {
+        this.service.dispose();
         this._onDidChangeFile.dispose();
         for (const d of this._disposables) {
             d.dispose();
