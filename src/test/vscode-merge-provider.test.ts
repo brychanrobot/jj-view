@@ -4,49 +4,40 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createVscodeMock } from './vscode-mock';
-
-vi.mock('vscode', () => createVscodeMock());
-
-import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjMergeService } from '../jj-merge-service';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { Uri } from '../uri-utils';
 import { VsCodeMergeContentProvider } from '../vscode/providers/vscode-merge-provider';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { createMock, createMockLogOutputChannel } from './test-utils';
+import { createMockLogOutputChannel } from './test-utils';
 
-describe('VsCodeMergeContentProvider Unit Tests', () => {
-    let testRepo: TestRepo;
+describe('VsCodeMergeContentProvider', () => {
+    let repo: TestRepo;
     let repositoryManager: JjRepositoryManager;
     let provider: VsCodeMergeContentProvider;
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        testRepo = new TestRepo();
-        testRepo.init();
+        repo = new TestRepo();
+        repo.init();
 
         const registry = new CodeForgeRegistry();
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const workspaceState = createMock<vscode.Memento>({
-            get: vi.fn().mockReturnValue(undefined),
-            update: vi.fn().mockResolvedValue(undefined),
-        });
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(repo.path));
 
-        repositoryManager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        repositoryManager = new JjRepositoryManager(registry, outputChannel, host);
 
-        vscode.workspace.updateWorkspaceFolders(0, vscode.workspace.workspaceFolders?.length, {
-            uri: Uri.file(testRepo.path),
-        });
-        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
-        if (!repo) {
+        const registeredRepo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
+        if (!registeredRepo) {
             throw new Error('Failed to register repo in test');
         }
 
-        const service = new JjMergeService(repo.jj);
+        const service = new JjMergeService(registeredRepo.jj);
         provider = new VsCodeMergeContentProvider(service);
     });
 

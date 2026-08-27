@@ -92,6 +92,24 @@ export interface HostDocuments {
     getOpenDocumentText(uri: Uri): string | undefined;
     getActiveDocumentUri?(): Uri | undefined;
     getActiveDocumentSelections?(): readonly TextSelectionRange[] | undefined;
+    getOpenDocumentUris?(): Uri[];
+    readonly onDidChangeActiveDocument?: Event<Uri | undefined>;
+}
+
+export interface HostWorkspaceFolder {
+    readonly uri: Uri;
+    readonly name: string;
+}
+
+export interface HostWorkspaceFoldersChangeEvent {
+    readonly added: readonly HostWorkspaceFolder[];
+    readonly removed: readonly HostWorkspaceFolder[];
+}
+
+export interface HostWorkspace {
+    readonly workspaceFolders: readonly HostWorkspaceFolder[] | undefined;
+    readonly onDidChangeWorkspaceFolders: Event<HostWorkspaceFoldersChangeEvent>;
+    findFiles?(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]>;
 }
 
 export interface HostStorage {
@@ -144,4 +162,5 @@ export interface HostEnvironment {
     readonly auth: HostAuth;
     readonly commands: HostCommands;
     readonly views: HostViews;
+    readonly workspace: HostWorkspace;
 }

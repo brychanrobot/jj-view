@@ -13,6 +13,7 @@ import { CodeForgeRegistry } from '../code-forge-registry';
 import type { Api } from '../extension';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import { Uri } from '../uri-utils';
+import { VsCodeHostEnvironment } from '../vscode/vscode-host-environment';
 import { autoCleanup, ScopedSymlink, ScopedTempDir, ScopedTestRepo } from './scoped-helpers';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel, exposePrivate } from './test-utils';
@@ -21,6 +22,7 @@ suite('JjRepositoryManager Integration Test', () => {
     let registry: CodeForgeRegistry;
     let outputChannel: vscode.LogOutputChannel;
     let workspaceState: vscode.Memento;
+    const store = new Map<string, unknown>();
     let manager: JjRepositoryManager;
     let mainRepo: TestRepo;
     let sandbox: sinon.SinonSandbox;
@@ -88,7 +90,7 @@ suite('JjRepositoryManager Integration Test', () => {
         outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const store = new Map<string, unknown>();
+        store.clear();
         workspaceState = createMock<vscode.Memento>({
             get: (key: string) => store.get(key),
             update: (key: string, value: unknown) => {
@@ -113,7 +115,20 @@ suite('JjRepositoryManager Integration Test', () => {
 
         sandbox.stub(vscode.window, 'visibleTextEditors').get(() => []);
 
-        manager = new JjRepositoryManager(registry, outputChannel, workspaceState);
+        const globalState = createMock<vscode.ExtensionContext['globalState']>({
+            get: (key: string) => store.get(key),
+            update: (key: string, value: unknown) => {
+                store.set(key, value);
+                return Promise.resolve();
+            },
+            keys: () => Array.from(store.keys()),
+            setKeysForSync: () => {},
+        });
+
+        const host = new VsCodeHostEnvironment({
+            context: createMock<vscode.ExtensionContext>({ workspaceState, globalState }),
+        });
+        manager = new JjRepositoryManager(registry, outputChannel, host);
     });
 
     teardown(async () => {
@@ -154,7 +169,19 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.dispose();
 
         // 2. Create a new manager with the same workspaceState to simulate restart
-        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, workspaceState));
+        const globalState = createMock<vscode.ExtensionContext['globalState']>({
+            get: (key: string) => store.get(key),
+            update: (key: string, value: unknown) => {
+                store.set(key, value);
+                return Promise.resolve();
+            },
+            keys: () => Array.from(store.keys()),
+            setKeysForSync: () => {},
+        });
+        const host = new VsCodeHostEnvironment({
+            context: createMock<vscode.ExtensionContext>({ workspaceState, globalState }),
+        });
+        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, host));
         // 3. Initialize from cache - should restore immediately
         await restartManager.restoreCachedRepositories();
         assert.strictEqual(restartManager.repositories.length, 1, 'Should load repo from cache');
@@ -176,7 +203,19 @@ suite('JjRepositoryManager Integration Test', () => {
         await manager.dispose();
 
         // 2. Create restartManager
-        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, workspaceState));
+        const globalState = createMock<vscode.ExtensionContext['globalState']>({
+            get: (key: string) => store.get(key),
+            update: (key: string, value: unknown) => {
+                store.set(key, value);
+                return Promise.resolve();
+            },
+            keys: () => Array.from(store.keys()),
+            setKeysForSync: () => {},
+        });
+        const host = new VsCodeHostEnvironment({
+            context: createMock<vscode.ExtensionContext>({ workspaceState, globalState }),
+        });
+        await using restartManager = autoCleanup(new JjRepositoryManager(registry, outputChannel, host));
         // 3. Initialize from cache
         await restartManager.restoreCachedRepositories();
         assert.strictEqual(restartManager.repositories.length, 1);

@@ -4,7 +4,7 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { Event } from '../common/events';
+import { type Event, EventEmitter } from '../common/events';
 import type {
     HostAuth,
     HostAuthSession,
@@ -19,6 +19,9 @@ import type {
     HostStorage,
     HostUi,
     HostViews,
+    HostWorkspace,
+    HostWorkspaceFolder,
+    HostWorkspaceFoldersChangeEvent,
 } from '../common/host-environment';
 import type { Uri } from '../uri-utils';
 import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri } from '../uri-utils';
@@ -373,7 +376,37 @@ export async function closeTabsForUri(uri: Uri): Promise<void> {
     }
 }
 
-export class VsCodeHostDocuments implements HostDocuments {
+export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
+    private readonly _onDidChangeActiveDocumentEmitter = new EventEmitter<Uri | undefined>();
+    readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocumentEmitter.event;
+    private readonly _disposables: vscode.Disposable[] = [];
+
+    constructor() {
+        const notify = () => {
+            this._onDidChangeActiveDocumentEmitter.fire(this.getActiveDocumentUri());
+        };
+        const d1 = vscode.window.tabGroups?.onDidChangeTabs?.(notify);
+        if (d1) {
+            this._disposables.push(d1);
+        }
+        const d2 = vscode.window.tabGroups?.onDidChangeTabGroups?.(notify);
+        if (d2) {
+            this._disposables.push(d2);
+        }
+        const d3 = vscode.window.onDidChangeActiveTextEditor?.(notify);
+        if (d3) {
+            this._disposables.push(d3);
+        }
+    }
+
+    dispose(): void {
+        this._onDidChangeActiveDocumentEmitter.dispose();
+        for (const d of this._disposables) {
+            d.dispose();
+        }
+        this._disposables.length = 0;
+    }
+
     async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
         const doc = await vscode.workspace.openTextDocument(uri);
         if (endLine1Based < startLine1Based) {
@@ -416,6 +449,13 @@ export class VsCodeHostDocuments implements HostDocuments {
     }
 
     getActiveDocumentUri(): Uri | undefined {
+        const activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+        if (activeTab) {
+            const tabUri = this.getUriFromTab(activeTab);
+            if (tabUri) {
+                return tabUri;
+            }
+        }
         return vscode.window.activeTextEditor?.document.uri;
     }
 
@@ -424,6 +464,37 @@ export class VsCodeHostDocuments implements HostDocuments {
             startLine: s.start.line,
             endLine: s.end.line,
         }));
+    }
+
+    getOpenDocumentUris(): Uri[] {
+        const tabGroups = vscode.window.tabGroups?.all;
+        if (!tabGroups) {
+            return [];
+        }
+        return tabGroups
+            .flatMap((group) => group.tabs)
+            .map((tab) => this.getUriFromTab(tab))
+            .filter((uri): uri is Uri => uri !== undefined);
+    }
+
+    private getUriFromTab(tab: vscode.Tab): Uri | undefined {
+        const { input } = tab;
+        if (input instanceof vscode.TabInputText) {
+            return input.uri;
+        }
+        if (input instanceof vscode.TabInputCustom) {
+            return input.uri;
+        }
+        if (input instanceof vscode.TabInputNotebook) {
+            return input.uri;
+        }
+        if (input instanceof vscode.TabInputTextDiff) {
+            return input.modified;
+        }
+        if (input instanceof vscode.TabInputNotebookDiff) {
+            return input.modified;
+        }
+        return undefined;
     }
 
     private getSafeRange(doc: vscode.TextDocument, startLine1Based: number, endLine1Based: number): vscode.Range {
@@ -439,33 +510,68 @@ export class VsCodeHostDocuments implements HostDocuments {
     }
 }
 
+export class VsCodeHostWorkspace implements HostWorkspace {
+    get workspaceFolders(): readonly HostWorkspaceFolder[] | undefined {
+        return vscode.workspace.workspaceFolders?.map((f) => ({
+            uri: f.uri,
+            name: f.name,
+        }));
+    }
+
+    readonly onDidChangeWorkspaceFolders: Event<HostWorkspaceFoldersChangeEvent> = (
+        listener,
+        thisArgs,
+        disposables,
+    ) => {
+        return vscode.workspace.onDidChangeWorkspaceFolders(
+            (e) => {
+                listener.call(thisArgs, {
+                    added: e.added.map((f) => ({ uri: f.uri, name: f.name })),
+                    removed: e.removed.map((f) => ({ uri: f.uri, name: f.name })),
+                });
+            },
+            undefined,
+            disposables,
+        );
+    };
+
+    async findFiles(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]> {
+        if (baseFolderUri) {
+            const folder = vscode.workspace.getWorkspaceFolder(baseFolderUri) ?? baseFolderUri;
+            const patternObj = new vscode.RelativePattern(folder, pattern);
+            return (await vscode.workspace.findFiles(patternObj, null, maxResults)) as Uri[];
+        }
+        return (await vscode.workspace.findFiles(pattern, null, maxResults)) as Uri[];
+    }
+}
+
 export class VsCodeHostStorage implements HostStorage {
-    constructor(private readonly workspaceState: vscode.Memento) {}
+    constructor(private readonly workspaceState?: vscode.Memento) {}
 
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
     get<T>(key: string, defaultValue?: T): T | undefined {
-        return this.workspaceState.get<T>(key, defaultValue as T);
+        return this.workspaceState?.get<T>(key, defaultValue as T) ?? defaultValue;
     }
 
     async update(key: string, value: unknown): Promise<void> {
-        await this.workspaceState.update(key, value);
+        await this.workspaceState?.update(key, value);
     }
 }
 
 export class VsCodeHostSecrets implements HostSecrets {
-    constructor(private readonly secrets: vscode.SecretStorage) {}
+    constructor(private readonly secrets?: vscode.SecretStorage) {}
 
     async get(key: string): Promise<string | undefined> {
-        return await this.secrets.get(key);
+        return await this.secrets?.get(key);
     }
 
     async store(key: string, value: string): Promise<void> {
-        await this.secrets.store(key, value);
+        await this.secrets?.store(key, value);
     }
 
     async delete(key: string): Promise<void> {
-        await this.secrets.delete(key);
+        await this.secrets?.delete(key);
     }
 }
 
@@ -519,7 +625,7 @@ export class VsCodeHostViews implements HostViews {
     }
 }
 
-export class VsCodeHostEnvironment implements HostEnvironment {
+export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
     readonly ui: HostUi;
     readonly nav: HostNavigation;
     readonly config: HostConfig;
@@ -529,6 +635,7 @@ export class VsCodeHostEnvironment implements HostEnvironment {
     readonly auth: HostAuth;
     readonly commands: HostCommands;
     readonly views: HostViews;
+    readonly workspace: HostWorkspace;
 
     constructor(options: {
         context: vscode.ExtensionContext;
@@ -538,10 +645,17 @@ export class VsCodeHostEnvironment implements HostEnvironment {
         this.nav = new VsCodeHostNavigation();
         this.config = new VsCodeHostConfig();
         this.documents = new VsCodeHostDocuments();
-        this.storage = new VsCodeHostStorage(options.context.globalState);
+        this.storage = new VsCodeHostStorage(options.context.workspaceState);
         this.secrets = new VsCodeHostSecrets(options.context.secrets);
         this.auth = new VsCodeHostAuth();
         this.commands = new VsCodeHostCommands();
         this.views = new VsCodeHostViews();
+        this.workspace = new VsCodeHostWorkspace();
+    }
+
+    dispose(): void {
+        if ('dispose' in this.documents && typeof this.documents.dispose === 'function') {
+            this.documents.dispose();
+        }
     }
 }

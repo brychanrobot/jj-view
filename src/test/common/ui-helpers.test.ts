@@ -6,7 +6,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../../code-forge-registry';
 import {
     promptForRevision,
@@ -18,15 +17,10 @@ import {
 import { JjRepositoryManager } from '../../jj-repository-manager';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { Uri } from '../../uri-utils';
-import { FakeHostUi } from '../fake-host-environment';
+import { FakeHostEnvironment, FakeHostUi } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
-import { createMock, createMockLogOutputChannel } from '../test-utils';
+import { createMockLogOutputChannel } from '../test-utils';
 import '../vitest-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('../vscode-mock');
-    return createVscodeMock();
-});
 
 describe('ui-helpers', () => {
     describe('promptSelectOrCreate', () => {
@@ -265,21 +259,19 @@ describe('ui-helpers', () => {
     describe('resolveRepository', () => {
         let repo: TestRepo;
         let repoManager: JjRepositoryManager;
+        let host: FakeHostEnvironment;
 
         beforeEach(async () => {
             repo = new TestRepo();
             repo.init();
 
-            vscode.workspace.updateWorkspaceFolders(0, null, { uri: Uri.file(repo.path) });
+            host = new FakeHostEnvironment();
+            host.workspace.addFolder(Uri.file(repo.path));
 
             const codeForgeRegistry = new CodeForgeRegistry();
             const outputChannel = createMockLogOutputChannel();
-            const workspaceState = createMock<vscode.Memento>({
-                get: vi.fn().mockReturnValue(undefined),
-                update: vi.fn().mockResolvedValue(undefined),
-            });
 
-            repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, workspaceState);
+            repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, host);
             await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repo.path));
         });
 
@@ -334,13 +326,9 @@ describe('ui-helpers', () => {
 
         it('resolves repository from host.documents.getActiveDocumentUri', () => {
             const fileUri = Uri.file(path.join(repo.path, 'file.txt'));
-            const mockHost = {
-                documents: {
-                    getActiveDocumentUri: () => fileUri,
-                },
-            };
+            host.documents.setActiveDocument(fileUri);
             const resolved = resolveRepository(repoManager, {
-                host: mockHost as unknown as import('../../common/host-environment').HostEnvironment,
+                host,
             });
 
             expect(resolved).toBeDefined();

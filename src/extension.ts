@@ -152,10 +152,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     registerProcessMonitorCommands(context, processTracker);
 
+    const hostEnvironment = new VsCodeHostEnvironment({ context });
+    context.subscriptions.push(hostEnvironment);
+
     const repositoryManager = new JjRepositoryManager(
         codeForgeRegistry,
         outputChannel,
-        context.workspaceState,
+        hostEnvironment,
         resolvedBinaryPath,
         processTracker,
     );
@@ -179,7 +182,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         }),
     );
 
-    const hostEnvironment = new VsCodeHostEnvironment({ context });
     const commentsManager = new CommentsManager(repositoryManager, hostEnvironment);
     context.subscriptions.push(commentsManager);
     const commentsProvider = new VsCodeCommentsProvider(commentsManager);
