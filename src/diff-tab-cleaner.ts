@@ -6,7 +6,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as vscode from 'vscode';
+import type { HostDiffTab, HostEnvironment } from './common/host-environment';
 import type { JjService } from './jj-service';
 import { getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
 import { toError } from './utils/error-utils';
@@ -14,7 +14,7 @@ import type { LoggerChannel } from './utils/output-channel';
 
 interface CollectedTabs {
     uniqueRevisions: Set<string>;
-    tabToRevisions: Map<vscode.Tab, string[]>;
+    tabToRevisions: Map<HostDiffTab, string[]>;
 }
 
 export class DiffTabCleaner {
@@ -24,6 +24,7 @@ export class DiffTabCleaner {
     constructor(
         private readonly jj: JjService,
         private readonly belongsToRepo: (uri: Uri) => boolean,
+        private readonly host: HostEnvironment,
         private readonly outputChannel?: LoggerChannel,
     ) {}
 
@@ -35,8 +36,8 @@ export class DiffTabCleaner {
      */
     public async closeInvalidDiffEditors(): Promise<void> {
         try {
-            const tabGroups = vscode.window.tabGroups.all;
-            const { uniqueRevisions, tabToRevisions } = this.collectDiffTabs(tabGroups);
+            const diffTabs = this.host.documents.getOpenDiffTabs?.() ?? [];
+            const { uniqueRevisions, tabToRevisions } = this.collectDiffTabs(diffTabs);
             if (uniqueRevisions.size === 0) {
                 return;
             }
@@ -77,25 +78,16 @@ export class DiffTabCleaner {
      * Scans all open tabs and collects those displaying diffs for this repository,
      * returning their associated revisions.
      */
-    private collectDiffTabs(tabGroups: readonly vscode.TabGroup[]): CollectedTabs {
+    private collectDiffTabs(diffTabs: readonly HostDiffTab[]): CollectedTabs {
         const uniqueRevisions = new Set<string>();
-        const tabToRevisions = new Map<vscode.Tab, string[]>();
+        const tabToRevisions = new Map<HostDiffTab, string[]>();
 
-        for (const group of tabGroups) {
-            if (!group.tabs) {
-                continue;
-            }
-            for (const tab of group.tabs) {
-                if (!(tab.input instanceof vscode.TabInputTextDiff)) {
-                    continue;
-                }
-
-                const revs = this.getRevisionsForTab(tab.input);
-                if (revs.length > 0) {
-                    tabToRevisions.set(tab, revs);
-                    for (const rev of revs) {
-                        uniqueRevisions.add(rev);
-                    }
+        for (const tab of diffTabs) {
+            const revs = this.getRevisionsForTab(tab);
+            if (revs.length > 0) {
+                tabToRevisions.set(tab, revs);
+                for (const rev of revs) {
+                    uniqueRevisions.add(rev);
                 }
             }
         }
@@ -119,13 +111,13 @@ export class DiffTabCleaner {
     /**
      * Extracts revision IDs from the original/modified URIs of a diff tab if they belong to this repo.
      */
-    private getRevisionsForTab(input: vscode.TabInputTextDiff): string[] {
+    private getRevisionsForTab(tab: HostDiffTab): string[] {
         const revs: string[] = [];
-        const originalRev = this.getRevisionIfRelevant(input.original);
+        const originalRev = this.getRevisionIfRelevant(tab.originalUri);
         if (originalRev) {
             revs.push(originalRev);
         }
-        const modifiedRev = this.getRevisionIfRelevant(input.modified);
+        const modifiedRev = this.getRevisionIfRelevant(tab.modifiedUri);
         if (modifiedRev) {
             revs.push(modifiedRev);
         }
@@ -184,8 +176,11 @@ export class DiffTabCleaner {
     /**
      * Identifies which tabs need to be closed based on invalid revisions.
      */
-    private filterTabsToClose(tabToRevisions: Map<vscode.Tab, string[]>, invalidRevisions: Set<string>): vscode.Tab[] {
-        const tabsToClose: vscode.Tab[] = [];
+    private filterTabsToClose(
+        tabToRevisions: Map<HostDiffTab, string[]>,
+        invalidRevisions: Set<string>,
+    ): HostDiffTab[] {
+        const tabsToClose: HostDiffTab[] = [];
         for (const [tab, revs] of tabToRevisions.entries()) {
             if (revs.some((r) => invalidRevisions.has(r))) {
                 tabsToClose.push(tab);
@@ -197,9 +192,9 @@ export class DiffTabCleaner {
     /**
      * Closes the specified tabs asynchronously.
      */
-    private closeTabs(tabs: vscode.Tab[]): void {
+    private closeTabs(tabs: HostDiffTab[]): void {
         tabs.forEach((tab) => {
-            vscode.window.tabGroups.close(tab).then(undefined, (err) => {
+            tab.close().catch((err) => {
                 this.outputChannel?.error('[DiffTabCleaner] Failed to close tab', toError(err));
             });
         });

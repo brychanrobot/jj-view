@@ -7,8 +7,8 @@ import * as assert from 'node:assert';
 import * as cp from 'node:child_process';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { checkGitColocation, resetGitColocationCheckForTesting } from '../git-colocation';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { checkGitColocation, resetGitColocationCheckForTesting } from '../vscode/git-colocation';
 import { TestRepo } from './test-repo';
 
 suite('Git Colocation Integration Test Suite', () => {
@@ -139,5 +139,18 @@ suite('Git Colocation Integration Test Suite', () => {
         await checkGitColocation(jjService);
         assert.ok(showInformationMessageSpy.notCalled, 'Second run should not show warning');
         assert.ok(getConfigurationStub.notCalled, 'Second run should not read configuration');
+    });
+
+    test('should not show warning for pure Jujutsu repo (not colocated)', async () => {
+        const pureRepo = new TestRepo();
+        pureRepo.init();
+        const pureJjService = new JjService(pureRepo.path, NO_OP_LOGGER);
+
+        const showInformationMessageSpy = sandbox.stub(vscode.window, 'showInformationMessage');
+        showInformationMessageSpy.resolves(undefined);
+
+        await checkGitColocation(pureJjService);
+
+        assert.ok(showInformationMessageSpy.notCalled, 'Warning should not be shown for pure JJ repo');
     });
 });

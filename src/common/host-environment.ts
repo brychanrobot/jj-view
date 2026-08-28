@@ -81,6 +81,12 @@ export interface TextSelectionRange {
     readonly endLine: number;
 }
 
+export interface HostDiffTab {
+    readonly originalUri: Uri;
+    readonly modifiedUri: Uri;
+    close(): Promise<void>;
+}
+
 export interface HostDocuments {
     readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string>;
     replaceLineRangeAndSave(
@@ -93,6 +99,7 @@ export interface HostDocuments {
     getActiveDocumentUri?(): Uri | undefined;
     getActiveDocumentSelections?(): readonly TextSelectionRange[] | undefined;
     getOpenDocumentUris?(): Uri[];
+    getOpenDiffTabs?(): readonly HostDiffTab[];
     readonly onDidChangeActiveDocument?: Event<Uri | undefined>;
 }
 

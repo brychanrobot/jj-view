@@ -91,7 +91,12 @@ export class VsCodeScmProvider implements vscode.Disposable {
         const belongsToRepo = (uri: Uri) => {
             return this.repositoryManager.getRepositoryForUri(uri) === this.repo;
         };
-        this._diffTabCleaner = new DiffTabCleaner(this.jj, belongsToRepo, this.outputChannel);
+        this._diffTabCleaner = new DiffTabCleaner(
+            this.jj,
+            belongsToRepo,
+            this.repositoryManager.host,
+            this.outputChannel,
+        );
 
         this._conflictGroup = this._sourceControl.createResourceGroup(ScmContextValue.ConflictGroup, 'Merge Conflicts');
         this._conflictGroup.hideWhenEmpty = true;

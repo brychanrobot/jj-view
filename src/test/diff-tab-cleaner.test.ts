@@ -3,37 +3,38 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as vscode from 'vscode';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HostDiffTab } from '../common/host-environment';
 import { DiffTabCleaner } from '../diff-tab-cleaner';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { getFsPathFromUri, Uri } from '../uri-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
 
-// Mock vscode
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    const mock = await createVscodeMock();
-    const windowMock = mock.window as { tabGroups: { close: unknown } };
-    windowMock.tabGroups.close = vi.fn().mockResolvedValue(true);
-    return mock;
-});
-
 interface PrivateDiffTabCleaner {
     getOpHeadsSignature(): Promise<string>;
-    collectDiffTabs(tabGroups: readonly vscode.TabGroup[]): {
+    collectDiffTabs(diffTabs: readonly HostDiffTab[]): {
         uniqueRevisions: Set<string>;
-        tabToRevisions: Map<vscode.Tab, string[]>;
+        tabToRevisions: Map<HostDiffTab, string[]>;
     };
     checkRevisionsValidity(revisions: Set<string>): Promise<Set<string>>;
-    filterTabsToClose(tabToRevisions: Map<vscode.Tab, string[]>, invalidRevisions: Set<string>): vscode.Tab[];
-    closeTabs(tabs: vscode.Tab[]): void;
+    filterTabsToClose(tabToRevisions: Map<HostDiffTab, string[]>, invalidRevisions: Set<string>): HostDiffTab[];
+    closeTabs(tabs: HostDiffTab[]): void;
+}
+
+function createMockDiffTab(originalUri: Uri, modifiedUri: Uri): HostDiffTab & { close: ReturnType<typeof vi.fn> } {
+    return {
+        originalUri,
+        modifiedUri,
+        close: vi.fn().mockResolvedValue(undefined),
+    };
 }
 
 describe('Diff Tab Cleaner', () => {
     let repo: TestRepo;
     let jj: JjService;
+    let host: FakeHostEnvironment;
     let cleaner: DiffTabCleaner;
     let privateCleaner: PrivateDiffTabCleaner;
 
@@ -41,6 +42,7 @@ describe('Diff Tab Cleaner', () => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
+        host = new FakeHostEnvironment();
 
         const belongsToRepo = (uri: Uri) => {
             const fsPath = getFsPathFromUri(uri);
@@ -48,13 +50,8 @@ describe('Diff Tab Cleaner', () => {
             const normalizedRepo = repo.path.replace(/\\/g, '/').toLowerCase();
             return normalizedUri.startsWith(normalizedRepo);
         };
-        cleaner = new DiffTabCleaner(jj, belongsToRepo);
+        cleaner = new DiffTabCleaner(jj, belongsToRepo, host);
         privateCleaner = exposePrivate<PrivateDiffTabCleaner>(cleaner);
-    });
-
-    afterEach(async () => {
-        if (repo) {
-        }
     });
 
     describe('collectDiffTabs', () => {
@@ -78,21 +75,10 @@ describe('Diff Tab Cleaner', () => {
                 fragment: 'root=%2Fother%2Frepo&base=rev456&side=left',
             });
 
-            const tab1 = {
-                input: new vscode.TabInputTextDiff(uri1, uri2),
-            } as unknown as vscode.Tab;
+            const tab1 = createMockDiffTab(uri1, uri2);
+            const tabOther = createMockDiffTab(uriOther, uriOther);
 
-            const tabOther = {
-                input: new vscode.TabInputTextDiff(uriOther, uriOther),
-            } as unknown as vscode.Tab;
-
-            const tabGroups = [
-                {
-                    tabs: [tab1, tabOther],
-                },
-            ] as unknown as vscode.TabGroup[];
-
-            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs(tabGroups);
+            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs([tab1, tabOther]);
 
             expect(uniqueRevisions.has('rev123')).toBe(true);
             expect(uniqueRevisions.has('rev456')).toBe(false);
@@ -113,20 +99,33 @@ describe('Diff Tab Cleaner', () => {
                 fragment: `root=${encodeURIComponent(repoRoot)}&base=@-&side=right`,
             });
 
-            const tab = {
-                input: new vscode.TabInputTextDiff(uri1, uri2),
-            } as unknown as vscode.Tab;
-
-            const tabGroups = [
-                {
-                    tabs: [tab],
-                },
-            ] as unknown as vscode.TabGroup[];
-
-            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs(tabGroups);
+            const tab = createMockDiffTab(uri1, uri2);
+            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs([tab]);
 
             expect(uniqueRevisions.size).toBe(0);
             expect(tabToRevisions.size).toBe(0);
+        });
+
+        it('extracts only the historical revision when compared with a working copy revision', () => {
+            const repoRoot = repo.path;
+            const uri1 = Uri.from({
+                scheme: 'jj-view',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=@&side=left`,
+            });
+            const uri2 = Uri.from({
+                scheme: 'jj-view',
+                path: '/src/file1.ts',
+                fragment: `root=${encodeURIComponent(repoRoot)}&base=rev123&side=right`,
+            });
+
+            const tab = createMockDiffTab(uri1, uri2);
+            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs([tab]);
+
+            expect(uniqueRevisions.size).toBe(1);
+            expect(uniqueRevisions.has('rev123')).toBe(true);
+            expect(tabToRevisions.size).toBe(1);
+            expect(tabToRevisions.get(tab)).toEqual(['rev123']);
         });
 
         it('ignores tabs with non jj view or jj edit schemas', () => {
@@ -142,17 +141,8 @@ describe('Diff Tab Cleaner', () => {
                 query: 'base=rev123&side=right',
             });
 
-            const tab = {
-                input: new vscode.TabInputTextDiff(uri1, uri2),
-            } as unknown as vscode.Tab;
-
-            const tabGroups = [
-                {
-                    tabs: [tab],
-                },
-            ] as unknown as vscode.TabGroup[];
-
-            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs(tabGroups);
+            const tab = createMockDiffTab(uri1, uri2);
+            const { uniqueRevisions, tabToRevisions } = privateCleaner.collectDiffTabs([tab]);
 
             expect(uniqueRevisions.size).toBe(0);
             expect(tabToRevisions.size).toBe(0);
@@ -224,10 +214,12 @@ describe('Diff Tab Cleaner', () => {
 
     describe('filterTabsToClose', () => {
         it('identifies which tabs to close based on invalid revisions', () => {
-            const tab1 = { label: 'tab1' } as unknown as vscode.Tab;
-            const tab2 = { label: 'tab2' } as unknown as vscode.Tab;
+            const uriA = Uri.from({ scheme: 'jj-view', path: '/a', fragment: 'base=rev-a' });
+            const uriB = Uri.from({ scheme: 'jj-view', path: '/b', fragment: 'base=rev-b' });
+            const tab1 = createMockDiffTab(uriA, uriA);
+            const tab2 = createMockDiffTab(uriB, uriB);
 
-            const tabToRevisions = new Map<vscode.Tab, string[]>();
+            const tabToRevisions = new Map<HostDiffTab, string[]>();
             tabToRevisions.set(tab1, ['rev-a']);
             tabToRevisions.set(tab2, ['rev-b']);
 
@@ -238,8 +230,10 @@ describe('Diff Tab Cleaner', () => {
         });
 
         it('closes tabs that have multiple revisions where only one is invalid', () => {
-            const tab = { label: 'tab' } as unknown as vscode.Tab;
-            const tabToRevisions = new Map<vscode.Tab, string[]>();
+            const uriA = Uri.from({ scheme: 'jj-view', path: '/a', fragment: 'base=rev-a' });
+            const uriB = Uri.from({ scheme: 'jj-view', path: '/b', fragment: 'base=rev-b' });
+            const tab = createMockDiffTab(uriA, uriB);
+            const tabToRevisions = new Map<HostDiffTab, string[]>();
             tabToRevisions.set(tab, ['rev-a', 'rev-b']);
 
             const invalidRevisions = new Set(['rev-b']);
@@ -250,22 +244,17 @@ describe('Diff Tab Cleaner', () => {
     });
 
     describe('closeTabs', () => {
-        it('closes tabs using vscode API', async () => {
-            const closeSpy = vscode.window.tabGroups.close as unknown as { mockClear: () => void };
-            closeSpy.mockClear();
+        it('closes tabs using HostDiffTab.close()', async () => {
+            const uri = Uri.from({ scheme: 'jj-view', path: '/a', fragment: 'base=rev-a' });
+            const tab = createMockDiffTab(uri, uri);
+            privateCleaner.closeTabs([tab]);
 
-            const tab = { label: 'tab' } as unknown as vscode.Tab;
-            await privateCleaner.closeTabs([tab]);
-
-            expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(tab);
+            expect(tab.close).toHaveBeenCalledTimes(1);
         });
     });
 
     describe('closeInvalidDiffEditors', () => {
         it('orchestrates collecting, checking, and closing invalid tabs using real repository state', async () => {
-            const closeSpy = vscode.window.tabGroups.close as unknown as { mockClear: () => void };
-            closeSpy.mockClear();
-
             const ids = await buildGraph(repo, [{ label: 'commitA', description: 'desc A' }]);
             const validRev = ids.commitA.changeId;
             const invalidRev = 'non-existent-rev-xyz';
@@ -281,20 +270,15 @@ describe('Diff Tab Cleaner', () => {
                 fragment: `root=${encodeURIComponent(repo.path)}&base=${invalidRev}&side=left`,
             });
 
-            const tab1 = {
-                input: new vscode.TabInputTextDiff(uri1, uri1),
-            } as unknown as vscode.Tab;
+            const tab1 = createMockDiffTab(uri1, uri1);
+            const tab2 = createMockDiffTab(uri2, uri2);
 
-            const tab2 = {
-                input: new vscode.TabInputTextDiff(uri2, uri2),
-            } as unknown as vscode.Tab;
-
-            (vscode.window.tabGroups as unknown as { all: unknown[] }).all = [{ tabs: [tab1, tab2] }];
+            host.documents.openDiffTabs = [tab1, tab2];
 
             await cleaner.closeInvalidDiffEditors();
 
-            expect(vscode.window.tabGroups.close).toHaveBeenCalledWith(tab2);
-            expect(vscode.window.tabGroups.close).not.toHaveBeenCalledWith(tab1);
+            expect(tab2.close).toHaveBeenCalledTimes(1);
+            expect(tab1.close).not.toHaveBeenCalled();
         });
     });
 });

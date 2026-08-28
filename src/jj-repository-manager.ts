@@ -142,6 +142,10 @@ export class JjRepositoryManager implements HostDisposable {
         return this._host.storage;
     }
 
+    get host(): HostEnvironment {
+        return this._host;
+    }
+
     get outputChannel(): LoggerChannel {
         return this._outputChannel;
     }
