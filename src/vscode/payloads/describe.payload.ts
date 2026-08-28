@@ -5,6 +5,7 @@
 
 import { extractRevisions } from '../../commands/command-utils';
 import type { SetDescriptionPayload } from '../../commands/describe';
+import type { DescribePromptPayload } from '../../commands/describe-prompt';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createSetDescriptionPayload(args: unknown[], scmProvider?: VsCodeScmProvider): SetDescriptionPayload {
@@ -14,8 +15,13 @@ export function createSetDescriptionPayload(args: unknown[], scmProvider?: VsCod
         (description && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
 
     if (description === undefined && revision === '@') {
-        description = scmProvider?.sourceControl.inputBox.value;
+        description = scmProvider?.inputBoxValue;
     }
 
     return { description, revision };
+}
+
+export function createDescribePromptPayload(_args: unknown[], scmProvider?: VsCodeScmProvider): DescribePromptPayload {
+    const initialValue = scmProvider?.inputBoxValue;
+    return { initialValue };
 }

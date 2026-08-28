@@ -43,8 +43,6 @@ export interface HostUi {
     showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
-    setScmDescriptionInputValue?(value: string): void;
-    getScmDescriptionInputValue?(): string | undefined;
     readonly isFocused?: boolean;
     readonly onDidChangeFocus?: Event<boolean>;
 }

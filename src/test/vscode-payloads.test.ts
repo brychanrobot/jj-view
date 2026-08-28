@@ -12,9 +12,9 @@ import { createAbsorbPayload } from '../vscode/payloads/absorb.payload';
 import { createSetBookmarkPayload } from '../vscode/payloads/bookmark.payload';
 import { createAdvanceBookmarkPayload } from '../vscode/payloads/bookmark-advance.payload';
 import { createAdvanceBookmarkAndUploadPayload } from '../vscode/payloads/bookmark-advance-upload.payload';
-import { createCommitPayload } from '../vscode/payloads/commit.payload';
+import { createCommitPayload, createCommitPromptPayload } from '../vscode/payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/compare-all-files-with-revision.payload';
-import { createSetDescriptionPayload } from '../vscode/payloads/describe.payload';
+import { createDescribePromptPayload, createSetDescriptionPayload } from '../vscode/payloads/describe.payload';
 import { createShowDetailsPayload } from '../vscode/payloads/details.payload';
 import { createDuplicatePayload } from '../vscode/payloads/duplicate.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
@@ -98,12 +98,23 @@ describe('vscode payloads', () => {
     describe('commit payload', () => {
         it('extracts description from scmProvider input box', () => {
             const scmProvider = createMock<VsCodeScmProvider>({
-                sourceControl: createMock<vscode.SourceControl>({
-                    inputBox: createMock<vscode.SourceControlInputBox>({ value: 'commit msg' }),
-                }),
+                inputBoxValue: 'commit msg',
             });
             const payload = createCommitPayload([], scmProvider);
             expect(payload.description).toBe('commit msg');
+        });
+
+        it('createCommitPromptPayload extracts initialValue from scmProvider', () => {
+            const scmProvider = createMock<VsCodeScmProvider>({
+                inputBoxValue: 'prompt msg',
+            });
+            const payload = createCommitPromptPayload([], scmProvider);
+            expect(payload.initialValue).toBe('prompt msg');
+        });
+
+        it('createCommitPromptPayload handles undefined scmProvider', () => {
+            const payload = createCommitPromptPayload([], undefined);
+            expect(payload.initialValue).toBeUndefined();
         });
     });
 
@@ -112,6 +123,19 @@ describe('vscode payloads', () => {
             const payload = createSetDescriptionPayload(['my desc', 'rev1']);
             expect(payload.description).toBe('my desc');
             expect(payload.revision).toBe('rev1');
+        });
+
+        it('createDescribePromptPayload extracts initialValue from scmProvider', () => {
+            const scmProvider = createMock<VsCodeScmProvider>({
+                inputBoxValue: 'prompt describe',
+            });
+            const payload = createDescribePromptPayload([], scmProvider);
+            expect(payload.initialValue).toBe('prompt describe');
+        });
+
+        it('createDescribePromptPayload handles undefined scmProvider', () => {
+            const payload = createDescribePromptPayload([], undefined);
+            expect(payload.initialValue).toBeUndefined();
         });
     });
 

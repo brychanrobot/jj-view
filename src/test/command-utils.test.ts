@@ -85,12 +85,11 @@ describe('maybeFormatDescriptionOnSave', () => {
         };
 
         const raw = 'Title\n\nThis is a very long paragraph that will not be wrapped because formatting is off.';
-        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@');
+        const result = await maybeFormatDescriptionOnSave(raw, ctx);
         expect(result).toBe(raw);
     });
 
-    it('formats description and updates ctx.host.ui.setScmDescriptionInputValue when revision is @', async () => {
-        const setScmDescriptionInputValue = vi.fn();
+    it('formats description according to body width ruler when format on save is enabled', async () => {
         const ctx = {
             host: {
                 config: {
@@ -104,44 +103,12 @@ describe('maybeFormatDescriptionOnSave', () => {
                         return undefined;
                     }),
                 },
-                ui: {
-                    setScmDescriptionInputValue,
-                },
             },
         };
 
         const raw = 'Title\n\nThis is a long body line that should be wrapped by prettier.';
-        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@');
+        const result = await maybeFormatDescriptionOnSave(raw, ctx);
 
         expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
-        expect(setScmDescriptionInputValue).toHaveBeenCalledWith(result);
-    });
-
-    it('formats description but does not call setScmDescriptionInputValue when revision is not @', async () => {
-        const setScmDescriptionInputValue = vi.fn();
-        const ctx = {
-            host: {
-                config: {
-                    get: vi.fn().mockImplementation((key: string) => {
-                        if (key === 'commit.formatDescriptionOnSave') {
-                            return true;
-                        }
-                        if (key === 'commit.bodyWidthRuler') {
-                            return 20;
-                        }
-                        return undefined;
-                    }),
-                },
-                ui: {
-                    setScmDescriptionInputValue,
-                },
-            },
-        };
-
-        const raw = 'Title\n\nThis is a long body line that should be wrapped by prettier.';
-        const result = await maybeFormatDescriptionOnSave(raw, ctx, '@-');
-
-        expect(result).toBe('Title\n\nThis is a long body\nline that should be\nwrapped by prettier.');
-        expect(setScmDescriptionInputValue).not.toHaveBeenCalled();
     });
 });

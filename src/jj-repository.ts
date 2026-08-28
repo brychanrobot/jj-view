@@ -149,12 +149,12 @@ export class JjRepository implements Disposable {
             return;
         }
         this._disposed = true;
-        this._onDidStatusChange.dispose();
+        this._refreshQueue.dispose();
         this._codeForge.dispose();
         await this._watcher.dispose();
+        this._onDidStatusChange.dispose();
 
         const activeRun = this._refreshQueue.currentRun;
-        this._refreshQueue.dispose();
         if (activeRun) {
             try {
                 await activeRun;

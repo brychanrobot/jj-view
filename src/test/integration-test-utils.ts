@@ -272,7 +272,6 @@ export function createIntegrationCommandContext(
     });
     const host = new VsCodeHostEnvironment({
         context,
-        sourceControl: scmProvider.sourceControl,
     });
     return new VSCodeCommandContext(scmProvider.repo, host, scmProvider.outputChannel, comments);
 }

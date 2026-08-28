@@ -29,15 +29,13 @@ describe('commitPromptCommand', () => {
         vi.clearAllMocks();
     });
 
-    test('prompts if input box is empty and commits with user input', async () => {
-        ctx.host.ui.setScmDescriptionInputValue('');
-
+    test('prompts if payload is empty and commits with user input', async () => {
         repo.new(undefined, 'initial');
         await jj.describe('existing description', '@');
 
         ctx.host.ui.setNextInputBoxResponse('new description');
 
-        await commitPromptCommand(ctx);
+        await commitPromptCommand(ctx, { initialValue: '' });
 
         const parentId = repo.getParents('@')[0];
         const parentDesc = repo.getDescription(parentId);
@@ -47,13 +45,11 @@ describe('commitPromptCommand', () => {
     });
 
     test('does nothing if user cancels prompt', async () => {
-        ctx.host.ui.setScmDescriptionInputValue('');
-
         await jj.describe('existing', '@');
 
         ctx.host.ui.setNextInputBoxResponse(undefined);
 
-        await commitPromptCommand(ctx);
+        await commitPromptCommand(ctx, { initialValue: '' });
 
         const desc = repo.getDescription('@');
         expect(desc.trim()).toBe('existing');
@@ -61,13 +57,12 @@ describe('commitPromptCommand', () => {
         expect(mockJjRepo.refresh).not.toHaveBeenCalled();
     });
 
-    test('shows prompt even when input box has text', async () => {
+    test('shows prompt and pre-fills initialValue from payload', async () => {
         repo.new(undefined, 'initial');
-        ctx.host.ui.setScmDescriptionInputValue('feat: quick commit');
 
         ctx.host.ui.setNextInputBoxResponse('feat: quick commit');
 
-        await commitPromptCommand(ctx);
+        await commitPromptCommand(ctx, { initialValue: 'feat: quick commit' });
 
         const parentId = repo.getParents('@')[0];
         const parentDesc = repo.getDescription(parentId);
@@ -78,7 +73,6 @@ describe('commitPromptCommand', () => {
 
     test('commits with blank message when prompt is cleared', async () => {
         repo.new(undefined, 'initial');
-        ctx.host.ui.setScmDescriptionInputValue('');
 
         await jj.describe('existing description', '@');
 

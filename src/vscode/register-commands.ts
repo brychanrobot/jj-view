@@ -80,11 +80,11 @@ import {
     createShowCommentsPayload,
     createUnresolveCommentThreadPayload,
 } from './payloads/comments.payload';
-import { createCommitPayload } from './payloads/commit.payload';
+import { createCommitPayload, createCommitPromptPayload } from './payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from './payloads/compare-all-files-with-revision.payload';
 import { createCompareFileWithRevisionPayload } from './payloads/compare-file-with-revision.payload';
 import { createCompleteSquashRevisionPayload } from './payloads/complete-squash-revision.payload';
-import { createSetDescriptionPayload } from './payloads/describe.payload';
+import { createDescribePromptPayload, createSetDescriptionPayload } from './payloads/describe.payload';
 import { createShowDetailsPayload } from './payloads/details.payload';
 import { createDiscardChangePayload } from './payloads/discard-change.payload';
 import { createDuplicatePayload } from './payloads/duplicate.payload';
@@ -164,23 +164,17 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const defaultHost = new VsCodeHostEnvironment({ context });
-            const resolved = resolveRepositoryLocal(args, defaultHost);
+            const host = new VsCodeHostEnvironment({ context });
+            const resolved = resolveRepositoryLocal(args, host);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const host = resolved.scm?.sourceControl
-                    ? new VsCodeHostEnvironment({
-                          sourceControl: resolved.scm.sourceControl,
-                          context,
-                      })
-                    : defaultHost;
                 const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 const payload = payloadCreator(args, resolved.scm);
                 return await handler(cmdCtx, payload);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
                 outputChannel.error(message);
-                await defaultHost.ui.showErrorMessage(message);
+                await host.ui.showErrorMessage(message);
                 return;
             }
         });
@@ -191,22 +185,16 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const defaultHost = new VsCodeHostEnvironment({ context });
-            const resolved = resolveRepositoryLocal(args, defaultHost);
+            const host = new VsCodeHostEnvironment({ context });
+            const resolved = resolveRepositoryLocal(args, host);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
-                const host = resolved.scm?.sourceControl
-                    ? new VsCodeHostEnvironment({
-                          sourceControl: resolved.scm.sourceControl,
-                          context,
-                      })
-                    : defaultHost;
                 const cmdCtx = new VSCodeCommandContext(resolved.repo, host, outputChannel, commentsManager);
                 return await handler(cmdCtx, ...args);
             } else {
                 const message = `[Command Error] Failed to resolve repository for command: ${commandId}`;
                 outputChannel.error(message);
-                await defaultHost.ui.showErrorMessage(message);
+                await host.ui.showErrorMessage(message);
                 return;
             }
         });
@@ -219,8 +207,8 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.new', createNewPayload, newCommand),
         registerCommandWithPayload('jj-view.newMergeChange', createNewMergeChangePayload, newMergeChangeCommand),
         registerCommandWithPayload('jj-view.commit', createCommitPayload, commitCommand),
-        registerCommand('jj-view.commitPrompt', commitPromptCommand),
-        registerCommand('jj-view.describePrompt', describePromptCommand),
+        registerCommandWithPayload('jj-view.commitPrompt', createCommitPromptPayload, commitPromptCommand),
+        registerCommandWithPayload('jj-view.describePrompt', createDescribePromptPayload, describePromptCommand),
     );
 
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
