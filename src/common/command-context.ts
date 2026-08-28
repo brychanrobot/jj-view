@@ -17,3 +17,16 @@ export interface CommandContext {
     readonly log: LoggerChannel;
     readonly services?: CommandServices;
 }
+
+export class BaseCommandContext implements CommandContext {
+    readonly services?: CommandServices;
+
+    constructor(
+        readonly repo: JjRepository,
+        readonly host: HostEnvironment,
+        readonly log: LoggerChannel,
+        comments?: CommentsManager,
+    ) {
+        this.services = comments ? { commentsManager: comments } : undefined;
+    }
+}

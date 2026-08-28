@@ -132,14 +132,16 @@ export interface RegisterCommandsOptions {
     outputChannel: LoggerChannel;
     commentsManager: CommentsManager;
     logWebviewProvider: VsCodeLogWebviewProvider;
+    hostEnvironment?: VsCodeHostEnvironment;
 }
 
 export function registerCommands(options: RegisterCommandsOptions): void {
     const { context, repositoryManager, scmProviders, outputChannel, commentsManager, logWebviewProvider } = options;
+    const host = options.hostEnvironment ?? new VsCodeHostEnvironment({ context });
 
     function resolveRepositoryLocal(
         args: unknown[],
-        host: VsCodeHostEnvironment,
+        hostEnv: VsCodeHostEnvironment,
     ): { repo: JjRepository; scm?: VsCodeScmProvider } | undefined {
         const firstArg = args[0];
         if (firstArg && typeof firstArg === 'object' && 'id' in firstArg && 'resourceStates' in firstArg) {
@@ -150,7 +152,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
             }
         }
 
-        const repo = resolveRepository(repositoryManager, { args, host });
+        const repo = resolveRepository(repositoryManager, { args, host: hostEnv });
         if (!repo) {
             return undefined;
         }
@@ -164,7 +166,6 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const host = new VsCodeHostEnvironment({ context });
             const resolved = resolveRepositoryLocal(args, host);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
@@ -185,7 +186,6 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): vscode.Disposable {
         return vscode.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const host = new VsCodeHostEnvironment({ context });
             const resolved = resolveRepositoryLocal(args, host);
             if (resolved?.repo) {
                 repositoryManager.setFocusedRepository(resolved.repo);
@@ -214,7 +214,6 @@ export function registerCommands(options: RegisterCommandsOptions): void {
     // focusDescriptionInput doesn't need repo context — it just focuses the SCM view
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.focusDescriptionInput', async () => {
-            const host = new VsCodeHostEnvironment({ context });
             await host.nav.focusScmInput?.();
         }),
     );

@@ -24,7 +24,6 @@ import { JjRepositoryManager } from './jj-repository-manager';
 import { JjViewFsService } from './jj-view-fs-service';
 import { getUriParams } from './uri-utils';
 import { resolveJjBinary } from './utils/binary-utils';
-import { getJjViewConfig } from './utils/config-utils';
 import { toError } from './utils/error-utils';
 import { type LoggerChannel, OutputChannel } from './utils/output-channel';
 import { checkGitColocation } from './vscode/git-colocation';
@@ -50,6 +49,9 @@ export interface Api {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<Api> {
+    const hostEnvironment = new VsCodeHostEnvironment({ context });
+    context.subscriptions.push(hostEnvironment);
+
     const folders = vscode.workspace.workspaceFolders || [];
     const workspaceRoot = folders.length > 0 ? folders[0].uri.fsPath : '';
     const realOutputChannel = vscode.window.createOutputChannel('JJ View', { log: true });
@@ -57,7 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(realOutputChannel);
 
     // Get preferred binary path configuration
-    const preferredPath = getJjViewConfig<string>('binaryPath');
+    const preferredPath = hostEnvironment.config.get<string>('binaryPath');
     let resolvedBinaryPath: string | undefined;
     try {
         resolvedBinaryPath = await resolveJjBinary(preferredPath, workspaceRoot);
@@ -67,7 +69,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Configure configurations update listener
     const updateBinaryPath = async () => {
-        const preferredPath = getJjViewConfig<string>('binaryPath');
+        const preferredPath = hostEnvironment.config.get<string>('binaryPath');
 
         let resolvedPath: string | undefined;
         let errorMessage: string | undefined;
@@ -93,19 +95,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         const CONFIGURE = 'Configure Path';
         vscode.window.showErrorMessage(message, CONFIGURE).then((selection) => {
             if (selection === CONFIGURE) {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'jj-view.binaryPath');
+                hostEnvironment.nav.openSettings('jj-view.binaryPath');
             }
         });
     };
 
     const setOpenDiffOnClickContext = () => {
-        const value = getJjViewConfig<boolean>('openDiffOnClick', true);
-        vscode.commands.executeCommand('setContext', JjContextKey.OpenDiffOnClick, value);
+        const value = hostEnvironment.config.get<boolean>('openDiffOnClick', true);
+        hostEnvironment.commands.setContextKey(JjContextKey.OpenDiffOnClick, value);
     };
     setOpenDiffOnClickContext();
-
-    const hostEnvironment = new VsCodeHostEnvironment({ context });
-    context.subscriptions.push(hostEnvironment);
 
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
@@ -223,15 +222,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Track active provider changes to update context keys
     const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
-        vscode.commands.executeCommand('setContext', 'jj.codeForgeActive', !!provider);
-        vscode.commands.executeCommand('setContext', 'jj.codeForgeProvider', provider?.id);
+        hostEnvironment.commands.setContextKey('jj.codeForgeActive', !!provider);
+        hostEnvironment.commands.setContextKey('jj.codeForgeProvider', provider?.id);
         const manageable = !!provider?.isAuthManageable;
-        vscode.commands.executeCommand('setContext', 'jj.codeForgeAuthManageable', manageable);
-        vscode.commands.executeCommand(
-            'setContext',
-            'jj.codeForgeTerm',
-            provider?.changeTerm?.toLowerCase() || 'change',
-        );
+        hostEnvironment.commands.setContextKey('jj.codeForgeAuthManageable', manageable);
+        hostEnvironment.commands.setContextKey('jj.codeForgeTerm', provider?.changeTerm?.toLowerCase() || 'change');
     };
     updateContextKeys(undefined);
 
@@ -452,8 +447,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         const repoStatusSub = repo.onDidStatusChange(async (event) => {
             if (repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath) {
                 // Update context keys for focused repo
-                vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scmProvider.parentMutable);
-                vscode.commands.executeCommand('setContext', JjContextKey.HasChild, scmProvider.hasChild);
+                await hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scmProvider.parentMutable);
+                await hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scmProvider.hasChild);
 
                 // Refresh webview and commit details panel in parallel
                 await Promise.all([
@@ -500,8 +495,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             });
             const scm = scmProviders.get(repo.rootUri.fsPath);
             if (scm) {
-                vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, scm.parentMutable);
-                vscode.commands.executeCommand('setContext', JjContextKey.HasChild, scm.hasChild);
+                hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scm.parentMutable);
+                hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scm.hasChild);
             }
             focusedRepoActiveProviderSub = repo.codeForge.onDidActiveProviderChange((provider) => {
                 updateContextKeys(provider);
@@ -515,6 +510,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         } else {
             focusedRepoActiveProviderSub = undefined;
             updateContextKeys(undefined);
+            hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, false);
+            hostEnvironment.commands.setContextKey(JjContextKey.HasChild, false);
         }
     });
 
@@ -525,6 +522,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         outputChannel,
         commentsManager,
         logWebviewProvider,
+        hostEnvironment,
     });
 
     context.subscriptions.push(

@@ -313,18 +313,13 @@ describe('squashRevisionIntoParentCommand', () => {
         );
         fs.writeFileSync(path.join(storageDir, 'SQUASH_MSG'), 'Desc');
 
-        const originalSquash = jj.squashRevision.bind(jj);
-        vi.spyOn(jj, 'squashRevision').mockImplementation(async (opts) => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            return originalSquash(opts);
-        });
-
         const p1 = completeSquashRevisionCommand(ctx, { message: 'm1' });
         const p2 = completeSquashRevisionCommand(ctx, { message: 'm2' });
 
         await Promise.all([p1, p2]);
 
-        expect(jj.squashRevision).toHaveBeenCalledTimes(1);
+        expect(repo.getDescription('@-')).toBe('m1');
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_META.json'))).toBe(false);
     });
 
     test('completeSquashRevisionCommand unlinks files and closes editor when message is empty', async () => {

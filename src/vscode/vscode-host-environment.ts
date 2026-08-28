@@ -26,9 +26,8 @@ import type {
     HostWorkspaceFoldersChangeEvent,
 } from '../common/host-environment';
 import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../uri-utils';
-
-import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
+import { getJjViewConfig } from './config-utils';
 
 export class VsCodeHostUi implements HostUi {
     async showInputBox(options?: {

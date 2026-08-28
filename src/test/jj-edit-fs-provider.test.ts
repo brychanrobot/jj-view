@@ -74,7 +74,8 @@ describe('VsCodeEditFsProvider', () => {
     });
 
     afterEach(async () => {
-        await repoManager.dispose();
+        await repoManager?.dispose();
+        repo?.dispose();
     });
 
     it('stat returns a default file stat', async () => {
