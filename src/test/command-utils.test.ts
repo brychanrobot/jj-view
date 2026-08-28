@@ -15,6 +15,8 @@ describe('RevisionQuery', () => {
     it('generates expected revision query strings', () => {
         expect(RevisionQuery.ancestorsExcluding('@')).toBe('ancestors(@) ~ @');
         expect(RevisionQuery.ancestorsIncluding('@')).toBe('ancestors(@)');
+        expect(RevisionQuery.mutableAncestorsExcluding('@')).toBe('(ancestors(@) ~ @) & mutable()');
+        expect(RevisionQuery.mutableAncestorsIncluding('@')).toBe('ancestors(@) & mutable()');
         expect(RevisionQuery.mutable()).toBe('mutable()');
         expect(RevisionQuery.visible()).toBe('visible()');
         expect(RevisionQuery.children('rev123')).toBe('children(rev123)');

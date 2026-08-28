@@ -8,7 +8,7 @@ import { advanceBookmarkCommand } from '../../commands/bookmark-advance';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
 import { FakeCommandContext } from '../fake-host-environment';
-import { TestRepo } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 describe('advanceBookmarkCommand', () => {
@@ -45,12 +45,16 @@ describe('advanceBookmarkCommand', () => {
         );
     });
 
-    test('prompts for revision if not provided, and advances bookmark', async () => {
-        repo.bookmark('test-bookmark', '@');
-        await jj.new({ message: 'child' });
-        const [child] = await jj.getLog({ revision: '@' });
+    test('prompts for revision if not provided, restricting to mutable ancestors, and advances bookmark', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', files: { 'base.txt': 'base\n' } },
+            { label: 'parent', parents: ['base'], files: { 'p.txt': 'p\n' } },
+            { label: 'child', parents: ['parent'], files: { 'c.txt': 'c\n' }, isCurrentWorkingCopy: true },
+        ]);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
+        repo.bookmark('test-bookmark', ids.parent.changeId);
 
-        ctx.host.ui.setNextRevisionPromptResponse(child.commit_id);
+        ctx.host.ui.setNextRevisionPromptResponse(ids.child.changeId);
 
         await advanceBookmarkCommand(ctx, {});
 
@@ -58,5 +62,12 @@ describe('advanceBookmarkCommand', () => {
         expect(childLog.bookmarks).toEqual(
             expect.arrayContaining([expect.objectContaining({ name: 'test-bookmark' })]),
         );
+
+        // Verify that prompt only presented mutable ancestors including @, not immutable base
+        const quickPick = ctx.host.ui.quickPickCalls[0];
+        const details = quickPick.items.map((i) => i.detail);
+        expect(details).toContain(ids.child.changeId);
+        expect(details).toContain(ids.parent.changeId);
+        expect(details).not.toContain(ids.base.changeId);
     });
 });
