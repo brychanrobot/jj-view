@@ -170,8 +170,8 @@ export class VsCodeScmProvider implements vscode.Disposable {
         }
 
         if (this.isFocused()) {
-            await vscode.commands.executeCommand('setContext', JjContextKey.ParentMutable, snapshot.parentMutable);
-            await vscode.commands.executeCommand('setContext', JjContextKey.HasChild, snapshot.hasChild);
+            await this.repo.host.commands.setContextKey(JjContextKey.ParentMutable, snapshot.parentMutable);
+            await this.repo.host.commands.setContextKey(JjContextKey.HasChild, snapshot.hasChild);
         }
 
         const decorationMap = new Map<string, JjStatusEntry>();
