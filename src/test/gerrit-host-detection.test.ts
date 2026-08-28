@@ -8,20 +8,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
+import { NO_OP_LOGGER } from '../jj-service';
 import { detectGerritHost, normalizeHostUrl, parseRemoteUrl } from '../utils/gerrit-host-detection';
-import { FakeConfigStore } from './test-utils';
-
-const fakeConfigStore = new FakeConfigStore();
-
-vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-    },
-}));
-
-function mockGerritHostSetting(value: string | undefined): void {
-    fakeConfigStore.set('gerrit.host', value);
-}
+import { FakeHostEnvironment } from './fake-host-environment';
 
 describe('Gerrit Host Detection Utilities', () => {
     describe('normalizeHostUrl', () => {
@@ -85,11 +74,13 @@ describe('Gerrit Host Detection Utilities', () => {
         let tempDir: string;
         let gitRoot: string;
         let mockProbe: Mock<(host: string) => Promise<boolean>>;
+        let hostEnv: FakeHostEnvironment;
 
         beforeEach(async () => {
             tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-host-detection-test-'));
             gitRoot = path.join(tempDir, '.git');
             mockProbe = vi.fn().mockResolvedValue(true);
+            hostEnv = new FakeHostEnvironment();
         });
 
         afterEach(async () => {
@@ -97,9 +88,9 @@ describe('Gerrit Host Detection Utilities', () => {
         });
 
         test('detects from workspace configuration setting first', async () => {
-            mockGerritHostSetting('setting.example.com');
+            hostEnv.config.set('gerrit.host', 'setting.example.com');
 
-            const host = await detectGerritHost(tempDir, null, [], mockProbe);
+            const host = await detectGerritHost(tempDir, null, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://setting.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://setting.example.com');
         });
@@ -109,39 +100,33 @@ describe('Gerrit Host Detection Utilities', () => {
             cp.execSync(`git init --bare "${gitRoot}"`);
             cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "git-config-host.example.com"`);
 
-            mockGerritHostSetting(undefined);
-
-            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe);
+            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://git-config-host.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://git-config-host.example.com');
         });
 
         test('detects from .gitreview file as fallback', async () => {
-            mockGerritHostSetting(undefined);
-
             await fs.writeFile(path.join(tempDir, '.gitreview'), '[gerrit]\nhost=review.example.com\n');
 
-            const host = await detectGerritHost(tempDir, null, [], mockProbe);
+            const host = await detectGerritHost(tempDir, null, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://review.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://review.example.com');
         });
 
         test('detects and sorts git remotes as fallback', async () => {
-            mockGerritHostSetting(undefined);
-
             const remotes = [
                 { name: 'other', url: 'https://github.com/owner/repo.git' },
                 { name: 'origin', url: 'https://chromium.googlesource.com/chromium/src.git' },
             ];
 
-            const host = await detectGerritHost(tempDir, null, remotes, mockProbe);
+            const host = await detectGerritHost(tempDir, null, remotes, mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://chromium-review.googlesource.com');
             expect(mockProbe).toHaveBeenCalledWith('https://chromium-review.googlesource.com');
         });
 
         test('falls back to next source when probe fails', async () => {
             // Setting host fails probing, but git config host succeeds probing
-            mockGerritHostSetting('stale-setting.example.com');
+            hostEnv.config.set('gerrit.host', 'stale-setting.example.com');
 
             cp.execSync(`git init --bare "${gitRoot}"`);
             cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "valid-git-host.example.com"`);
@@ -150,15 +135,13 @@ describe('Gerrit Host Detection Utilities', () => {
                 return h === 'https://valid-git-host.example.com';
             });
 
-            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe);
+            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://valid-git-host.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://stale-setting.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://valid-git-host.example.com');
         });
 
         test('git config host fails probing -> falls back to .gitreview', async () => {
-            mockGerritHostSetting(undefined);
-
             cp.execSync(`git init --bare "${gitRoot}"`);
             cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "stale-git.example.com"`);
 
@@ -168,15 +151,13 @@ describe('Gerrit Host Detection Utilities', () => {
                 return h === 'https://valid-review.example.com';
             });
 
-            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe);
+            const host = await detectGerritHost(tempDir, gitRoot, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://valid-review.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://stale-git.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://valid-review.example.com');
         });
 
         test('.gitreview host fails probing -> falls back to remotes', async () => {
-            mockGerritHostSetting(undefined);
-
             await fs.writeFile(path.join(tempDir, '.gitreview'), '[gerrit]\nhost=stale-review.example.com\n');
 
             const remotes = [{ name: 'origin', url: 'https://chromium.googlesource.com/chromium/src.git' }];
@@ -185,17 +166,17 @@ describe('Gerrit Host Detection Utilities', () => {
                 return h === 'https://chromium-review.googlesource.com';
             });
 
-            const host = await detectGerritHost(tempDir, null, remotes, mockProbe);
+            const host = await detectGerritHost(tempDir, null, remotes, mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBe('https://chromium-review.googlesource.com');
             expect(mockProbe).toHaveBeenCalledWith('https://stale-review.example.com');
             expect(mockProbe).toHaveBeenCalledWith('https://chromium-review.googlesource.com');
         });
 
         test('returns undefined if all candidates fail probing', async () => {
-            mockGerritHostSetting('broken-setting.example.com');
+            hostEnv.config.set('gerrit.host', 'broken-setting.example.com');
             mockProbe.mockResolvedValue(false);
 
-            const host = await detectGerritHost(tempDir, null, [], mockProbe);
+            const host = await detectGerritHost(tempDir, null, [], mockProbe, NO_OP_LOGGER, hostEnv);
             expect(host).toBeUndefined();
             expect(mockProbe).toHaveBeenCalledWith('https://broken-setting.example.com');
         });

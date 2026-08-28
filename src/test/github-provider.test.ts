@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
+import type { HostSecrets } from '../common/host-environment';
 import { GitHubProvider } from '../github-provider';
 import { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
@@ -70,7 +71,7 @@ describe('GitHubProvider', () => {
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
             promptForPat: vi.fn(),
-            secrets: createMock<vscode.SecretStorage>({
+            secrets: createMock<HostSecrets>({
                 get: vi.fn(),
                 store: vi.fn(),
                 delete: vi.fn(),

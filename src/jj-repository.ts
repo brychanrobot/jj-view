@@ -44,7 +44,7 @@ export class JjRepository implements Disposable {
             getConfig: (key, defaultValue) => host.config.get(key, defaultValue),
             processTracker,
         });
-        this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
+        this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, host, outputChannel);
 
         this._refreshQueue = new DebouncingQueue<RefreshPayload>(
             async (options) => {

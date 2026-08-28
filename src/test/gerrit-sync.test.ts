@@ -9,17 +9,12 @@ import { CodeForgeService } from '../code-forge-service';
 import { GerritProvider, type GerritRevision } from '../gerrit-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { createMock, exposePrivate, FakeConfigStore } from './test-utils';
-
-const fakeConfigStore = new FakeConfigStore();
+import { createMock, exposePrivate } from './test-utils';
 
 vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-        onDidChangeConfiguration: vi.fn(),
-    },
     Disposable: class {
         static from = vi.fn();
         constructor(private callOnDispose: () => void) {}
@@ -48,10 +43,12 @@ describe('Gerrit Sync Verification', () => {
     let provider: GerritProvider;
     let service: CodeForgeService;
     let fakeGerritServer: FakeGerritServer;
+    let host: FakeHostEnvironment;
 
     beforeEach(async () => {
         repo = new TestRepo();
         repo.init();
+        host = new FakeHostEnvironment();
         jjService = new JjService(repo.path, NO_OP_LOGGER);
         fakeGerritServer = new FakeGerritServer();
         await fakeGerritServer.start();
@@ -62,7 +59,7 @@ describe('Gerrit Sync Verification', () => {
             'probeGerritHost',
         ).mockResolvedValue(true);
 
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
     });
 
     afterEach(async () => {
@@ -73,12 +70,12 @@ describe('Gerrit Sync Verification', () => {
 
     function initService(): CodeForgeService {
         registry = new CodeForgeRegistry();
-        provider = new GerritProvider();
+        provider = new GerritProvider(NO_OP_LOGGER, host);
         registry.register({
             id: 'gerrit',
             create: () => provider,
         });
-        service = new CodeForgeService(repo.path, jjService, registry);
+        service = new CodeForgeService(repo.path, jjService, registry, host, NO_OP_LOGGER);
         return service;
     }
 

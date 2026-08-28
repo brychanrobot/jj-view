@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
+import type { HostSecrets } from '../common/host-environment';
 import { GitLabProvider } from '../gitlab-provider';
 import type { CodeForgeChangeInfo } from '../jj-types';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGitLabServer } from './helpers/fake-gitlab-server';
 import {
     accessPrivate,
@@ -49,6 +51,7 @@ vi.mock('vscode', () => ({
 }));
 
 describe('GitLabProvider', () => {
+    let host: FakeHostEnvironment;
     let provider: GitLabProvider;
     let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
@@ -56,6 +59,7 @@ describe('GitLabProvider', () => {
     let originalFetch: typeof global.fetch;
 
     beforeEach(() => {
+        host = new FakeHostEnvironment();
         originalEnv = process.env.JJ_VIEW_GITLAB_TOKEN;
         originalFetch = global.fetch;
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
@@ -72,13 +76,13 @@ describe('GitLabProvider', () => {
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
             promptForPat: vi.fn(),
-            secrets: createMock<vscode.SecretStorage>({
+            secrets: createMock<HostSecrets>({
                 get: vi.fn(),
                 store: vi.fn(),
                 delete: vi.fn(),
             }),
         });
-        provider = new GitLabProvider(mockAuthManager, mockOutputChannel);
+        provider = new GitLabProvider(mockAuthManager, mockOutputChannel, host);
         vi.mocked(vscode.window.showWarningMessage).mockReset();
     });
 
@@ -385,9 +389,7 @@ describe('GitLabProvider', () => {
 
         exposePrivate<{ handle403Warning(r: Response): void }>(provider).handle403Warning(response);
 
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-            expect.stringContaining('GitLab request failed (403 Forbidden)'),
-        );
+        expect(host.ui.warningMessages[0]).toContain('GitLab request failed (403 Forbidden)');
     });
 
     test('handle403Warning triggers warning with scopes if x-oauth-scopes present', () => {
@@ -405,10 +407,8 @@ describe('GitLabProvider', () => {
 
         exposePrivate<{ handle403Warning(r: Response): void }>(provider).handle403Warning(response);
 
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-            expect.stringContaining(
-                "The provided token has scopes [read_user, read_repository] but requires 'Merge Request' read/write permissions or 'api' scope",
-            ),
+        expect(host.ui.warningMessages[0]).toContain(
+            "The provided token has scopes [read_user, read_repository] but requires 'Merge Request' read/write permissions or 'api' scope",
         );
     });
 
@@ -675,6 +675,38 @@ describe('GitLabProvider', () => {
             await provider.resolveCommentThread('101', 'discussion-1', false);
             threads = await provider.getCommentThreads('101');
             expect(threads[0].isResolved).toBe(false);
+        });
+    });
+
+    describe('promptInstallGitLabExtension', () => {
+        test('falls back directly to promptForPat when host does not support extensions', async () => {
+            const noExtHost = new FakeHostEnvironment();
+            noExtHost.extensions = undefined;
+            const testProvider = new GitLabProvider(mockAuthManager, mockOutputChannel, noExtHost);
+            const priv = exposePrivate<{ promptInstallGitLabExtension(): Promise<void> }>(testProvider);
+
+            await priv.promptInstallGitLabExtension();
+
+            expect(mockAuthManager.promptForPat).toHaveBeenCalled();
+        });
+
+        test('shows warning and opens extension search when user selects Install Extension', async () => {
+            const priv = exposePrivate<{ promptInstallGitLabExtension(): Promise<void> }>(provider);
+            vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Install Extension');
+
+            await priv.promptInstallGitLabExtension();
+
+            expect(host.extensions?.searchedExtensions).toContain('gitlab.gitlab-workflow');
+            expect(mockAuthManager.promptForPat).not.toHaveBeenCalled();
+        });
+
+        test('shows warning and calls promptForPat when user selects Enter PAT', async () => {
+            const priv = exposePrivate<{ promptInstallGitLabExtension(): Promise<void> }>(provider);
+            vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Enter Personal Access Token (PAT)');
+
+            await priv.promptInstallGitLabExtension();
+
+            expect(mockAuthManager.promptForPat).toHaveBeenCalled();
         });
     });
 });

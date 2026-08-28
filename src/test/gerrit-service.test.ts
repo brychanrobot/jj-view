@@ -6,72 +6,29 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-// Vitest
-import * as vscode from 'vscode';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CodeForgeService } from '../code-forge-service';
 import { GerritProvider } from '../gerrit-provider';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import * as credentialUtils from '../utils/gerrit-credential-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
-import { accessPrivate, exposePrivate, FakeConfigStore } from './test-utils';
-import { asMock } from './vitest-utils';
-
-const fakeConfigStore = new FakeConfigStore();
-
-vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-        onDidChangeConfiguration: vi.fn(),
-    },
-    Disposable: class {
-        static from = vi.fn();
-        constructor(private callOnDispose: () => void) {}
-        dispose() {
-            this.callOnDispose?.();
-        }
-    },
-    EventEmitter: class {
-        private listeners: ((data: unknown) => void)[] = [];
-        event = (listener: (data: unknown) => void) => {
-            this.listeners.push(listener);
-            return {
-                dispose: () => {
-                    this.listeners = this.listeners.filter((l) => l !== listener);
-                },
-            };
-        };
-        fire = (data: unknown) => {
-            this.listeners.forEach((l) => {
-                l(data);
-            });
-        };
-        dispose = vi.fn();
-    },
-    window: {
-        state: { focused: true },
-        onDidChangeWindowState: vi.fn(),
-    },
-}));
+import { accessPrivate, exposePrivate } from './test-utils';
 
 describe('GerritService Detection', () => {
+    let host: FakeHostEnvironment;
     let repo: TestRepo;
     let service: CodeForgeService;
     let registry: CodeForgeRegistry;
     let provider: GerritProvider;
     let jjService: JjService;
-    let mockOnDidChangeWindowState: ReturnType<typeof vi.fn>;
     let fakeGerritServer: FakeGerritServer;
 
     beforeEach(async () => {
+        host = new FakeHostEnvironment();
         repo = new TestRepo();
         repo.init();
-        fakeConfigStore.clear();
-
-        mockOnDidChangeWindowState = asMock(vscode.window.onDidChangeWindowState);
-        mockOnDidChangeWindowState.mockReset();
-        mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
 
         // Default: allow host probing to succeed in tests
         vi.spyOn(
@@ -96,12 +53,12 @@ describe('GerritService Detection', () => {
 
     function initService(): CodeForgeService {
         registry = new CodeForgeRegistry();
-        provider = new GerritProvider();
+        provider = new GerritProvider(NO_OP_LOGGER, host);
         registry.register({
             id: 'gerrit',
             create: () => provider,
         });
-        service = new CodeForgeService(repo.path, jjService, registry);
+        service = new CodeForgeService(repo.path, jjService, registry, host, NO_OP_LOGGER);
         return service;
     }
 
@@ -111,7 +68,7 @@ describe('GerritService Detection', () => {
     }
 
     test('Detects from extension setting (highest priority)', async () => {
-        fakeConfigStore.set('gerrit.host', 'https://setting-host.com');
+        host.config.set('gerrit.host', 'https://setting-host.com');
 
         service = initService();
         await service.awaitReady();
@@ -204,7 +161,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses prioritizes Description Change-Id', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -225,7 +182,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses prioritizes Link trailer when Change-Id is missing', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -243,7 +200,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses extracts change number from different Link formats', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -252,31 +209,31 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({ _number: 333, status: 'NEW', change_id: 'I333' });
         fakeGerritServer.addChange({ _number: 444, status: 'NEW', change_id: 'I444' });
 
-        const host = fakeGerritServer.url;
+        const serverUrl = fakeGerritServer.url;
 
         // Format 1: /+/123
-        const desc1 = `Desc\n\nLink: ${host}/c/proj/+/111`;
+        const desc1 = `Desc\n\nLink: ${serverUrl}/c/proj/+/111`;
         await service.ensureFreshStatuses([{ commitId: 'c1', description: desc1, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc1)?.number).toBe(111);
 
         // Format 2: /123
-        const desc2 = `Desc\n\nLink: ${host}/222`;
+        const desc2 = `Desc\n\nLink: ${serverUrl}/222`;
         await service.ensureFreshStatuses([{ commitId: 'c2', description: desc2, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc2)?.number).toBe(222);
 
         // Format 3: /123/ (trailing slash)
-        const desc3 = `Desc\n\nLink: ${host}/333/`;
+        const desc3 = `Desc\n\nLink: ${serverUrl}/333/`;
         await service.ensureFreshStatuses([{ commitId: 'c3', description: desc3, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc3)?.number).toBe(333);
 
         // Format 4: /+/123/4 (with patchset number — should extract 444, not 7)
-        const desc4 = `Desc\n\nLink: ${host}/c/proj/+/444/7`;
+        const desc4 = `Desc\n\nLink: ${serverUrl}/c/proj/+/444/7`;
         await service.ensureFreshStatuses([{ commitId: 'c4', description: desc4, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc4)?.number).toBe(444);
     });
 
     test('ensureFreshStatuses prioritizes Change-Id over Link trailer', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -298,7 +255,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses falls back to Computed Change-Id', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -322,7 +279,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores commit SHA if Change-Id logic fails (or just returns undefined)', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -334,7 +291,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses handles invalid JJ Change-Id gracefully', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -353,7 +310,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses updates cache when status changes', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -381,7 +338,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects changes', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -417,7 +374,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses returns false if no changes', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -452,7 +409,7 @@ describe('GerritService Detection', () => {
     test('startPolling preserves cache and fires onDidUpdate', async () => {
         vi.useFakeTimers();
 
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -492,7 +449,7 @@ describe('GerritService Detection', () => {
     });
 
     test('forceRefresh preserves cache and fires onDidUpdate', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(true);
@@ -525,7 +482,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses parses changed files', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -561,7 +518,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects extra local files as not synced', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -602,7 +559,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects description mismatch as not synced', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -639,7 +596,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses accepts matching description regardless of whitespace', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -676,7 +633,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Change-Id footer differences', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -712,7 +669,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Link trailer footer differences during sync', async () => {
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -751,7 +708,7 @@ describe('GerritService Detection', () => {
 
     test('requestRefreshWithBackoffs schedules multiple refreshes', async () => {
         vi.useFakeTimers();
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -780,7 +737,7 @@ describe('GerritService Detection', () => {
 
     test('requestRefreshWithBackoffs cancels previous wave when called again', async () => {
         vi.useFakeTimers();
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
 
@@ -802,7 +759,7 @@ describe('GerritService Detection', () => {
         vi.setSystemTime(20000); // Start at t=20s to ensure throttling logic works (20000 > 10000)
 
         // Setup to be enabled
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
 
         // Initialize service
         service = initService();
@@ -814,30 +771,26 @@ describe('GerritService Detection', () => {
             updateCount++;
         });
 
-        // Check listener registration
-        expect(mockOnDidChangeWindowState).toHaveBeenCalled();
-        const listener = mockOnDidChangeWindowState.mock.calls[0][0];
-
         // 1. Trigger focus (should refresh)
-        listener({ focused: true });
+        host.ui.setFocused(true);
         expect(updateCount).toBe(1);
 
         // 2. Trigger focus again immediately (should be throttled)
-        listener({ focused: true });
+        host.ui.setFocused(true);
         expect(updateCount).toBe(1);
 
         // 3. Advance time by 5s (still throttled)
         await vi.advanceTimersByTimeAsync(5000);
-        listener({ focused: true });
+        host.ui.setFocused(true);
         expect(updateCount).toBe(1);
 
         // 4. Advance time by another 6s (total 11s > 10s) -> Should refresh
         await vi.advanceTimersByTimeAsync(6000);
-        listener({ focused: true });
+        host.ui.setFocused(true);
         expect(updateCount).toBe(2);
 
         // 5. Blur event (should NOT refresh)
-        listener({ focused: false });
+        host.ui.setFocused(false);
         expect(updateCount).toBe(2);
 
         disposable.dispose();
@@ -849,7 +802,7 @@ describe('GerritService Detection', () => {
         vi.useFakeTimers();
 
         // Start with no config so detection fails
-        fakeConfigStore.clear();
+        host.config.clear();
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
@@ -903,7 +856,7 @@ describe('GerritService Detection', () => {
 
     test('detectActiveProvider fires onDidUpdate only when host status changes', async () => {
         // Start disabled
-        fakeConfigStore.clear();
+        host.config.clear();
         service = initService();
         await service.awaitReady();
         expect(service.isEnabled).toBe(false);
@@ -918,7 +871,7 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(0);
 
         // Set config so it succeeds
-        fakeConfigStore.set('gerrit.host', fakeGerritServer.url);
+        host.config.set('gerrit.host', fakeGerritServer.url);
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(true);
         expect(updateCount).toBe(1);
@@ -928,7 +881,7 @@ describe('GerritService Detection', () => {
         expect(updateCount).toBe(1);
 
         // Change config back to undefined, should fire when disabled
-        fakeConfigStore.clear();
+        host.config.clear();
         await service.detectActiveProvider(true);
         expect(service.isEnabled).toBe(false);
         expect(updateCount).toBe(2);
@@ -940,7 +893,7 @@ describe('GerritService Detection', () => {
         test('caches auth header and refreshes after TTL', async () => {
             const authSpy = vi.spyOn(credentialUtils, 'getGerritAuthHeader');
             vi.useFakeTimers();
-            const provider = new GerritProvider();
+            const provider = new GerritProvider(NO_OP_LOGGER, host);
             const priv = exposePrivate<{
                 getAuthHeader(): Promise<{ name: string; value: string } | undefined>;
                 gerritHost?: string;
@@ -995,7 +948,7 @@ describe('GerritService Detection', () => {
 
         test.each([401, 403])('invalidates auth header on %i response', async (status) => {
             const authSpy = vi.spyOn(credentialUtils, 'getGerritAuthHeader');
-            const provider = new GerritProvider();
+            const provider = new GerritProvider(NO_OP_LOGGER, host);
             const priv = exposePrivate<{
                 getAuthHeader(): Promise<{ name: string; value: string } | undefined>;
                 fetchGerrit(url: string, options?: unknown): Promise<Response>;

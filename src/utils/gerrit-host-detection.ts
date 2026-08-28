@@ -6,7 +6,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { GitRemote } from '../code-forge-provider';
-import { getJjViewConfig } from './config-utils';
+import type { HostEnvironment } from '../common/host-environment';
 import { getGitConfig } from './gerrit-credential-utils';
 import type { LoggerChannel } from './output-channel';
 
@@ -31,11 +31,11 @@ export function normalizeHostUrl(hostUrl: string): string {
 }
 
 /**
- * Resolves the Gerrit host from the configured VS Code setting.
+ * Resolves the Gerrit host from the configured setting.
  */
-function getHostFromSettings(outputChannel?: LoggerChannel): string | undefined {
-    outputChannel?.debug('[GerritDetector] Checking VS Code settings for jj-view.gerrit.host...');
-    const settingHost = getJjViewConfig<string>('gerrit.host')?.trim();
+function getHostFromSettings(host: HostEnvironment, outputChannel?: LoggerChannel): string | undefined {
+    outputChannel?.debug('[GerritDetector] Checking settings for jj-view.gerrit.host...');
+    const settingHost = host.config.get<string>('gerrit.host')?.trim();
     if (settingHost) {
         if (settingHost.toLowerCase() === 'true' || settingHost.toLowerCase() === 'false') {
             outputChannel?.debug(
@@ -243,12 +243,13 @@ export async function detectGerritHost(
     gitRoot: string | null,
     remotes: GitRemote[],
     probeFn: (host: string) => Promise<boolean>,
-    outputChannel?: LoggerChannel,
+    outputChannel: LoggerChannel,
+    host: HostEnvironment,
 ): Promise<string | undefined> {
     outputChannel?.debug(`[GerritDetector] Starting host detection for repoRoot=${repoRoot}, gitRoot=${gitRoot}`);
 
     // 1. Check settings
-    const settingHost = getHostFromSettings(outputChannel);
+    const settingHost = getHostFromSettings(host, outputChannel);
     if (settingHost) {
         outputChannel?.debug(`[GerritDetector] Found setting host candidate: ${settingHost}`);
         if (await probeFn(settingHost)) {
