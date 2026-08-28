@@ -80,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 errorMessage = `Could not find 'jj' binary. Please ensure 'jj' is installed and in your PATH, or configure its path manually.`;
             }
         } catch (e: unknown) {
-            errorMessage = `Invalid 'jj' binary configuration: ${(e as Error).message}`;
+            errorMessage = `Invalid 'jj' binary configuration: ${toError(e).message}`;
         }
 
         if (resolvedPath) {
@@ -93,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     const showBinaryError = (message: string) => {
         const CONFIGURE = 'Configure Path';
-        vscode.window.showErrorMessage(message, CONFIGURE).then((selection) => {
+        hostEnvironment.ui.showErrorMessage(message, CONFIGURE).then((selection) => {
             if (selection === CONFIGURE) {
                 hostEnvironment.nav.openSettings('jj-view.binaryPath');
             }
@@ -137,9 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(processStatusBarItem);
 
     const updateProcessStatusBar = () => {
-        const showProcessMonitor = vscode.workspace
-            .getConfiguration('jj-view')
-            .get<boolean>('showProcessMonitorPanel', false);
+        const showProcessMonitor = hostEnvironment.config.get<boolean>('showProcessMonitorPanel', false);
         const metrics = processTracker.getMetrics();
         if (showProcessMonitor && metrics.activeCount > 0) {
             processStatusBarItem.text = `$(sync~spin) JJ: ${metrics.activeCount} running`;
@@ -186,39 +184,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const commentsProvider = new VsCodeCommentsProvider(commentsManager);
     context.subscriptions.push(commentsProvider);
 
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(async (e) => {
-            if (e.affectsConfiguration('jj-view.showProcessMonitorPanel')) {
-                updateProcessStatusBar();
-            }
-            if (e.affectsConfiguration('jj-view.binaryPath')) {
-                await updateBinaryPath();
-                await repositoryManager.scanForRepositories();
-            }
-            if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
-                setOpenDiffOnClickContext();
-                await Promise.all(
-                    Array.from(scmProviders.values()).map((scm) =>
-                        scm.repo.refresh({ reason: 'openDiffOnClick config change' }),
-                    ),
-                );
-            }
-            if (
-                e.affectsConfiguration('jj-view.autoRepositoryDetection') ||
-                e.affectsConfiguration('jj-view.scanRepositories') ||
-                e.affectsConfiguration('jj-view.ignoredRepositories')
-            ) {
-                await repositoryManager.scanForRepositories();
-            }
-            if (
-                e.affectsConfiguration('jj-view.commit') ||
-                e.affectsConfiguration('jj-view.minChangeIdLength') ||
-                e.affectsConfiguration('jj-view.logTheme')
-            ) {
-                await commitDetailsProvider.refresh('config change');
-            }
-        }),
-    );
+    if (hostEnvironment.config.onDidChangeConfiguration) {
+        context.subscriptions.push(
+            hostEnvironment.config.onDidChangeConfiguration(async (e) => {
+                if (e.affectsConfiguration('jj-view.showProcessMonitorPanel')) {
+                    updateProcessStatusBar();
+                }
+                if (e.affectsConfiguration('jj-view.binaryPath')) {
+                    await updateBinaryPath();
+                    await repositoryManager.scanForRepositories();
+                }
+                if (e.affectsConfiguration('jj-view.openDiffOnClick')) {
+                    setOpenDiffOnClickContext();
+                    await Promise.all(
+                        Array.from(scmProviders.values()).map((scm) =>
+                            scm.repo.refresh({ reason: 'openDiffOnClick config change' }),
+                        ),
+                    );
+                }
+                if (
+                    e.affectsConfiguration('jj-view.autoRepositoryDetection') ||
+                    e.affectsConfiguration('jj-view.scanRepositories') ||
+                    e.affectsConfiguration('jj-view.ignoredRepositories')
+                ) {
+                    await repositoryManager.scanForRepositories();
+                }
+                if (
+                    e.affectsConfiguration('jj-view.commit') ||
+                    e.affectsConfiguration('jj-view.minChangeIdLength') ||
+                    e.affectsConfiguration('jj-view.logTheme')
+                ) {
+                    await commitDetailsProvider.refresh('config change');
+                }
+            }),
+        );
+    }
 
     // Track active provider changes to update context keys
     const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
@@ -310,11 +310,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Register FileSystemProvider for read-only access to old file versions (for diffs)
     context.subscriptions.push(
+        viewFileSystemProvider,
         vscode.workspace.registerFileSystemProvider('jj-view', viewFileSystemProvider, { isReadonly: true }),
     );
 
     // Register FileSystemProvider for editable access to mutable revision files
-    context.subscriptions.push(vscode.workspace.registerFileSystemProvider('jj-edit', editFileSystemProvider));
+    context.subscriptions.push(
+        editFileSystemProvider,
+        vscode.workspace.registerFileSystemProvider('jj-edit', editFileSystemProvider),
+    );
 
     // Register ContentProvider for virtual merge output documents
     context.subscriptions.push(
@@ -430,90 +434,111 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     // SCM Discovery Lifecycle integration
-    repositoryManager.onDidOpenRepository((repo) => {
-        const repoPrefix = path.basename(repo.rootUri.fsPath);
-        const repoOutputChannel = new OutputChannel(realOutputChannel, repoPrefix);
-        const scmProvider = new VsCodeScmProvider(
-            context,
-            repo,
-            repoOutputChannel,
-            repositoryManager,
-            viewFileSystemProvider,
-            editFileSystemProvider,
-            () => repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath,
-        );
+    context.subscriptions.push(
+        repositoryManager.onDidOpenRepository((repo) => {
+            const repoPrefix = path.basename(repo.rootUri.fsPath);
+            const repoOutputChannel = new OutputChannel(realOutputChannel, repoPrefix);
+            const scmProvider = new VsCodeScmProvider(
+                context,
+                repo,
+                repoOutputChannel,
+                repositoryManager,
+                viewFileSystemProvider,
+                editFileSystemProvider,
+                () => repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath,
+            );
 
-        const decorationProvider = vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider);
-        const repoStatusSub = repo.onDidStatusChange(async (event) => {
-            if (repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath) {
-                // Update context keys for focused repo
-                await hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scmProvider.parentMutable);
-                await hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scmProvider.hasChild);
+            const decorationProvider = vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider);
+            const repoStatusSub = repo.onDidStatusChange(async (event) => {
+                if (repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath) {
+                    // Update context keys for focused repo
+                    await hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scmProvider.parentMutable);
+                    await hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scmProvider.hasChild);
 
-                // Refresh webview and commit details panel in parallel
-                await Promise.all([
-                    logWebviewProvider.controller.refresh(event.reason),
-                    commitDetailsProvider.refresh(event.reason),
-                ]);
-            }
-        });
-
-        const composite = vscode.Disposable.from(scmProvider, decorationProvider, repoStatusSub);
-        scmProviders.set(repo.rootUri.fsPath, scmProvider);
-        activeScmSubscriptions.set(repo.rootUri.fsPath, composite);
-
-        if (
-            !logWebviewProvider.repository ||
-            repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath
-        ) {
-            logWebviewProvider.updateRepository(repo).catch((err) => {
-                outputChannel.error('[Extension] Failed to update webview repository', toError(err));
-            });
-        }
-
-        // Fire and forget: check if we should warn about git colocation
-        checkGitColocation(repo.jj).catch((e) => {
-            outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}`, toError(e));
-        });
-    });
-
-    repositoryManager.onDidCloseRepository(async (repo) => {
-        const sub = activeScmSubscriptions.get(repo.rootUri.fsPath);
-        if (sub) {
-            sub.dispose();
-            activeScmSubscriptions.delete(repo.rootUri.fsPath);
-        }
-        scmProviders.delete(repo.rootUri.fsPath);
-    });
-
-    let focusedRepoActiveProviderSub: vscode.Disposable | undefined;
-    repositoryManager.onDidChangeFocusedRepository((repo) => {
-        focusedRepoActiveProviderSub?.dispose();
-        if (repo) {
-            logWebviewProvider.updateRepository(repo).catch((err) => {
-                outputChannel.error('[Extension] Failed to update webview repository', toError(err));
-            });
-            const scm = scmProviders.get(repo.rootUri.fsPath);
-            if (scm) {
-                hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scm.parentMutable);
-                hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scm.hasChild);
-            }
-            focusedRepoActiveProviderSub = repo.codeForge.onDidActiveProviderChange((provider) => {
-                updateContextKeys(provider);
-            });
-            // Force active provider detection for the focused repo and then update context keys immediately
-            repo.codeForge.detectActiveProvider(true).then(() => {
-                if (repositoryManager.focusedRepository === repo) {
-                    updateContextKeys(repo.codeForge.activeProvider);
+                    // Refresh webview and commit details panel in parallel
+                    await Promise.all([
+                        logWebviewProvider.controller.refresh(event.reason),
+                        commitDetailsProvider.refresh(event.reason),
+                    ]);
                 }
             });
-        } else {
-            focusedRepoActiveProviderSub = undefined;
-            updateContextKeys(undefined);
-            hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, false);
-            hostEnvironment.commands.setContextKey(JjContextKey.HasChild, false);
-        }
-    });
+
+            const composite = vscode.Disposable.from(scmProvider, decorationProvider, repoStatusSub);
+            scmProviders.set(repo.rootUri.fsPath, scmProvider);
+            activeScmSubscriptions.set(repo.rootUri.fsPath, composite);
+
+            if (
+                !logWebviewProvider.repository ||
+                repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath
+            ) {
+                logWebviewProvider.updateRepository(repo).catch((err) => {
+                    outputChannel.error('[Extension] Failed to update webview repository', toError(err));
+                });
+            }
+
+            // Fire and forget: check if we should warn about git colocation
+            checkGitColocation(repo.jj).catch((e) => {
+                outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}`, toError(e));
+            });
+        }),
+        repositoryManager.onDidCloseRepository(async (repo) => {
+            const sub = activeScmSubscriptions.get(repo.rootUri.fsPath);
+            if (sub) {
+                sub.dispose();
+                activeScmSubscriptions.delete(repo.rootUri.fsPath);
+            }
+            scmProviders.delete(repo.rootUri.fsPath);
+        }),
+    );
+
+    let focusedRepoActiveProviderSub: vscode.Disposable | undefined;
+    context.subscriptions.push(
+        repositoryManager.onDidChangeFocusedRepository((repo) => {
+            focusedRepoActiveProviderSub?.dispose();
+            if (repo) {
+                logWebviewProvider.updateRepository(repo).catch((err) => {
+                    outputChannel.error('[Extension] Failed to update webview repository', toError(err));
+                });
+                const scm = scmProviders.get(repo.rootUri.fsPath);
+                if (scm) {
+                    hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scm.parentMutable);
+                    hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scm.hasChild);
+                }
+                focusedRepoActiveProviderSub = repo.codeForge.onDidActiveProviderChange((provider) => {
+                    updateContextKeys(provider);
+                });
+                // Force active provider detection for the focused repo and then update context keys immediately
+                repo.codeForge
+                    .detectActiveProvider(true)
+                    .then(() => {
+                        if (repositoryManager.focusedRepository === repo) {
+                            updateContextKeys(repo.codeForge.activeProvider);
+                        }
+                    })
+                    .catch((err: unknown) => {
+                        outputChannel.error(
+                            '[Extension] Failed to detect active provider for focused repository',
+                            toError(err),
+                        );
+                    });
+            } else {
+                focusedRepoActiveProviderSub = undefined;
+                updateContextKeys(undefined);
+                hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, false);
+                hostEnvironment.commands.setContextKey(JjContextKey.HasChild, false);
+            }
+        }),
+        {
+            dispose: () => {
+                for (const sub of activeScmSubscriptions.values()) {
+                    sub.dispose();
+                }
+                activeScmSubscriptions.clear();
+                scmProviders.clear();
+                focusedRepoActiveProviderSub?.dispose();
+            },
+        },
+    );
 
     registerVSCodeCommands({
         context,
@@ -542,9 +567,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Trigger initial scan (non-blocking)
     if (!resolvedBinaryPath) {
-        updateBinaryPath().then(() => repositoryManager.scanForRepositories());
+        updateBinaryPath()
+            .then(() => repositoryManager.scanForRepositories())
+            .catch((err: unknown) => {
+                outputChannel.error('[Extension] Initial repository scan failed', toError(err));
+            });
     } else {
-        repositoryManager.scanForRepositories();
+        repositoryManager.scanForRepositories().catch((err: unknown) => {
+            outputChannel.error('[Extension] Initial repository scan failed', toError(err));
+        });
     }
 
     return {
