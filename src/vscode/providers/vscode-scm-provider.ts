@@ -15,7 +15,6 @@ import type { JjStatusEntry } from '../../jj-types';
 import { ScmModel, type ScmSnapshot } from '../../scm-model';
 import { createJjResourceState, type JjResourceState } from '../../scm-resource-state';
 import { getRepoRelativePath, type Uri } from '../../uri-utils';
-import { getJjViewConfig } from '../../utils/config-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeDecorationProvider } from './vscode-decoration-provider';
 import type { VsCodeEditFsProvider } from './vscode-edit-fs-provider';
@@ -148,7 +147,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
             return;
         }
 
-        const openDiffOnClick = getJjViewConfig<boolean>('openDiffOnClick', true) ?? true;
+        const openDiffOnClick = this.repo.host.config.get<boolean>('openDiffOnClick', true) ?? true;
         const currentEntry = snapshot.currentEntry;
 
         if (currentEntry) {

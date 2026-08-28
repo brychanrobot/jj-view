@@ -209,25 +209,25 @@ describe('GerritService Detection', () => {
         fakeGerritServer.addChange({ _number: 333, status: 'NEW', change_id: 'I333' });
         fakeGerritServer.addChange({ _number: 444, status: 'NEW', change_id: 'I444' });
 
-        const serverUrl = fakeGerritServer.url;
+        const gerritUrl = fakeGerritServer.url;
 
         // Format 1: /+/123
-        const desc1 = `Desc\n\nLink: ${serverUrl}/c/proj/+/111`;
+        const desc1 = `Desc\n\nLink: ${gerritUrl}/c/proj/+/111`;
         await service.ensureFreshStatuses([{ commitId: 'c1', description: desc1, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc1)?.number).toBe(111);
 
         // Format 2: /123
-        const desc2 = `Desc\n\nLink: ${serverUrl}/222`;
+        const desc2 = `Desc\n\nLink: ${gerritUrl}/222`;
         await service.ensureFreshStatuses([{ commitId: 'c2', description: desc2, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc2)?.number).toBe(222);
 
         // Format 3: /123/ (trailing slash)
-        const desc3 = `Desc\n\nLink: ${serverUrl}/333/`;
+        const desc3 = `Desc\n\nLink: ${gerritUrl}/333/`;
         await service.ensureFreshStatuses([{ commitId: 'c3', description: desc3, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc3)?.number).toBe(333);
 
         // Format 4: /+/123/4 (with patchset number — should extract 444, not 7)
-        const desc4 = `Desc\n\nLink: ${serverUrl}/c/proj/+/444/7`;
+        const desc4 = `Desc\n\nLink: ${gerritUrl}/c/proj/+/444/7`;
         await service.ensureFreshStatuses([{ commitId: 'c4', description: desc4, parents: [] }]);
         expect(provider.getCachedChangeInfo(undefined, desc4)?.number).toBe(444);
     });

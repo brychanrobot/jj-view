@@ -14,28 +14,6 @@ import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';
 import { createMock, exposePrivate } from './test-utils';
 
-vi.mock('vscode', () => ({
-    Disposable: class {
-        static from = vi.fn();
-        constructor(private callOnDispose: () => void) {}
-        dispose() {
-            this.callOnDispose?.();
-        }
-    },
-    EventEmitter: class {
-        event = vi.fn();
-        fire = vi.fn();
-        dispose = vi.fn();
-    },
-    window: {
-        state: { focused: true },
-        onDidChangeWindowState: vi.fn().mockReturnValue({ dispose: vi.fn() }),
-    },
-    Uri: {
-        file: (path: string) => ({ fsPath: path, scheme: 'file' }),
-    },
-}));
-
 describe('Gerrit Sync Verification', () => {
     let repo: TestRepo;
     let jjService: JjService;
