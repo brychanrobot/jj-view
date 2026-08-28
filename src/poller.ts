@@ -2,13 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type * as vscode from 'vscode';
+import type { HostDisposable } from './common/host-environment';
 
 /**
  * Manages a polling loop with a strict gap between executions.
  * Ensures only one poll is running at a time and handles disposal.
  */
-export class Poller implements vscode.Disposable {
+export class Poller implements HostDisposable {
     private _timer: NodeJS.Timeout | undefined;
     private _disposed = false;
     private _isPolling = false;

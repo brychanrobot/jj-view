@@ -24,8 +24,8 @@ import type {
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
 } from '../common/host-environment';
-import type { Uri } from '../uri-utils';
-import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri } from '../uri-utils';
+import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../uri-utils';
+
 import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
 
@@ -104,16 +104,12 @@ export class VsCodeHostUi implements HostUi {
         return await vscode.window.showInformationMessage(message, ...actions);
     }
 
-    async showWarning(
-        message: string,
-        optionsOrAction?: { modal?: boolean } | string,
-        ...actions: string[]
-    ): Promise<string | undefined> {
-        if (typeof optionsOrAction === 'object' && optionsOrAction !== null) {
-            return await vscode.window.showWarningMessage(message, optionsOrAction, ...actions);
-        }
-        const allActions = typeof optionsOrAction === 'string' ? [optionsOrAction, ...actions] : actions;
-        return await vscode.window.showWarningMessage(message, ...allActions);
+    async showWarning(message: string, ...actions: string[]): Promise<string | undefined> {
+        return await vscode.window.showWarningMessage(message, ...actions);
+    }
+
+    async showModalWarning(message: string, ...actions: string[]): Promise<string | undefined> {
+        return await vscode.window.showWarningMessage(message, { modal: true }, ...actions);
     }
 
     async showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined> {
@@ -178,6 +174,20 @@ export class VsCodeHostUi implements HostUi {
     getScmDescriptionInputValue(): string | undefined {
         return this.sourceControl?.inputBox.value;
     }
+
+    get isFocused(): boolean {
+        return vscode.window.state.focused;
+    }
+
+    readonly onDidChangeFocus: Event<boolean> = (listener, thisArgs, disposables) => {
+        const disposable = vscode.window.onDidChangeWindowState((state) => {
+            listener.call(thisArgs, state.focused);
+        });
+        if (disposables) {
+            disposables.push(disposable);
+        }
+        return disposable;
+    };
 }
 
 export class VsCodeHostConfig implements HostConfig {
@@ -196,11 +206,15 @@ export class VsCodeHostConfig implements HostConfig {
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
     get<T>(key: string, defaultValue?: T): T | undefined {
-        return getJjViewConfig<T>(key, defaultValue) ?? defaultValue;
+        const normalizedKey = key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
+        return getJjViewConfig<T>(normalizedKey, defaultValue) ?? defaultValue;
     }
 
     async update<T>(key: string, value: T): Promise<void> {
-        await vscode.workspace.getConfiguration('jj-view').update(key, value, vscode.ConfigurationTarget.Global);
+        const normalizedKey = key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
+        await vscode.workspace
+            .getConfiguration('jj-view')
+            .update(normalizedKey, value, vscode.ConfigurationTarget.Global);
     }
 }
 
@@ -250,7 +264,7 @@ export class VsCodeHostNavigation implements HostNavigation {
     }
 
     async openCommitDetails(
-        repoRoot: string,
+        repoRoot: Uri,
         changeId: string,
         shortestChangeId?: string,
         isDivergent?: boolean,
@@ -268,12 +282,12 @@ export class VsCodeHostNavigation implements HostNavigation {
         );
 
         const uri = createCommitDetailsUri({
-            repoRoot,
+            repoRoot: repoRoot.fsPath,
             changeId,
             title,
         });
 
-        await this.closeOtherCommitDetailsTabs(uri, repoRoot);
+        await this.closeOtherCommitDetailsTabs(uri, repoRoot.fsPath);
 
         await vscode.commands.executeCommand('vscode.openWith', uri, 'jj-view.commitDetailsEditor', {
             preview: true,
@@ -282,7 +296,7 @@ export class VsCodeHostNavigation implements HostNavigation {
     }
 
     async closeCommitDetailsTabs(
-        predicate: (repoRoot?: string) => boolean,
+        predicate: (repoRoot?: Uri) => boolean,
         viewType: string = 'jj-view.commitDetailsEditor',
     ): Promise<void> {
         await closeMatchingTabs((tab) => {
@@ -291,8 +305,9 @@ export class VsCodeHostNavigation implements HostNavigation {
             }
             try {
                 const query = getUriParams(tab.input.uri);
-                const repoRoot = query.get('repoRoot') || undefined;
-                return predicate(repoRoot);
+                const repoRootPath = query.get('repoRoot');
+                const repoRootUri = repoRootPath ? Uri.file(repoRootPath) : undefined;
+                return predicate(repoRootUri);
             } catch {
                 return predicate(undefined);
             }
@@ -329,8 +344,8 @@ export class VsCodeHostNavigation implements HostNavigation {
         await vscode.commands.executeCommand('vscode.openFolder', folderUri, { forceNewWindow });
     }
 
-    async openExternal(url: string): Promise<void> {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
+    async openExternal(target: Uri): Promise<void> {
+        await vscode.env.openExternal(vscode.Uri.parse(target.toString()));
     }
 
     async copyToClipboard(text: string): Promise<void> {
@@ -381,6 +396,16 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
     private readonly _onDidChangeActiveDocumentEmitter = new EventEmitter<Uri | undefined>();
     readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocumentEmitter.event;
     private readonly _disposables: vscode.Disposable[] = [];
+
+    readonly onDidSaveDocument: Event<Uri> = (listener, thisArgs, disposables) => {
+        const disposable = vscode.workspace.onDidSaveTextDocument((doc) => {
+            listener.call(thisArgs, doc.uri);
+        });
+        if (disposables) {
+            disposables.push(disposable);
+        }
+        return disposable;
+    };
 
     constructor() {
         const notify = () => {

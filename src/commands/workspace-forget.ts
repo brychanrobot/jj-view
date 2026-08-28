@@ -19,11 +19,10 @@ export async function workspaceForgetCommand(ctx: CommandContext, payload?: Work
     }
 
     const YES = 'Yes, Forget Workspace';
-    const result = await ctx.host.ui.showWarning(
-        `Are you sure you want to forget the workspace "${workspaceName}"? This will untrack it but will not delete the directory from disk.`,
-        { modal: true },
-        YES,
-    );
+    const warningMessage = `Are you sure you want to forget the workspace "${workspaceName}"? This will untrack it but will not delete the directory from disk.`;
+    const result = ctx.host.ui.showModalWarning
+        ? await ctx.host.ui.showModalWarning(warningMessage, YES)
+        : await ctx.host.ui.showWarning(warningMessage, YES);
 
     if (result !== YES) {
         return;

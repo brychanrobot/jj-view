@@ -6,16 +6,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BackendType } from '@parcel/watcher';
-import * as vscode from 'vscode';
+import type { HostDisposable, HostEnvironment } from './common/host-environment';
 import { DirectoryWatcher } from './directory-watcher';
 import type { JjService } from './jj-service';
 import { Poller } from './poller';
-import { getJjViewConfig } from './utils/config-utils';
 import type { LoggerChannel } from './utils/output-channel';
 
-export class ChangeDetectionManager implements vscode.Disposable {
+export class ChangeDetectionManager implements HostDisposable {
     private _disposed = false;
-    private disposables: vscode.Disposable[] = [];
+    private disposables: HostDisposable[] = [];
 
     private _workingCopyWatcher: DirectoryWatcher | undefined;
     private _opHeadsWatcher: DirectoryWatcher | undefined;
@@ -50,6 +49,9 @@ export class ChangeDetectionManager implements vscode.Disposable {
         }
         this._deferredRefreshTimeout = setTimeout(() => {
             this._deferredRefreshTimeout = undefined;
+            if (this._disposed) {
+                return;
+            }
             const writes = this.hasActiveOrRecentWrites;
             if (writes) {
                 this._scheduleDeferredRefresh();
@@ -65,6 +67,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         private jj: JjService,
         private outputChannel: LoggerChannel,
         private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
+        private readonly host: HostEnvironment,
         private readonly watcherBackend?: BackendType,
     ) {
         // Initialize poller with 5 second interval
@@ -75,43 +78,50 @@ export class ChangeDetectionManager implements vscode.Disposable {
             }
         });
 
-        // 1. Watch for editor saves (catches user edits in VS Code)
-        this.disposables.push(
-            vscode.workspace.onDidSaveTextDocument((doc) => {
-                if (doc.uri.scheme !== 'file') {
-                    return;
-                }
-                const { fsPath } = doc.uri;
-                if (/[\\/]\.jj[\\/]/.test(fsPath)) {
-                    return;
-                }
-                const relative = path.relative(this.workspaceRoot, fsPath);
-                if (relative.startsWith('..') || path.isAbsolute(relative)) {
-                    return;
-                }
-                this.triggerRefresh({ forceSnapshot: true, reason: 'file saved' });
-            }),
-        );
+        // 1. Watch for editor saves (catches user edits in host)
+        if (this.host.documents.onDidSaveDocument) {
+            this.disposables.push(
+                this.host.documents.onDidSaveDocument((uri) => {
+                    if (this._disposed) {
+                        return;
+                    }
+                    if (uri.scheme !== 'file') {
+                        return;
+                    }
+                    const { fsPath } = uri;
+                    if (/[\\/]\.jj[\\/]/.test(fsPath)) {
+                        return;
+                    }
+                    const relative = path.relative(this.workspaceRoot, fsPath);
+                    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+                        return;
+                    }
+                    this.triggerRefresh({ forceSnapshot: true, reason: 'file saved' });
+                }),
+            );
+        }
 
         // 2. Poll for external changes or start main watcher
         // Listen for window state changes to pause/resume polling if in polling mode
-        this.disposables.push(
-            vscode.window.onDidChangeWindowState((state) => {
-                this.onWindowStateChange(state);
-            }),
-        );
-
-        // Initialize focus state
-        this._isFocused = vscode.window.state.focused;
+        this._isFocused = this.host.ui.isFocused ?? true;
+        if (this.host.ui.onDidChangeFocus) {
+            this.disposables.push(
+                this.host.ui.onDidChangeFocus((focused) => {
+                    this.onWindowStateChange(focused);
+                }),
+            );
+        }
 
         // Listen for configuration changes
-        this.disposables.push(
-            vscode.workspace.onDidChangeConfiguration(async (e) => {
-                if (e.affectsConfiguration('jj-view.fileWatcherMode')) {
-                    await this.updateFileWatcherMode();
-                }
-            }),
-        );
+        if (this.host.config.onDidChangeConfiguration) {
+            this.disposables.push(
+                this.host.config.onDidChangeConfiguration(async (e) => {
+                    if (e.affectsConfiguration('jj-view.fileWatcherMode')) {
+                        await this.updateFileWatcherMode();
+                    }
+                }),
+            );
+        }
 
         // Initialize watchers synchronously
         this._lifecyclePromise = Promise.all([this.startOpHeadsWatcher(), this.updateFileWatcherModeInternal()])
@@ -140,7 +150,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
         if (this._disposed) {
             return;
         }
-        const mode = getJjViewConfig<'polling' | 'watch'>('fileWatcherMode', 'polling') ?? 'polling';
+        const mode = this.host.config.get<'polling' | 'watch'>('fileWatcherMode', 'polling') ?? 'polling';
         this.outputChannel.debug(`[ChangeDetectionManager] File watcher mode: ${mode}`);
 
         const modeChanged = this._fileWatcherMode !== mode;
@@ -155,10 +165,10 @@ export class ChangeDetectionManager implements vscode.Disposable {
         this.updatePollingState();
     }
 
-    private onWindowStateChange(state: vscode.WindowState) {
-        this._isFocused = state.focused;
+    private onWindowStateChange(focused: boolean) {
+        this._isFocused = focused;
         // If getting focused, we want an immediate poll
-        this.updatePollingState(state.focused);
+        this.updatePollingState(focused);
     }
 
     /**
@@ -228,22 +238,28 @@ export class ChangeDetectionManager implements vscode.Disposable {
                     this.outputChannel,
                     'OpHeads Watcher',
                     this.watcherBackend,
+                    this.host,
                 );
                 await this._opHeadsWatcher.start();
                 return; // Success
             } catch (err) {
+                if (this._disposed) {
+                    return;
+                }
                 this.outputChannel.error(
                     `[Error] [ChangeDetectionManager] startOpHeadsWatcher retry ${retries} failed for path ${this.workspaceRoot}: ${err instanceof Error ? err.stack : err}`,
                 );
                 lastErr = err;
                 retries++;
-                if (retries < maxRetries) {
+                if (retries < maxRetries && !this._disposed) {
                     await new Promise((resolve) => setTimeout(resolve, 200));
                 }
             }
         }
 
-        this.outputChannel.error(`Failed to setup op_heads watcher after ${maxRetries} retries: ${lastErr}`);
+        if (!this._disposed) {
+            this.outputChannel.error(`Failed to setup op_heads watcher after ${maxRetries} retries: ${lastErr}`);
+        }
     }
 
     private async startWorkingCopyWatchingInternal() {
@@ -305,6 +321,7 @@ export class ChangeDetectionManager implements vscode.Disposable {
             this.outputChannel,
             'Working Copy Watcher',
             this.watcherBackend,
+            this.host,
         );
 
         this.outputChannel.info(

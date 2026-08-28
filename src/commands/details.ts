@@ -23,7 +23,7 @@ export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDeta
             throw new Error(`No log entry found for revision: ${revision}`);
         }
         await nav.openCommitDetails(
-            jj.workspaceRoot,
+            repo.rootUri,
             logEntry.change_id,
             logEntry.change_id_shortest,
             logEntry.is_divergent,

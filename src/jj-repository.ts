@@ -9,10 +9,10 @@ import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
 import { AsyncEventEmitter, type Disposable } from './common/events';
+import type { HostEnvironment } from './common/host-environment';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
 import type { Uri } from './uri-utils';
-import { getJjViewConfig } from './utils/config-utils';
 import { DebouncingQueue } from './utils/debouncing-queue';
 import type { LoggerChannel } from './utils/output-channel';
 
@@ -35,12 +35,13 @@ export class JjRepository implements Disposable {
         public readonly storePath: string,
         registry: CodeForgeRegistry,
         outputChannel: LoggerChannel,
+        host: HostEnvironment,
         binaryPath?: string,
         processTracker?: JjProcessTracker,
     ) {
         this._jj = new JjService(rootUri.fsPath, outputChannel, {
             binaryPath,
-            getConfig: getJjViewConfig,
+            getConfig: (key, defaultValue) => host.config.get(key, defaultValue),
             processTracker,
         });
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, outputChannel);
@@ -67,8 +68,8 @@ export class JjRepository implements Disposable {
                 }
             },
             {
-                getDebounceMillis: () => getJjViewConfig<number>('refreshDebounceMillis', 100) ?? 100,
-                getMaxMultiplier: () => getJjViewConfig<number>('refreshDebounceMaxMultiplier', 4) ?? 4,
+                getDebounceMillis: () => host.config.get<number>('refreshDebounceMillis', 100) ?? 100,
+                getMaxMultiplier: () => host.config.get<number>('refreshDebounceMaxMultiplier', 4) ?? 4,
                 mergePayloads: (prev, next) => ({
                     forceSnapshot: prev.forceSnapshot || next.forceSnapshot,
                     reasons: new Set([...prev.reasons, ...next.reasons]),
@@ -77,17 +78,23 @@ export class JjRepository implements Disposable {
             },
         );
 
-        this._watcher = new ChangeDetectionManager(rootUri.fsPath, this._jj, outputChannel, async (options) => {
-            const payload: RefreshPayload = {
-                forceSnapshot: !!options?.forceSnapshot,
-                reasons: options?.reason ? new Set([options.reason]) : new Set(),
-            };
-            try {
-                await this._refreshQueue.push(payload);
-            } catch {
-                // Background change detection refreshes log errors via the queue logger.
-            }
-        });
+        this._watcher = new ChangeDetectionManager(
+            rootUri.fsPath,
+            this._jj,
+            outputChannel,
+            async (options) => {
+                const payload: RefreshPayload = {
+                    forceSnapshot: !!options?.forceSnapshot,
+                    reasons: options?.reason ? new Set([options.reason]) : new Set(),
+                };
+                try {
+                    await this._refreshQueue.push(payload);
+                } catch {
+                    // Background change detection refreshes log errors via the queue logger.
+                }
+            },
+            host,
+        );
     }
 
     get activeRefresh(): Promise<void> | undefined {

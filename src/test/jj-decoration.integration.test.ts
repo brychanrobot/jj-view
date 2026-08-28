@@ -79,11 +79,10 @@ suite('JJ Decoration Integration Test', () => {
 
         // Get decoration for the file
         const uri = Uri.file(file1);
-        const result = scmProvider.decorationProvider.provideFileDecoration(
+        const decoration = await scmProvider.decorationProvider.provideFileDecoration(
             uri,
             new vscode.CancellationTokenSource().token,
         );
-        const decoration = result as vscode.FileDecoration | undefined;
 
         assert.ok(decoration, 'Decoration should be defined for new file');
         assert.strictEqual(decoration?.badge, 'A', 'Badge should be A for added file');
@@ -124,11 +123,10 @@ suite('JJ Decoration Integration Test', () => {
         );
 
         // Check Decoration based on THAT specific URI
-        const result = scmProvider.decorationProvider.provideFileDecoration(
+        const decoration = await scmProvider.decorationProvider.provideFileDecoration(
             parentResource.resourceUri,
             new vscode.CancellationTokenSource().token,
         );
-        const decoration = result as vscode.FileDecoration | undefined;
 
         // Since we modified it in parent (relative to root), status should be Modified?
         // Wait, 'getLog' for Parent returns changes relative to ITS parent.
