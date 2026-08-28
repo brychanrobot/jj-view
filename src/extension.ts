@@ -104,15 +104,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     };
     setOpenDiffOnClickContext();
 
+    const hostEnvironment = new VsCodeHostEnvironment({ context });
+    context.subscriptions.push(hostEnvironment);
+
     const codeForgeRegistry = new CodeForgeRegistry();
     context.subscriptions.push(codeForgeRegistry);
-    const authManager = new CodeForgeAuthManager(context, outputChannel);
+    const authManager = new CodeForgeAuthManager(hostEnvironment, outputChannel);
     context.subscriptions.push(authManager);
 
     context.subscriptions.push(
         codeForgeRegistry.register({
             id: 'gerrit',
-            create: (outputChannel) => new GerritProvider(outputChannel),
+            create: (outputChannel, host) => new GerritProvider(outputChannel, host),
         }),
     );
     context.subscriptions.push(
@@ -124,7 +127,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(
         codeForgeRegistry.register({
             id: 'gitlab',
-            create: (outputChannel) => new GitLabProvider(authManager, outputChannel),
+            create: (outputChannel, host) => new GitLabProvider(authManager, outputChannel, host),
         }),
     );
 
@@ -151,9 +154,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(processTracker.onDidChangeProcesses(updateProcessStatusBar));
 
     registerProcessMonitorCommands(context, processTracker);
-
-    const hostEnvironment = new VsCodeHostEnvironment({ context });
-    context.subscriptions.push(hostEnvironment);
 
     const repositoryManager = new JjRepositoryManager(
         codeForgeRegistry,

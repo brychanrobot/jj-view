@@ -14,24 +14,12 @@ import { GerritProvider } from '../gerrit-provider';
 import type { JjService } from '../jj-service';
 import type { CodeForgeChangeInfo } from '../jj-types';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
-import {
-    accessPrivate,
-    createMock,
-    createMockLogOutputChannel,
-    exposePrivate,
-    FakeConfigStore,
-    setPrivate,
-} from './test-utils';
-
-let fakeConfigStore = new FakeConfigStore();
+import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
 
 // Mock VS Code
 vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-        onDidChangeConfiguration: vi.fn(),
-    },
     Disposable: class {
         static from = vi.fn();
         dispose() {}
@@ -73,16 +61,17 @@ describe('GerritProvider', () => {
     let provider: GerritProvider;
     let mockJjService: JjService;
     let mockOutputChannel: vscode.LogOutputChannel;
+    let host: FakeHostEnvironment;
 
     beforeEach(() => {
-        fakeConfigStore = new FakeConfigStore();
+        host = new FakeHostEnvironment();
         mockJjService = createMock<JjService>({});
         mockOutputChannel = createMockLogOutputChannel({ appendLine: vi.fn() });
-        provider = new GerritProvider(mockOutputChannel);
+        provider = new GerritProvider(mockOutputChannel, host);
     });
 
     test('detect trims and checks for blank gerrit.host setting', async () => {
-        fakeConfigStore.set('gerrit.host', '   '); // whitespace only
+        host.config.set('gerrit.host', '   '); // whitespace only
 
         // With blank host, should fall back to checking .gitreview/remotes and return false since they don't exist
         const result = await provider.detect('/root', []);
@@ -96,7 +85,7 @@ describe('GerritProvider', () => {
         cp.execSync(`git init --bare "${gitRoot}"`);
         cp.execSync(`git --git-dir="${gitRoot}" config gerrit.host "git-config-host.example.com"`);
 
-        fakeConfigStore.set('binaryPath', 'jj');
+        host.config.set('binaryPath', 'jj');
 
         setPrivate(provider, 'repoRoot', tempRepoDir);
         setPrivate(provider, 'gitRoot', gitRoot);

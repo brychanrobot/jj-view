@@ -15,6 +15,7 @@ import type {
     HostDisposable,
     HostDocuments,
     HostEnvironment,
+    HostExtensions,
     HostNavigation,
     HostSecrets,
     HostStorage,
@@ -625,9 +626,19 @@ export class VsCodeHostAuth implements HostAuth {
     async getSession(
         providerId: string,
         scopes: string[],
-        options?: { silent?: boolean; createIfNone?: boolean },
+        options?: { silent?: boolean; createIfNone?: boolean; forceNewSession?: boolean },
     ): Promise<HostAuthSession | undefined> {
         return await vscode.authentication.getSession(providerId, scopes, options);
+    }
+}
+
+export class VsCodeHostExtensions implements HostExtensions {
+    hasExtension(extensionId: string): boolean {
+        return !!vscode.extensions.getExtension(extensionId);
+    }
+
+    async openExtensionSearch(extensionId: string): Promise<void> {
+        await vscode.commands.executeCommand('workbench.extensions.search', extensionId);
     }
 }
 
@@ -682,6 +693,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
     readonly commands: HostCommands;
     readonly views: HostViews;
     readonly workspace: HostWorkspace;
+    readonly extensions: HostExtensions;
 
     constructor(options: {
         context: vscode.ExtensionContext;
@@ -697,6 +709,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
         this.commands = new VsCodeHostCommands();
         this.views = new VsCodeHostViews();
         this.workspace = new VsCodeHostWorkspace();
+        this.extensions = new VsCodeHostExtensions();
     }
 
     dispose(): void {

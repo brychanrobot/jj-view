@@ -169,7 +169,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: LoggerChannel,
+        private outputChannel: LoggerChannel,
     ) {
         this.authManager.registerProvider(this.id);
     }

@@ -17,6 +17,7 @@ import type {
     HostDisposable,
     HostDocuments,
     HostEnvironment,
+    HostExtensions,
     HostNavigation,
     HostSecrets,
     HostStorage,
@@ -86,6 +87,8 @@ export class FakeHostUi implements HostUi {
         prompt?: string;
         value?: string;
         placeHolder?: string;
+        password?: boolean;
+        ignoreFocusOut?: boolean;
         validateInput?: (value: string) => string | null | undefined | Promise<string | null | undefined>;
     }): Promise<string | undefined> {
         return this.inputBoxResponses.shift();
@@ -247,8 +250,14 @@ export class FakeHostConfig implements HostConfig {
         const normalized = this.normalizeKey(key);
         this.values.set(normalized, value);
         this._onDidChangeConfiguration.fire({
-            affectsConfiguration: (section: string) =>
-                section === key || section === normalized || section === `jj-view.${normalized}`,
+            affectsConfiguration: (section: string) => {
+                const normSection = this.normalizeKey(section);
+                return (
+                    normalized === normSection ||
+                    normalized.startsWith(`${normSection}.`) ||
+                    normSection.startsWith(`${normalized}.`)
+                );
+            },
         });
     }
 
@@ -264,6 +273,10 @@ export class FakeHostConfig implements HostConfig {
 
     async update<T>(key: string, value: T): Promise<void> {
         this.set(key, value);
+    }
+
+    clear(): void {
+        this.values.clear();
     }
 }
 
@@ -446,9 +459,22 @@ export class FakeHostAuth implements HostAuth {
     async getSession(
         providerId: string,
         _scopes: string[],
-        _options?: { silent?: boolean; createIfNone?: boolean },
+        _options?: { silent?: boolean; createIfNone?: boolean; forceNewSession?: boolean },
     ): Promise<HostAuthSession | undefined> {
         return this.sessions.get(providerId);
+    }
+}
+
+export class FakeHostExtensions implements HostExtensions {
+    public installedExtensions = new Set<string>();
+    public searchedExtensions: string[] = [];
+
+    hasExtension(extensionId: string): boolean {
+        return this.installedExtensions.has(extensionId);
+    }
+
+    async openExtensionSearch(extensionId: string): Promise<void> {
+        this.searchedExtensions.push(extensionId);
     }
 }
 
@@ -515,6 +541,7 @@ export class FakeHostEnvironment implements HostEnvironment {
     readonly commands: FakeHostCommands;
     readonly views: FakeHostViews;
     readonly workspace: FakeHostWorkspace;
+    public extensions?: FakeHostExtensions;
 
     constructor() {
         this.ui = new FakeHostUi();
@@ -527,6 +554,7 @@ export class FakeHostEnvironment implements HostEnvironment {
         this.commands = new FakeHostCommands();
         this.views = new FakeHostViews();
         this.workspace = new FakeHostWorkspace();
+        this.extensions = new FakeHostExtensions();
     }
 }
 

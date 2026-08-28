@@ -19,6 +19,8 @@ export interface HostUi {
         prompt?: string;
         value?: string;
         placeHolder?: string;
+        password?: boolean;
+        ignoreFocusOut?: boolean;
         validateInput?: (value: string) => string | null | undefined | Promise<string | null | undefined>;
     }): Promise<string | undefined>;
     showQuickPick<T extends { label: string; value?: unknown }>(
@@ -142,8 +144,13 @@ export interface HostAuth {
     getSession(
         providerId: string,
         scopes: string[],
-        options?: { silent?: boolean; createIfNone?: boolean },
+        options?: { silent?: boolean; createIfNone?: boolean; forceNewSession?: boolean },
     ): Promise<HostAuthSession | undefined>;
+}
+
+export interface HostExtensions {
+    hasExtension(extensionId: string): boolean;
+    openExtensionSearch?(extensionId: string): Promise<void>;
 }
 
 export interface HostCommands {
@@ -170,4 +177,5 @@ export interface HostEnvironment {
     readonly commands: HostCommands;
     readonly views: HostViews;
     readonly workspace: HostWorkspace;
+    readonly extensions?: HostExtensions;
 }

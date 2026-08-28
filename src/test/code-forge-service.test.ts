@@ -2,50 +2,22 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-// sort-imports-ignore
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import * as vscode from 'vscode';
-import { NO_OP_LOGGER } from '../jj-service';
-import { FakeConfigStore } from './test-utils';
-
-const fakeConfigStore = new FakeConfigStore();
-let mockConfigListener: ((e: { affectsConfiguration(section: string): boolean }) => void) | undefined;
-let mockWindowStateListener: ((e: { focused: boolean }) => void) | undefined;
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock({
-        workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/root' } }],
-            getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-            onDidChangeConfiguration: vi.fn().mockImplementation((listener) => {
-                mockConfigListener = listener;
-                return { dispose: vi.fn() };
-            }),
-        },
-        window: {
-            state: { focused: true },
-            onDidChangeWindowState: vi.fn().mockImplementation((listener) => {
-                mockWindowStateListener = listener;
-                return { dispose: vi.fn() };
-            }),
-        },
-    });
-});
-
 import type { CodeForgeProvider, GitRemote } from '../code-forge-provider';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { CodeForgeService } from '../code-forge-service';
-import { JjService } from '../jj-service';
+import { EventEmitter } from '../common/events';
+import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
 
 class MockProvider implements CodeForgeProvider {
     readonly changeTerm = 'Change';
     private cache = new Map<string, CodeForgeChangeInfo>();
-    private emitter = new vscode.EventEmitter<void>();
+    private emitter = new EventEmitter<void>();
     readonly onDidUpdate = this.emitter.event;
     public dispose?: () => void;
 
@@ -82,6 +54,7 @@ class MockProvider implements CodeForgeProvider {
 }
 
 describe('CodeForgeService Tests', () => {
+    let host: FakeHostEnvironment;
     let registry: CodeForgeRegistry;
     let repo1: TestRepo;
     let repo2: TestRepo;
@@ -89,7 +62,7 @@ describe('CodeForgeService Tests', () => {
     let jjService2: JjService;
 
     beforeEach(() => {
-        fakeConfigStore.clear();
+        host = new FakeHostEnvironment();
         registry = new CodeForgeRegistry();
 
         repo1 = new TestRepo();
@@ -120,8 +93,8 @@ describe('CodeForgeService Tests', () => {
             },
         });
 
-        const service1 = new CodeForgeService(repo1.path, jjService1, registry);
-        const service2 = new CodeForgeService(repo2.path, jjService2, registry);
+        const service1 = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        const service2 = new CodeForgeService(repo2.path, jjService2, registry, host, NO_OP_LOGGER);
 
         await service1.awaitReady();
         await service2.awaitReady();
@@ -153,7 +126,7 @@ describe('CodeForgeService Tests', () => {
     });
 
     test('dynamic factory registration instantiates provider and triggers detection', async () => {
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         let factoryCreated = false;
@@ -174,17 +147,13 @@ describe('CodeForgeService Tests', () => {
     });
 
     test('config changes trigger active provider re-detection', async () => {
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         const detectSpy = vi.spyOn(service, 'detectActiveProvider');
 
         // Fire configuration change event
-        if (mockConfigListener) {
-            mockConfigListener({
-                affectsConfiguration: (section: string) => section === 'jj-view.codeForge',
-            });
-        }
+        host.config.set('codeForge.provider', 'mock-provider');
 
         expect(detectSpy).toHaveBeenCalledWith(true);
 
@@ -200,7 +169,7 @@ describe('CodeForgeService Tests', () => {
             create: () => provider,
         });
 
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         // Must be enabled (have an active provider)
@@ -209,22 +178,16 @@ describe('CodeForgeService Tests', () => {
         const refreshSpy = vi.spyOn(service, 'forceRefresh');
 
         // Gaining focus should trigger refresh
-        if (mockWindowStateListener) {
-            mockWindowStateListener({ focused: true });
-        }
+        host.ui.setFocused(true);
         expect(refreshSpy).toHaveBeenCalledTimes(1);
 
         // Instant focus again should NOT trigger refresh (throttled to 10s)
-        if (mockWindowStateListener) {
-            mockWindowStateListener({ focused: true });
-        }
+        host.ui.setFocused(true);
         expect(refreshSpy).toHaveBeenCalledTimes(1);
 
         // Advance timers by 11 seconds to bypass throttle
         await vi.advanceTimersByTimeAsync(11000);
-        if (mockWindowStateListener) {
-            mockWindowStateListener({ focused: true });
-        }
+        host.ui.setFocused(true);
         expect(refreshSpy).toHaveBeenCalledTimes(2);
 
         vi.useRealTimers();
@@ -238,7 +201,7 @@ describe('CodeForgeService Tests', () => {
             create: () => provider,
         });
 
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         let serviceUpdated = false;
@@ -261,16 +224,13 @@ describe('CodeForgeService Tests', () => {
         registry.register({ id: 'provider-b', create: () => providerB });
 
         // Set preferred provider setting
-        fakeConfigStore.set('codeForge.provider', 'provider-b');
+        host.config.set('codeForge.provider', 'provider-b');
 
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         // provider-b should be preferred and active
         expect(service.activeProvider).toBe(providerB);
-
-        // Reset preferred setting
-        fakeConfigStore.clear();
 
         service.dispose();
     });
@@ -279,7 +239,7 @@ describe('CodeForgeService Tests', () => {
         const provider = new MockProvider();
         registry.register({ id: 'mock-provider', create: () => provider });
 
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         const change1 = createMock<CodeForgeChangeInfo>({
@@ -384,7 +344,7 @@ describe('CodeForgeService Tests', () => {
             create: () => mockProvider,
         });
 
-        const service = new CodeForgeService(repo1.path, jjService1, registry);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
         expect(service.isEnabled).toBe(true);

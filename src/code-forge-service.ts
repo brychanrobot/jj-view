@@ -2,21 +2,20 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
 import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { type Disposable, disposeSafely, type Event, EventEmitter } from './common/events';
+import type { HostDisposable, HostEnvironment } from './common/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
-import { getJjViewConfig } from './utils/config-utils';
 import type { LoggerChannel } from './utils/output-channel';
 import { TimerBucket } from './utils/timer-bucket';
 
 export class CodeForgeService implements Disposable {
     private poller: NodeJS.Timeout | undefined;
     private activeProviderDisposable: Disposable | undefined;
-    private disposables: Disposable[] = [];
+    private disposables: (Disposable | HostDisposable)[] = [];
     private isDisposed = false;
     private backoffTimers = new TimerBucket();
     private _onDidUpdate = new EventEmitter<void>();
@@ -38,16 +37,17 @@ export class CodeForgeService implements Disposable {
         public readonly workspaceRoot: string,
         private jjService: JjService,
         private registry: CodeForgeRegistry,
-        private outputChannel?: LoggerChannel,
+        private host: HostEnvironment,
+        private outputChannel: LoggerChannel,
     ) {
         for (const factory of this.registry.getFactories()) {
-            this.providers.set(factory.id, factory.create(this.outputChannel));
+            this.providers.set(factory.id, factory.create(this.outputChannel, this.host));
         }
 
         this.disposables.push(
             this.registry.onDidRegisterFactory((factory: CodeForgeProviderFactory) => {
                 if (!this.providers.has(factory.id)) {
-                    this.providers.set(factory.id, factory.create(this.outputChannel));
+                    this.providers.set(factory.id, factory.create(this.outputChannel, this.host));
                     this.detectActiveProvider(true);
                 }
             }),
@@ -56,30 +56,34 @@ export class CodeForgeService implements Disposable {
         this._initPromise = this.detectActiveProvider(true).then(() => {});
 
         // Listen for config changes
-        this.disposables.push(
-            vscode.workspace.onDidChangeConfiguration((e) => {
-                if (
-                    e.affectsConfiguration('jj-view.gerrit') ||
-                    e.affectsConfiguration('jj-view.github') ||
-                    e.affectsConfiguration('jj-view.gitlab') ||
-                    e.affectsConfiguration('jj-view.codeForge')
-                ) {
-                    this.detectActiveProvider(true);
-                }
-            }),
-        );
+        if (this.host.config.onDidChangeConfiguration) {
+            this.disposables.push(
+                this.host.config.onDidChangeConfiguration((e) => {
+                    if (
+                        e.affectsConfiguration('jj-view.gerrit') ||
+                        e.affectsConfiguration('jj-view.github') ||
+                        e.affectsConfiguration('jj-view.gitlab') ||
+                        e.affectsConfiguration('jj-view.codeForge')
+                    ) {
+                        this.detectActiveProvider(true);
+                    }
+                }),
+            );
+        }
 
         // Refresh when window gains focus (throttled to 10s)
-        this.disposables.push(
-            vscode.window.onDidChangeWindowState((state) => {
-                if (state.focused && this.isEnabled) {
-                    const now = Date.now();
-                    if (now - this.lastRefreshTime > 10000) {
-                        this.forceRefresh();
+        if (this.host.ui.onDidChangeFocus) {
+            this.disposables.push(
+                this.host.ui.onDidChangeFocus((focused) => {
+                    if (focused && this.isEnabled) {
+                        const now = Date.now();
+                        if (now - this.lastRefreshTime > 10000) {
+                            this.forceRefresh();
+                        }
                     }
-                }
-            }),
-        );
+                }),
+            );
+        }
     }
 
     public async awaitReady(): Promise<void> {
@@ -114,7 +118,7 @@ export class CodeForgeService implements Disposable {
 
     private safeDispose(disposable: Disposable | undefined, description: string): void {
         disposeSafely(disposable, (err) => {
-            this.outputChannel?.error(`[CodeForgeService] Error disposing ${description}: ${err}`);
+            this.outputChannel.error(`[CodeForgeService] Error disposing ${description}: ${err}`);
         });
     }
 
@@ -125,7 +129,7 @@ export class CodeForgeService implements Disposable {
         try {
             provider.deactivate();
         } catch (err) {
-            this.outputChannel?.error(`[CodeForgeService] Error deactivating active provider: ${err}`);
+            this.outputChannel.error(`[CodeForgeService] Error deactivating active provider: ${err}`);
         }
     }
 
@@ -147,7 +151,8 @@ export class CodeForgeService implements Disposable {
         }
 
         this.poller = setInterval(() => {
-            if (this.isEnabled && vscode.window.state.focused) {
+            const isFocused = this.host.ui.isFocused ?? true;
+            if (this.isEnabled && isFocused) {
                 this.forceRefresh();
             }
         }, 60000);
@@ -165,7 +170,7 @@ export class CodeForgeService implements Disposable {
             return;
         }
         if (this.activeProviderInstance) {
-            this.outputChannel?.info(`[CodeForgeService] Force refresh triggered`);
+            this.outputChannel.info(`[CodeForgeService] Force refresh triggered`);
             this.lastRefreshTime = Date.now();
             this._onDidUpdate.fire();
         }
@@ -180,7 +185,7 @@ export class CodeForgeService implements Disposable {
         this.backoffTimers.dispose();
 
         const delays = [2000, 3000, 5000, 10000];
-        this.outputChannel?.info(`[CodeForgeService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
+        this.outputChannel.info(`[CodeForgeService] Scheduling backoff refreshes: ${delays.join(', ')}ms`);
 
         for (const delay of delays) {
             this.backoffTimers.schedule(() => this.forceRefresh(), delay);
@@ -215,7 +220,7 @@ export class CodeForgeService implements Disposable {
         try {
             const remotes = await this.jjService.getGitRemotes();
             const repoRoot = await this.jjService.getRepoRoot();
-            const preferredId = getJjViewConfig<string>('codeForge.provider');
+            const preferredId = this.host.config.get<string>('codeForge.provider');
 
             let detectedProvider: CodeForgeProvider | undefined;
 
@@ -257,7 +262,7 @@ export class CodeForgeService implements Disposable {
             }
             return changed;
         } catch (e) {
-            this.outputChannel?.error(`[CodeForgeService] Failed to detect active provider: ${e}`);
+            this.outputChannel.error(`[CodeForgeService] Failed to detect active provider: ${e}`);
             return false;
         }
     }
@@ -361,7 +366,7 @@ export class CodeForgeService implements Disposable {
 
                 if (!(idMatches || (contentSynced && parentSynced))) {
                     needsUpload = true;
-                    this.outputChannel?.info(
+                    this.outputChannel.info(
                         `[CodeForgeService] Commit ${commit.change_id.substring(0, 8)} needs upload: ` +
                             `idMatches=${idMatches}, contentSynced=${contentSynced}, parentSynced=${parentSynced} ` +
                             `(currentRevision=${info.currentRevision?.substring(0, 8)}, commitId=${commit.commit_id?.substring(0, 8)})`,
@@ -373,7 +378,7 @@ export class CodeForgeService implements Disposable {
                 for (const parent of commit.parents) {
                     if (computeNeedsUpload(parent.commit_id)) {
                         needsUpload = true;
-                        this.outputChannel?.info(
+                        this.outputChannel.info(
                             `[CodeForgeService] Commit ${commit.change_id.substring(0, 8)} needs upload: inherited from parent ${parent.commit_id.substring(0, 8)}`,
                         );
                         break;

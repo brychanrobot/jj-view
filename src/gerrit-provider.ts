@@ -12,10 +12,10 @@ import type {
     GitRemote,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './common/events';
+import type { HostEnvironment } from './common/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
-import { getJjViewConfig } from './utils/config-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 import { getGerritAuthHeader, resolveGitRoot } from './utils/gerrit-credential-utils';
 import { detectGerritHost } from './utils/gerrit-host-detection';
@@ -111,10 +111,13 @@ export class GerritProvider implements CodeForgeProvider {
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
-    constructor(private outputChannel?: LoggerChannel) {}
+    constructor(
+        private outputChannel: LoggerChannel,
+        private host: HostEnvironment,
+    ) {}
 
     public async detect(repoRoot: string, remotes: GitRemote[]): Promise<boolean> {
-        const binaryPath = getJjViewConfig<string>('binaryPath', 'jj') || 'jj';
+        const binaryPath = this.host.config.get<string>('binaryPath', 'jj') || 'jj';
         const gitRoot = await resolveGitRoot(repoRoot, binaryPath);
 
         if (this.repoRoot !== repoRoot) {
@@ -134,6 +137,7 @@ export class GerritProvider implements CodeForgeProvider {
             remotes,
             (h: string) => this.probeGerritHost(h),
             this.outputChannel,
+            this.host,
         );
 
         if (host) {

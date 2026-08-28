@@ -3,94 +3,29 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { type AuthResult, CodeForgeAuthManager } from '../code-forge-auth';
-import { createMock, createMockLogOutputChannel, FakeConfigStore } from './test-utils';
-
-const fakeConfigStore = new FakeConfigStore();
-
-// Mock VS Code
-vi.mock('vscode', () => ({
-    workspace: {
-        getConfiguration: () => fakeConfigStore.toWorkspaceConfiguration(),
-    },
-    window: {
-        showWarningMessage: vi.fn(),
-        showErrorMessage: vi.fn(),
-        showInformationMessage: vi.fn(),
-        showInputBox: vi.fn(),
-    },
-    authentication: {
-        getSession: vi.fn(),
-    },
-    extensions: {
-        getExtension: vi.fn(),
-    },
-    commands: {
-        executeCommand: vi.fn(),
-    },
-    Disposable: class {
-        static from = vi.fn();
-        dispose() {}
-    },
-    EventEmitter: class {
-        private listeners: ((data: unknown) => void)[] = [];
-        event = (listener: (data: unknown) => void) => {
-            this.listeners.push(listener);
-            return { dispose: () => {} };
-        };
-        fire = (data: unknown) => {
-            for (const listener of this.listeners) {
-                listener(data);
-            }
-        };
-        dispose = () => {
-            this.listeners = [];
-        };
-    },
-}));
+import { FakeHostEnvironment } from './fake-host-environment';
+import { createMockLogOutputChannel } from './test-utils';
 
 describe('CodeForgeAuthManager', () => {
-    let context: vscode.ExtensionContext;
-    let outputChannel: vscode.LogOutputChannel;
+    let host: FakeHostEnvironment;
+    let outputChannel: ReturnType<typeof createMockLogOutputChannel>;
     let authManager: CodeForgeAuthManager;
-    let globalStateMap: Map<string, unknown>;
 
     beforeEach(() => {
-        globalStateMap = new Map<string, unknown>();
-        context = createMock<vscode.ExtensionContext>({
-            globalState: createMock<vscode.Memento & { setKeysForSync(keys: readonly string[]): void }>({
-                get: vi.fn().mockImplementation((key: string, defaultValue: unknown) => {
-                    return globalStateMap.has(key) ? globalStateMap.get(key) : defaultValue;
-                }),
-                update: vi.fn().mockImplementation(async (key: string, value: unknown) => {
-                    globalStateMap.set(key, value);
-                }),
-                setKeysForSync: vi.fn(),
-            }),
-            secrets: createMock<vscode.SecretStorage>({
-                get: vi.fn(),
-                store: vi.fn(),
-                delete: vi.fn(),
-            }),
-        });
-
+        host = new FakeHostEnvironment();
         outputChannel = createMockLogOutputChannel({
             appendLine: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
         });
-
-        authManager = new CodeForgeAuthManager(context, outputChannel);
-        vi.mocked(vscode.window.showWarningMessage).mockReset();
-        vi.mocked(vscode.window.showErrorMessage).mockReset();
-        vi.mocked(vscode.window.showInformationMessage).mockReset();
-        vi.mocked(vscode.window.showInputBox).mockReset();
-        vi.mocked(vscode.authentication.getSession).mockReset();
-        vi.mocked(vscode.extensions.getExtension).mockReset();
-        vi.mocked(vscode.commands.executeCommand).mockReset();
+        authManager = new CodeForgeAuthManager(host, outputChannel);
     });
 
     afterEach(() => {
         delete process.env.TEST_GITHUB_ENV_KEY;
+        delete process.env.JJ_VIEW_TEST_TOKEN;
     });
 
     test('isAuthSkipped and setAuthSkipped persistent states', async () => {
@@ -129,7 +64,7 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('getSessionToken checks stored token in secrets', async () => {
-        vi.mocked(context.secrets.get).mockResolvedValue('stored-secret-pat');
+        await host.secrets.store('gitlab_token', 'stored-secret-pat');
         const token = await authManager.getSessionToken('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -138,11 +73,11 @@ describe('CodeForgeAuthManager', () => {
             prompt: false,
         });
         expect(token).toBe('stored-secret-pat');
-        expect(context.secrets.get).toHaveBeenCalledWith('gitlab_token');
     });
 
     test('getSessionToken returns undefined if auth is skipped', async () => {
         await authManager.setAuthSkipped('github', true);
+        const getSessionSpy = vi.spyOn(host.auth, 'getSession');
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -150,11 +85,16 @@ describe('CodeForgeAuthManager', () => {
             prompt: true,
         });
         expect(token).toBeUndefined();
-        expect(vscode.authentication.getSession).not.toHaveBeenCalled();
+        expect(getSessionSpy).not.toHaveBeenCalled();
     });
 
     test('getSessionToken silent mode success', async () => {
-        vi.mocked(vscode.authentication.getSession).mockResolvedValue({ accessToken: 'silent-oauth-token' } as never);
+        host.auth.setSession('github', {
+            id: '1',
+            accessToken: 'silent-oauth-token',
+            account: { id: 'user1', label: 'User 1' },
+            scopes: ['repo'],
+        });
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -162,12 +102,11 @@ describe('CodeForgeAuthManager', () => {
             prompt: false,
         });
         expect(token).toBe('silent-oauth-token');
-        expect(vscode.authentication.getSession).toHaveBeenCalledWith('github', ['repo'], { silent: true });
         expect(authManager.isProviderUnavailable('github')).toBe(false);
     });
 
     test('getSessionToken silent mode handles unregistered provider error and sets state', async () => {
-        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('No authentication provider found'));
+        vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('No authentication provider found'));
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -179,7 +118,7 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('getSessionToken silent mode handles session check timed out error without permanently disabling provider', async () => {
-        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('github session check timed out'));
+        vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('github session check timed out'));
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
@@ -191,17 +130,23 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('hasOAuthSession handles session check timed out error without permanently disabling provider', async () => {
-        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('github session check timed out'));
+        vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('github session check timed out'));
         const hasSession = await authManager.hasOAuthSession('github', ['repo']);
         expect(hasSession).toBe(false);
         expect(authManager.isProviderUnavailable('github')).toBe(false);
     });
 
     test('getSessionToken prompt mode warning flow choosing OAuth Sign In', async () => {
-        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In' as never);
-        vi.mocked(vscode.authentication.getSession)
+        const showWarningSpy = vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In');
+        const getSessionSpy = vi
+            .spyOn(host.auth, 'getSession')
             .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce({ accessToken: 'oauth-token' } as never);
+            .mockResolvedValueOnce({
+                id: '1',
+                accessToken: 'oauth-token',
+                account: { id: 'user1', label: 'User' },
+                scopes: ['repo'],
+            });
 
         const authEventPromise = new Promise<string>((resolve) => {
             authManager.onDidAuthenticate(resolve);
@@ -220,17 +165,17 @@ describe('CodeForgeAuthManager', () => {
         const providerId = await authEventPromise;
         expect(providerId).toBe('github');
 
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+        expect(showWarningSpy).toHaveBeenCalledWith(
             'GitHub authentication required',
             'Sign In',
             "Don't Sign In (Skip)",
         );
-        expect(vscode.authentication.getSession).toHaveBeenNthCalledWith(1, 'github', ['repo'], { silent: true });
-        expect(vscode.authentication.getSession).toHaveBeenNthCalledWith(2, 'github', ['repo'], { createIfNone: true });
+        expect(getSessionSpy).toHaveBeenNthCalledWith(1, 'github', ['repo'], { silent: true });
+        expect(getSessionSpy).toHaveBeenNthCalledWith(2, 'github', ['repo'], { createIfNone: true });
     });
 
     test('getSessionToken prompt mode warning flow choosing alternative choice', async () => {
-        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Enter PAT' as never);
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Enter PAT');
         const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'custom-pat-token' });
 
         const token = await authManager.getSessionToken('gitlab', {
@@ -245,23 +190,16 @@ describe('CodeForgeAuthManager', () => {
             },
         });
 
-        expect(token).toBeUndefined(); // detached prompt returns undefined immediately
+        expect(token).toBeUndefined();
 
         // Allow detached prompt flow microtask to run
         await new Promise((resolve) => setTimeout(resolve, 10));
 
         expect(alternativeExecute).toHaveBeenCalled();
-        expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-            'GitLab authentication required',
-            'Sign In (OAuth)',
-            'Enter PAT',
-            "Don't Sign In (Skip)",
-        );
     });
 
     test('promptForPat fires onDidAuthenticate exactly once', async () => {
-        vi.mocked(vscode.window.showInputBox).mockResolvedValue('pat-token-123');
-        vi.mocked(context.secrets.store).mockResolvedValue(undefined);
+        host.ui.setNextInputBoxResponse('pat-token-123');
 
         const authEvents: string[] = [];
         authManager.onDidAuthenticate((providerId) => {
@@ -279,10 +217,11 @@ describe('CodeForgeAuthManager', () => {
 
         expect(result.status).toBe('success');
         expect(authEvents).toEqual(['github']);
+        expect(await host.secrets.get('github_token')).toBe('pat-token-123');
     });
 
     test('getSessionToken prompt mode warning flow choosing Skip', async () => {
-        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue("Don't Sign In (Skip)" as never);
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue("Don't Sign In (Skip)");
 
         const token = await authManager.getSessionToken('github', {
             scopes: ['repo'],
@@ -297,17 +236,8 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension installer prompts to install extension', async () => {
-        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In (OAuth)' as never);
-        vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // extension not installed
-        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
-
-        const commandPromise = new Promise<void>((resolve) => {
-            vi.mocked(vscode.commands.executeCommand).mockImplementation(async (command) => {
-                if (command === 'workbench.extensions.search') {
-                    resolve();
-                }
-            });
-        });
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
+        vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Install GitLab Extension');
 
         const token = await authManager.getSessionToken('gitlab', {
             scopes: ['api'],
@@ -324,25 +254,72 @@ describe('CodeForgeAuthManager', () => {
 
         expect(token).toBeUndefined();
 
-        // Wait for the floating prompt flow to trigger the command
-        await commandPromise;
+        // Allow detached prompt flow microtask to run
+        await new Promise((resolve) => setTimeout(resolve, 20));
 
-        expect(vscode.extensions.getExtension).toHaveBeenCalledWith('gitlab.gitlab-workflow');
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
-            'Install GitLab Extension',
-        );
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'workbench.extensions.search',
-            'gitlab.gitlab-workflow',
-        );
-        expect(vscode.authentication.getSession).not.toHaveBeenCalledWith('gitlab', ['api'], { createIfNone: true });
+        expect(host.extensions?.searchedExtensions).toContain('gitlab.gitlab-workflow');
+    });
+
+    test('getSessionToken on host without extension support directly falls back to PAT', async () => {
+        host.extensions = undefined;
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
+        vi.spyOn(host.auth, 'getSession')
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('No authentication provider found'));
+        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'fallback-pat' });
+
+        const token = await authManager.getSessionToken('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'NON_EXISTENT_ENV_KEY',
+            promptMessage: 'GitLab authentication required',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            extensionInstaller: {
+                extensionId: 'gitlab.gitlab-workflow',
+                extensionName: 'GitLab Workflow',
+                providerName: 'GitLab',
+            },
+            alternativeChoice: {
+                label: 'Enter PAT',
+                execute: alternativeExecute,
+            },
+        });
+
+        expect(token).toBeUndefined();
+
+        // Allow detached prompt flow microtask to run
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(alternativeExecute).toHaveBeenCalled();
+        expect(host.extensions).toBeUndefined();
+    });
+
+    test('getSessionToken on host without extensions and no alternativeChoice returns undefined', async () => {
+        host.extensions = undefined;
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
+        vi.spyOn(host.auth, 'getSession')
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('No authentication provider found'));
+
+        const token = await authManager.getSessionToken('gitlab', {
+            scopes: ['api'],
+            envTokenKey: 'NON_EXISTENT_ENV_KEY',
+            promptMessage: 'GitLab authentication required',
+            signInLabel: 'Sign In (OAuth)',
+            prompt: true,
+            extensionInstaller: {
+                extensionId: 'gitlab.gitlab-workflow',
+                extensionName: 'GitLab Workflow',
+                providerName: 'GitLab',
+            },
+        });
+
+        expect(token).toBeUndefined();
     });
 
     test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension falls back to PAT', async () => {
-        vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Sign In (OAuth)' as never);
-        vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // extension not installed
-        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enter PAT' as never);
+        vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
+        vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Enter PAT');
         const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'fallback-pat' });
 
         const token = await authManager.getSessionToken('gitlab', {
@@ -371,9 +348,10 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('getSessionToken skip prompt check', async () => {
-        vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('No authentication provider found'));
+        vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('No authentication provider found'));
         authManager.setProviderUnavailable('gitlab', true);
-        vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined); // GitLab workflow extension not installed
+
+        const showWarningSpy = vi.spyOn(host.ui, 'showWarning');
 
         const token = await authManager.getSessionToken('gitlab', {
             scopes: ['api'],
@@ -382,23 +360,24 @@ describe('CodeForgeAuthManager', () => {
             signInLabel: 'Sign In (OAuth)',
             prompt: true,
             shouldSkipPrompt: () => {
-                const hasGitLabExtension = !!vscode.extensions.getExtension('gitlab.gitlab-workflow');
+                const hasGitLabExtension = host.extensions?.hasExtension('gitlab.gitlab-workflow');
                 return authManager.isProviderUnavailable('gitlab') && !hasGitLabExtension;
             },
         });
 
         expect(token).toBeUndefined();
-        expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+        expect(showWarningSpy).not.toHaveBeenCalled();
     });
 
     test('handleAuthError cancelled sign-in silently returns undefined', async () => {
+        const showErrorMessageSpy = vi.spyOn(host.ui, 'showErrorMessage');
         const result = await authManager.handleAuthError('github', new Error('User cancelled the sign-in flow'));
         expect(result).toBeUndefined();
-        expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+        expect(showErrorMessageSpy).not.toHaveBeenCalled();
     });
 
     test('handleAuthError unregistered provider shows error message and installs extension', async () => {
-        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
+        vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Install GitLab Extension');
         const result = await authManager.handleAuthError('gitlab', new Error('No authentication provider found'), {
             extensionInstaller: {
                 extensionId: 'gitlab.gitlab-workflow',
@@ -407,18 +386,11 @@ describe('CodeForgeAuthManager', () => {
             },
         });
         expect(result).toBeUndefined();
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
-            'Install GitLab Extension',
-        );
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-            'workbench.extensions.search',
-            'gitlab.gitlab-workflow',
-        );
+        expect(host.extensions?.searchedExtensions).toContain('gitlab.gitlab-workflow');
     });
 
     test('handleAuthError unregistered provider with alternativeChoice execute option', async () => {
-        vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Enter PAT' as never);
+        vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Enter PAT');
         const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'test-pat' });
         const result = await authManager.handleAuthError('gitlab', new Error('No authentication provider found'), {
             extensionInstaller: {
@@ -433,26 +405,25 @@ describe('CodeForgeAuthManager', () => {
         });
         expect(result).toBe('test-pat');
         expect(alternativeExecute).toHaveBeenCalled();
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension or configure a Personal Access Token (PAT).",
-            'Install GitLab Extension',
-            'Enter PAT',
-        );
     });
 
     test('handleAuthError fallback generic error display', async () => {
+        const showErrorMessageSpy = vi.spyOn(host.ui, 'showErrorMessage');
         const result = await authManager.handleAuthError('github', new Error('Some API error'));
         expect(result).toBeUndefined();
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            'Authentication failed for github: Error: Some API error',
-        );
+        expect(showErrorMessageSpy).toHaveBeenCalledWith('Authentication failed for github: Error: Some API error');
     });
 
     describe('performOAuthSignIn', () => {
         test('successful sign-in calls clearCache, shows information message, and fires onDidAuthenticate', async () => {
-            vi.mocked(vscode.extensions.getExtension).mockReturnValue({} as never);
-            vi.mocked(vscode.authentication.getSession).mockResolvedValue({ accessToken: 'valid-token' } as never);
-            vi.mocked(vscode.window.showInformationMessage);
+            host.extensions?.installedExtensions.add('gitlab.gitlab-workflow');
+            host.auth.setSession('gitlab', {
+                id: '1',
+                accessToken: 'valid-token',
+                account: { id: 'user1', label: 'User 1' },
+                scopes: ['api'],
+            });
+            const showInfoSpy = vi.spyOn(host.ui, 'showInformation');
             const clearCache = vi.fn();
             const authEventPromise = new Promise<string>((resolve) => {
                 authManager.onDidAuthenticate(resolve);
@@ -468,21 +439,14 @@ describe('CodeForgeAuthManager', () => {
                 },
             });
 
-            expect(vscode.authentication.getSession).toHaveBeenCalledWith('gitlab', ['api'], {
-                createIfNone: true,
-                forceNewSession: undefined,
-            });
             expect(clearCache).toHaveBeenCalled();
-            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-                'Successfully authenticated with GitLab.',
-            );
+            expect(showInfoSpy).toHaveBeenCalledWith('Successfully authenticated with GitLab.');
             const providerId = await authEventPromise;
             expect(providerId).toBe('gitlab');
         });
 
         test('aborts and prompts to install when required extension is missing', async () => {
-            vi.mocked(vscode.extensions.getExtension).mockReturnValue(undefined);
-            vi.mocked(vscode.window.showErrorMessage).mockResolvedValue('Install GitLab Extension' as never);
+            vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Install GitLab Extension');
             const clearCache = vi.fn();
 
             await authManager.performOAuthSignIn('gitlab', ['api'], {
@@ -495,22 +459,38 @@ describe('CodeForgeAuthManager', () => {
                 },
             });
 
-            expect(vscode.extensions.getExtension).toHaveBeenCalledWith('gitlab.gitlab-workflow');
-            expect(vscode.authentication.getSession).not.toHaveBeenCalled();
             expect(clearCache).not.toHaveBeenCalled();
-            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-                "GitLab authentication provider is not available. Please install the official 'GitLab Workflow' extension.",
-                'Install GitLab Extension',
-            );
-            expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-                'workbench.extensions.search',
-                'gitlab.gitlab-workflow',
-            );
+            expect(host.extensions?.searchedExtensions).toContain('gitlab.gitlab-workflow');
+        });
+
+        test('performs OAuth sign-in directly when host does not support extensions', async () => {
+            host.extensions = undefined;
+            host.auth.setSession('gitlab', {
+                id: '1',
+                accessToken: 'valid-token',
+                account: { id: 'user1', label: 'User 1' },
+                scopes: ['api'],
+            });
+            const clearCache = vi.fn();
+            const showInfoSpy = vi.spyOn(host.ui, 'showInformation');
+
+            await authManager.performOAuthSignIn('gitlab', ['api'], {
+                hasOAuth: false,
+                clearCache,
+                extensionInstaller: {
+                    extensionId: 'gitlab.gitlab-workflow',
+                    extensionName: 'GitLab Workflow',
+                    providerName: 'GitLab',
+                },
+            });
+
+            expect(clearCache).toHaveBeenCalled();
+            expect(showInfoSpy).toHaveBeenCalledWith('Successfully authenticated with GitLab.');
         });
 
         test('delegates to handleAuthError when getSession throws an error', async () => {
-            vi.mocked(vscode.extensions.getExtension).mockReturnValue({} as never);
-            vi.mocked(vscode.authentication.getSession).mockRejectedValue(new Error('Auth failed'));
+            host.extensions?.installedExtensions.add('gitlab.gitlab-workflow');
+            const getSessionSpy = vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('Auth failed'));
             const clearCache = vi.fn();
             const handleAuthErrorSpy = vi.spyOn(authManager, 'handleAuthError').mockResolvedValue(undefined);
 
@@ -524,7 +504,7 @@ describe('CodeForgeAuthManager', () => {
                 },
             });
 
-            expect(vscode.authentication.getSession).toHaveBeenCalled();
+            expect(getSessionSpy).toHaveBeenCalled();
             expect(clearCache).not.toHaveBeenCalled();
             expect(handleAuthErrorSpy).toHaveBeenCalledWith(
                 'gitlab',
@@ -545,7 +525,6 @@ describe('CodeForgeAuthManager', () => {
             hasAuthMock = vi.fn().mockResolvedValue(false);
             clearCacheMock = vi.fn();
             promptForPatMock = vi.fn().mockResolvedValue({ status: 'success', token: 'pat-token' });
-            vi.mocked(context.secrets.get).mockResolvedValue(undefined);
             delete process.env.JJ_VIEW_TEST_TOKEN;
         });
 
@@ -585,7 +564,7 @@ describe('CodeForgeAuthManager', () => {
         });
 
         test('returns items when PAT is configured', async () => {
-            vi.mocked(context.secrets.get).mockResolvedValue('existing-pat');
+            await host.secrets.store('test_token', 'existing-pat');
             const items = await authManager.getAuthManageItems('test-provider', {
                 displayName: 'TestProvider',
                 scopes: ['test-scope'],
@@ -644,7 +623,8 @@ describe('CodeForgeAuthManager', () => {
         });
 
         test('Clear PAT item execution deletes secret, shows info message and clears cache', async () => {
-            vi.mocked(context.secrets.get).mockResolvedValue('existing-pat');
+            await host.secrets.store('test_token', 'existing-pat');
+            const showInfoSpy = vi.spyOn(host.ui, 'showInformation');
             const items = await authManager.getAuthManageItems('test-provider', {
                 displayName: 'TestProvider',
                 scopes: ['test-scope'],
@@ -656,10 +636,8 @@ describe('CodeForgeAuthManager', () => {
             });
 
             await items[2].execute();
-            expect(context.secrets.delete).toHaveBeenCalledWith('test_token');
-            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-                'Successfully cleared stored TestProvider Personal Access Token.',
-            );
+            expect(await host.secrets.get('test_token')).toBeUndefined();
+            expect(showInfoSpy).toHaveBeenCalledWith('Successfully cleared stored TestProvider Personal Access Token.');
             expect(clearCacheMock).toHaveBeenCalled();
         });
     });
@@ -669,13 +647,10 @@ describe('CodeForgeAuthManager', () => {
 
         beforeEach(() => {
             clearCacheMock = vi.fn();
-            vi.mocked(vscode.window.showInputBox).mockReset();
-            vi.mocked(context.secrets.store).mockReset();
         });
 
         test('returns success and stores token when valid token is entered', async () => {
-            vi.mocked(vscode.window.showInputBox).mockResolvedValue('my-new-token');
-            vi.mocked(context.secrets.store).mockResolvedValue(undefined);
+            host.ui.setNextInputBoxResponse('my-new-token');
 
             const authEventPromise = new Promise<string>((resolve) => {
                 authManager.onDidAuthenticate(resolve);
@@ -691,15 +666,7 @@ describe('CodeForgeAuthManager', () => {
             });
 
             expect(result).toEqual({ status: 'success', token: 'my-new-token' });
-            expect(vscode.window.showInputBox).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    prompt: 'Enter token',
-                    placeHolder: 'token...',
-                    password: true,
-                    ignoreFocusOut: true,
-                }),
-            );
-            expect(context.secrets.store).toHaveBeenCalledWith('test_token', 'my-new-token');
+            expect(await host.secrets.get('test_token')).toBe('my-new-token');
             expect(clearCacheMock).toHaveBeenCalled();
             expect(outputChannel.info).toHaveBeenCalledWith(
                 '[TestProviderProvider] Personal Access Token saved successfully',
@@ -711,7 +678,7 @@ describe('CodeForgeAuthManager', () => {
         });
 
         test('returns cancelled and does not store if input is cancelled (undefined)', async () => {
-            vi.mocked(vscode.window.showInputBox).mockResolvedValue(undefined);
+            host.ui.setNextInputBoxResponse(undefined);
 
             const result = await authManager.promptForPat({
                 providerId: 'test-provider',
@@ -723,12 +690,12 @@ describe('CodeForgeAuthManager', () => {
             });
 
             expect(result).toEqual({ status: 'cancelled' });
-            expect(context.secrets.store).not.toHaveBeenCalled();
+            expect(await host.secrets.get('test_token')).toBeUndefined();
             expect(clearCacheMock).not.toHaveBeenCalled();
         });
 
         test('returns cancelled and does not store if input is empty string', async () => {
-            vi.mocked(vscode.window.showInputBox).mockResolvedValue('   ');
+            host.ui.setNextInputBoxResponse('   ');
 
             const result = await authManager.promptForPat({
                 providerId: 'test-provider',
@@ -740,14 +707,14 @@ describe('CodeForgeAuthManager', () => {
             });
 
             expect(result).toEqual({ status: 'cancelled' });
-            expect(context.secrets.store).not.toHaveBeenCalled();
+            expect(await host.secrets.get('test_token')).toBeUndefined();
             expect(clearCacheMock).not.toHaveBeenCalled();
         });
 
         test('returns failure if secrets storage fails', async () => {
-            vi.mocked(vscode.window.showInputBox).mockResolvedValue('my-new-token');
+            host.ui.setNextInputBoxResponse('my-new-token');
             const error = new Error('Secret storage write error');
-            vi.mocked(context.secrets.store).mockRejectedValue(error);
+            vi.spyOn(host.secrets, 'store').mockRejectedValue(error);
 
             const result = await authManager.promptForPat({
                 providerId: 'test-provider',

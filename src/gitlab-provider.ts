@@ -2,7 +2,6 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as vscode from 'vscode';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
     AuthManageItem,
@@ -13,9 +12,9 @@ import type {
     GitRemote,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './common/events';
+import type { HostEnvironment } from './common/host-environment';
 import type { CodeForgeChangeInfo } from './jj-types';
 import { chunkArray } from './utils/array-utils';
-import { getJjViewConfig } from './utils/config-utils';
 import { fetchWithTimeout } from './utils/fetch-utils';
 import type { LoggerChannel } from './utils/output-channel';
 
@@ -107,13 +106,14 @@ export class GitLabProvider implements CodeForgeProvider {
 
     constructor(
         private readonly authManager: CodeForgeAuthManager,
-        private outputChannel?: LoggerChannel,
+        private outputChannel: LoggerChannel,
+        private host: HostEnvironment,
     ) {
         this.authManager.registerProvider(this.id);
     }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
-        const preferredHost = getJjViewConfig<string>('gitlab.host')?.trim();
+        const preferredHost = this.host.config.get<string>('gitlab.host')?.trim();
 
         const remotePriority = (name: string): number => {
             const lower = name.toLowerCase();
@@ -229,16 +229,21 @@ export class GitLabProvider implements CodeForgeProvider {
     }
 
     private async promptInstallGitLabExtension(): Promise<void> {
+        if (!this.host.extensions) {
+            await this.promptForPat();
+            return;
+        }
+
         const installAction = 'Install Extension';
         const patAction = 'Enter Personal Access Token (PAT)';
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await this.host.ui.showWarning(
             `GitLab repository '${this.projectPath}' appears to be private or requires authentication, but the GitLab authentication provider is not installed.`,
             installAction,
             patAction,
         );
 
         if (choice === installAction) {
-            vscode.commands.executeCommand('workbench.extensions.search', GITLAB_EXTENSION_ID);
+            await this.host.extensions.openExtensionSearch?.(GITLAB_EXTENSION_ID);
         } else if (choice === patAction) {
             await this.promptForPat();
         }
@@ -712,12 +717,12 @@ export class GitLabProvider implements CodeForgeProvider {
                 const scopes = oauthScopes.split(',').map((s) => s.trim().toLowerCase());
                 const hasRequired = scopes.some((s) => s === 'api' || s === 'read_api' || s.includes('merge_request'));
                 if (!hasRequired) {
-                    vscode.window.showWarningMessage(
+                    void this.host?.ui.showWarning(
                         `GitLab request failed (403 Forbidden). The provided token has scopes [${oauthScopes}] but requires 'Merge Request' read/write permissions or 'api' scope.`,
                     );
                 }
             } else {
-                vscode.window.showWarningMessage(
+                void this.host?.ui.showWarning(
                     `GitLab request failed (403 Forbidden). Please check that your token has 'Merge Request' read/write permissions or 'api' scope.`,
                 );
             }
@@ -900,7 +905,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 execute: () => this.promptForPat(),
             },
             shouldSkipPrompt: () => {
-                const hasGitLabExtension = !!vscode.extensions.getExtension(GITLAB_EXTENSION_ID);
+                const hasGitLabExtension = !!this.host?.extensions?.hasExtension(GITLAB_EXTENSION_ID);
                 return this.authManager.isProviderUnavailable(this.id) && !hasGitLabExtension;
             },
             extensionInstaller: {

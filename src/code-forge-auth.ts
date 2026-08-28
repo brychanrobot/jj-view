@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as vscode from 'vscode';
 import type { AuthManageItem } from './code-forge-provider';
 import { type Disposable, type Event, EventEmitter } from './common/events';
+import type { HostEnvironment, HostSecrets } from './common/host-environment';
 import type { LoggerChannel } from './utils/output-channel';
 
 export type AuthToken = string;
@@ -39,7 +39,7 @@ export class CodeForgeAuthManager implements Disposable {
     public readonly onDidAuthenticate: Event<string> = this._onDidAuthenticate.event;
 
     constructor(
-        private readonly context: vscode.ExtensionContext,
+        private readonly host: HostEnvironment,
         private readonly outputChannel?: LoggerChannel,
     ) {}
 
@@ -51,18 +51,18 @@ export class CodeForgeAuthManager implements Disposable {
         this.registeredProviderIds.add(providerId);
     }
 
-    public get secrets(): vscode.SecretStorage {
-        return this.context.secrets;
+    public get secrets(): HostSecrets {
+        return this.host.secrets;
     }
 
     public isAuthSkipped(providerId: string): boolean {
         this.registerProvider(providerId);
-        return this.context.globalState.get<boolean>(`jj-view.auth.skipped.${providerId}`, false);
+        return this.host.storage.get<boolean>(`jj-view.auth.skipped.${providerId}`, false);
     }
 
     public async setAuthSkipped(providerId: string, skipped: boolean): Promise<void> {
         this.registerProvider(providerId);
-        await this.context.globalState.update(`jj-view.auth.skipped.${providerId}`, skipped);
+        await this.host.storage.update(`jj-view.auth.skipped.${providerId}`, skipped);
         if (!skipped) {
             this.promptedThisSession.delete(providerId);
         }
@@ -117,7 +117,7 @@ export class CodeForgeAuthManager implements Disposable {
         }
         try {
             const session = await this.withTimeout(
-                Promise.resolve(vscode.authentication.getSession(providerId, scopes, { silent: true })),
+                this.host.auth.getSession(providerId, scopes, { silent: true }),
                 2000,
                 `${providerId} session check timed out`,
             );
@@ -192,9 +192,7 @@ export class CodeForgeAuthManager implements Disposable {
 
         // Always try silently first to see if an active session exists
         try {
-            const silentPromise = Promise.resolve(
-                vscode.authentication.getSession(providerId, options.scopes, { silent: true }),
-            );
+            const silentPromise = this.host.auth.getSession(providerId, options.scopes, { silent: true });
             const session = await this.withTimeout(
                 silentPromise,
                 5000,
@@ -210,7 +208,7 @@ export class CodeForgeAuthManager implements Disposable {
             if (this.isProviderUnavailableError(e)) {
                 this.setProviderUnavailable(providerId, true);
                 this.outputChannel?.info(
-                    `[CodeForgeAuthManager] ${providerId} authentication provider is not available in VS Code. Using unauthenticated requests only.`,
+                    `[CodeForgeAuthManager] ${providerId} authentication provider is not available in host. Using unauthenticated requests only.`,
                 );
                 return undefined;
             } else {
@@ -262,16 +260,17 @@ export class CodeForgeAuthManager implements Disposable {
         choices.push(skipLabel);
 
         try {
-            const choice = await vscode.window.showWarningMessage(options.promptMessage, ...choices);
+            const choice = await this.host.ui.showWarning(options.promptMessage, ...choices);
             if (choice === signInLabel) {
                 if (
                     options.extensionInstaller &&
-                    !vscode.extensions.getExtension(options.extensionInstaller.extensionId)
+                    this.host.extensions &&
+                    !this.host.extensions.hasExtension(options.extensionInstaller.extensionId)
                 ) {
                     await this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
                     return;
                 }
-                const session = await vscode.authentication.getSession(providerId, options.scopes, {
+                const session = await this.host.auth.getSession(providerId, options.scopes, {
                     createIfNone: true,
                 });
                 if (session?.accessToken) {
@@ -309,12 +308,16 @@ export class CodeForgeAuthManager implements Disposable {
             alternativeChoice?: AlternativeChoice;
         },
     ): Promise<void> {
-        if (options.extensionInstaller && !vscode.extensions.getExtension(options.extensionInstaller.extensionId)) {
+        if (
+            options.extensionInstaller &&
+            this.host.extensions &&
+            !this.host.extensions.hasExtension(options.extensionInstaller.extensionId)
+        ) {
             await this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
             return;
         }
         try {
-            const session = await vscode.authentication.getSession(providerId, scopes, {
+            const session = await this.host.auth.getSession(providerId, scopes, {
                 createIfNone: true,
                 forceNewSession: options.hasOAuth ? true : undefined,
             });
@@ -323,7 +326,7 @@ export class CodeForgeAuthManager implements Disposable {
                 const providerName =
                     options.extensionInstaller?.providerName ||
                     providerId.charAt(0).toUpperCase() + providerId.slice(1);
-                vscode.window.showInformationMessage(`Successfully authenticated with ${providerName}.`);
+                void this.host.ui.showInformation(`Successfully authenticated with ${providerName}.`);
                 options.clearCache();
                 this._onDidAuthenticate.fire(providerId);
             }
@@ -342,6 +345,14 @@ export class CodeForgeAuthManager implements Disposable {
         extensionInstaller: ExtensionInstaller,
         alternativeChoice?: AlternativeChoice,
     ): Promise<AuthToken | undefined> {
+        if (!this.host.extensions) {
+            if (alternativeChoice) {
+                const result = await alternativeChoice.execute();
+                return result.status === 'success' ? result.token : undefined;
+            }
+            return undefined;
+        }
+
         const { providerName, extensionName, extensionId } = extensionInstaller;
         const installAction = `Install ${providerName} Extension`;
         const patAction = alternativeChoice ? alternativeChoice.label : 'Enter PAT';
@@ -354,9 +365,9 @@ export class CodeForgeAuthManager implements Disposable {
             ? `${providerName} authentication provider is not available. Please install the official '${extensionName}' extension or configure a Personal Access Token (PAT).`
             : `${providerName} authentication provider is not available. Please install the official '${extensionName}' extension.`;
 
-        const choice = await vscode.window.showErrorMessage(message, ...choices);
+        const choice = await this.host.ui.showErrorMessage(message, ...choices);
         if (choice === installAction) {
-            vscode.commands.executeCommand('workbench.extensions.search', extensionId);
+            await this.host.extensions?.openExtensionSearch?.(extensionId);
         } else if (alternativeChoice && choice === patAction) {
             const result = await alternativeChoice.execute();
             return result.status === 'success' ? result.token : undefined;
@@ -386,7 +397,7 @@ export class CodeForgeAuthManager implements Disposable {
         if (isUnregistered && options?.extensionInstaller) {
             return this.promptInstallOrPat(options.extensionInstaller, options.alternativeChoice);
         } else {
-            vscode.window.showErrorMessage(`Authentication failed for ${providerId}: ${error}`);
+            void this.host.ui.showErrorMessage(`Authentication failed for ${providerId}: ${error}`);
         }
         return undefined;
     }
@@ -452,12 +463,12 @@ export class CodeForgeAuthManager implements Disposable {
                 execute: async () => {
                     try {
                         await this.secrets.delete(options.secretTokenKey);
-                        vscode.window.showInformationMessage(
+                        void this.host.ui.showInformation(
                             `Successfully cleared stored ${options.displayName} Personal Access Token.`,
                         );
                         options.clearCache();
                     } catch (e) {
-                        vscode.window.showErrorMessage(
+                        void this.host.ui.showErrorMessage(
                             `Failed to clear ${options.displayName} Personal Access Token: ${e}`,
                         );
                     }
@@ -511,7 +522,7 @@ export class CodeForgeAuthManager implements Disposable {
         placeHolder: string;
         clearCache: () => void;
     }): Promise<AuthResult> {
-        const token = await vscode.window.showInputBox({
+        const token = await this.host.ui.showInputBox({
             prompt: options.prompt,
             placeHolder: options.placeHolder,
             password: true,
