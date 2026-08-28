@@ -57,9 +57,6 @@ describe('FakeHostEnvironment', () => {
 
             ui.setStatusBarMessage('status', 1000);
             expect(ui.statusBarMessages).toEqual([{ message: 'status', timeoutMs: 1000 }]);
-
-            ui.setScmDescriptionInputValue('my commit msg');
-            expect(ui.getScmDescriptionInputValue()).toBe('my commit msg');
         });
     });
 

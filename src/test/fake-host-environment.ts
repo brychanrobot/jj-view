@@ -43,7 +43,6 @@ export class FakeHostUi implements HostUi {
     public errorMessages: string[] = [];
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
-    public scmDescriptionInputValue: string | undefined = undefined;
 
     get warningResponse(): string | undefined {
         return this.warningResponses[0];
@@ -141,14 +140,6 @@ export class FakeHostUi implements HostUi {
 
     setStatusBarMessage(message: string, timeoutMs?: number): void {
         this.statusBarMessages.push({ message, timeoutMs });
-    }
-
-    setScmDescriptionInputValue(value: string): void {
-        this.scmDescriptionInputValue = value;
-    }
-
-    getScmDescriptionInputValue(): string | undefined {
-        return this.scmDescriptionInputValue;
     }
 
     public isFocused = true;

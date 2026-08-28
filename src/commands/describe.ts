@@ -17,7 +17,7 @@ export async function setDescriptionCommand(
 ): Promise<string | false> {
     const revision = payload?.revision ?? '@';
     let description = (payload?.description ?? '').trim();
-    description = await maybeFormatDescriptionOnSave(description, ctx, revision);
+    description = await maybeFormatDescriptionOnSave(description, ctx);
 
     try {
         await ctx.host.ui.withProgress('Setting description...', () => ctx.repo.jj.describe(description, revision));

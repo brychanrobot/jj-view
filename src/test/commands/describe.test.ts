@@ -81,14 +81,15 @@ describe('setDescriptionCommand', () => {
         expect(repo.getDescription('@-').trim()).toBe('');
     });
 
-    test('updates SCM input box when formatDescriptionOnSave is enabled for @', async () => {
+    test('formats description on save according to ruler', async () => {
         ctx.host.config.set('commit.formatDescriptionOnSave', true);
         ctx.host.config.set('commit.bodyWidthRuler', 20);
 
         const longMsg = 'Title\n\nThis is a very long line in the body that will be wrapped by the formatter.';
-        await setDescriptionCommand(ctx, { description: longMsg, revision: '@' });
+        const result = await setDescriptionCommand(ctx, { description: longMsg, revision: '@' });
 
-        expect(ctx.host.ui.getScmDescriptionInputValue()).toBe(
+        expect(result).toBe('Title\n\nThis is a very long\nline in the body\nthat will be wrapped\nby the formatter.');
+        expect(repo.getDescription('@').trim()).toBe(
             'Title\n\nThis is a very long\nline in the body\nthat will be wrapped\nby the formatter.',
         );
     });

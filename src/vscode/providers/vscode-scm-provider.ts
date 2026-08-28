@@ -142,6 +142,10 @@ export class VsCodeScmProvider implements vscode.Disposable {
         return this.scmModel.getSelectedCommitIds();
     }
 
+    public get inputBoxValue(): string {
+        return this._sourceControl.inputBox.value;
+    }
+
     private async renderSnapshot(snapshot: ScmSnapshot): Promise<void> {
         if (this._disposed) {
             return;
@@ -152,7 +156,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
 
         if (currentEntry) {
             const desc = snapshot.description;
-            const commitId = currentEntry.change_id;
+            const commitId = currentEntry.commit_id;
 
             if (
                 this._sourceControl.inputBox.value === '' ||

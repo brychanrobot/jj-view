@@ -302,17 +302,12 @@ export interface DescriptionFormatContext {
         config: {
             get<T>(key: string): T | undefined;
         };
-        ui?: {
-            setScmDescriptionInputValue?(value: string): void;
-            getScmDescriptionInputValue?(): string | undefined;
-        };
     };
 }
 
 export async function maybeFormatDescriptionOnSave(
     description: string,
     ctx: DescriptionFormatContext,
-    revision: string = '@',
 ): Promise<string> {
     const formatOnSave = ctx.host.config.get<boolean>('commit.formatDescriptionOnSave') ?? false;
     if (!formatOnSave) {
@@ -320,10 +315,5 @@ export async function maybeFormatDescriptionOnSave(
     }
 
     const bodyWidthRuler = ctx.host.config.get<number>('commit.bodyWidthRuler') ?? 72;
-    description = await formatCommitDescription(description, bodyWidthRuler);
-
-    if (revision === '@' && ctx.host.ui?.setScmDescriptionInputValue) {
-        ctx.host.ui.setScmDescriptionInputValue(description);
-    }
-    return description;
+    return await formatCommitDescription(description, bodyWidthRuler);
 }

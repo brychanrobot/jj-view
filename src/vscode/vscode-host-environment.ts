@@ -31,8 +31,6 @@ import { getJjViewConfig } from '../utils/config-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
 
 export class VsCodeHostUi implements HostUi {
-    constructor(private readonly sourceControl?: { inputBox: { value: string } }) {}
-
     async showInputBox(options?: {
         prompt?: string;
         value?: string;
@@ -164,16 +162,6 @@ export class VsCodeHostUi implements HostUi {
         } else {
             vscode.window.setStatusBarMessage(message);
         }
-    }
-
-    setScmDescriptionInputValue(value: string): void {
-        if (this.sourceControl) {
-            this.sourceControl.inputBox.value = value;
-        }
-    }
-
-    getScmDescriptionInputValue(): string | undefined {
-        return this.sourceControl?.inputBox.value;
     }
 
     get isFocused(): boolean {
@@ -697,9 +685,8 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
 
     constructor(options: {
         context: vscode.ExtensionContext;
-        sourceControl?: { inputBox: { value: string } };
     }) {
-        this.ui = new VsCodeHostUi(options.sourceControl);
+        this.ui = new VsCodeHostUi();
         this.nav = new VsCodeHostNavigation();
         this.config = new VsCodeHostConfig();
         this.documents = new VsCodeHostDocuments();

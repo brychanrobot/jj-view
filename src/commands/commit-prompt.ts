@@ -6,11 +6,14 @@ import type { CommandContext } from '../common/command-context';
 import { showJjError } from '../common/ui-helpers';
 import { maybeFormatDescriptionOnSave } from './command-utils';
 
-export async function commitPromptCommand(ctx: CommandContext): Promise<void> {
+export interface CommitPromptPayload {
+    initialValue?: string;
+}
+
+export async function commitPromptCommand(ctx: CommandContext, payload?: CommitPromptPayload): Promise<void> {
     try {
         const { jj } = ctx.repo;
-        const inputBoxValue = ctx.host.ui.getScmDescriptionInputValue?.();
-        const defaultValue = inputBoxValue || (await jj.getDescription('@'));
+        const defaultValue = payload?.initialValue || (await jj.getDescription('@'));
 
         const input = await ctx.host.ui.showInputBox({
             prompt: 'Commit message',
