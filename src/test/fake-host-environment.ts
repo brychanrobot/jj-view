@@ -13,6 +13,7 @@ import type {
     HostCommands,
     HostConfig,
     HostConfigurationChangeEvent,
+    HostDiffTab,
     HostDisposable,
     HostDocuments,
     HostEnvironment,
@@ -312,6 +313,7 @@ export class FakeHostDocuments implements HostDocuments {
     private activeDocumentUri: Uri | undefined = undefined;
     private activeDocumentSelections: { startLine: number; endLine: number }[] | undefined = undefined;
     public openDocumentUris: Uri[] = [];
+    public openDiffTabs: HostDiffTab[] = [];
     private readonly _onDidChangeActiveDocumentEmitter = new EventEmitter<Uri | undefined>();
     readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocumentEmitter.event;
 
@@ -331,6 +333,10 @@ export class FakeHostDocuments implements HostDocuments {
 
     getOpenDocumentUris(): Uri[] {
         return this.openDocumentUris;
+    }
+
+    getOpenDiffTabs(): readonly HostDiffTab[] {
+        return this.openDiffTabs;
     }
 
     getOpenDocumentText(uri: Uri): string | undefined {

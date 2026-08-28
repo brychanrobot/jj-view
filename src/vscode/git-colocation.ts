@@ -4,8 +4,8 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { JjService } from './jj-service';
-import { getJjViewConfig, getWorkspaceConfig, updateJjViewConfig } from './utils/config-utils';
+import type { JjService } from '../jj-service';
+import { getJjViewConfig, getWorkspaceConfig, updateJjViewConfig } from '../utils/config-utils';
 
 let hasRun = false;
 

@@ -11,6 +11,7 @@ import type {
     HostCommands,
     HostConfig,
     HostConfigurationChangeEvent,
+    HostDiffTab,
     HostDisposable,
     HostDocuments,
     HostEnvironment,
@@ -475,6 +476,26 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
             .flatMap((group) => group.tabs)
             .map((tab) => this.getUriFromTab(tab))
             .filter((uri): uri is Uri => uri !== undefined);
+    }
+
+    getOpenDiffTabs(): HostDiffTab[] {
+        const tabGroups = vscode.window.tabGroups?.all;
+        if (!tabGroups) {
+            return [];
+        }
+        return tabGroups
+            .flatMap((group) => group.tabs)
+            .filter(
+                (tab): tab is vscode.Tab & { input: vscode.TabInputTextDiff } =>
+                    tab.input instanceof vscode.TabInputTextDiff,
+            )
+            .map((tab) => ({
+                originalUri: tab.input.original,
+                modifiedUri: tab.input.modified,
+                close: async () => {
+                    await vscode.window.tabGroups?.close(tab);
+                },
+            }));
     }
 
     private getUriFromTab(tab: vscode.Tab): Uri | undefined {
