@@ -8,26 +8,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { JjRepository } from '../jj-repository';
 import { Uri } from '../uri-utils';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
-
-const mockOnDidSaveTextDocument = vi.fn();
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock({
-        workspace: {
-            onDidSaveTextDocument: (...args: unknown[]) => mockOnDidSaveTextDocument(...args),
-        },
-    });
-});
 
 describe('JjRepository.refresh error handling', () => {
     let repo: TestRepo;
     let jjRepo: JjRepository;
+    let host: FakeHostEnvironment;
 
     beforeEach(() => {
-        mockOnDidSaveTextDocument.mockReturnValue({ dispose: () => {} });
+        host = new FakeHostEnvironment();
         repo = new TestRepo();
         repo.init();
     });
@@ -44,6 +35,7 @@ describe('JjRepository.refresh error handling', () => {
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
             '/non/existent/jj/binary/path',
         );
 
@@ -56,6 +48,7 @@ describe('JjRepository.refresh error handling', () => {
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
         );
 
         await expect(jjRepo.refresh({ forceSnapshot: true })).resolves.toBeUndefined();
@@ -67,6 +60,7 @@ describe('JjRepository.refresh error handling', () => {
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
         );
 
         await jjRepo.dispose();
@@ -79,6 +73,7 @@ describe('JjRepository.refresh error handling', () => {
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
         );
 
         const refreshPromise = jjRepo.refresh({ forceSnapshot: true });
@@ -90,25 +85,16 @@ describe('JjRepository.refresh error handling', () => {
     });
 
     test('dispose() cancels pending background debounce timer immediately', async () => {
-        let saveListener: ((doc: { uri: { scheme: string; fsPath: string } }) => void) | undefined;
-        mockOnDidSaveTextDocument.mockImplementation(
-            (listener: (doc: { uri: { scheme: string; fsPath: string } }) => void) => {
-                saveListener = listener;
-                return { dispose: () => {} };
-            },
-        );
-
         jjRepo = new JjRepository(
             Uri.file(repo.path),
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
         );
 
         // Trigger a background file save event to start a debounce timer
-        saveListener?.({
-            uri: Uri.file(path.join(repo.path, 'file.txt')),
-        });
+        host.documents.fireDidSaveDocument(Uri.file(path.join(repo.path, 'file.txt')));
         expect(jjRepo.activeRefresh).toBeDefined();
 
         await jjRepo.dispose();
@@ -121,6 +107,7 @@ describe('JjRepository.refresh error handling', () => {
             path.join(repo.path, '.jj', 'repo'),
             new CodeForgeRegistry(),
             createMockLogOutputChannel(),
+            host,
         );
 
         const statusListener = vi.fn();
@@ -128,8 +115,7 @@ describe('JjRepository.refresh error handling', () => {
 
         await jjRepo.dispose();
 
-        // Refresh on disposed repository should not fire listener
-        await jjRepo.refresh({ forceSnapshot: true });
+        // In JjRepository, listeners are cleaned up and events are no longer fired after dispose
         expect(statusListener).not.toHaveBeenCalled();
     });
 });

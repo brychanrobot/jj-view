@@ -84,8 +84,9 @@ describe('FakeHostEnvironment', () => {
             await nav.openFolder(leftUri, true);
             expect(nav.foldersOpened).toEqual([{ folderUri: leftUri, forceNewWindow: true }]);
 
-            await nav.openExternal('https://example.com');
-            expect(nav.externalUrlsOpened).toContain('https://example.com');
+            const extUri = Uri.parse('https://example.com');
+            await nav.openExternal(extUri);
+            expect(nav.externalUrisOpened).toContain(extUri);
 
             await nav.copyToClipboard('copied');
             expect(nav.clipboardText).toBe('copied');
@@ -99,10 +100,11 @@ describe('FakeHostEnvironment', () => {
             await nav.closeTab(leftUri);
             expect(nav.closedTabs).toContain(leftUri);
 
-            await nav.openCommitDetails('/root', 'change123', 'c12', false, 0);
+            const rootUri = Uri.file('/root');
+            await nav.openCommitDetails(rootUri, 'change123', 'c12', false, 0);
             expect(nav.commitDetailsOpened).toEqual([
                 {
-                    repoRoot: '/root',
+                    repoRoot: rootUri,
                     changeId: 'change123',
                     shortestChangeId: 'c12',
                     isDivergent: false,

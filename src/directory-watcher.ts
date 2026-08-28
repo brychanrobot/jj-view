@@ -4,7 +4,7 @@
  */
 
 import { type AsyncSubscription, type BackendType, type Event, subscribe } from '@parcel/watcher';
-import * as vscode from 'vscode';
+import type { HostDisposable, HostEnvironment } from './common/host-environment';
 import { Uri } from './uri-utils';
 import { isWatchmanAvailable } from './utils/binary-utils';
 import { toError } from './utils/error-utils';
@@ -12,7 +12,7 @@ import type { LoggerChannel } from './utils/output-channel';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 
-export class DirectoryWatcher implements vscode.Disposable {
+export class DirectoryWatcher implements HostDisposable {
     private _subscription: AsyncSubscription | undefined;
     private _startPromise: Promise<void> | undefined;
     private _disposed = false;
@@ -25,6 +25,7 @@ export class DirectoryWatcher implements vscode.Disposable {
         private readonly outputChannel: LoggerChannel,
         private readonly name: string = 'DirectoryWatcher',
         backend?: BackendType,
+        private readonly host?: HostEnvironment,
     ) {
         this._backend = (async () => {
             if (backend) {
@@ -43,72 +44,84 @@ export class DirectoryWatcher implements vscode.Disposable {
         })();
     }
 
-    async start(ignores: string[] = []) {
+    async start(ignores: string[] = []): Promise<void> {
         this._stopped = false;
         if (this._startPromise) {
             return this._startPromise;
         }
 
-        this._startPromise = (async () => {
-            if (this._subscription || this._disposed || this._stopped) {
+        this._startPromise = this.startInternal(ignores);
+        return this._startPromise;
+    }
+
+    private async startInternal(ignores: string[]): Promise<void> {
+        if (this._subscription || this._disposed || this._stopped) {
+            return;
+        }
+
+        try {
+            const backend = await this._backend;
+            if (this._disposed || this._stopped) {
+                return;
+            }
+            this.log(`[${this.name}] Starting (${backend}) watcher on: ${this.path}`);
+
+            const sub = await subscribe(
+                this.path,
+                (err, events) => {
+                    if (err) {
+                        this.logError(`[${this.name}] Error`, err);
+                        return;
+                    }
+                    if (events.length > 0) {
+                        this.log(`[${this.name}] Event received: ${JSON.stringify(events)}`);
+                        this.callback(events);
+                    }
+                },
+                { ignore: ignores, backend },
+            );
+
+            if (this._disposed || this._stopped) {
+                await sub.unsubscribe();
                 return;
             }
 
-            try {
-                const backend = await this._backend;
-                if (this._disposed || this._stopped) {
-                    return;
+            this._subscription = sub;
+            this.log(`[${this.name}] Started.`);
+        } catch (err) {
+            this._startPromise = undefined;
+            this.logError(`[${this.name}] Failed to start`, err);
+            this.handleInotifyError(err);
+            throw err;
+        }
+    }
+
+    private handleInotifyError(err: unknown): void {
+        if (!this.host) {
+            return;
+        }
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const isInotifyLimit =
+            errorMessage.includes('inotify_add_watch') ||
+            errorMessage.includes('ENOSPC') ||
+            errorMessage.includes('No space left on device');
+        if (!isInotifyLimit) {
+            return;
+        }
+
+        void this.host.ui
+            .showWarning(
+                'Failed to start file watcher: inotify watch limit reached. See README for instructions.',
+                'Open README',
+            )
+            .then((selection) => {
+                if (selection === 'Open README') {
+                    void this.host?.nav
+                        .openExternal(Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'))
+                        .catch(() => {});
                 }
-                this.log(`[${this.name}] Starting (${backend}) watcher on: ${this.path}`);
-
-                const sub = await subscribe(
-                    this.path,
-                    (err, events) => {
-                        if (err) {
-                            this.logError(`[${this.name}] Error`, err);
-                            return;
-                        }
-                        if (events.length > 0) {
-                            this.log(`[${this.name}] Event received: ${JSON.stringify(events)}`);
-                            this.callback(events);
-                        }
-                    },
-                    { ignore: ignores, backend: backend },
-                );
-
-                if (this._disposed || this._stopped) {
-                    await sub.unsubscribe();
-                    return;
-                }
-
-                this._subscription = sub;
-                this.log(`[${this.name}] Started.`);
-            } catch (err) {
-                this.logError(`[${this.name}] Failed to start`, err);
-                const errorMessage = err instanceof Error ? err.message : String(err);
-                if (
-                    errorMessage.includes('inotify_add_watch') ||
-                    errorMessage.includes('ENOSPC') ||
-                    errorMessage.includes('No space left on device')
-                ) {
-                    vscode.window
-                        .showWarningMessage(
-                            `Failed to start file watcher: inotify watch limit reached. See README for instructions.`,
-                            'Open README',
-                        )
-                        .then((selection) => {
-                            if (selection === 'Open README') {
-                                vscode.env.openExternal(
-                                    Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
-                                );
-                            }
-                        });
-                }
-                throw err;
-            }
-        })();
-
-        return this._startPromise;
+            })
+            .catch(() => {});
     }
 
     async stop() {

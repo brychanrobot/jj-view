@@ -6,42 +6,21 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from 'vitest';
-import * as vscode from 'vscode';
 import { ChangeDetectionManager } from '../change-detection-manager';
 import { DirectoryWatcher } from '../directory-watcher';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import { Uri } from '../uri-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMock, createMockLogOutputChannel } from './test-utils';
-
-// Mock VS Code
-const mockGetConfiguration = vi.fn();
-const mockOnDidSaveTextDocument = vi.fn();
-const mockOnDidChangeWindowState = vi.fn();
-const mockOnDidChangeConfiguration = vi.fn();
-const mockCreateFileSystemWatcher = vi.fn();
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock({
-        workspace: {
-            getConfiguration: (...args: unknown[]) => mockGetConfiguration(...args),
-            onDidSaveTextDocument: (...args: unknown[]) => mockOnDidSaveTextDocument(...args),
-            onDidChangeConfiguration: (...args: unknown[]) => mockOnDidChangeConfiguration(...args),
-            createFileSystemWatcher: (...args: unknown[]) => mockCreateFileSystemWatcher(...args),
-        },
-        window: {
-            onDidChangeWindowState: (...args: unknown[]) => mockOnDidChangeWindowState(...args),
-            state: { focused: true },
-        },
-    });
-});
+import { accessPrivate, createMockLogOutputChannel } from './test-utils';
 
 describe('ChangeDetectionManager', () => {
     let repo: TestRepo;
     let jj: JjService;
+    let host: FakeHostEnvironment;
     let changeManager: ChangeDetectionManager | undefined;
-    let outputChannel: vscode.LogOutputChannel;
+    let outputChannel: LoggerChannel;
     let triggerRefreshSpy: Mock<(event: { forceSnapshot: boolean; reason: string }) => Promise<void>>;
 
     beforeEach(async () => {
@@ -49,6 +28,7 @@ describe('ChangeDetectionManager', () => {
         repo.init();
 
         jj = new JjService(repo.path, NO_OP_LOGGER);
+        host = new FakeHostEnvironment();
 
         outputChannel = createMockLogOutputChannel({
             appendLine: vi.fn(),
@@ -56,21 +36,8 @@ describe('ChangeDetectionManager', () => {
 
         triggerRefreshSpy = vi.fn().mockImplementation(() => Promise.resolve());
 
-        // Reset mocks
-        mockGetConfiguration.mockReset();
-        mockOnDidSaveTextDocument.mockReturnValue({ dispose: vi.fn() });
-        mockOnDidChangeWindowState.mockReturnValue({ dispose: vi.fn() });
-        mockOnDidChangeConfiguration.mockReturnValue({ dispose: vi.fn() });
-
         // Default config: polling
-        mockGetConfiguration.mockReturnValue({
-            get: (key: string, defaultValue: unknown) => {
-                if (key === 'fileWatcherMode') {
-                    return 'polling';
-                }
-                return defaultValue;
-            },
-        });
+        host.config.set('fileWatcherMode', 'polling');
     });
 
     afterEach(async () => {
@@ -123,10 +90,7 @@ describe('ChangeDetectionManager', () => {
 
             triggerRefreshSpy.mockReturnValue(refreshPromise);
 
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-
-            // Verify configuration was read
-            expect(mockGetConfiguration).toHaveBeenCalledWith('jj-view');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // 1. Initial 5s wait
             await vi.advanceTimersByTimeAsync(5000);
@@ -149,29 +113,22 @@ describe('ChangeDetectionManager', () => {
         });
 
         it('pauses polling on blur and resumes on focus', async () => {
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
-
-            // Get the window state change callback
-            expect(mockOnDidChangeWindowState).toHaveBeenCalled();
-            const onDidChangeWindowState = mockOnDidChangeWindowState.mock.calls[0][0];
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // 1. Initially focused, wait for first poll (5s interval)
             await vi.advanceTimersByTimeAsync(5000);
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
-            // 2. Blur the window
-            const windowState = accessPrivate<{ focused: boolean }>(vscode.window, 'state');
-            windowState.focused = false;
-            onDidChangeWindowState({ focused: false });
+            // 2. Blur the host window
+            host.ui.setFocused(false);
 
             // Wait 5.1s, should NOT call refresh (paused)
             await vi.advanceTimersByTimeAsync(5100);
 
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
 
-            // 3. Focus the window
-            windowState.focused = true;
-            onDidChangeWindowState({ focused: true });
+            // 3. Focus the host window
+            host.ui.setFocused(true);
 
             // Wait for the immediate (10ms) poll to trigger
             await vi.advanceTimersByTimeAsync(100);
@@ -182,26 +139,32 @@ describe('ChangeDetectionManager', () => {
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(3);
         });
 
-        it('triggers refresh on file save (VS Code event)', async () => {
-            // Fake timers for this one too since it's generic logic
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+        it('triggers refresh on file save (Host document save event)', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
-            // Verify we subscribed to onDidSaveTextDocument
-            expect(mockOnDidSaveTextDocument).toHaveBeenCalled();
-            const onDidSaveTextDocument =
-                mockOnDidSaveTextDocument.mock.calls[mockOnDidSaveTextDocument.mock.calls.length - 1][0];
-
-            // Simulate save
-            const mockDoc = createMock<vscode.TextDocument>({
-                uri: Uri.file(path.join(repo.path, 'test.txt')),
-            });
-
-            onDidSaveTextDocument(mockDoc);
+            // Simulate host save event
+            host.documents.fireDidSaveDocument(Uri.file(path.join(repo.path, 'test.txt')));
 
             expect(triggerRefreshSpy).toHaveBeenCalledWith({
                 forceSnapshot: true,
                 reason: 'file saved',
             });
+        });
+
+        it('ignores file save events for non-file schemes, .jj internal files, and files outside workspace', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+
+            // 1. Non-file scheme
+            host.documents.fireDidSaveDocument(Uri.parse('untitled:Untitled-1'));
+            expect(triggerRefreshSpy).not.toHaveBeenCalled();
+
+            // 2. Internal .jj file
+            host.documents.fireDidSaveDocument(Uri.file(path.join(repo.path, '.jj', 'repo', 'op_heads', 'head1')));
+            expect(triggerRefreshSpy).not.toHaveBeenCalled();
+
+            // 3. File outside workspace
+            host.documents.fireDidSaveDocument(Uri.file(path.join(repo.path, '..', 'outside.txt')));
+            expect(triggerRefreshSpy).not.toHaveBeenCalled();
         });
     });
 
@@ -212,16 +175,9 @@ describe('ChangeDetectionManager', () => {
 
         it('switches to watch mode when configured and detects changes', async () => {
             // Setup config to return 'watch'
-            mockGetConfiguration.mockReturnValue({
-                get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') {
-                        return 'watch';
-                    }
-                    return defaultValue;
-                },
-            });
+            host.config.set('fileWatcherMode', 'watch');
 
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // Wait for watchers to start
             await waitForLog('Working Copy Watcher] Started');
@@ -242,8 +198,56 @@ describe('ChangeDetectionManager', () => {
             );
         });
 
+        it('switches mode dynamically when onDidChangeConfiguration fires at runtime', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+
+            // Initially polling mode
+            await changeManager.awaitWatchersReady();
+
+            // Change setting at runtime
+            host.config.set('fileWatcherMode', 'watch');
+
+            // Wait for watcher to start dynamically
+            await waitForLog('Working Copy Watcher] Started');
+            await new Promise((resolve) => setTimeout(resolve, 800));
+
+            const testFile = path.join(repo.path, 'dynamic_watch.txt');
+            await fs.writeFile(testFile, 'dynamic');
+
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'file watcher event');
+                    expect(found, 'Trigger refresh for dynamic file watcher event was not called').toBe(true);
+                },
+                { timeout: 10000, interval: 100 },
+            );
+        });
+
+        it('falls back to polling mode if working copy watcher fails to start', async () => {
+            const watcherStartSpy = vi.spyOn(DirectoryWatcher.prototype, 'start').mockImplementation(async function (
+                this: DirectoryWatcher,
+            ) {
+                const name = accessPrivate<string>(this, 'name');
+                if (name === 'Working Copy Watcher') {
+                    throw new Error('Watch backend startup failure simulation');
+                }
+            });
+
+            try {
+                host.config.set('fileWatcherMode', 'watch');
+                changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+
+                await waitForLog('Falling back to polling mode');
+                expect(outputChannel.info).toHaveBeenCalledWith(
+                    expect.stringContaining('Falling back to polling mode'),
+                );
+            } finally {
+                watcherStartSpy.mockRestore();
+            }
+        });
+
         it('handles op_heads changes with real watcher', async () => {
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // Wait for op_heads watcher to start
             await waitForLog('OpHeads Watcher] Started');
@@ -272,7 +276,13 @@ describe('ChangeDetectionManager', () => {
                 debug: () => {},
             });
 
-            changeManager = new ChangeDetectionManager(secondRepo.path, secondJj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(
+                secondRepo.path,
+                secondJj,
+                outputChannel,
+                triggerRefreshSpy,
+                host,
+            );
 
             // Wait for op_heads watcher to start
             await waitForLog('OpHeads Watcher] Started');
@@ -293,20 +303,13 @@ describe('ChangeDetectionManager', () => {
 
         it('filters out negated patterns from .gitignore', async () => {
             // Setup config to return 'watch'
-            mockGetConfiguration.mockReturnValue({
-                get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') {
-                        return 'watch';
-                    }
-                    return defaultValue;
-                },
-            });
+            host.config.set('fileWatcherMode', 'watch');
 
             // Create .gitignore with negated pattern and a directory to ignore
             await fs.writeFile(path.join(repo.path, '.gitignore'), 'ignore_me\n!keep_me\n#comment');
             await fs.mkdir(path.join(repo.path, 'ignore_me'), { recursive: true });
 
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // Wait for watcher to start, then settle to flush any
             // FSEvents catch-up events from the mkdir before the watcher started.
@@ -336,21 +339,14 @@ describe('ChangeDetectionManager', () => {
 
         it('ignores directories matching literal patterns like /out/', async () => {
             // Setup config to return 'watch'
-            mockGetConfiguration.mockReturnValue({
-                get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') {
-                        return 'watch';
-                    }
-                    return defaultValue;
-                },
-            });
+            host.config.set('fileWatcherMode', 'watch');
 
             repo.writeFile('.gitignore', '/out*/');
 
             const ignoredDir = path.join(repo.path, 'out');
             await fs.mkdir(ignoredDir, { recursive: true });
 
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // Wait for both watchers to start and settle. We wait for the op_heads watcher too
             // because it sets lastExternalOpTime, which makes hasActiveOrRecentWrites true for 500ms.
@@ -384,19 +380,12 @@ describe('ChangeDetectionManager', () => {
 
         it('ignores secondary workspace directories', async () => {
             // Setup config to return 'watch'
-            mockGetConfiguration.mockReturnValue({
-                get: (key: string, defaultValue: unknown) => {
-                    if (key === 'fileWatcherMode') {
-                        return 'watch';
-                    }
-                    return defaultValue;
-                },
-            });
+            host.config.set('fileWatcherMode', 'watch');
 
             // Create a secondary workspace directory inside the main repo
             const secondRepo = repo.workspaceAdd('second_workspace');
 
-            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy);
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 
             // Wait for watchers to start and settle
             await waitForLog('Working Copy Watcher] Started');
@@ -422,8 +411,6 @@ describe('ChangeDetectionManager', () => {
                 },
                 { timeout: 10000, interval: 100 },
             );
-
-            // Clean up the secondary workspace
         });
     });
 });

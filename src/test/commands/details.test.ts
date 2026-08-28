@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { showDetailsCommand } from '../../commands/details';
 import type { JjRepository } from '../../jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { Uri } from '../../uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
@@ -22,7 +23,7 @@ describe('showDetailsCommand', () => {
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
 
-        mockJjRepo = createMock<JjRepository>({ jj });
+        mockJjRepo = createMock<JjRepository>({ jj, rootUri: Uri.file(repo.path) });
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
@@ -36,7 +37,7 @@ describe('showDetailsCommand', () => {
 
         expect(ctx.host.nav.commitDetailsOpened).toHaveLength(1);
         expect(ctx.host.nav.commitDetailsOpened[0]).toMatchObject({
-            repoRoot: repo.path,
+            repoRoot: Uri.file(repo.path),
             changeId,
         });
     });
@@ -47,7 +48,7 @@ describe('showDetailsCommand', () => {
 
         expect(ctx.host.nav.commitDetailsOpened).toHaveLength(1);
         expect(ctx.host.nav.commitDetailsOpened[0]).toMatchObject({
-            repoRoot: repo.path,
+            repoRoot: Uri.file(repo.path),
             changeId,
         });
     });

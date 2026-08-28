@@ -36,16 +36,15 @@ export interface HostUi {
         options?: { placeHolder?: string },
     ): Promise<T[] | undefined>;
     showInformation(message: string, ...actions: string[]): Promise<string | undefined>;
-    showWarning(
-        message: string,
-        optionsOrAction?: { modal?: boolean } | string,
-        ...actions: string[]
-    ): Promise<string | undefined>;
+    showWarning(message: string, ...actions: string[]): Promise<string | undefined>;
+    showModalWarning?(message: string, ...actions: string[]): Promise<string | undefined>;
     showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
     setScmDescriptionInputValue?(value: string): void;
     getScmDescriptionInputValue?(): string | undefined;
+    readonly isFocused?: boolean;
+    readonly onDidChangeFocus?: Event<boolean>;
 }
 
 export interface HostConfig {
@@ -60,16 +59,16 @@ export interface HostNavigation {
     openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void>;
     openMergeEditor(resourceUri: Uri): Promise<void>;
     openCommitDetails(
-        repoRoot: string,
+        repoRoot: Uri,
         changeId: string,
         shortestChangeId?: string,
         isDivergent?: boolean,
         changeIdOffset?: number,
     ): Promise<void>;
-    closeCommitDetailsTabs?(predicate: (repoRoot?: string) => boolean): Promise<void>;
+    closeCommitDetailsTabs?(predicate: (repoRoot?: Uri) => boolean): Promise<void>;
     openFile(uri: Uri): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
-    openExternal(url: string): Promise<void>;
+    openExternal(target: Uri): Promise<void>;
     copyToClipboard(text: string): Promise<void>;
     openSettings(settingId?: string): Promise<void>;
     focusScmInput?(): Promise<void>;
@@ -101,6 +100,7 @@ export interface HostDocuments {
     getOpenDocumentUris?(): Uri[];
     getOpenDiffTabs?(): readonly HostDiffTab[];
     readonly onDidChangeActiveDocument?: Event<Uri | undefined>;
+    readonly onDidSaveDocument?: Event<Uri>;
 }
 
 export interface HostWorkspaceFolder {

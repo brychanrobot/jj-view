@@ -16,6 +16,7 @@ import { JjContextKey } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
 import type { JjService } from '../jj-service';
 import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from '../jj-types';
+import { Uri } from '../uri-utils';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { toError } from '../utils/error-utils';
 import { canAbsorbCommit } from '../utils/jj-utils';
@@ -25,7 +26,7 @@ export interface LogViewControllerOptions {
     messenger?: WebviewPostMessageLike;
     logger?: LoggerChannel;
     onSelectionChange?: (commitIds: string[]) => void;
-    closeCommitDetailsTabs?: (predicate: (repoRoot?: string) => boolean) => Promise<void> | void;
+    closeCommitDetailsTabs?: (predicate: (repoRoot?: Uri) => boolean) => Promise<void> | void;
 }
 
 export class LogViewController implements Disposable {
@@ -424,7 +425,7 @@ export class LogViewController implements Disposable {
                     try {
                         const parsed = new URL(msg.payload.url);
                         if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                            await this._host.nav.openExternal(msg.payload.url);
+                            await this._host.nav.openExternal(Uri.parse(msg.payload.url));
                         } else {
                             this._logger?.error(`[LogViewController] Blocked insecure scheme: ${parsed.protocol}`);
                         }
@@ -462,7 +463,7 @@ export class LogViewController implements Disposable {
                 getDetails: async (msg) => {
                     if (this._repo) {
                         await this._host.nav.openCommitDetails(
-                            this._repo.rootUri.fsPath,
+                            this._repo.rootUri,
                             msg.payload.changeId,
                             msg.payload.changeIdShortest,
                             msg.payload.isDivergent,
@@ -564,7 +565,7 @@ export class LogViewController implements Disposable {
                                 if (!this._repo) {
                                     return true;
                                 }
-                                return !repoRoot || repoRoot === this._repo.rootUri.fsPath;
+                                return !repoRoot || repoRoot.fsPath === this._repo.rootUri.fsPath;
                             });
                         }
                     }

@@ -116,11 +116,12 @@ export class FakeHostUi implements HostUi {
         return this.infoResponses.shift();
     }
 
-    async showWarning(
-        message: string,
-        _optionsOrAction?: { modal?: boolean } | string,
-        ..._actions: string[]
-    ): Promise<string | undefined> {
+    async showWarning(message: string, ..._actions: string[]): Promise<string | undefined> {
+        this.warningMessages.push(message);
+        return this.warningResponses.shift();
+    }
+
+    async showModalWarning(message: string, ..._actions: string[]): Promise<string | undefined> {
         this.warningMessages.push(message);
         return this.warningResponses.shift();
     }
@@ -146,6 +147,15 @@ export class FakeHostUi implements HostUi {
     getScmDescriptionInputValue(): string | undefined {
         return this.scmDescriptionInputValue;
     }
+
+    public isFocused = true;
+    private readonly _onDidChangeFocusEmitter = new EventEmitter<boolean>();
+    readonly onDidChangeFocus: Event<boolean> = this._onDidChangeFocusEmitter.event;
+
+    setFocused(focused: boolean): void {
+        this.isFocused = focused;
+        this._onDidChangeFocusEmitter.fire(focused);
+    }
 }
 
 export class FakeHostNavigation implements HostNavigation {
@@ -153,16 +163,16 @@ export class FakeHostNavigation implements HostNavigation {
     public multiDiffsOpened: { title: string; resources: { leftUri: Uri; rightUri: Uri; label: string }[] }[] = [];
     public mergeEditorsOpened: Uri[] = [];
     public commitDetailsOpened: {
-        repoRoot: string;
+        repoRoot: Uri;
         changeId: string;
         shortestChangeId?: string;
         isDivergent?: boolean;
         changeIdOffset?: number;
     }[] = [];
-    public closedCommitDetailsPredicates: ((repoRoot?: string) => boolean)[] = [];
+    public closedCommitDetailsPredicates: ((repoRoot?: Uri) => boolean)[] = [];
     public filesOpened: Uri[] = [];
     public foldersOpened: { folderUri: Uri; forceNewWindow?: boolean }[] = [];
-    public externalUrlsOpened: string[] = [];
+    public externalUrisOpened: Uri[] = [];
     public clipboardText = '';
     public settingsOpened: (string | undefined)[] = [];
     public closedTabs: Uri[] = [];
@@ -181,7 +191,7 @@ export class FakeHostNavigation implements HostNavigation {
     }
 
     async openCommitDetails(
-        repoRoot: string,
+        repoRoot: Uri,
         changeId: string,
         shortestChangeId?: string,
         isDivergent?: boolean,
@@ -190,7 +200,7 @@ export class FakeHostNavigation implements HostNavigation {
         this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset });
     }
 
-    async closeCommitDetailsTabs(predicate: (repoRoot?: string) => boolean): Promise<void> {
+    async closeCommitDetailsTabs(predicate: (repoRoot?: Uri) => boolean): Promise<void> {
         this.closedCommitDetailsPredicates.push(predicate);
     }
 
@@ -202,8 +212,8 @@ export class FakeHostNavigation implements HostNavigation {
         this.foldersOpened.push({ folderUri, forceNewWindow });
     }
 
-    async openExternal(url: string): Promise<void> {
-        this.externalUrlsOpened.push(url);
+    async openExternal(target: Uri): Promise<void> {
+        this.externalUrisOpened.push(target);
     }
 
     async copyToClipboard(text: string): Promise<void> {
@@ -229,18 +239,25 @@ export class FakeHostConfig implements HostConfig {
     public readonly onDidChangeConfiguration: Event<HostConfigurationChangeEvent> =
         this._onDidChangeConfiguration.event;
 
+    private normalizeKey(key: string): string {
+        return key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
+    }
+
     set<T>(key: string, value: T): void {
-        this.values.set(key, value);
+        const normalized = this.normalizeKey(key);
+        this.values.set(normalized, value);
         this._onDidChangeConfiguration.fire({
-            affectsConfiguration: (section: string) => section === key || section === `jj-view.${key}`,
+            affectsConfiguration: (section: string) =>
+                section === key || section === normalized || section === `jj-view.${normalized}`,
         });
     }
 
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
     get<T>(key: string, defaultValue?: T): T | undefined {
-        if (this.values.has(key)) {
-            return this.values.get(key) as T;
+        const normalized = this.normalizeKey(key);
+        if (this.values.has(normalized)) {
+            return this.values.get(normalized) as T;
         }
         return defaultValue;
     }
@@ -316,6 +333,12 @@ export class FakeHostDocuments implements HostDocuments {
     public openDiffTabs: HostDiffTab[] = [];
     private readonly _onDidChangeActiveDocumentEmitter = new EventEmitter<Uri | undefined>();
     readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocumentEmitter.event;
+    private readonly _onDidSaveDocumentEmitter = new EventEmitter<Uri>();
+    readonly onDidSaveDocument: Event<Uri> = this._onDidSaveDocumentEmitter.event;
+
+    fireDidSaveDocument(uri: Uri): void {
+        this._onDidSaveDocumentEmitter.fire(uri);
+    }
 
     setActiveDocument(uri: Uri | undefined, selections?: { startLine: number; endLine: number }[]): void {
         this.activeDocumentUri = uri;

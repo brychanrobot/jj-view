@@ -21,11 +21,10 @@ export async function workspaceDeleteCommand(ctx: CommandContext, payload?: Work
     }
 
     const YES = 'Yes, Delete Workspace';
-    const result = await ctx.host.ui.showWarning(
-        `Are you sure you want to forget AND delete the directory for workspace "${workspaceName}"? This action cannot be undone.`,
-        { modal: true },
-        YES,
-    );
+    const warningMessage = `Are you sure you want to forget AND delete the directory for workspace "${workspaceName}"? This action cannot be undone.`;
+    const result = ctx.host.ui.showModalWarning
+        ? await ctx.host.ui.showModalWarning(warningMessage, YES)
+        : await ctx.host.ui.showWarning(warningMessage, YES);
 
     if (result !== YES) {
         return;

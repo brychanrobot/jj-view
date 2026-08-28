@@ -8,15 +8,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import type { LogOutputChannel } from 'vscode';
 import { DirectoryWatcher } from '../directory-watcher';
-import { Uri } from '../uri-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { createMockLogOutputChannel } from './test-utils';
-
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return createVscodeMock();
-});
 
 vi.mock('@parcel/watcher', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@parcel/watcher')>();
@@ -28,15 +23,17 @@ vi.mock('@parcel/watcher', async (importOriginal) => {
 
 describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === 'win32' ? 3 : 0 }, () => {
     let tmpDir: string;
-    let outputChannel: LogOutputChannel;
+    let outputChannel: LoggerChannel;
+    let host: FakeHostEnvironment;
     let callback: Mock;
     let watcher: DirectoryWatcher;
 
     beforeEach(() => {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-test-'));
         outputChannel = createMockLogOutputChannel();
+        host = new FakeHostEnvironment();
         callback = vi.fn();
-        watcher = new DirectoryWatcher(tmpDir, callback, outputChannel);
+        watcher = new DirectoryWatcher(tmpDir, callback, outputChannel, 'DirectoryWatcher', undefined, host);
     });
 
     afterEach(async () => {
@@ -216,22 +213,16 @@ describe('DirectoryWatcher (real @parcel/watcher)', { retry: os.platform() === '
     });
 
     it('shows warning message and links to README on ENOSPC inotify error', async () => {
-        const vscode = await import('vscode');
-        const showWarningMock = vscode.window.showWarningMessage as Mock;
-        showWarningMock.mockResolvedValue('Open README');
-        const openExternalMock = vscode.env.openExternal as Mock;
+        host.ui.setNextWarningResponse('Open README');
 
         const fakeError = new Error("inotify_add_watch on '/some/path' failed: No space left on device (ENOSPC)");
         vi.mocked(parcelWatcher.subscribe).mockRejectedValueOnce(fakeError);
 
         await expect(watcher.start()).rejects.toThrow(fakeError);
 
-        expect(showWarningMock).toHaveBeenCalledWith(
-            expect.stringContaining('inotify watch limit reached'),
-            'Open README',
-        );
-        expect(openExternalMock).toHaveBeenCalledWith(
-            Uri.parse('https://github.com/brychanrobot/jj-view#file-watcher-mode'),
+        expect(host.ui.warningMessages.some((msg) => msg.includes('inotify watch limit reached'))).toBe(true);
+        expect(host.nav.externalUrisOpened.map((u) => u.toString())).toContain(
+            'https://github.com/brychanrobot/jj-view#file-watcher-mode',
         );
     });
 });

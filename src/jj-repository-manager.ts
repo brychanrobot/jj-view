@@ -732,6 +732,7 @@ export class JjRepositoryManager implements HostDisposable {
             resolvedStorePath,
             this._codeForgeRegistry,
             repoOutputChannel,
+            this._host,
             this._binaryPath,
             this._processTracker,
         );
