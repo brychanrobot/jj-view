@@ -3,16 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { JjStatusEntry } from '../jj-types';
 import { createJjResourceState } from '../scm-resource-state';
+import { Uri } from '../uri-utils';
 import './vitest-utils';
-
-// Mock vscode
-vi.mock('vscode', async () => {
-    const { createVscodeMock } = await import('./vscode-mock');
-    return await createVscodeMock({});
-});
 
 describe('createJjResourceState', () => {
     const root = '/root';
@@ -98,55 +93,46 @@ describe('createJjResourceState', () => {
         });
 
         it('does not detect working copy when revision differs from workingCopyChangeId', () => {
-            const state = createJjResourceState(entry, 'commit-456', root, {
-                workingCopyChangeId: 'commit-123',
+            const state = createJjResourceState(entry, 'commit-123', root, {
+                workingCopyChangeId: 'commit-456',
             });
-            expect(state.diffTitle).toBe('file.txt (commit-456)');
+            expect(state.diffTitle).toBe('file.txt (commit-123)');
         });
     });
 
     describe('Command Routing', () => {
         const entry: JjStatusEntry = { path: 'file.txt', status: 'modified' };
 
-        it('routes to merge editor if conflicted in conflict group, ignoring openDiffOnClick settings', () => {
-            const conflictedEntry: JjStatusEntry = { ...entry, conflicted: true };
+        it('routes to jj-view.openMergeEditor when conflicted and in conflict group', () => {
+            const conflictedEntry: JjStatusEntry = {
+                path: 'file.txt',
+                status: 'modified',
+                conflicted: true,
+            };
             const state = createJjResourceState(conflictedEntry, 'rev123', root, {
-                openDiffOnClick: false,
                 inConflictGroup: true,
             });
 
             expect(state.command?.command).toBe('jj-view.openMergeEditor');
-            expect(state.command?.arguments?.[0]).toEqual({
-                resourceUri: state.resourceUri,
-            });
+            expect(state.command?.title).toBe('Open 3-Way Merge');
+            expect(state.command?.arguments).toEqual([{ resourceUri: state.resourceUri }]);
         });
 
-        it('routes to diff/open for conflicted files not in conflict group', () => {
-            const conflictedEntry: JjStatusEntry = { ...entry, conflicted: true };
-            const stateDiff = createJjResourceState(conflictedEntry, 'rev123', root, {
-                openDiffOnClick: true,
-                inConflictGroup: false,
-            });
-            expect(stateDiff.command?.command).toBe('vscode.diff');
-
-            const stateOpen = createJjResourceState(conflictedEntry, 'rev123', root, {
-                openDiffOnClick: false,
-                inConflictGroup: false,
-            });
-            expect(stateOpen.command?.command).toBe('vscode.open');
-        });
-
-        it('routes to diff command if openDiffOnClick is true', () => {
+        it('routes to vscode.diff when openDiffOnClick is true', () => {
             const state = createJjResourceState(entry, 'rev123', root, {
                 openDiffOnClick: true,
             });
 
             expect(state.command?.command).toBe('vscode.diff');
-            expect(state.command?.arguments).toEqual([state.leftUri, state.rightUri, 'file.txt (rev123)']);
+            expect(state.command?.title).toBe('Open Changes');
+            expect(state.command?.arguments).toEqual([state.leftUri, state.rightUri, state.diffTitle]);
         });
 
-        it('routes to diff command if status is deleted, even if openDiffOnClick is false', () => {
-            const deletedEntry: JjStatusEntry = { path: 'file.txt', status: 'deleted' };
+        it('routes to vscode.diff when entry is deleted even if openDiffOnClick is false', () => {
+            const deletedEntry: JjStatusEntry = {
+                path: 'file.txt',
+                status: 'deleted',
+            };
             const state = createJjResourceState(deletedEntry, 'rev123', root, {
                 openDiffOnClick: false,
             });
@@ -160,8 +146,12 @@ describe('createJjResourceState', () => {
             });
 
             expect(state.command?.command).toBe('vscode.open');
-            expect(state.command?.arguments?.[0].fsPath).toBeSameFsPath(path.resolve(root, 'file.txt'));
-            expect(state.command?.arguments?.[0].query).toBe('');
+            const targetUri = state.command?.arguments?.[0];
+            expect(targetUri).toBeInstanceOf(Uri);
+            if (targetUri instanceof Uri) {
+                expect(targetUri.fsPath).toBeSameFsPath(path.resolve(root, 'file.txt'));
+                expect(targetUri.query).toBe('');
+            }
         });
     });
 

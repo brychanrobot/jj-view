@@ -9,7 +9,6 @@ import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import type { CommitParent, JjLogEntry, JjStatusEntry } from './jj-types';
 import { encodeJjViewQuery, getRepoRelativePath, getRevisionFromUri, Uri } from './uri-utils';
-import { getJjViewConfig } from './utils/config-utils';
 import { toError } from './utils/error-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
 import type { LoggerChannel } from './utils/output-channel';
@@ -146,8 +145,8 @@ export class ScmModel implements Disposable {
         const start = performance.now();
 
         try {
-            const maxMutableAncestors = getJjViewConfig<number>('maxMutableAncestors', 10) ?? 10;
-            const minChangeIdLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
+            const maxMutableAncestors = this.repo.host.config.get<number>('maxMutableAncestors', 10) ?? 10;
+            const minChangeIdLength = this.repo.host.config.get<number>('minChangeIdLength', 1) ?? 1;
             const limit = maxMutableAncestors + 1;
 
             const bulkLogPromise = this.jj

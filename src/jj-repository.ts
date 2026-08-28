@@ -35,7 +35,7 @@ export class JjRepository implements Disposable {
         public readonly storePath: string,
         registry: CodeForgeRegistry,
         outputChannel: LoggerChannel,
-        host: HostEnvironment,
+        public readonly host: HostEnvironment,
         binaryPath?: string,
         processTracker?: JjProcessTracker,
     ) {

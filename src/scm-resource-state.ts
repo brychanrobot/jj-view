@@ -2,12 +2,26 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type * as vscode from 'vscode';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjStatusEntry } from './jj-types';
 import { createDiffUris, toFileUri, type Uri } from './uri-utils';
 
-export interface JjResourceState extends vscode.SourceControlResourceState {
+export interface ResourceCommand {
+    command: string;
+    title: string;
+    arguments?: unknown[];
+}
+
+export interface ResourceDecorations {
+    faded?: boolean;
+    strikeThrough?: boolean;
+}
+
+export interface JjResourceState {
+    resourceUri: Uri;
+    command?: ResourceCommand;
+    decorations?: ResourceDecorations;
+    contextValue?: string;
     leftUri?: Uri;
     rightUri?: Uri;
     diffTitle?: string;
@@ -36,13 +50,13 @@ export function createJjResourceState(
 
     const diffTitle = `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
 
-    const diffCommand: vscode.Command = {
+    const diffCommand: ResourceCommand = {
         command: 'vscode.diff',
         title: 'Open Changes',
         arguments: [leftUri, rightUri, diffTitle],
     };
 
-    const command: vscode.Command =
+    const command: ResourceCommand =
         entry.conflicted && options.inConflictGroup
             ? {
                   command: 'jj-view.openMergeEditor',
