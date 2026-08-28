@@ -106,7 +106,7 @@ export async function squashRevisionIntoAncestorCommand(
         if (!selectedAncestorRev) {
             selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select which ancestor to squash into',
-                revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+                revisionQuery: RevisionQuery.mutableAncestorsExcluding(revision),
             });
         }
         if (!selectedAncestorRev) {

@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeForgeRegistry } from '../../code-forge-registry';
+import { RevisionQuery } from '../../commands/command-utils';
 import {
     promptForRevision,
     promptSelectOrCreate,
@@ -147,6 +148,63 @@ describe('ui-helpers', () => {
             });
 
             expect(result).toBe(ids.p1.changeId);
+        });
+
+        it('restricts prompt to mutable ancestors when using mutableAncestorsExcluding', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'root', files: { 'file0.txt': 'root\n' } },
+                { label: 'p1', parents: ['root'], files: { 'file1.txt': 'p1\n' } },
+                { label: 'c1', parents: ['p1'], files: { 'file2.txt': 'c1\n' }, isCurrentWorkingCopy: true },
+            ]);
+            repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.root.commitId}")`);
+
+            let quickPickItems: { label: string; detail?: string }[] = [];
+            ui.showQuickPick = vi.fn().mockImplementation((items) => {
+                quickPickItems = items;
+                return Promise.resolve({
+                    label: 'p1',
+                    detail: ids.p1.changeId,
+                });
+            });
+
+            const result = await promptForRevision(ui, jj, {
+                revisionQuery: RevisionQuery.mutableAncestorsExcluding('@'),
+            });
+
+            expect(result).toBe(ids.p1.changeId);
+            // Should contain mutable parent p1, but NOT the working copy c1 (@) or root commit
+            const details = quickPickItems.map((item) => item.detail);
+            expect(details).toContain(ids.p1.changeId);
+            expect(details).not.toContain(ids.c1.changeId);
+            expect(details).not.toContain(ids.root.changeId);
+        });
+
+        it('restricts prompt to mutable ancestors including target when using mutableAncestorsIncluding', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'root', files: { 'file0.txt': 'root\n' } },
+                { label: 'p1', parents: ['root'], files: { 'file1.txt': 'p1\n' } },
+                { label: 'c1', parents: ['p1'], files: { 'file2.txt': 'c1\n' }, isCurrentWorkingCopy: true },
+            ]);
+            repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.root.commitId}")`);
+
+            let quickPickItems: { label: string; detail?: string }[] = [];
+            ui.showQuickPick = vi.fn().mockImplementation((items) => {
+                quickPickItems = items;
+                return Promise.resolve({
+                    label: 'c1',
+                    detail: ids.c1.changeId,
+                });
+            });
+
+            const result = await promptForRevision(ui, jj, {
+                revisionQuery: RevisionQuery.mutableAncestorsIncluding('@'),
+            });
+
+            expect(result).toBe(ids.c1.changeId);
+            const details = quickPickItems.map((item) => item.detail);
+            expect(details).toContain(ids.c1.changeId);
+            expect(details).toContain(ids.p1.changeId);
+            expect(details).not.toContain(ids.root.changeId);
         });
     });
 

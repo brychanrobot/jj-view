@@ -43,6 +43,16 @@ export class FakeHostUi implements HostUi {
     public errorMessages: string[] = [];
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
+    public quickPickCalls: {
+        items: { label: string; detail?: string; description?: string; value?: unknown }[];
+        options?: {
+            placeHolder?: string;
+            title?: string;
+            matchOnDescription?: boolean;
+            matchOnDetail?: boolean;
+            acceptCustomValue?: boolean;
+        };
+    }[] = [];
 
     get warningResponse(): string | undefined {
         return this.warningResponses[0];
@@ -94,8 +104,8 @@ export class FakeHostUi implements HostUi {
     }
 
     async showQuickPick<T extends { label: string; value?: unknown }>(
-        _items: T[],
-        _options?: {
+        items: T[],
+        options?: {
             placeHolder?: string;
             title?: string;
             matchOnDescription?: boolean;
@@ -103,6 +113,7 @@ export class FakeHostUi implements HostUi {
             acceptCustomValue?: boolean;
         },
     ): Promise<T | undefined> {
+        this.quickPickCalls.push({ items, options });
         return this.quickPickResponses.shift() as T | undefined;
     }
 

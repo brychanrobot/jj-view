@@ -269,12 +269,20 @@ describe('squashRevisionIntoParentCommand', () => {
             { label: 'child', parents: ['p'], description: '', files: { 'child.txt': 'child' } },
             { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
         ]);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
 
-        ctx.host.ui.setNextRevisionPromptResponse(ids.base.changeId);
+        ctx.host.ui.setNextRevisionPromptResponse(ids.p.changeId);
 
         await squashRevisionIntoAncestorCommand(ctx, { revision: ids.child.changeId });
 
-        expect(repo.getFileContent(ids.base.changeId, 'child.txt')).toBe('child');
+        expect(repo.getFileContent(ids.p.changeId, 'child.txt')).toBe('child');
+
+        // Verify that prompt only presented mutable ancestors (p), not immutable base or source child
+        const quickPick = ctx.host.ui.quickPickCalls[0];
+        const details = quickPick.items.map((i) => i.detail);
+        expect(details).toContain(ids.p.changeId);
+        expect(details).not.toContain(ids.base.changeId);
+        expect(details).not.toContain(ids.child.changeId);
     });
 
     test('completeSquashRevisionCommand completes squash and closes editor', async () => {

@@ -60,7 +60,7 @@ export async function squashFilesIntoAncestorCommand(
         if (!selectedAncestorRev) {
             selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select which ancestor to squash into',
-                revisionQuery: RevisionQuery.ancestorsExcluding(revision),
+                revisionQuery: RevisionQuery.mutableAncestorsExcluding(revision),
             });
         }
         if (!selectedAncestorRev) {
@@ -122,7 +122,12 @@ export async function squashFilesIntoChildCommand(
         }
 
         await ctx.host.ui.withProgress('Squashing file(s) into child...', () =>
-            ctx.repo.jj.squashRevision({ paths, revision, intoRevision: targetChild }),
+            ctx.repo.jj.squashRevision({
+                paths,
+                revision,
+                intoRevision: targetChild,
+                useDestinationMessage: true,
+            }),
         );
         await ctx.repo.refresh({ reason: 'after squash file(s) into child' });
     } catch (e: unknown) {

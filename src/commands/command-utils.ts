@@ -292,6 +292,8 @@ export const RevisionQuery = {
     All: 'all()',
     ancestorsExcluding: (rev: string) => `ancestors(${rev}) ~ ${rev}`,
     ancestorsIncluding: (rev: string) => `ancestors(${rev})`,
+    mutableAncestorsExcluding: (rev: string) => `(ancestors(${rev}) ~ ${rev}) & mutable()`,
+    mutableAncestorsIncluding: (rev: string) => `ancestors(${rev}) & mutable()`,
     mutable: () => 'mutable()',
     visible: () => 'visible()',
     children: (rev: string) => `children(${rev})`,

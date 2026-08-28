@@ -75,7 +75,13 @@ describe('squash-files commands', () => {
         test('squashes specific file into grandparent', async () => {
             const fileName = 'file.txt';
             const ids = await buildGraph(repo, [
-                { label: 'grandparent', description: 'grandparent', files: { [fileName]: 'grandparent content' } },
+                { label: 'base', description: 'base', files: { 'base.txt': 'base content' } },
+                {
+                    label: 'grandparent',
+                    parents: ['base'],
+                    description: 'grandparent',
+                    files: { [fileName]: 'grandparent content' },
+                },
                 {
                     label: 'parent',
                     parents: ['grandparent'],
@@ -90,6 +96,7 @@ describe('squash-files commands', () => {
                     isCurrentWorkingCopy: true,
                 },
             ]);
+            repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
 
             ctx.host.ui.setNextRevisionPromptResponse(ids.grandparent.changeId);
 
@@ -100,6 +107,14 @@ describe('squash-files commands', () => {
 
             const childOtherContent = repo.getFileContent('@', 'other.txt');
             expect(childOtherContent).toBe('other content');
+
+            // Verify that prompt only presented mutable ancestors, not immutable base or source child
+            const quickPick = ctx.host.ui.quickPickCalls[0];
+            const details = quickPick.items.map((i) => i.detail);
+            expect(details).toContain(ids.grandparent.changeId);
+            expect(details).toContain(ids.parent.changeId);
+            expect(details).not.toContain(ids.base.changeId);
+            expect(details).not.toContain(ids.child.changeId);
         });
     });
 
@@ -122,6 +137,7 @@ describe('squash-files commands', () => {
             await squashFilesIntoChildCommand(ctx, { paths: [fileName], revision: ids.parent.changeId });
 
             expect(repo.getFileContent(ids.child.changeId, fileName)).toBe('parent modified');
+            expect(repo.getDescription(ids.child.changeId)).toBe('child');
         });
 
         test('prompts when multiple children exist', async () => {
