@@ -256,10 +256,7 @@ export class LogViewController implements Disposable {
 
         this._onDidUpdateCommits.fire(enrichedCommits);
 
-        this._postMessage({
-            type: 'update',
-            payload: this.getState(),
-        });
+        this._dispatcher.emitter.update(this.getState());
     }
 
     private _updateSelectionContextKeys(selectedCommitIds: readonly string[], hasImmutableSelection?: boolean): void {
@@ -300,10 +297,7 @@ export class LogViewController implements Disposable {
 
         this._onDidChangeSelection.fire(this._selectedCommitIds);
 
-        this._postMessage({
-            type: 'setSelection',
-            payload: { ids: [...commitIds] },
-        });
+        this._dispatcher.emitter.setSelection({ ids: [...commitIds] });
     }
 
     public setHiddenActions(hiddenActions: readonly string[]): void {
@@ -318,10 +312,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._postMessage({
-            type: 'updateHiddenActions',
-            payload: { hiddenActions: [...validActions] },
-        });
+        this._dispatcher.emitter.updateHiddenActions({ hiddenActions: [...validActions] });
     }
 
     public getHiddenActions(): string[] {
@@ -329,22 +320,18 @@ export class LogViewController implements Disposable {
     }
 
     public toggleAction(actionId: string): readonly ToggleableCommitAction[] {
-        if (!(TOGGLEABLE_COMMIT_ACTIONS as readonly string[]).includes(actionId)) {
+        const validAction = actionId as ToggleableCommitAction;
+        if (!TOGGLEABLE_COMMIT_ACTIONS.includes(validAction)) {
             return this._hiddenActions;
         }
 
-        const action = actionId as ToggleableCommitAction;
-        const hiddenSet = new Set(this._hiddenActions);
-        if (hiddenSet.has(action)) {
-            hiddenSet.delete(action);
-        } else {
-            hiddenSet.add(action);
-        }
+        const next = this._hiddenActions.includes(validAction)
+            ? this._hiddenActions.filter((a) => a !== validAction)
+            : [...this._hiddenActions, validAction];
 
-        const newHidden = Array.from(hiddenSet);
-        this.setHiddenActions(newHidden);
-        this._host.storage.update(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, newHidden);
-        return this._hiddenActions;
+        this.setHiddenActions(next);
+        this._host.storage.update(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, next);
+        return next;
     }
 
     public updateConfig(config: { theme?: string; graphLabelAlignment?: string; minChangeIdLength?: number }): void {
@@ -362,10 +349,17 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._postMessage({
-            type: 'update',
-            payload: this.getState(),
-        });
+        this._dispatcher.emitter.update(this.getState());
+    }
+
+    public setTheme(theme: string): void {
+        this._theme = theme;
+
+        if (this._disposed) {
+            return;
+        }
+
+        this._dispatcher.emitter.update(this.getState());
     }
 
     public setGraphLabelAlignment(alignment: string): void {
@@ -375,10 +369,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._postMessage({
-            type: 'update',
-            payload: this.getState(),
-        });
+        this._dispatcher.emitter.update(this.getState());
     }
 
     public refreshSettings(): void {
@@ -413,10 +404,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._postMessage({
-            type: 'update',
-            payload: this.getState(),
-        });
+        this._dispatcher.emitter.update(this.getState());
     }
 
     public async refreshCodeForge(): Promise<void> {
@@ -458,10 +446,7 @@ export class LogViewController implements Disposable {
     }
 
     public handlePanelClosed(changeId: string): void {
-        this._postMessage({
-            type: 'panelClosed',
-            payload: { changeId },
-        });
+        this._dispatcher.emitter.panelClosed({ changeId });
     }
 
     private _updateActionContextKeys(): void {
@@ -470,12 +455,6 @@ export class LogViewController implements Disposable {
             const key = `jj.commitActionVisible.${actionId}`;
             const value = !hiddenSet.has(actionId);
             this._host.commands.setContextKey(key, value);
-        }
-    }
-
-    private _postMessage(message: LogViewHostToWebviewMessage): void {
-        if (!this._disposed) {
-            this._dispatcher.broadcast(message);
         }
     }
 
