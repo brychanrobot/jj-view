@@ -7,6 +7,7 @@ import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import {
     type CommitDetailsHostToWebviewMessage,
+    type CommitDetailsPayload,
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
 } from '../common/ipc/commit-details-schemas';
@@ -17,7 +18,7 @@ import {
     type WebviewRpcDispatcher,
 } from '../common/webview-rpc-dispatcher';
 import type { JjRepository } from '../jj-repository';
-import type { JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
+import type { JjLogEntry, JjStatusEntry } from '../jj-types';
 import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 
@@ -77,7 +78,7 @@ export class CommitDetailsController implements Disposable {
         return this._persistedDescription;
     }
 
-    public get detailsPayload(): WebviewPayload | undefined {
+    public get detailsPayload(): CommitDetailsPayload | undefined {
         if (!this._logEntry) {
             return undefined;
         }
@@ -181,11 +182,9 @@ export class CommitDetailsController implements Disposable {
                     formatDescriptionOnSave: this._host.config.get<boolean>('commit.formatDescriptionOnSave', false),
                 },
             });
-
             return log;
-        } catch (err) {
-            this._logger?.error(`[CommitDetailsController] Failed to load commit ${this.changeId}`, toError(err));
-            return undefined;
+        } finally {
+            // Completed load
         }
     }
 
@@ -289,7 +288,9 @@ export class CommitDetailsController implements Disposable {
 
             this.broadcast({
                 type: 'saveComplete',
-                payload: { description: savedDescription },
+                payload: {
+                    description: savedDescription,
+                },
             });
             return true;
         } catch (err) {
@@ -318,28 +319,28 @@ export class CommitDetailsController implements Disposable {
             CommitDetailsToHostMessageSchema,
             {
                 webviewLoaded: async () => {},
-                descriptionChanged: async (msg) => {
-                    const newText = msg.payload.description;
+                descriptionChanged: async (payload) => {
+                    const newText = payload.description;
                     const newSelection = {
-                        start: msg.payload.selectionStart ?? 0,
-                        end: msg.payload.selectionEnd ?? 0,
+                        start: payload.selectionStart ?? 0,
+                        end: payload.selectionEnd ?? 0,
                     };
                     this.updateDraft(newText, newSelection);
                 },
-                saveDescription: async (msg) => {
-                    const newText = msg.payload.description;
+                saveDescription: async (payload) => {
+                    const newText = payload.description;
                     this._draftDescription = newText;
                     this.flushDebounce();
                     await this._host.commands.executeCommand('workbench.action.files.save');
                 },
-                openDiff: async (msg) => {
-                    const { file, changeId, isImmutable } = msg.payload;
+                openDiff: async (payload) => {
+                    const { file, changeId, isImmutable } = payload;
                     if (this._options?.openDiff) {
                         await this._options.openDiff({ file, changeId, isImmutable });
                     }
                 },
-                openMultiDiff: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.showMultiFileDiff', msg.payload.changeId);
+                openMultiDiff: async (payload) => {
+                    await this._host.commands.executeCommand('jj-view.showMultiFileDiff', payload.changeId);
                 },
             },
             {

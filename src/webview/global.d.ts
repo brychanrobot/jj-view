@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { WebviewInitialData } from '../jj-types';
+import type { WebviewInitialData } from '../jj-types';
 
 declare global {
     interface Window {

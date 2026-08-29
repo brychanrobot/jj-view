@@ -63,8 +63,8 @@ export class ProcessMonitorController implements Disposable {
         this._dispatcher = createWebviewRpcDispatcher(
             ProcessMonitorToHostMessageSchema,
             {
-                killProcess: (msg) => {
-                    this.cancelProcess(msg.id);
+                killProcess: (payload) => {
+                    this.cancelProcess(payload.id);
                 },
                 killAllProcesses: () => {
                     this.cancelAllProcesses();
@@ -149,9 +149,11 @@ export class ProcessMonitorController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            activeTasks,
-            historyTasks,
-            metrics,
+            payload: {
+                activeTasks,
+                historyTasks,
+                metrics,
+            },
         });
     }
 

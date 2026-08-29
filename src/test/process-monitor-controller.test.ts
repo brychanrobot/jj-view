@@ -59,7 +59,7 @@ describe('ProcessMonitorController Domain Unit Tests', () => {
         const clearSpy = vi.spyOn(tracker, 'clearHistory');
         const updateConfigSpy = vi.spyOn(fakeHost.config, 'update');
 
-        const killHandled = await controller.handleMessage({ command: 'killProcess', id: 42 });
+        const killHandled = await controller.handleMessage({ command: 'killProcess', payload: { id: 42 } });
         expect(killHandled).toBe(true);
         expect(cancelSpy).toHaveBeenCalledWith(42);
 

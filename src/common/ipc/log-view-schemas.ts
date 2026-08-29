@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { z } from 'zod';
-import { JjBookmarkSchema, JjLogEntrySchema, JjStatusEntrySchema } from '../../jj-schemas';
+import { JjLogEntrySchema } from '../../jj-schemas';
 
 export const CommitActionSchema = z.enum(['newChild', 'edit', 'squash', 'abandon', 'openCodeForge', 'upload']);
 export type CommitAction = z.infer<typeof CommitActionSchema>;
+
+export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
+export type ToggleableCommitAction = (typeof TOGGLEABLE_COMMIT_ACTIONS)[number];
 
 export const ActionPayloadSchema = z.object({
     changeId: z.string(),
@@ -20,45 +23,13 @@ export const ActionPayloadSchema = z.object({
 });
 export type ActionPayload = z.infer<typeof ActionPayloadSchema>;
 
-export const WebviewPayloadSchema = z.object({
-    commits: z.array(JjLogEntrySchema).optional(),
-    minChangeIdLength: z.number().optional(),
-    theme: z.string().optional(),
-    graphLabelAlignment: z.string().optional(),
-    hiddenActions: z.array(CommitActionSchema).optional(),
-    changeId: z.string().optional(),
-    commitId: z.string().optional(),
-    description: z.string().optional(),
-    files: z.array(JjStatusEntrySchema).optional(),
-    isImmutable: z.boolean().optional(),
-    isEmpty: z.boolean().optional(),
-    isConflict: z.boolean().optional(),
-    author: z
-        .object({
-            name: z.string(),
-            email: z.string(),
-            timestamp: z.string(),
-        })
-        .optional(),
-    committer: z
-        .object({
-            name: z.string(),
-            email: z.string(),
-            timestamp: z.string(),
-        })
-        .optional(),
-    bookmarks: z.array(JjBookmarkSchema).optional(),
-    tags: z.array(z.string()).optional(),
-    titleWidthRuler: z.number().optional(),
-    bodyWidthRuler: z.number().optional(),
-    formatDescriptionOnSave: z.boolean().optional(),
-});
-export type WebviewPayload = z.infer<typeof WebviewPayloadSchema>;
-
 export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('webviewLoaded') }),
     z.object({ type: z.literal('new') }),
-    z.object({ type: z.literal('newChild'), payload: ActionPayloadSchema }),
+    z.object({
+        type: z.literal('newChild'),
+        payload: ActionPayloadSchema,
+    }),
     z.object({
         type: z.literal('newBefore'),
         payload: z.object({ changeIds: z.array(z.string()).optional() }),
@@ -67,13 +38,28 @@ export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
         type: z.literal('newAfter'),
         payload: z.object({ changeIds: z.array(z.string()).optional() }),
     }),
-    z.object({ type: z.literal('edit'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('squash'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('abandon'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('select'), payload: ActionPayloadSchema }),
+    z.object({
+        type: z.literal('edit'),
+        payload: ActionPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('squash'),
+        payload: ActionPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('abandon'),
+        payload: ActionPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('select'),
+        payload: ActionPayloadSchema,
+    }),
     z.object({ type: z.literal('undo') }),
     z.object({ type: z.literal('redo') }),
-    z.object({ type: z.literal('getDetails'), payload: ActionPayloadSchema }),
+    z.object({
+        type: z.literal('getDetails'),
+        payload: ActionPayloadSchema,
+    }),
     z.object({
         type: z.literal('resolve'),
         payload: z.object({ path: z.string() }),
@@ -100,20 +86,32 @@ export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('duplicateCommit'),
-        payload: z.object({ sourceChangeId: z.string(), targetChangeId: z.string().optional() }),
+        payload: z.object({
+            sourceChangeId: z.string(),
+            targetChangeId: z.string().optional(),
+        }),
     }),
     z.object({
         type: z.literal('mergeCommit'),
-        payload: z.object({ sourceChangeId: z.string(), targetChangeId: z.string() }),
+        payload: z.object({
+            sourceChangeId: z.string(),
+            targetChangeId: z.string(),
+        }),
     }),
-    z.object({ type: z.literal('upload'), payload: ActionPayloadSchema }),
+    z.object({
+        type: z.literal('upload'),
+        payload: ActionPayloadSchema,
+    }),
     z.object({
         type: z.literal('showComments'),
         payload: z.object({ changeId: z.string() }),
     }),
     z.object({
         type: z.literal('selectionChange'),
-        payload: z.object({ commitIds: z.array(z.string()), hasImmutableSelection: z.boolean().optional() }),
+        payload: z.object({
+            commitIds: z.array(z.string()),
+            hasImmutableSelection: z.boolean().optional(),
+        }),
     }),
     z.object({
         type: z.literal('setContextKey'),
@@ -130,14 +128,19 @@ export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
 ]);
 export type LogViewToHostMessage = z.infer<typeof LogViewToHostMessageSchema>;
 
+export const LogViewPayloadSchema = z.object({
+    commits: z.array(JjLogEntrySchema),
+    minChangeIdLength: z.number().optional(),
+    theme: z.string().optional(),
+    graphLabelAlignment: z.string().optional(),
+    hiddenActions: z.array(CommitActionSchema).optional(),
+});
+export type LogViewPayload = z.infer<typeof LogViewPayloadSchema>;
+
 export const LogViewHostToWebviewMessageSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('update'),
-        commits: z.array(JjLogEntrySchema),
-        minChangeIdLength: z.number().optional(),
-        theme: z.string().optional(),
-        graphLabelAlignment: z.string().optional(),
-        hiddenActions: z.array(CommitActionSchema).optional(),
+        payload: LogViewPayloadSchema,
     }),
     z.object({
         type: z.literal('updateHiddenActions'),
@@ -149,7 +152,7 @@ export const LogViewHostToWebviewMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('setSelection'),
-        ids: z.array(z.string()),
+        payload: z.object({ ids: z.array(z.string()) }),
     }),
 ]);
 export type LogViewHostToWebviewMessage = z.infer<typeof LogViewHostToWebviewMessageSchema>;

@@ -9,11 +9,11 @@ import type { LoggerChannel } from '../utils/output-channel';
 
 describe('WebviewRpcDispatcher', () => {
     const testSchema = z.discriminatedUnion('type', [
-        z.object({ type: z.literal('ping'), value: z.string() }),
-        z.object({ type: z.literal('count'), amount: z.number() }),
+        z.object({ type: z.literal('ping'), payload: z.object({ value: z.string() }) }),
+        z.object({ type: z.literal('count'), payload: z.object({ amount: z.number() }) }),
     ]);
 
-    test('dispatches valid messages to their registered handlers', async () => {
+    test('dispatches valid messages to their registered handlers delivering unwrapped payload', async () => {
         const pingFn = vi.fn();
         const countFn = vi.fn();
 
@@ -22,14 +22,14 @@ describe('WebviewRpcDispatcher', () => {
             count: countFn,
         });
 
-        const handledPing = await dispatcher.dispatch({ type: 'ping', value: 'hello' });
+        const handledPing = await dispatcher.dispatch({ type: 'ping', payload: { value: 'hello' } });
         expect(handledPing).toBe(true);
-        expect(pingFn).toHaveBeenCalledWith({ type: 'ping', value: 'hello' });
+        expect(pingFn).toHaveBeenCalledWith({ value: 'hello' });
         expect(countFn).not.toHaveBeenCalled();
 
-        const handledCount = await dispatcher.dispatch({ type: 'count', amount: 42 });
+        const handledCount = await dispatcher.dispatch({ type: 'count', payload: { amount: 42 } });
         expect(handledCount).toBe(true);
-        expect(countFn).toHaveBeenCalledWith({ type: 'count', amount: 42 });
+        expect(countFn).toHaveBeenCalledWith({ amount: 42 });
     });
 
     test('returns false and ignores invalid messages', async () => {
@@ -44,7 +44,7 @@ describe('WebviewRpcDispatcher', () => {
         const invalidType = await dispatcher.dispatch({ type: 'unknown' });
         expect(invalidType).toBe(false);
 
-        const invalidPayload = await dispatcher.dispatch({ type: 'count', amount: 'not a number' });
+        const invalidPayload = await dispatcher.dispatch({ type: 'count', payload: { amount: 'not a number' } });
         expect(invalidPayload).toBe(false);
 
         const nonObject = await dispatcher.dispatch('just a string');
@@ -56,7 +56,7 @@ describe('WebviewRpcDispatcher', () => {
 
     test('supports custom discriminator keys', async () => {
         const customSchema = z.discriminatedUnion('command', [
-            z.object({ command: z.literal('open'), path: z.string() }),
+            z.object({ command: z.literal('open'), payload: z.object({ path: z.string() }) }),
             z.object({ command: z.literal('close') }),
         ]);
 
@@ -72,9 +72,13 @@ describe('WebviewRpcDispatcher', () => {
             { discriminatorKey: 'command' },
         );
 
-        const handled = await dispatcher.dispatch({ command: 'open', path: '/foo' });
+        const handled = await dispatcher.dispatch({ command: 'open', payload: { path: '/foo' } });
         expect(handled).toBe(true);
-        expect(openFn).toHaveBeenCalledWith({ command: 'open', path: '/foo' });
+        expect(openFn).toHaveBeenCalledWith({ path: '/foo' });
+
+        const handledClose = await dispatcher.dispatch({ command: 'close' });
+        expect(handledClose).toBe(true);
+        expect(closeFn).toHaveBeenCalledTimes(1);
     });
 
     test('automatically dispatches baseline logMessage to logger', async () => {
@@ -120,7 +124,7 @@ describe('WebviewRpcDispatcher', () => {
 
         const dispatcher = createWebviewRpcDispatcher(testSchema, { ping: vi.fn() }, { logger: mockLogger, onError });
 
-        const invalidMsg = { type: 'count', amount: 'not a number' };
+        const invalidMsg = { type: 'count', payload: { amount: 'not a number' } };
         const result = await dispatcher.dispatch(invalidMsg);
 
         expect(result).toBe(false);
@@ -148,12 +152,41 @@ describe('WebviewRpcDispatcher', () => {
             { logger: mockLogger, onError },
         );
 
-        const validMsg = { type: 'ping', value: 'boom' };
+        const validMsg = { type: 'ping', payload: { value: 'boom' } };
         const result = await dispatcher.dispatch(validMsg);
 
         expect(result).toBe(false);
         expect(mockLogger.error).toHaveBeenCalledWith('Webview RPC handler error (ping)', handlerError);
         expect(onError).toHaveBeenCalledWith(handlerError, validMsg);
+    });
+
+    test('sends error response when message has requestId but no handler is registered', async () => {
+        const mockPostMessage = vi.fn();
+        const schemaWithReq = z.discriminatedUnion('type', [
+            z.object({
+                type: z.literal('ping'),
+                payload: z.object({ value: z.string() }),
+                requestId: z.string().optional(),
+            }),
+        ]);
+
+        const dispatcher = createWebviewRpcDispatcher(
+            schemaWithReq,
+            {},
+            { messenger: { postMessage: mockPostMessage } },
+        );
+
+        const handled = await dispatcher.dispatch({
+            type: 'ping',
+            payload: { value: 'test' },
+            requestId: 'req_unregistered',
+        });
+        expect(handled).toBe(false);
+        expect(mockPostMessage).toHaveBeenCalledWith({
+            type: '__rpc_response__',
+            requestId: 'req_unregistered',
+            error: "No handler registered for 'ping'",
+        });
     });
 
     test('rejects pending requests when dispatcher is disposed', async () => {
@@ -165,13 +198,13 @@ describe('WebviewRpcDispatcher', () => {
         await expect(pending).rejects.toThrowError('WebviewRpcDispatcher disposed');
     });
 
-    test('dispatches custom logMessage handler with raw message', async () => {
+    test('dispatches custom logMessage handler with payload', async () => {
         const customLogMessageHandler = vi.fn(async (_message) => {
             await Promise.resolve();
         });
 
         const schemaWithLog = z.discriminatedUnion('type', [
-            z.object({ type: z.literal('ping'), value: z.string() }),
+            z.object({ type: z.literal('ping'), payload: z.object({ value: z.string() }) }),
             z.object({
                 type: z.literal('logMessage'),
                 payload: z.object({ level: z.enum(['info', 'warn', 'error']), message: z.string() }),
@@ -197,8 +230,8 @@ describe('WebviewRpcDispatcher', () => {
 
 describe('createWebviewRpcClient', () => {
     const testSchema = z.discriminatedUnion('type', [
-        z.object({ type: z.literal('ping'), value: z.string() }),
-        z.object({ type: z.literal('count'), amount: z.number() }),
+        z.object({ type: z.literal('ping'), payload: z.object({ value: z.string() }) }),
+        z.object({ type: z.literal('count'), payload: z.object({ amount: z.number() }) }),
     ]);
 
     test('invokes webview.postMessage with type and payload', () => {
@@ -212,7 +245,7 @@ describe('createWebviewRpcClient', () => {
         expect(mockWebview.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'ping',
-                value: 'hello',
+                payload: { value: 'hello' },
             }),
         );
 
@@ -220,7 +253,7 @@ describe('createWebviewRpcClient', () => {
         expect(mockWebview.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'count',
-                amount: 10,
+                payload: { amount: 10 },
             }),
         );
     });
@@ -239,7 +272,11 @@ describe('createWebviewRpcClient', () => {
 
     test('supports request-response promise resolution and exception propagation', async () => {
         const rpcSchema = z.discriminatedUnion('type', [
-            z.object({ type: z.literal('greet'), name: z.string(), requestId: z.string().optional() }),
+            z.object({
+                type: z.literal('greet'),
+                payload: z.object({ name: z.string() }),
+                requestId: z.string().optional(),
+            }),
             z.object({ type: z.literal('fail'), requestId: z.string().optional() }),
         ]);
 
@@ -253,7 +290,7 @@ describe('createWebviewRpcClient', () => {
         const dispatcher = createWebviewRpcDispatcher(
             rpcSchema,
             {
-                greet: async (msg) => `Hello ${msg.name}`,
+                greet: async ({ name }) => `Hello ${name}`,
                 fail: async () => {
                     throw new Error('Something went wrong');
                 },
