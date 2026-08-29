@@ -15,17 +15,22 @@ import {
 } from '@dnd-kit/core';
 import * as React from 'react';
 import {
+    type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
+    type CommitDetailsPayload,
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
 } from '../common/ipc/commit-details-schemas';
 import {
     type ActionPayload,
+    type CommitAction,
+    type LogViewHostToWebviewMessage,
     LogViewHostToWebviewMessageSchema,
+    type LogViewPayload,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
 } from '../common/ipc/log-view-schemas';
-import type { CommitAction, JjLogEntry, WebviewInitialData, WebviewPayload } from '../jj-types';
+import type { JjLogEntry, WebviewInitialData } from '../jj-types';
 import { BookmarkPill } from './components/Bookmark';
 import { CommitDetails } from './components/CommitDetails';
 import { CommitDragPreview } from './components/CommitDragPreview';
@@ -40,20 +45,19 @@ type DragItem =
     | (JjLogEntry & { type: 'commit'; changeId: string });
 
 interface CommitDetailsViewProps {
-    initialPayload?: WebviewPayload;
+    initialPayload?: CommitDetailsPayload;
 }
 
 const CommitDetailsView: React.FC<CommitDetailsViewProps> = ({ initialPayload }) => {
-    const [detailsCommit, setDetailsCommit] = React.useState<WebviewPayload | null>(initialPayload || null);
+    const [detailsCommit, setDetailsCommit] = React.useState<CommitDetailsPayload | null>(initialPayload || null);
     const rpc = useRpcClient<CommitDetailsToHostMessage>(CommitDetailsToHostMessageSchema);
 
-    useRpcDispatcher(CommitDetailsHostToWebviewMessageSchema, {
-        updateDetails: (msg) => {
-            setDetailsCommit(msg.payload);
+    useRpcDispatcher<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
+        updateDetails: (payload) => {
+            setDetailsCommit(payload);
         },
-        saveComplete: (msg) => {
-            const newDesc = msg.payload.description;
-            setDetailsCommit((prev) => (prev ? { ...prev, description: newDesc } : prev));
+        saveComplete: ({ description }) => {
+            setDetailsCommit((prev) => (prev ? { ...prev, description } : prev));
         },
         saveFailed: () => {},
         updateDescription: () => {},
@@ -89,28 +93,28 @@ const CommitDetailsView: React.FC<CommitDetailsViewProps> = ({ initialPayload })
             minChangeIdLength={detailsCommit.minChangeIdLength}
             onSave={(description) => {
                 if (detailsCommit.changeId) {
-                    void rpc.saveDescription({ payload: { changeId: detailsCommit.changeId, description } });
+                    void rpc.saveDescription({ changeId: detailsCommit.changeId, description });
                 }
             }}
             onOpenDiff={(file, isImmutable) => {
                 if (detailsCommit.changeId) {
-                    void rpc.openDiff({ payload: { changeId: detailsCommit.changeId, file, isImmutable } });
+                    void rpc.openDiff({ changeId: detailsCommit.changeId, file, isImmutable });
                 }
             }}
             onOpenMultiDiff={() => {
                 if (detailsCommit.changeId) {
-                    void rpc.openMultiDiff({ payload: { changeId: detailsCommit.changeId } });
+                    void rpc.openMultiDiff({ changeId: detailsCommit.changeId });
                 }
             }}
             onDescriptionChange={(description, selectionStart, selectionEnd) => {
-                void rpc.descriptionChanged({ payload: { description, selectionStart, selectionEnd } });
+                void rpc.descriptionChanged({ description, selectionStart, selectionEnd });
             }}
         />
     );
 };
 
 interface LogViewProps {
-    initialPayload?: WebviewPayload;
+    initialPayload?: LogViewPayload;
 }
 
 const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
@@ -151,21 +155,26 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
         }),
     );
 
-    useRpcDispatcher(LogViewHostToWebviewMessageSchema, {
-        update: (message) => {
-            const newCommits = message.commits;
+    useRpcDispatcher<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
+        update: ({
+            commits: newCommits,
+            minChangeIdLength: minLen,
+            theme: th,
+            graphLabelAlignment: align,
+            hiddenActions: hidden,
+        }) => {
             setCommits(newCommits);
-            if (message.minChangeIdLength !== undefined) {
-                setMinChangeIdLength(message.minChangeIdLength);
+            if (minLen !== undefined) {
+                setMinChangeIdLength(minLen);
             }
-            if (message.theme !== undefined) {
-                setTheme(message.theme);
+            if (th !== undefined) {
+                setTheme(th);
             }
-            if (message.graphLabelAlignment !== undefined) {
-                setGraphLabelAlignment(message.graphLabelAlignment);
+            if (align !== undefined) {
+                setGraphLabelAlignment(align);
             }
-            if (message.hiddenActions !== undefined) {
-                setHiddenActions(new Set(message.hiddenActions as CommitAction[]));
+            if (hidden !== undefined) {
+                setHiddenActions(new Set(hidden));
             }
             setLoading(false);
 
@@ -184,44 +193,38 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
                     const hasImmutable = hasImmutableSelection(newIds, newCommits);
 
                     void rpc.selectionChange({
-                        payload: {
-                            commitIds: validIds,
-                            hasImmutableSelection: hasImmutable,
-                        },
+                        commitIds: validIds,
+                        hasImmutableSelection: hasImmutable,
                     });
                     return newIds;
                 }
                 return prevIds;
             });
         },
-        updateHiddenActions: (message) => {
-            setHiddenActions(new Set(message.payload.hiddenActions as CommitAction[]));
+        updateHiddenActions: ({ hiddenActions: hidden }) => {
+            setHiddenActions(new Set(hidden));
         },
-        panelClosed: (message) => {
+        panelClosed: ({ changeId }) => {
             setSelectedCommitIds((prevIds) => {
-                if (message.payload.changeId && prevIds.has(message.payload.changeId) && prevIds.size === 1) {
+                if (changeId && prevIds.has(changeId) && prevIds.size === 1) {
                     const clearedIds = new Set<string>();
                     void rpc.selectionChange({
-                        payload: {
-                            commitIds: [],
-                            hasImmutableSelection: false,
-                        },
+                        commitIds: [],
+                        hasImmutableSelection: false,
                     });
                     return clearedIds;
                 }
                 return prevIds;
             });
         },
-        setSelection: (message) => {
-            const newIds = new Set<string>(message.ids || []);
+        setSelection: ({ ids }) => {
+            const newIds = new Set<string>(ids || []);
             setSelectedCommitIds(newIds);
             const hasImmutable = hasImmutableSelection(newIds, commitsRef.current);
 
             void rpc.selectionChange({
-                payload: {
-                    commitIds: Array.from(newIds),
-                    hasImmutableSelection: hasImmutable,
-                },
+                commitIds: Array.from(newIds),
+                hasImmutableSelection: hasImmutable,
             });
         },
     });
@@ -235,10 +238,8 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
             if (e.key === 'Escape') {
                 setSelectedCommitIds(new Set());
                 void rpc.selectionChange({
-                    payload: {
-                        commitIds: [],
-                        hasImmutableSelection: false,
-                    },
+                    commitIds: [],
+                    hasImmutableSelection: false,
                 });
             }
         };
@@ -257,29 +258,25 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
 
             const hasImmutable = hasImmutableSelection(nextSelectedIds, commits);
             void rpc.selectionChange({
-                payload: {
-                    commitIds: Array.from(nextSelectedIds),
-                    hasImmutableSelection: hasImmutable,
-                },
+                commitIds: Array.from(nextSelectedIds),
+                hasImmutableSelection: hasImmutable,
             });
 
             if (nextSelectedIds.has(changeId)) {
-                void rpc.getDetails({ payload });
+                void rpc.getDetails(payload);
             }
             return;
         }
 
         if (action === 'showComments') {
-            void rpc.showComments({ payload: { changeId: payload.changeId } });
+            void rpc.showComments({ changeId: payload.changeId });
             return;
         }
 
         if (action === 'contextMenu') {
             void rpc.contextMenu({
-                payload: {
-                    ...payload,
-                    selectedCommitIds: Array.from(selectedCommitIds),
-                },
+                ...payload,
+                selectedCommitIds: Array.from(selectedCommitIds),
             });
             return;
         }
@@ -289,19 +286,19 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
             return;
         }
         if (action === 'newChild') {
-            void rpc.newChild({ payload });
+            void rpc.newChild(payload);
             return;
         }
         if (action === 'edit') {
-            void rpc.edit({ payload });
+            void rpc.edit(payload);
             return;
         }
         if (action === 'squash') {
-            void rpc.squash({ payload });
+            void rpc.squash(payload);
             return;
         }
         if (action === 'abandon') {
-            void rpc.abandon({ payload });
+            void rpc.abandon(payload);
             return;
         }
         if (action === 'undo') {
@@ -313,11 +310,11 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
             return;
         }
         if (action === 'upload') {
-            void rpc.upload({ payload });
+            void rpc.upload(payload);
             return;
         }
         if (action === 'openCodeForge' && payload.url) {
-            void rpc.openCodeForge({ payload: { url: payload.url } });
+            void rpc.openCodeForge({ url: payload.url });
         }
     };
 
@@ -375,7 +372,7 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
                     });
                 });
 
-                void rpc.moveBookmark({ payload: { bookmark: bookmarkName, targetChangeId } });
+                void rpc.moveBookmark({ bookmark: bookmarkName, targetChangeId });
                 return;
             }
 
@@ -392,13 +389,13 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
 
                 const message = activeModifier.buildMessagePayload(sourceChangeId, targetChangeId);
                 if (message.type === 'rebaseCommit') {
-                    void rpc.rebaseCommit({ payload: message.payload });
+                    void rpc.rebaseCommit(message.payload);
                 } else if (message.type === 'squashCommit') {
-                    void rpc.squashCommit({ payload: message.payload });
+                    void rpc.squashCommit(message.payload);
                 } else if (message.type === 'duplicateCommit') {
-                    void rpc.duplicateCommit({ payload: message.payload });
+                    void rpc.duplicateCommit(message.payload);
                 } else if (message.type === 'mergeCommit') {
-                    void rpc.mergeCommit({ payload: message.payload });
+                    void rpc.mergeCommit(message.payload);
                 }
             }
         } finally {
@@ -430,10 +427,8 @@ const LogView: React.FC<LogViewProps> = ({ initialPayload }) => {
                         if (e.target === e.currentTarget) {
                             setSelectedCommitIds(new Set());
                             void rpc.selectionChange({
-                                payload: {
-                                    commitIds: [],
-                                    hasImmutableSelection: false,
-                                },
+                                commitIds: [],
+                                hasImmutableSelection: false,
                             });
                         }
                     }}
@@ -483,9 +478,9 @@ const App: React.FC = () => {
     const view = initialData?.view || 'graph';
 
     if (view === 'details') {
-        return <CommitDetailsView initialPayload={initialData?.payload} />;
+        return <CommitDetailsView initialPayload={initialData?.payload as CommitDetailsPayload | undefined} />;
     }
-    return <LogView initialPayload={initialData?.payload} />;
+    return <LogView initialPayload={initialData?.payload as LogViewPayload | undefined} />;
 };
 
 export default App;

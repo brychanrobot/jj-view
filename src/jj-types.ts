@@ -3,6 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { CommitDetailsPayload } from './common/ipc/commit-details-schemas';
+import type {
+    ActionPayload,
+    CommitAction,
+    LogViewPayload,
+    ToggleableCommitAction,
+} from './common/ipc/log-view-schemas';
+import { TOGGLEABLE_COMMIT_ACTIONS } from './common/ipc/log-view-schemas';
 import type {
     CodeForgeChangeInfo,
     CommitParent,
@@ -15,7 +23,9 @@ import type {
 } from './jj-schemas';
 
 export type {
+    ActionPayload,
     CodeForgeChangeInfo,
+    CommitAction,
     CommitParent,
     JjBookmark,
     JjFileChange,
@@ -23,48 +33,17 @@ export type {
     JjLogEntry,
     JjStatusEntry,
     JjWorkspace,
+    ToggleableCommitAction,
 };
 
-export type CommitAction = 'newChild' | 'edit' | 'squash' | 'abandon' | 'openCodeForge' | 'upload';
+export { TOGGLEABLE_COMMIT_ACTIONS };
 
-export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
-export type ToggleableCommitAction = (typeof TOGGLEABLE_COMMIT_ACTIONS)[number];
-
-export interface ActionPayload {
-    changeId: string;
-    isImmutable?: boolean;
-    url?: string;
-    multiSelect?: boolean;
-    changeIdShortest?: string;
-    isDivergent?: boolean;
-    changeIdOffset?: number;
-}
-
-/** Payload for the initial webview load */
-export interface WebviewPayload {
-    commits?: JjLogEntry[];
-    minChangeIdLength?: number;
-    theme?: string;
-    graphLabelAlignment?: string;
-    hiddenActions?: CommitAction[];
-    // Details fields
-    changeId?: string;
-    commitId?: string;
-    description?: string;
-    files?: JjStatusEntry[];
-    isImmutable?: boolean;
-    isEmpty?: boolean;
-    isConflict?: boolean;
-    author?: { name: string; email: string; timestamp: string };
-    committer?: { name: string; email: string; timestamp: string };
-    bookmarks?: JjBookmark[];
-    tags?: string[];
-    titleWidthRuler?: number;
-    bodyWidthRuler?: number;
-    formatDescriptionOnSave?: boolean;
-}
-
-export interface WebviewInitialData {
-    view: 'graph' | 'details';
-    payload?: WebviewPayload;
-}
+export type WebviewInitialData =
+    | {
+          view: 'graph';
+          payload?: LogViewPayload;
+      }
+    | {
+          view: 'details';
+          payload?: CommitDetailsPayload;
+      };

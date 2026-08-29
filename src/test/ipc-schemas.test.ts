@@ -205,11 +205,13 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 LogViewHostToWebviewMessageSchema.safeParse({
                     type: 'update',
-                    commits: [],
-                    minChangeIdLength: 3,
-                    theme: 'default',
-                    graphLabelAlignment: 'aligned',
-                    hiddenActions: ['edit', 'abandon'],
+                    payload: {
+                        commits: [],
+                        minChangeIdLength: 3,
+                        theme: 'default',
+                        graphLabelAlignment: 'aligned',
+                        hiddenActions: ['edit', 'abandon'],
+                    },
                 }).success,
             ).toBe(true);
             expect(
@@ -227,7 +229,7 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 LogViewHostToWebviewMessageSchema.safeParse({
                     type: 'setSelection',
-                    ids: ['kkmpptxz'],
+                    payload: { ids: ['kkmpptxz'] },
                 }).success,
             ).toBe(true);
 
@@ -332,7 +334,7 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 ProcessMonitorToHostMessageSchema.safeParse({
                     command: 'killProcess',
-                    id: 1234,
+                    payload: { id: 1234 },
                 }).success,
             ).toBe(true);
             expect(
@@ -368,37 +370,39 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 ProcessMonitorHostToWebviewMessageSchema.safeParse({
                     type: 'update',
-                    activeTasks: [
-                        {
-                            id: 1,
-                            command: 'jj',
-                            args: ['log'],
-                            startPerformanceTime: 1000,
-                            timestamp: Date.now(),
-                            label: 'Log',
-                            pid: 42,
+                    payload: {
+                        activeTasks: [
+                            {
+                                id: 1,
+                                command: 'jj',
+                                args: ['log'],
+                                startPerformanceTime: 1000,
+                                timestamp: Date.now(),
+                                label: 'Log',
+                                pid: 42,
+                            },
+                        ],
+                        historyTasks: [
+                            {
+                                id: 2,
+                                command: 'jj',
+                                args: ['status'],
+                                duration: 150,
+                                status: 'completed',
+                                label: 'Status',
+                                error: '',
+                                stdout: 'OK',
+                                stderr: '',
+                                exitCode: 0,
+                                timestamp: Date.now(),
+                            },
+                        ],
+                        metrics: {
+                            activeCount: 1,
+                            peakConcurrency: 2,
+                            totalCount: 5,
+                            avgDurationMs: 120,
                         },
-                    ],
-                    historyTasks: [
-                        {
-                            id: 2,
-                            command: 'jj',
-                            args: ['status'],
-                            duration: 150,
-                            status: 'completed',
-                            label: 'Status',
-                            error: '',
-                            stdout: 'OK',
-                            stderr: '',
-                            exitCode: 0,
-                            timestamp: Date.now(),
-                        },
-                    ],
-                    metrics: {
-                        activeCount: 1,
-                        peakConcurrency: 2,
-                        totalCount: 5,
-                        avgDurationMs: 120,
                     },
                 }).success,
             ).toBe(true);

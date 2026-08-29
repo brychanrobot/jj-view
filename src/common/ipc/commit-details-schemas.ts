@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { z } from 'zod';
-import { JjStatusEntrySchema } from '../../jj-schemas';
-import { WebviewPayloadSchema } from './log-view-schemas';
+import { JjBookmarkSchema, JjStatusEntrySchema } from '../../jj-schemas';
 
 export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('webviewLoaded') }),
@@ -18,7 +17,10 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('saveDescription'),
-        payload: z.object({ changeId: z.string(), description: z.string() }),
+        payload: z.object({
+            changeId: z.string(),
+            description: z.string(),
+        }),
     }),
     z.object({
         type: z.literal('openDiff'),
@@ -30,15 +32,59 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('openMultiDiff'),
-        payload: z.object({ changeId: z.string() }),
+        payload: z.object({
+            changeId: z.string(),
+        }),
     }),
 ]);
 export type CommitDetailsToHostMessage = z.infer<typeof CommitDetailsToHostMessageSchema>;
 
+export const CommitDetailsPayloadSchema = z.object({
+    changeId: z.string().optional(),
+    commitId: z.string().optional(),
+    description: z.string().optional(),
+    files: z.array(JjStatusEntrySchema).optional(),
+    isImmutable: z.boolean().optional(),
+    isEmpty: z.boolean().optional(),
+    isConflict: z.boolean().optional(),
+    author: z
+        .object({
+            name: z.string(),
+            email: z.string(),
+            timestamp: z.string(),
+        })
+        .optional(),
+    committer: z
+        .object({
+            name: z.string(),
+            email: z.string(),
+            timestamp: z.string(),
+        })
+        .optional(),
+    bookmarks: z.array(JjBookmarkSchema).optional(),
+    tags: z.array(z.string()).optional(),
+    titleWidthRuler: z.number().optional(),
+    bodyWidthRuler: z.number().optional(),
+    minChangeIdLength: z.number().optional(),
+    theme: z.string().optional(),
+    formatDescriptionOnSave: z.boolean().optional(),
+});
+export type CommitDetailsPayload = z.infer<typeof CommitDetailsPayloadSchema>;
+
 export const CommitDetailsHostToWebviewMessageSchema = z.discriminatedUnion('type', [
-    z.object({ type: z.literal('updateDetails'), payload: WebviewPayloadSchema }),
-    z.object({ type: z.literal('saveComplete'), payload: z.object({ description: z.string() }) }),
-    z.object({ type: z.literal('saveFailed') }),
+    z.object({
+        type: z.literal('updateDetails'),
+        payload: CommitDetailsPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('saveComplete'),
+        payload: z.object({
+            description: z.string(),
+        }),
+    }),
+    z.object({
+        type: z.literal('saveFailed'),
+    }),
     z.object({
         type: z.literal('updateDescription'),
         payload: z.object({

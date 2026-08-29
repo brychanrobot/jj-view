@@ -103,20 +103,18 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
                 clearTimeout(saveTimeoutRef.current);
             }
         },
-        saveComplete: (msg) => {
+        saveComplete: ({ description: savedDescription }) => {
             setIsSaving(false);
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
-            const savedDescription = msg.payload.description;
             setDraftDescription(savedDescription);
             if (textareaRef.current) {
                 textareaRef.current.value = savedDescription;
             }
             prevDescriptionRef.current = savedDescription;
         },
-        updateDescription: (msg) => {
-            const { description: newDesc, selectionStart, selectionEnd } = msg.payload;
+        updateDescription: ({ description: newDesc, selectionStart, selectionEnd }) => {
             isApplyingExtensionEdit.current = true;
             try {
                 if (textareaRef.current) {

@@ -9,6 +9,8 @@ import {
     type LogViewHostToWebviewMessage,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
+    TOGGLEABLE_COMMIT_ACTIONS,
+    type ToggleableCommitAction,
 } from '../common/ipc/log-view-schemas';
 import { showJjError } from '../common/ui-helpers';
 import {
@@ -19,7 +21,7 @@ import {
 import { JjContextKey } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
 import type { JjService } from '../jj-service';
-import { type JjLogEntry, TOGGLEABLE_COMMIT_ACTIONS, type ToggleableCommitAction } from '../jj-types';
+import type { JjLogEntry } from '../jj-types';
 import { Uri } from '../uri-utils';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { toError } from '../utils/error-utils';
@@ -240,11 +242,13 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            commits: [...enrichedCommits],
-            minChangeIdLength: this._minChangeIdLength,
-            theme: this._theme,
-            graphLabelAlignment: this._graphLabelAlignment,
-            hiddenActions: [...this._hiddenActions],
+            payload: {
+                commits: [...enrichedCommits],
+                minChangeIdLength: this._minChangeIdLength,
+                theme: this._theme,
+                graphLabelAlignment: this._graphLabelAlignment,
+                hiddenActions: [...this._hiddenActions],
+            },
         });
     }
 
@@ -263,10 +267,15 @@ export class LogViewController implements Disposable {
         }
 
         this._onDidChangeSelection.fire(this._selectedCommitIds);
+
+        this._postMessage({
+            type: 'setSelection',
+            payload: { ids: [...commitIds] },
+        });
     }
 
-    public setHiddenActions(actions: readonly string[]): void {
-        const validActions = actions.filter((a): a is ToggleableCommitAction =>
+    public setHiddenActions(hiddenActions: readonly string[]): void {
+        const validActions = hiddenActions.filter((a): a is ToggleableCommitAction =>
             (TOGGLEABLE_COMMIT_ACTIONS as readonly string[]).includes(a),
         );
 
@@ -279,7 +288,7 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'updateHiddenActions',
-            payload: { hiddenActions: validActions },
+            payload: { hiddenActions: [...validActions] },
         });
     }
 
@@ -323,11 +332,57 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            commits: [...this._commits],
-            minChangeIdLength: this._minChangeIdLength,
-            theme: this._theme,
-            graphLabelAlignment: this._graphLabelAlignment,
-            hiddenActions: [...this._hiddenActions],
+            payload: {
+                commits: [...this._commits],
+                minChangeIdLength: this._minChangeIdLength,
+                theme: this._theme,
+                graphLabelAlignment: this._graphLabelAlignment,
+                hiddenActions: [...this._hiddenActions],
+            },
+        });
+    }
+
+    public refreshSettings(): void {
+        const theme = this._host.config.get<string>('logTheme', 'default');
+        const alignment = this._host.config.get<string>('graphLabelAlignment', 'aligned');
+        const minLength = this._host.config.get<number>('minChangeIdLength', 1);
+
+        let changed = false;
+        if (this._theme !== theme) {
+            this._theme = theme;
+            changed = true;
+        }
+        if (this._graphLabelAlignment !== alignment) {
+            this._graphLabelAlignment = alignment;
+            changed = true;
+        }
+        if (this._minChangeIdLength !== minLength) {
+            this._minChangeIdLength = minLength;
+            changed = true;
+        }
+
+        if (changed) {
+            this.refresh('settingsChanged').catch((e) => {
+                this._logger?.error('[LogViewController] Background refresh on settings change failed', toError(e));
+            });
+        }
+    }
+
+    public updateTheme(theme: string): void {
+        this._theme = theme;
+        if (this._disposed) {
+            return;
+        }
+
+        this._postMessage({
+            type: 'update',
+            payload: {
+                commits: [...this._commits],
+                minChangeIdLength: this._minChangeIdLength,
+                theme: this._theme,
+                graphLabelAlignment: this._graphLabelAlignment,
+                hiddenActions: [...this._hiddenActions],
+            },
         });
     }
 
@@ -423,34 +478,34 @@ export class LogViewController implements Disposable {
                     await this.refresh('webviewLoaded');
                 },
                 openCodeForge: async (msg) => {
-                    if (!msg.payload.url) {
+                    if (!msg.url) {
                         return;
                     }
                     try {
-                        const parsed = new URL(msg.payload.url);
+                        const parsed = new URL(msg.url);
                         if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                            await this._host.nav.openExternal(Uri.parse(msg.payload.url));
+                            await this._host.nav.openExternal(Uri.parse(msg.url));
                         } else {
                             this._logger?.error(`[LogViewController] Blocked insecure scheme: ${parsed.protocol}`);
                         }
                     } catch (e) {
-                        this._logger?.error(`[LogViewController] Invalid URL: ${msg.payload.url}`, toError(e));
+                        this._logger?.error(`[LogViewController] Invalid URL: ${msg.url}`, toError(e));
                     }
                 },
                 newChild: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.new', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.new', msg);
                 },
                 squash: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.squashRevisionIntoParent', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.squashRevisionIntoParent', msg);
                 },
                 edit: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.edit', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.edit', msg);
                 },
                 select: async (msg) => {
                     if (!this.jj) {
                         return;
                     }
-                    const details = await this.jj.showDetails(msg.payload.changeId);
+                    const details = await this.jj.showDetails(msg.changeId);
                     // biome-ignore lint/suspicious/noControlCharactersInRegex: Standard regex for stripping ANSI escape codes
                     const cleanDetails = details.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
                     await this._host.commands.executeCommand('jj-view.showDetails', cleanDetails);
@@ -462,16 +517,16 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.redo');
                 },
                 abandon: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.abandon', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.abandon', msg);
                 },
                 getDetails: async (msg) => {
                     if (this._repo) {
                         await this._host.nav.openCommitDetails(
                             this._repo.rootUri,
-                            msg.payload.changeId,
-                            msg.payload.changeIdShortest,
-                            msg.payload.isDivergent,
-                            msg.payload.changeIdOffset,
+                            msg.changeId,
+                            msg.changeIdShortest,
+                            msg.isDivergent,
+                            msg.changeIdOffset,
                         );
                     }
                 },
@@ -479,92 +534,77 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.new');
                 },
                 newBefore: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.newBefore', ...(msg.payload.changeIds || []));
+                    await this._host.commands.executeCommand('jj-view.newBefore', ...(msg.changeIds || []));
                 },
                 newAfter: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.newAfter', ...(msg.payload.changeIds || []));
+                    await this._host.commands.executeCommand('jj-view.newAfter', ...(msg.changeIds || []));
                 },
                 resolve: async (msg) => {
                     if (this.jj) {
-                        await this.jj.resolve(msg.payload.path);
+                        await this.jj.resolve(msg.path);
                         await this.refresh('resolveComplete');
                         await this._host.commands.executeCommand('jj-view.refresh');
                     }
                 },
                 moveBookmark: async (msg) => {
-                    if (!msg.payload.bookmark || !msg.payload.targetChangeId) {
+                    if (!msg.bookmark || !msg.targetChangeId) {
                         return;
                     }
                     await this.executeJjMutation('Moving bookmark...', 'Failed to move bookmark', (jj) =>
-                        jj.moveBookmark(msg.payload.bookmark, msg.payload.targetChangeId),
+                        jj.moveBookmark(msg.bookmark, msg.targetChangeId),
                     );
                 },
                 rebaseCommit: async (msg) => {
-                    if (
-                        !msg.payload.sourceChangeId ||
-                        !msg.payload.targetChangeId ||
-                        msg.payload.sourceChangeId === msg.payload.targetChangeId
-                    ) {
+                    if (!msg.sourceChangeId || !msg.targetChangeId || msg.sourceChangeId === msg.targetChangeId) {
                         return;
                     }
                     await this.executeJjMutation('Rebasing...', 'Failed to rebase', (jj) =>
-                        jj.rebase(msg.payload.sourceChangeId, msg.payload.targetChangeId, msg.payload.mode),
+                        jj.rebase(msg.sourceChangeId, msg.targetChangeId, msg.mode),
                     );
                 },
                 squashCommit: async (msg) => {
-                    if (
-                        !msg.payload.sourceChangeId ||
-                        !msg.payload.targetChangeId ||
-                        msg.payload.sourceChangeId === msg.payload.targetChangeId
-                    ) {
+                    if (!msg.sourceChangeId || !msg.targetChangeId || msg.sourceChangeId === msg.targetChangeId) {
                         return;
                     }
                     const options =
-                        msg.payload.mode === 'onto'
-                            ? { ontoRevision: msg.payload.targetChangeId }
-                            : { intoRevision: msg.payload.targetChangeId };
+                        msg.mode === 'onto'
+                            ? { ontoRevision: msg.targetChangeId }
+                            : { intoRevision: msg.targetChangeId };
                     await this.executeJjMutation('Squashing...', 'Failed to squash', (jj) =>
-                        jj.squashRevision({ revision: msg.payload.sourceChangeId, ...options }),
+                        jj.squashRevision({ revision: msg.sourceChangeId, ...options }),
                     );
                 },
                 duplicateCommit: async (msg) => {
-                    if (!msg.payload.sourceChangeId || msg.payload.sourceChangeId === msg.payload.targetChangeId) {
+                    if (!msg.sourceChangeId || msg.sourceChangeId === msg.targetChangeId) {
                         return;
                     }
                     await this.executeJjMutation('Duplicating...', 'Failed to duplicate', (jj) =>
-                        jj.duplicate(
-                            msg.payload.sourceChangeId,
-                            msg.payload.targetChangeId ? { onto: msg.payload.targetChangeId } : {},
-                        ),
+                        jj.duplicate(msg.sourceChangeId, msg.targetChangeId ? { onto: msg.targetChangeId } : {}),
                     );
                 },
                 mergeCommit: async (msg) => {
-                    if (
-                        !msg.payload.sourceChangeId ||
-                        !msg.payload.targetChangeId ||
-                        msg.payload.sourceChangeId === msg.payload.targetChangeId
-                    ) {
+                    if (!msg.sourceChangeId || !msg.targetChangeId || msg.sourceChangeId === msg.targetChangeId) {
                         return;
                     }
                     await this.executeJjMutation('Creating merge commit...', 'Failed to create merge commit', (jj) =>
-                        jj.new({ parents: [msg.payload.sourceChangeId, msg.payload.targetChangeId] }),
+                        jj.new({ parents: [msg.sourceChangeId, msg.targetChangeId] }),
                     );
                 },
                 upload: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.upload', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.upload', msg);
                 },
                 showComments: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.showComments', msg.payload.changeId);
+                    await this._host.commands.executeCommand('jj-view.showComments', msg.changeId);
                 },
                 setContextKey: async (msg) => {
-                    this._host.commands.setContextKey(msg.payload.key, msg.payload.value);
+                    this._host.commands.setContextKey(msg.key, msg.value);
                 },
                 contextMenu: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.contextMenu', msg.payload);
+                    await this._host.commands.executeCommand('jj-view.contextMenu', msg);
                 },
                 selectionChange: async (msg) => {
-                    const count = msg.payload.commitIds.length;
-                    const hasImmutable = Boolean(msg.payload.hasImmutableSelection);
+                    const count = msg.commitIds.length;
+                    const hasImmutable = Boolean(msg.hasImmutableSelection);
 
                     if (count !== 1) {
                         const closeTabs =
@@ -586,7 +626,7 @@ export class LogViewController implements Disposable {
 
                     let parentMutable = false;
                     if (count === 1) {
-                        const selectedCommit = this._commits.find((c) => c.change_id === msg.payload.commitIds[0]);
+                        const selectedCommit = this._commits.find((c) => c.change_id === msg.commitIds[0]);
                         if (selectedCommit) {
                             parentMutable = canAbsorbCommit(selectedCommit);
                         }
@@ -597,8 +637,8 @@ export class LogViewController implements Disposable {
                     this._host.commands.setContextKey(JjContextKey.SelectionAllowNewBefore, allowNewBefore);
                     this._host.commands.setContextKey(JjContextKey.SelectionParentMutable, parentMutable);
 
-                    this.setSelectedCommits(msg.payload.commitIds);
-                    this._options?.onSelectionChange?.(msg.payload.commitIds);
+                    this.setSelectedCommits(msg.commitIds);
+                    this._options?.onSelectionChange?.(msg.commitIds);
                 },
             },
             {

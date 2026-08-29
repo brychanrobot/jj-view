@@ -97,10 +97,10 @@ export default function ProcessMonitorApp() {
     const [copiedId, setCopiedId] = useState<string | null>(null);
 
     useRpcDispatcher(ProcessMonitorHostToWebviewMessageSchema, {
-        update: (msg) => {
-            setActiveTasks(msg.activeTasks);
-            setHistoryTasks(msg.historyTasks);
-            setMetrics(msg.metrics);
+        update: ({ activeTasks: tasks, historyTasks: history, metrics: currentMetrics }) => {
+            setActiveTasks(tasks);
+            setHistoryTasks(history);
+            setMetrics(currentMetrics);
         },
     });
 

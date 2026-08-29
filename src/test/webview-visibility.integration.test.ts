@@ -14,7 +14,9 @@ import { createMock, createMockLogOutputChannel } from './test-utils';
 
 interface UpdateMessage {
     type: 'update';
-    commits: JjLogEntry[];
+    payload: {
+        commits: JjLogEntry[];
+    };
 }
 
 function createMockWebviewView() {
@@ -112,7 +114,7 @@ suite('Webview Visibility Integration Test', () => {
 
         await provider.controller.refresh();
         assert.strictEqual(sentMessages.length, 1, 'Should have sent initial update message');
-        const initialCommits = sentMessages[0].commits;
+        const initialCommits = sentMessages[0].payload.commits;
         assert.ok(
             initialCommits.some((c: JjLogEntry) => c.description.includes('Initial Commit')),
             'Should contain initial description',
@@ -142,7 +144,7 @@ suite('Webview Visibility Integration Test', () => {
         const lastMessage = sentMessages[sentMessages.length - 1];
         assert.strictEqual(lastMessage.type, 'update');
         assert.ok(
-            lastMessage.commits.some((c: JjLogEntry) => c.description.includes('Updated Commit while hidden')),
+            lastMessage.payload.commits.some((c: JjLogEntry) => c.description.includes('Updated Commit while hidden')),
             'Last message should contain updated data',
         );
     });

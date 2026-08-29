@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
-import React from 'react';
-// Needs to be available in types or duplicated.
-import type { ActionPayload, CommitAction, JjBookmark, JjLogEntry } from '../../jj-types';
+import * as React from 'react';
+import type { ActionPayload, CommitAction } from '../../common/ipc/log-view-schemas';
+import type { JjBookmark, JjLogEntry } from '../../jj-types';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { computeCommitActions } from '../utils/commit-utils';
 import type { DragActionModifier } from '../utils/drag-modifiers';

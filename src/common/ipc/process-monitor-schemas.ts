@@ -5,7 +5,10 @@
 import { z } from 'zod';
 
 export const ProcessMonitorToHostMessageSchema = z.discriminatedUnion('command', [
-    z.object({ command: z.literal('killProcess'), id: z.number() }),
+    z.object({
+        command: z.literal('killProcess'),
+        payload: z.object({ id: z.number() }),
+    }),
     z.object({ command: z.literal('killAllProcesses') }),
     z.object({ command: z.literal('clearHistory') }),
     z.object({ command: z.literal('hidePanel') }),
@@ -46,12 +49,17 @@ export const ProcessMonitorMetricsSchema = z.object({
 });
 export type ProcessMonitorMetrics = z.infer<typeof ProcessMonitorMetricsSchema>;
 
+export const ProcessMonitorPayloadSchema = z.object({
+    activeTasks: z.array(ProcessMonitorActiveTaskSchema),
+    historyTasks: z.array(ProcessMonitorHistoryTaskSchema),
+    metrics: ProcessMonitorMetricsSchema,
+});
+export type ProcessMonitorPayload = z.infer<typeof ProcessMonitorPayloadSchema>;
+
 export const ProcessMonitorHostToWebviewMessageSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('update'),
-        activeTasks: z.array(ProcessMonitorActiveTaskSchema),
-        historyTasks: z.array(ProcessMonitorHistoryTaskSchema),
-        metrics: ProcessMonitorMetricsSchema,
+        payload: ProcessMonitorPayloadSchema,
     }),
 ]);
 export type ProcessMonitorHostToWebviewMessage = z.infer<typeof ProcessMonitorHostToWebviewMessageSchema>;

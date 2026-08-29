@@ -11,8 +11,12 @@ export type DiscriminatedMessage<K extends string = 'type'> = {
     [P in K]: string;
 };
 
+export type MessagePayload<T> = T extends { payload: infer P } ? P : undefined;
+
 export type MessageHandlerMap<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
-    [V in TMessage[K]]?: (message: Extract<TMessage, Record<K, V>>) => unknown | Promise<unknown>;
+    [V in TMessage[K]]?: MessagePayload<Extract<TMessage, { [P in K]: V }>> extends undefined
+        ? () => unknown | Promise<unknown>
+        : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => unknown | Promise<unknown>;
 };
 
 export interface WebviewRpcDispatcherOptions<K extends string = 'type'> {
@@ -132,12 +136,13 @@ export class WebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K ex
 
         const message = parseResult.data;
         const typeValue = message[this.discriminatorKey] as TMessage[K];
-        const handler = this.handlers[typeValue];
+        const handler = this.handlers[typeValue] as ((payload?: unknown) => unknown | Promise<unknown>) | undefined;
         const requestId = (rawMessage as Record<string, unknown>)?.requestId as string | undefined;
 
         if (typeof handler === 'function') {
             try {
-                const result = await handler(message as Extract<TMessage, Record<K, typeof typeValue>>);
+                const payload = (message as { payload?: unknown }).payload;
+                const result = await (payload !== undefined ? handler(payload) : handler());
                 if (requestId && this.options?.messenger) {
                     this.options.messenger.postMessage({
                         type: '__rpc_response__',
@@ -182,11 +187,9 @@ export function createWebviewRpcDispatcher<TMessage extends DiscriminatedMessage
 }
 
 export type RpcClientMethods<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
-    [V in TMessage[K]]: (
-        ...args: Omit<Extract<TMessage, Record<K, V>>, K | 'requestId'> extends Record<string, never>
-            ? []
-            : [payload: Omit<Extract<TMessage, Record<K, V>>, K | 'requestId'>]
-    ) => Promise<unknown>;
+    [V in TMessage[K]]: MessagePayload<Extract<TMessage, { [P in K]: V }>> extends undefined
+        ? () => Promise<unknown>
+        : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => Promise<unknown>;
 };
 
 export interface WebviewPostMessageLike {
@@ -219,13 +222,19 @@ export function createWebviewRpcClient<
 
     return new Proxy({} as RpcClientMethods<TMessage, K>, {
         get(_target, prop: string) {
-            return (payload?: Record<string, unknown>) => {
+            return (payload?: unknown) => {
                 const requestId = `req_${Date.now()}_${++requestIdCounter}`;
-                const message = {
-                    [discriminatorKey]: prop,
-                    requestId,
-                    ...(payload ?? {}),
-                };
+                const message =
+                    payload !== undefined
+                        ? {
+                              [discriminatorKey]: prop,
+                              requestId,
+                              payload,
+                          }
+                        : {
+                              [discriminatorKey]: prop,
+                              requestId,
+                          };
 
                 if (schema) {
                     const parseResult = schema.safeParse(message);
