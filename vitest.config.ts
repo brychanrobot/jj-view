@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
     test: {
-        include: ['src/test/**/*.test.ts'],
+        include: ['src/test/**/*.test.{ts,tsx}'],
         exclude: ['src/test/**/*.integration.test.ts'], // Exclude integration tests
         // Temporary global setup to provide vscode mock during host abstraction retrofit
         setupFiles: ['./src/test/vitest-setup.ts'],

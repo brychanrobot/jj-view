@@ -57,8 +57,8 @@ export function calculateNextSelection(
  * @returns True if at least one selected commit is immutable, false otherwise.
  */
 export function hasImmutableSelection(selectedIds: Set<string>, commits: SelectableCommit[]): boolean {
-    return Array.from(selectedIds).some((id) => {
-        const commit = commits.find((c) => c.change_id === id);
-        return commit ? commit.is_immutable : false;
-    });
+    if (selectedIds.size === 0) {
+        return false;
+    }
+    return commits.some((c) => selectedIds.has(c.change_id) && !!c.is_immutable);
 }

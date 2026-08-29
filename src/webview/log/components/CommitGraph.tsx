@@ -17,6 +17,7 @@ import {
 } from '../layout-constants';
 import { computeCompactRowMaxX, computeGap, computeGraphAreaWidth, computeMaxShortestIdLength } from '../layout-utils';
 import type { DragActionModifier } from '../utils/drag-modifiers';
+import { hasImmutableSelection } from '../utils/selection-utils';
 import { CommitNode } from './CommitNode';
 import { GraphRail } from './GraphRail';
 
@@ -44,8 +45,15 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     // Total graph width calculation
     // Dynamic sizing based on font
     // Fallback to 13px if not available
-    const fontSize =
-        typeof document !== 'undefined' ? parseInt(getComputedStyle(document.body).fontSize, 10) || 13 : 13;
+    const [fontSize, setFontSize] = React.useState<number>(13);
+    React.useLayoutEffect(() => {
+        if (typeof document !== 'undefined') {
+            const size = parseInt(getComputedStyle(document.body).fontSize, 10);
+            if (size && size !== fontSize) {
+                setFontSize(size);
+            }
+        }
+    }, [fontSize]);
     const GAP = computeGap(fontSize);
 
     const layout = React.useMemo(() => computeGraphLayout(commits, theme), [commits, theme]);
@@ -77,8 +85,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             if (isElisionRow(row)) {
                 height = ROW_HEIGHT_ELISION;
             } else {
-                const commit = row as JjLogEntry;
-                height = commit.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                height = row.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
             }
             currentOffset += height;
         });
@@ -95,12 +102,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         [commits, minChangeIdLength],
     );
 
-    const hasImmutableSelection = React.useMemo(() => {
+    const hasImmutable = React.useMemo(() => {
         if (!selectedCommitIds || selectedCommitIds.size === 0) {
             return false;
         }
-        // Check ALL commits, not just displayRows, to ensure correctness even if some are off-screen
-        return commits.some((c) => selectedCommitIds.has(c.change_id) && c.is_immutable);
+        return hasImmutableSelection(selectedCommitIds, commits);
     }, [commits, selectedCommitIds]);
 
     // Padding-left for the text area
@@ -161,13 +167,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                         return renderElisionRow(i, isLastRow);
                     }
 
-                    const commit = row as JjLogEntry;
-                    const isSelected = selectedCommitIds?.has(commit.change_id);
-                    const height = commit.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
+                    const isSelected = selectedCommitIds?.has(row.change_id);
+                    const height = row.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL;
                     const paddingLeft = compactPaddingMap?.get(i) ?? graphAreaWidth;
                     return (
                         <div
-                            key={commit.commit_id}
+                            key={row.commit_id}
                             role="presentation"
                             style={{
                                 height: height,
@@ -179,20 +184,20 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                             }}
                         >
                             <CommitNode
-                                commit={commit}
+                                commit={row}
                                 onClick={(modifiers) =>
                                     onAction('select', {
-                                        changeId: commit.change_id,
-                                        changeIdShortest: commit.change_id_shortest,
-                                        isDivergent: commit.is_divergent,
-                                        changeIdOffset: commit.change_id_offset,
+                                        changeId: row.change_id,
+                                        changeIdShortest: row.change_id_shortest,
+                                        isDivergent: row.is_divergent,
+                                        changeIdOffset: row.change_id_offset,
                                         ...modifiers,
                                     })
                                 }
                                 onAction={onAction}
                                 isSelected={isSelected}
                                 selectionCount={selectedCommitIds?.size || 0}
-                                hasImmutableSelection={hasImmutableSelection}
+                                hasImmutableSelection={hasImmutable}
                                 idDisplayLength={maxShortestIdLength}
                                 hiddenActions={hiddenActions}
                                 activeModifier={activeModifier}

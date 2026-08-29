@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type * as React from 'react';
-import type { JjLogEntry } from '../../../jj-types';
 import { getChangeIdDisplayLength, shortenChangeId } from '../../../utils/jj-utils';
 import { BUILT_IN_MODIFIERS, type DragActionModifier, REBASE_BRANCH_MODIFIER } from '../utils/drag-modifiers';
 
@@ -12,8 +11,14 @@ const AVAILABLE_MODIFIERS = BUILT_IN_MODIFIERS.filter((m) => m.id !== 'rebase-br
 const MODIFIER_ROW1 = AVAILABLE_MODIFIERS.slice(0, 2);
 const MODIFIER_ROW2 = AVAILABLE_MODIFIERS.slice(2);
 
+export interface CommitDragData {
+    changeId: string;
+    change_id_shortest?: string;
+    description?: string;
+}
+
 export const CommitDragPreview: React.FC<{
-    commit: JjLogEntry;
+    commit: CommitDragData;
     activeModifier?: DragActionModifier;
     minChangeIdLength: number;
 }> = ({ commit, activeModifier: activeModifierProp, minChangeIdLength }) => {
@@ -23,7 +28,7 @@ export const CommitDragPreview: React.FC<{
     const activeColor = activeModifier.accentColor;
 
     // ID Formatting
-    const fullId = commit.commit_id || '';
+    const fullId = commit.changeId || '';
     const idDisplayLength = getChangeIdDisplayLength(commit.change_id_shortest, minChangeIdLength);
     const shortId = commit.change_id_shortest || shortenChangeId(fullId, idDisplayLength);
     const remainderId = fullId.substring(shortId.length, idDisplayLength);

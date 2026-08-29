@@ -69,10 +69,19 @@ export const PersonInfo: React.FC<PersonInfoProps> = ({ person, label }) => {
             >
                 &lt;{emailToDisplay}&gt;
             </span>
-            <span style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 6px', flexShrink: 0 }}>•</span>
-            <span style={{ color: 'var(--vscode-foreground)', whiteSpace: 'nowrap', flexShrink: 0 }} title={fullTime}>
-                {relTime}
+            <span
+                aria-hidden="true"
+                style={{ color: 'var(--vscode-descriptionForeground)', margin: '0 6px', flexShrink: 0 }}
+            >
+                •
             </span>
+            <time
+                dateTime={person.timestamp}
+                style={{ color: 'var(--vscode-foreground)', whiteSpace: 'nowrap', flexShrink: 0 }}
+                title={fullTime}
+            >
+                {relTime}
+            </time>
         </div>
     );
 };
