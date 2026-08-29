@@ -5,7 +5,11 @@
 
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
-import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import {
+    type CommitDetailsHostToWebviewMessage,
+    type CommitDetailsToHostMessage,
+    CommitDetailsToHostMessageSchema,
+} from '../common/ipc/commit-details-schemas';
 import { showJjError } from '../common/ui-helpers';
 import {
     createWebviewRpcDispatcher,
@@ -29,7 +33,7 @@ export class CommitDetailsController implements Disposable {
     private readonly _messengers = new Set<WebviewPostMessageLike>();
     private _loadVersion = 0;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<WebviewToHostMessage>;
+    private readonly _dispatcher: WebviewRpcDispatcher<CommitDetailsToHostMessage>;
 
     private _logEntry?: JjLogEntry;
     private _changes?: readonly JjStatusEntry[];
@@ -296,7 +300,7 @@ export class CommitDetailsController implements Disposable {
         }
     }
 
-    public broadcast(message: unknown): void {
+    public broadcast(message: CommitDetailsHostToWebviewMessage): void {
         if (this._disposed) {
             return;
         }
@@ -309,9 +313,9 @@ export class CommitDetailsController implements Disposable {
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<WebviewToHostMessage> {
+    private _createRpcDispatcher(): WebviewRpcDispatcher<CommitDetailsToHostMessage> {
         return createWebviewRpcDispatcher(
-            WebviewToHostMessageSchema,
+            CommitDetailsToHostMessageSchema,
             {
                 webviewLoaded: async () => {},
                 descriptionChanged: async (msg) => {
@@ -341,7 +345,7 @@ export class CommitDetailsController implements Disposable {
             {
                 logger: this._logger,
                 messenger: {
-                    postMessage: (m) => this.broadcast(m),
+                    postMessage: (m) => this.broadcast(m as CommitDetailsHostToWebviewMessage),
                 },
             },
         );
