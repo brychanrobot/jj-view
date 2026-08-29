@@ -168,10 +168,7 @@ export class ProcessMonitorController implements Disposable {
         }
 
         this._onDidUpdate.fire();
-        this._postMessage({
-            type: 'update',
-            payload: this.getState(),
-        });
+        this._dispatcher.emitter.update(this.getState());
     }
 
     public getMetrics(): JjProcessMetrics {
@@ -188,13 +185,6 @@ export class ProcessMonitorController implements Disposable {
 
     public clearHistory(): void {
         this._processTracker.clearHistory();
-    }
-
-    private _postMessage(message: ProcessMonitorHostToWebviewMessage): void {
-        if (this._disposed) {
-            return;
-        }
-        this._dispatcher.broadcast(message);
     }
 
     public dispose(): void {

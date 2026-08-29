@@ -166,10 +166,7 @@ export class CommitDetailsController implements Disposable {
 
             const state = this.getState();
             if (state) {
-                this.broadcast({
-                    type: 'update',
-                    payload: state,
-                });
+                this._dispatcher.emitter.update(state);
             }
             return log;
         } catch (err) {
@@ -236,17 +233,18 @@ export class CommitDetailsController implements Disposable {
     }
 
     public applyUndoRedo(text: string, selection: { start: number; end: number }): void {
+        if (this._disposed) {
+            return;
+        }
+        this.flushDebounce();
         this._lastPushedText = text;
         this._lastPushedSelection = selection;
         this._draftDescription = text;
 
-        this.broadcast({
-            type: 'updateDescription',
-            payload: {
-                description: text,
-                selectionStart: selection.start,
-                selectionEnd: selection.end,
-            },
+        this._dispatcher.emitter.updateDescription({
+            description: text,
+            selectionStart: selection.start,
+            selectionEnd: selection.end,
         });
     }
 
@@ -285,16 +283,13 @@ export class CommitDetailsController implements Disposable {
             this._draftDescription = savedDescription;
             this._persistedDescription = savedDescription;
 
-            this.broadcast({
-                type: 'saveComplete',
-                payload: {
-                    description: savedDescription,
-                },
+            this._dispatcher.emitter.saveComplete({
+                description: savedDescription,
             });
             return true;
         } catch (err) {
             this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}`, toError(err));
-            this.broadcast({ type: 'saveFailed' });
+            this._dispatcher.emitter.saveFailed();
             await showJjError(this._host.ui, err, 'Failed to save commit description', this.repo?.jj, this._logger);
             return false;
         }

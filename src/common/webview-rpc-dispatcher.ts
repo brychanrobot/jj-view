@@ -109,6 +109,25 @@ export class WebviewRpcDispatcher<
         return this._messengers.size > 0;
     }
 
+    private _emitter?: RpcEmitterMethods<TOutbound>;
+
+    public get emitter(): RpcEmitterMethods<TOutbound> {
+        if (!this._emitter) {
+            this._emitter = new Proxy({} as RpcEmitterMethods<TOutbound>, {
+                get: (_target, prop: string | symbol) => {
+                    if (typeof prop === 'symbol' || prop === 'then' || prop === 'toJSON' || prop === 'constructor') {
+                        return undefined;
+                    }
+                    return (payload?: unknown) => {
+                        const message = payload !== undefined ? { type: prop, payload } : { type: prop };
+                        this.broadcast(message as TOutbound);
+                    };
+                },
+            });
+        }
+        return this._emitter;
+    }
+
     public addMessenger(messenger: WebviewPostMessageLike): { dispose: () => void } {
         if (this._disposed) {
             return { dispose: () => {} };
@@ -431,10 +450,22 @@ export function createWebviewRpcDispatcher<
     return new WebviewRpcDispatcher<TMessage, TOutbound, K>(schema, handlers, options);
 }
 
+export type ReservedRpcProperties = 'then' | 'toJSON' | 'constructor';
+
 export type RpcClientMethods<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
-    [V in TMessage[K]]: MessagePayload<Extract<TMessage, { [P in K]: V }>> extends undefined
+    [V in Exclude<TMessage[K], ReservedRpcProperties>]: MessagePayload<
+        Extract<TMessage, { [P in K]: V }>
+    > extends undefined
         ? () => Promise<unknown>
         : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => Promise<unknown>;
+};
+
+export type RpcEmitterMethods<TOutbound extends DiscriminatedMessage<'type'>> = {
+    [V in Exclude<TOutbound['type'], ReservedRpcProperties>]: MessagePayload<
+        Extract<TOutbound, { type: V }>
+    > extends undefined
+        ? () => void
+        : (payload: MessagePayload<Extract<TOutbound, { type: V }>>) => void;
 };
 
 export interface WebviewPostMessageLike {

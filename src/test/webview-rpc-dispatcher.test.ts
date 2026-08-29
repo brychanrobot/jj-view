@@ -448,6 +448,41 @@ describe('WebviewRpcDispatcher', () => {
         expect(dispatcher.hasMessengers).toBe(false);
         sub.dispose();
     });
+
+    test('supports typed emitter proxy for broadcasting messages', () => {
+        type OutboundEvents =
+            | { type: 'update'; payload: { count: number } }
+            | { type: 'reset' }
+            | { type: 'notify'; payload: { message: string } };
+
+        const dispatcher = createWebviewRpcDispatcher<z.infer<typeof testSchema>, OutboundEvents>(testSchema, {});
+
+        const messenger = { postMessage: vi.fn() };
+        dispatcher.addMessenger(messenger);
+
+        dispatcher.emitter.update({ count: 42 });
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'update',
+            payload: { count: 42 },
+        });
+
+        dispatcher.emitter.reset();
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'reset',
+        });
+
+        dispatcher.emitter.notify({ message: 'hello' });
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'notify',
+            payload: { message: 'hello' },
+        });
+
+        const dynamicEmitter = dispatcher.emitter as Record<string | symbol, unknown>;
+        expect(dynamicEmitter.then).toBeUndefined();
+        expect(dynamicEmitter.toJSON).toBeUndefined();
+        expect(dynamicEmitter.constructor).toBeUndefined();
+        expect(dynamicEmitter[Symbol.iterator]).toBeUndefined();
+    });
 });
 
 describe('createWebviewRpcClient', () => {
@@ -528,13 +563,14 @@ describe('createWebviewRpcClient', () => {
         await expect(client.fail()).rejects.toThrowError('Something went wrong');
     });
 
-    test('ignores then, toJSON, and symbol properties on client proxy', () => {
+    test('ignores then, toJSON, constructor, and symbol properties on client proxy', () => {
         const mockWebview = { postMessage: vi.fn() };
         const client = createWebviewRpcClient(mockWebview, testSchema);
         const dynamicClient = client as Record<string | symbol, unknown>;
 
         expect(dynamicClient.then).toBeUndefined();
         expect(dynamicClient.toJSON).toBeUndefined();
+        expect(dynamicClient.constructor).toBeUndefined();
         expect(dynamicClient[Symbol.iterator]).toBeUndefined();
         expect(mockWebview.postMessage).not.toHaveBeenCalled();
     });
