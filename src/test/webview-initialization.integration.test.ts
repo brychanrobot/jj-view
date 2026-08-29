@@ -82,19 +82,16 @@ suite('Webview Initialization Integration Test', () => {
             await d.dispose();
         }
         disposables = [];
-        if (repo) {
-        }
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     });
 
-    test('resolveWebviewView injects cached commits into HTML', async () => {
+    test('resolveWebviewView sets up webview options and loads script without HTML data injection', async () => {
         // Setup repo with one commit
         repo.new();
         repo.describe('Test Commit 1');
-        const id1 = repo.getChangeId('@');
 
-        // 1. Initial Resolve & Refresh to populate cache
-        const { view: initialView } = createMockWebviewView();
+        // 1. Initial Resolve & Refresh
+        const { view: initialView, webview: initialWebview } = createMockWebviewView();
         provider.resolveWebviewView(
             initialView,
             createMock<vscode.WebviewViewResolveContext>({}),
@@ -102,49 +99,10 @@ suite('Webview Initialization Integration Test', () => {
         );
         await provider.controller.refresh();
 
-        // 2. Simulate Refocus: Create NEW view and resolve it
-        const { view: newView, webview: newWebview } = createMockWebviewView();
-        provider.resolveWebviewView(
-            newView,
-            createMock<vscode.WebviewViewResolveContext>({}),
-            createMock<vscode.CancellationToken>({}),
-        );
-
-        // 3. Verify HTML contains cached data
-        const html = newWebview.html;
-        assert.ok(html.includes('window.vscodeInitialData ='), 'HTML should contain initial data injection');
-        assert.ok(html.includes(id1), 'HTML should contain the commit ID from the cache');
-        assert.ok(html.includes('Test Commit 1'), 'HTML should contain the description from the cache');
-    });
-
-    test('webview.html is updated when view becomes hidden', async () => {
-        // Setup repo with one commit
-        repo.new();
-        repo.describe('Test Commit 2');
-        const id2 = repo.getChangeId('@');
-
-        // Setup View
-        const { view, webview, triggerVisibilityChange } = createMockWebviewView();
-        provider.resolveWebviewView(
-            view,
-            createMock<vscode.WebviewViewResolveContext>({}),
-            createMock<vscode.CancellationToken>({}),
-        );
-
-        // Populate cache
-        await provider.controller.refresh();
-        const htmlBefore = webview.html;
-
-        // Simulate Hiding
-        Object.defineProperty(view, 'visible', { get: () => false });
-        triggerVisibilityChange();
-
-        // Verify HTML updated
-        const htmlAfter = webview.html;
-        assert.notStrictEqual(htmlAfter, htmlBefore, 'HTML should be updated when view becomes hidden');
-        assert.ok(htmlAfter.includes('window.vscodeInitialData ='), 'HTML should contain initial data');
-        assert.ok(htmlAfter.includes(id2), 'HTML should contain the commit ID from the cache');
-        assert.ok(htmlAfter.includes('Test Commit 2'), 'HTML should contain the description from the cache');
+        // 2. Verify HTML is clean and points to webview bundle
+        const html = initialWebview.html;
+        assert.ok(html.includes('dist/webview/index.js'), 'HTML should reference webview bundle');
+        assert.ok(!html.includes('window.vscodeInitialData'), 'HTML should not contain initial data script injection');
     });
 
     test('repository getter returns undefined until updateRepository is called', async () => {

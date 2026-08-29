@@ -463,4 +463,27 @@ test.describe('JJ Log Pane E2E', () => {
             expect(repo.getCommitId('drag-bookmark')).toBe(initialCommitId);
         }).toPass({ timeout: 10000 });
     });
+
+    test('Escape key clears commit selection', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
+            { label: 'feature', parents: ['initial'], description: 'feature commit', files: { 'file2.txt': 'mod' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+        const webview = await getLogWebview(page);
+
+        const featureRow = await waitForLogCommitRow(page, { changeId: nodes.feature.changeId });
+        await featureRow.click();
+        await expect(featureRow).toHaveAttribute('data-selected', 'true');
+
+        // Press Escape inside the webview
+        await webview.locator('body').press('Escape');
+
+        // Verify selection is cleared
+        await expect(featureRow).toHaveAttribute('data-selected', 'false');
+    });
 });

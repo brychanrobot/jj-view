@@ -12,18 +12,13 @@ export class WebSocketWebviewTransport implements WebviewTransport {
     private socket?: WebSocket;
     private readonly messageQueue: unknown[] = [];
     private readonly handlers = new Set<(message: unknown) => void>();
-    private initialData?: unknown;
     private _disposed = false;
     private reconnectTimer?: ReturnType<typeof setTimeout>;
     private reconnectAttempts = 0;
 
     public static readonly MAX_QUEUE_SIZE = 100;
 
-    constructor(
-        private readonly url: string,
-        initialData?: unknown,
-    ) {
-        this.initialData = initialData;
+    constructor(private readonly url: string) {
         this.connect();
     }
 
@@ -116,14 +111,6 @@ export class WebSocketWebviewTransport implements WebviewTransport {
         return () => {
             this.handlers.delete(handler);
         };
-    }
-
-    public getInitialData<T>(): T | undefined {
-        return this.initialData as T | undefined;
-    }
-
-    public setInitialData(data: unknown): void {
-        this.initialData = data;
     }
 
     public dispose(): void {

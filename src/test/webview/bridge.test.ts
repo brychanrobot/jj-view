@@ -50,8 +50,7 @@ describe('WebviewTransport', () => {
 
     describe('MockWebviewTransport', () => {
         it('captures sent messages', () => {
-            const transport = new MockWebviewTransport({ test: 123 });
-            expect(transport.getInitialData<{ test: number }>()).toEqual({ test: 123 });
+            const transport = new MockWebviewTransport();
 
             transport.postMessage({ type: 'testMessage', payload: { foo: 'bar' } });
             expect(transport.sentMessages).toEqual([{ type: 'testMessage', payload: { foo: 'bar' } }]);
@@ -101,18 +100,10 @@ describe('WebviewTransport', () => {
                 received.push(msg);
             });
 
-            transport.simulateIncomingMessage({ type: 'update' });
-            expect(received).toEqual([{ type: 'update' }]);
+            transport.simulateIncomingMessage({ type: 'test' });
+            expect(received).toEqual([{ type: 'test' }]);
             expect(consoleErrorSpy).toHaveBeenCalled();
             consoleErrorSpy.mockRestore();
-        });
-
-        it('updates initial data dynamically', () => {
-            const transport = new MockWebviewTransport();
-            expect(transport.getInitialData()).toBeUndefined();
-
-            transport.setInitialData({ user: 'alice' });
-            expect(transport.getInitialData<{ user: string }>()).toEqual({ user: 'alice' });
         });
     });
 
@@ -130,10 +121,6 @@ describe('WebviewTransport', () => {
                 acquireVsCodeApi: () => ({
                     postMessage: postMessageMock,
                 }),
-                vscodeInitialData: {
-                    view: 'graph',
-                    payload: { theme: 'dark' },
-                },
                 addEventListener: mockEventTarget.addEventListener.bind(mockEventTarget),
                 removeEventListener: mockEventTarget.removeEventListener.bind(mockEventTarget),
                 dispatchEvent: mockEventTarget.dispatchEvent.bind(mockEventTarget),
@@ -149,14 +136,6 @@ describe('WebviewTransport', () => {
             transport.postMessage({ type: 'webviewLoaded' });
 
             expect(postMessageMock).toHaveBeenCalledWith({ type: 'webviewLoaded' });
-        });
-
-        it('retrieves initial data from window.vscodeInitialData', () => {
-            const transport = new VsCodeWebviewTransport();
-            expect(transport.getInitialData()).toEqual({
-                view: 'graph',
-                payload: { theme: 'dark' },
-            });
         });
 
         it('listens for window message events and cleans up listener on unsubscribe', () => {
@@ -257,8 +236,7 @@ describe('WebviewTransport', () => {
         });
 
         it('queues messages before socket is open and sends on connect', () => {
-            const transport = new WebSocketWebviewTransport('ws://localhost:8080/rpc', { initial: true });
-            expect(transport.getInitialData()).toEqual({ initial: true });
+            const transport = new WebSocketWebviewTransport('ws://localhost:8080/rpc');
 
             const socket = MockWebSocket.instance;
             expect(socket).toBeDefined();
@@ -406,7 +384,7 @@ describe('WebviewTransport', () => {
 
     describe('getWebviewTransport & setWebviewTransport', () => {
         it('returns custom transport if overridden', () => {
-            const custom = new MockWebviewTransport({ custom: true });
+            const custom = new MockWebviewTransport();
             setWebviewTransport(custom);
 
             expect(getWebviewTransport()).toBe(custom);

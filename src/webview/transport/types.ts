@@ -10,6 +10,5 @@ export type WebviewTransportMessage =
 export interface WebviewTransport {
     postMessage(message: unknown): void;
     onMessage(handler: (message: unknown) => void): () => void;
-    getInitialData<T>(): T | undefined;
     dispose?(): void;
 }

@@ -171,24 +171,14 @@ export class VsCodeCommitDetailsEditorProvider
             enableCommandUris: true,
         };
 
+        const messageDisposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
+            await controller.handleMessage(message);
+        });
         const messengerDisposable = controller.addMessenger(panel.webview);
 
-        panel.webview.html = getWebviewHtml({
-            webview: panel.webview,
-            extensionUri: this._extensionUri,
-            scriptPath: ['dist', 'webview', 'index.js'],
-            title: 'Commit Details',
-            initialData: {
-                view: 'details',
-                payload: controller.detailsPayload,
-            },
-        });
-
         const viewSubscriptions: vscode.Disposable[] = [
+            messageDisposable,
             messengerDisposable,
-            panel.webview.onDidReceiveMessage(async (message: unknown) => {
-                await controller.handleMessage(message);
-            }),
             panel.onDidDispose(() => {
                 messengerDisposable.dispose();
                 for (const d of viewSubscriptions) {
@@ -196,6 +186,13 @@ export class VsCodeCommitDetailsEditorProvider
                 }
             }),
         ];
+
+        panel.webview.html = getWebviewHtml({
+            webview: panel.webview,
+            extensionUri: this._extensionUri,
+            scriptPath: ['dist', 'webview', 'commit-details.js'],
+            title: 'Commit Details',
+        });
     }
 
     public dispose(): void {

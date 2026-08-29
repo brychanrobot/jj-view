@@ -7,7 +7,6 @@ import * as path from 'node:path';
 import type * as vscode from 'vscode';
 import { LogViewController } from '../../controllers/log-view-controller';
 import type { JjRepository } from '../../jj-repository';
-import type { JjLogEntry } from '../../jj-types';
 import type { Uri } from '../../uri-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
@@ -92,8 +91,6 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
                     this.controller.refresh('becameVisible').catch((e) => {
                         this.outputChannel?.error(`[VsCodeLogWebviewProvider] Visibility refresh error: ${e}`);
                     });
-                } else {
-                    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
                 }
             }),
             webviewView.webview.onDidReceiveMessage(async (message: unknown) => {
@@ -115,16 +112,6 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
             extensionUri: this._extensionUri,
             scriptPath: ['dist', 'webview', 'index.js'],
             title: 'JJ Log',
-            initialData: {
-                view: 'graph',
-                payload: {
-                    commits: this.controller.commits as JjLogEntry[],
-                    theme: this.controller.theme,
-                    graphLabelAlignment: this.controller.graphLabelAlignment,
-                    hiddenActions: this.controller.hiddenActions as string[],
-                    minChangeIdLength: this.controller.minChangeIdLength,
-                },
-            },
         });
     }
 

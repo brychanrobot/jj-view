@@ -11,18 +11,16 @@ export interface WebviewHtmlOptions {
     extensionUri: Uri;
     scriptPath: readonly string[];
     title: string;
-    initialData?: unknown;
 }
 
 export function getWebviewHtml(options: WebviewHtmlOptions): string {
-    const { webview, extensionUri, scriptPath, title, initialData } = options;
+    const { webview, extensionUri, scriptPath, title } = options;
     const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, ...scriptPath));
     const styleUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'main.css'));
     const themesUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'themes.generated.css'));
     const codiconsUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'codicons', 'codicon.css'));
 
     const nonce = getNonce();
-    const initialDataScript = initialData ? `window.vscodeInitialData = ${JSON.stringify(initialData)};` : '';
 
     return `<!DOCTYPE html>
         <html lang="en">
@@ -37,9 +35,6 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
         </head>
         <body>
             <div id="root"></div>
-            <script nonce="${nonce}">
-                ${initialDataScript}
-            </script>
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;
