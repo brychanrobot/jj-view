@@ -7,13 +7,13 @@ import type * as React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import type { z } from 'zod';
 import {
-    createWebviewRpcClient,
-    createWebviewRpcDispatcher,
+    createWebviewRpcReceiver,
+    createWebviewRpcSender,
     type DiscriminatedMessage,
-    type MessageHandlerMap,
-    type RpcClientMethods,
-    type WebviewRpcClientOptions,
-    type WebviewRpcDispatcherOptions,
+    type RpcReceiverHandlers,
+    type RpcSenderMethods,
+    type WebviewRpcReceiverOptions,
+    type WebviewRpcSenderOptions,
 } from '../../common/webview-rpc-dispatcher';
 import { getWebviewTransport } from './registry';
 import type { WebviewTransport } from './types';
@@ -54,17 +54,17 @@ export function useMessageListener<T = unknown>(handler: (message: T) => void): 
     }, [bridge]);
 }
 
-export function useRpcClient<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
+export function useRpcSender<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
     schema?: z.ZodType<TMessage>,
-    options?: WebviewRpcClientOptions<K>,
-): RpcClientMethods<TMessage, K> {
+    options?: WebviewRpcSenderOptions<K>,
+): RpcSenderMethods<TMessage, K, Promise<unknown>> {
     const bridge = useBridge();
     const discriminatorKey = options?.discriminatorKey;
     const dispatcher = options?.dispatcher;
 
     return useMemo(
         () =>
-            createWebviewRpcClient<TMessage, K>(bridge, schema, {
+            createWebviewRpcSender<TMessage, K>(bridge, schema, {
                 discriminatorKey,
                 dispatcher,
             }),
@@ -72,14 +72,16 @@ export function useRpcClient<TMessage extends DiscriminatedMessage<K>, K extends
     );
 }
 
-export function useRpcDispatcher<
+export const useRpcClient = useRpcSender;
+
+export function useRpcReceiver<
     TMessage extends DiscriminatedMessage<K>,
     TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
     K extends string = 'type',
 >(
     schema: z.ZodType<TMessage>,
-    handlers: MessageHandlerMap<TMessage, K>,
-    options?: WebviewRpcDispatcherOptions<TOutbound, K>,
+    handlers: RpcReceiverHandlers<TMessage, K>,
+    options?: WebviewRpcReceiverOptions<TOutbound, K>,
 ): void {
     const bridge = useBridge();
     const handlersRef = useRef(handlers);
@@ -89,7 +91,7 @@ export function useRpcDispatcher<
     optionsRef.current = options;
 
     useEffect(() => {
-        const forwardingHandlers: MessageHandlerMap<TMessage, K> = new Proxy({} as MessageHandlerMap<TMessage, K>, {
+        const forwardingHandlers: RpcReceiverHandlers<TMessage, K> = new Proxy({} as RpcReceiverHandlers<TMessage, K>, {
             get(_target, prop: string) {
                 const currentHandler = (handlersRef.current as Record<string, unknown>)[prop];
                 if (typeof currentHandler === 'function') {
@@ -99,7 +101,7 @@ export function useRpcDispatcher<
             },
         });
 
-        const dispatcher = createWebviewRpcDispatcher<TMessage, TOutbound, K>(schema, forwardingHandlers, {
+        const receiver = createWebviewRpcReceiver<TMessage, TOutbound, K>(schema, forwardingHandlers, {
             ...optionsRef.current,
             onError: (err, raw) => optionsRef.current?.onError?.(err, raw),
             messenger: {
@@ -108,12 +110,14 @@ export function useRpcDispatcher<
         });
 
         const unsubscribe = bridge.onMessage(async (msg) => {
-            await dispatcher.dispatch(msg);
+            await receiver.dispatch(msg);
         });
 
         return () => {
             unsubscribe();
-            dispatcher.dispose();
+            receiver.dispose();
         };
     }, [bridge, schema]);
 }
+
+export const useRpcDispatcher = useRpcReceiver;

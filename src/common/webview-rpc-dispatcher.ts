@@ -13,11 +13,16 @@ export type DiscriminatedMessage<K extends string = 'type'> = {
 
 export type MessagePayload<T> = T extends { payload: infer P } ? P : undefined;
 
-export type MessageHandlerMap<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
+export type RpcReceiverHandlers<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
     [V in TMessage[K]]?: MessagePayload<Extract<TMessage, { [P in K]: V }>> extends undefined
         ? () => unknown | Promise<unknown>
         : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => unknown | Promise<unknown>;
 };
+
+export type MessageHandlerMap<
+    TMessage extends DiscriminatedMessage<K>,
+    K extends string = 'type',
+> = RpcReceiverHandlers<TMessage, K>;
 
 export type InitialStateMap<TOutbound extends DiscriminatedMessage<'type'>> = string extends TOutbound['type']
     ? Record<string, unknown>
@@ -42,7 +47,7 @@ export type InitialStateValue<TOutbound extends DiscriminatedMessage<'type'> = D
 export type InitialStateProvider<TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>> =
     StateProvider<TOutbound>;
 
-export interface WebviewRpcDispatcherOptions<
+export interface WebviewRpcReceiverOptions<
     TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
     K extends string = 'type',
 > {
@@ -55,6 +60,11 @@ export interface WebviewRpcDispatcherOptions<
     getInitialState?: StateProvider<TOutbound>;
     maxQueueSize?: number;
 }
+
+export type WebviewRpcDispatcherOptions<
+    TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
+    K extends string = 'type',
+> = WebviewRpcReceiverOptions<TOutbound, K>;
 
 export const loggerSchema = z.object({
     type: z.literal('logMessage'),
@@ -77,7 +87,7 @@ type PendingPromise = {
     reject: (reason: unknown) => void;
 };
 
-export class WebviewRpcDispatcher<
+export class WebviewRpcReceiver<
     TMessage extends DiscriminatedMessage<K>,
     TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
     K extends string = 'type',
@@ -91,8 +101,8 @@ export class WebviewRpcDispatcher<
 
     constructor(
         private readonly schema: z.ZodType<TMessage>,
-        private readonly handlers: MessageHandlerMap<TMessage, K>,
-        private readonly options?: WebviewRpcDispatcherOptions<TOutbound, K>,
+        private readonly handlers: RpcReceiverHandlers<TMessage, K>,
+        private readonly options?: WebviewRpcReceiverOptions<TOutbound, K>,
     ) {
         this.discriminatorKey = options?.discriminatorKey ?? ('type' as K);
         this._maxQueueSize = options?.maxQueueSize ?? 100;
@@ -109,11 +119,11 @@ export class WebviewRpcDispatcher<
         return this._messengers.size > 0;
     }
 
-    private _emitter?: RpcEmitterMethods<TOutbound>;
+    private _sender?: RpcSenderMethods<TOutbound, 'type', void>;
 
-    public get emitter(): RpcEmitterMethods<TOutbound> {
-        if (!this._emitter) {
-            this._emitter = new Proxy({} as RpcEmitterMethods<TOutbound>, {
+    public get sender(): RpcSenderMethods<TOutbound, 'type', void> {
+        if (!this._sender) {
+            this._sender = new Proxy({} as RpcSenderMethods<TOutbound, 'type', void>, {
                 get: (_target, prop: string | symbol) => {
                     if (typeof prop === 'symbol' || prop === 'then' || prop === 'toJSON' || prop === 'constructor') {
                         return undefined;
@@ -125,7 +135,11 @@ export class WebviewRpcDispatcher<
                 },
             });
         }
-        return this._emitter;
+        return this._sender;
+    }
+
+    public get emitter(): RpcSenderMethods<TOutbound, 'type', void> {
+        return this.sender;
     }
 
     public addMessenger(messenger: WebviewPostMessageLike): { dispose: () => void } {
@@ -438,35 +452,52 @@ export class WebviewRpcDispatcher<
     }
 }
 
-export function createWebviewRpcDispatcher<
+export const WebviewRpcDispatcher = WebviewRpcReceiver;
+export type WebviewRpcDispatcher<
+    TMessage extends DiscriminatedMessage<K>,
+    TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
+    K extends string = 'type',
+> = WebviewRpcReceiver<TMessage, TOutbound, K>;
+
+export function createWebviewRpcReceiver<
     TMessage extends DiscriminatedMessage<K>,
     TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
     K extends string = 'type',
 >(
     schema: z.ZodType<TMessage>,
-    handlers: MessageHandlerMap<TMessage, K>,
-    options?: WebviewRpcDispatcherOptions<TOutbound, K>,
-): WebviewRpcDispatcher<TMessage, TOutbound, K> {
-    return new WebviewRpcDispatcher<TMessage, TOutbound, K>(schema, handlers, options);
+    handlers: RpcReceiverHandlers<TMessage, K>,
+    options?: WebviewRpcReceiverOptions<TOutbound, K>,
+): WebviewRpcReceiver<TMessage, TOutbound, K> {
+    return new WebviewRpcReceiver<TMessage, TOutbound, K>(schema, handlers, options);
 }
+
+export const createWebviewRpcDispatcher = createWebviewRpcReceiver;
 
 export type ReservedRpcProperties = 'then' | 'toJSON' | 'constructor';
 
-export type RpcClientMethods<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = {
+export type RpcSenderMethods<
+    TMessage extends DiscriminatedMessage<K>,
+    K extends string = 'type',
+    TReturn = Promise<unknown>,
+> = {
     [V in Exclude<TMessage[K], ReservedRpcProperties>]: MessagePayload<
         Extract<TMessage, { [P in K]: V }>
     > extends undefined
-        ? () => Promise<unknown>
-        : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => Promise<unknown>;
+        ? () => TReturn
+        : (payload: MessagePayload<Extract<TMessage, { [P in K]: V }>>) => TReturn;
 };
 
-export type RpcEmitterMethods<TOutbound extends DiscriminatedMessage<'type'>> = {
-    [V in Exclude<TOutbound['type'], ReservedRpcProperties>]: MessagePayload<
-        Extract<TOutbound, { type: V }>
-    > extends undefined
-        ? () => void
-        : (payload: MessagePayload<Extract<TOutbound, { type: V }>>) => void;
-};
+export type RpcClientMethods<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'> = RpcSenderMethods<
+    TMessage,
+    K,
+    Promise<unknown>
+>;
+
+export type RpcEmitterMethods<TOutbound extends DiscriminatedMessage<'type'>> = RpcSenderMethods<
+    TOutbound,
+    'type',
+    void
+>;
 
 export interface WebviewPostMessageLike {
     postMessage(message: unknown): unknown;
@@ -477,21 +508,25 @@ export interface WebviewRpcPendingRequestRegisterable {
     unregisterPendingRequest?(requestId: string): void;
 }
 
-export interface WebviewRpcClientOptions<K extends string = 'type'> {
+export interface WebviewRpcSenderOptions<K extends string = 'type'> {
     discriminatorKey?: K;
     dispatcher?: WebviewRpcPendingRequestRegisterable;
+    receiver?: WebviewRpcPendingRequestRegisterable;
 }
+
+export type WebviewRpcClientOptions<K extends string = 'type'> = WebviewRpcSenderOptions<K>;
 
 let globalRequestIdCounter = 0;
 
-export function createWebviewRpcClient<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
+export function createWebviewRpcSender<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
     webview: WebviewPostMessageLike,
     schema?: z.ZodType<TMessage>,
-    options?: WebviewRpcClientOptions<K>,
-): RpcClientMethods<TMessage, K> {
+    options?: WebviewRpcSenderOptions<K>,
+): RpcSenderMethods<TMessage, K, Promise<unknown>> {
     const discriminatorKey = options?.discriminatorKey ?? ('type' as K);
+    const requestRegisterable = options?.receiver ?? options?.dispatcher;
 
-    return new Proxy({} as RpcClientMethods<TMessage, K>, {
+    return new Proxy({} as RpcSenderMethods<TMessage, K, Promise<unknown>>, {
         get(_target, prop: string | symbol) {
             if (typeof prop === 'symbol' || prop === 'then' || prop === 'toJSON' || prop === 'constructor') {
                 return undefined;
@@ -520,8 +555,8 @@ export function createWebviewRpcClient<TMessage extends DiscriminatedMessage<K>,
                 }
 
                 let pendingPromise: Promise<unknown> | undefined;
-                if (options?.dispatcher) {
-                    pendingPromise = options.dispatcher.registerPendingRequest(requestId);
+                if (requestRegisterable) {
+                    pendingPromise = requestRegisterable.registerPendingRequest(requestId);
                 }
 
                 try {
@@ -531,8 +566,8 @@ export function createWebviewRpcClient<TMessage extends DiscriminatedMessage<K>,
                     }
                     return Promise.resolve(sendResult);
                 } catch (err) {
-                    if (options?.dispatcher?.unregisterPendingRequest) {
-                        options.dispatcher.unregisterPendingRequest(requestId);
+                    if (requestRegisterable?.unregisterPendingRequest) {
+                        requestRegisterable.unregisterPendingRequest(requestId);
                     }
                     throw err;
                 }
@@ -540,3 +575,5 @@ export function createWebviewRpcClient<TMessage extends DiscriminatedMessage<K>,
         },
     });
 }
+
+export const createWebviewRpcClient = createWebviewRpcSender;

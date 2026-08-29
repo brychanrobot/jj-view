@@ -13,9 +13,9 @@ import {
 } from '../common/ipc/commit-details-schemas';
 import { showJjError } from '../common/ui-helpers';
 import {
-    createWebviewRpcDispatcher,
+    createWebviewRpcReceiver,
     type WebviewPostMessageLike,
-    type WebviewRpcDispatcher,
+    type WebviewRpcReceiver,
 } from '../common/webview-rpc-dispatcher';
 import type { JjRepository } from '../jj-repository';
 import type { JjLogEntry, JjStatusEntry } from '../jj-types';
@@ -33,7 +33,7 @@ export class CommitDetailsController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private _loadVersion = 0;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>;
+    private readonly _receiver: WebviewRpcReceiver<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>;
 
     private _logEntry?: JjLogEntry;
     private _changes?: readonly JjStatusEntry[];
@@ -58,7 +58,7 @@ export class CommitDetailsController implements Disposable {
         private readonly _options?: CommitDetailsControllerOptions,
     ) {
         this._logger = _options?.logger;
-        this._dispatcher = this._createRpcDispatcher();
+        this._receiver = this._createRpcReceiver();
     }
 
     public get logEntry(): JjLogEntry | undefined {
@@ -102,7 +102,7 @@ export class CommitDetailsController implements Disposable {
     }
 
     public addMessenger(messenger: WebviewPostMessageLike): Disposable {
-        const sub = this._dispatcher.addMessenger(messenger);
+        const sub = this._receiver.addMessenger(messenger);
         let disposed = false;
         return {
             dispose: () => {
@@ -111,7 +111,7 @@ export class CommitDetailsController implements Disposable {
                 }
                 disposed = true;
                 sub.dispose();
-                if (!this._dispatcher.hasMessengers) {
+                if (!this._receiver.hasMessengers) {
                     this._onDidClose.fire(this.changeId);
                 }
             },
@@ -122,7 +122,7 @@ export class CommitDetailsController implements Disposable {
         if (this._disposed) {
             return false;
         }
-        return this._dispatcher.dispatch(rawMessage);
+        return this._receiver.dispatch(rawMessage);
     }
 
     public async load(): Promise<JjLogEntry | undefined> {
@@ -166,7 +166,7 @@ export class CommitDetailsController implements Disposable {
 
             const state = this.getState();
             if (state) {
-                this._dispatcher.emitter.update(state);
+                this._receiver.sender.update(state);
             }
             return log;
         } catch (err) {
@@ -241,7 +241,7 @@ export class CommitDetailsController implements Disposable {
         this._lastPushedSelection = selection;
         this._draftDescription = text;
 
-        this._dispatcher.emitter.updateDescription({
+        this._receiver.sender.updateDescription({
             description: text,
             selectionStart: selection.start,
             selectionEnd: selection.end,
@@ -283,30 +283,20 @@ export class CommitDetailsController implements Disposable {
             this._draftDescription = savedDescription;
             this._persistedDescription = savedDescription;
 
-            this._dispatcher.emitter.saveComplete({
+            this._receiver.sender.saveComplete({
                 description: savedDescription,
             });
             return true;
         } catch (err) {
             this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}`, toError(err));
-            this._dispatcher.emitter.saveFailed();
+            this._receiver.sender.saveFailed();
             await showJjError(this._host.ui, err, 'Failed to save commit description', this.repo?.jj, this._logger);
             return false;
         }
     }
 
-    public broadcast(message: CommitDetailsHostToWebviewMessage): void {
-        if (this._disposed) {
-            return;
-        }
-        this._dispatcher.broadcast(message);
-    }
-
-    private _createRpcDispatcher(): WebviewRpcDispatcher<
-        CommitDetailsToHostMessage,
-        CommitDetailsHostToWebviewMessage
-    > {
-        return createWebviewRpcDispatcher<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>(
+    private _createRpcReceiver(): WebviewRpcReceiver<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage> {
+        return createWebviewRpcReceiver<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>(
             CommitDetailsToHostMessageSchema,
             {
                 descriptionChanged: async (payload) => {
@@ -352,6 +342,6 @@ export class CommitDetailsController implements Disposable {
         this._disposables.length = 0;
         this._onDidUpdate.dispose();
         this._onDidClose.dispose();
-        this._dispatcher.dispose();
+        this._receiver.dispose();
     }
 }

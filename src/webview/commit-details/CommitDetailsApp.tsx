@@ -11,13 +11,13 @@ import {
     CommitDetailsToHostMessageSchema,
 } from '../../common/ipc/commit-details-schemas';
 import { CommitDetails } from '../components/CommitDetails';
-import { useRpcClient, useRpcDispatcher } from '../transport/BridgeContext';
+import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
 
 export const CommitDetailsApp: React.FC = () => {
     const [detailsCommit, setDetailsCommit] = React.useState<CommitDetailsPayload | null>(null);
-    const rpc = useRpcClient<CommitDetailsToHostMessage>(CommitDetailsToHostMessageSchema);
+    const sender = useRpcSender<CommitDetailsToHostMessage>(CommitDetailsToHostMessageSchema);
 
-    useRpcDispatcher<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
+    useRpcReceiver<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
         update: (payload) => {
             setDetailsCommit(payload);
         },
@@ -29,8 +29,8 @@ export const CommitDetailsApp: React.FC = () => {
     });
 
     React.useEffect(() => {
-        void rpc.webviewLoaded();
-    }, [rpc]);
+        void sender.webviewLoaded();
+    }, [sender]);
 
     if (!detailsCommit) {
         return (
@@ -58,21 +58,21 @@ export const CommitDetailsApp: React.FC = () => {
             minChangeIdLength={detailsCommit.minChangeIdLength}
             onSave={(description) => {
                 if (detailsCommit.changeId) {
-                    void rpc.saveDescription({ changeId: detailsCommit.changeId, description });
+                    void sender.saveDescription({ changeId: detailsCommit.changeId, description });
                 }
             }}
             onOpenDiff={(file, isImmutable) => {
                 if (detailsCommit.changeId) {
-                    void rpc.openDiff({ changeId: detailsCommit.changeId, file, isImmutable });
+                    void sender.openDiff({ changeId: detailsCommit.changeId, file, isImmutable });
                 }
             }}
             onOpenMultiDiff={() => {
                 if (detailsCommit.changeId) {
-                    void rpc.openMultiDiff({ changeId: detailsCommit.changeId });
+                    void sender.openMultiDiff({ changeId: detailsCommit.changeId });
                 }
             }}
             onDescriptionChange={(description, selectionStart, selectionEnd) => {
-                void rpc.descriptionChanged({ description, selectionStart, selectionEnd });
+                void sender.descriptionChanged({ description, selectionStart, selectionEnd });
             }}
         />
     );

@@ -15,9 +15,9 @@ import {
 } from '../common/ipc/log-view-schemas';
 import { showJjError } from '../common/ui-helpers';
 import {
-    createWebviewRpcDispatcher,
+    createWebviewRpcReceiver,
     type WebviewPostMessageLike,
-    type WebviewRpcDispatcher,
+    type WebviewRpcReceiver,
 } from '../common/webview-rpc-dispatcher';
 import { JjContextKey } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
@@ -42,7 +42,7 @@ export class LogViewController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage>;
+    private readonly _receiver: WebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     private readonly _refreshQueue: CoalescingQueue;
 
     private _commits: readonly JjLogEntry[] = [];
@@ -72,9 +72,9 @@ export class LogViewController implements Disposable {
             await this._doRefresh();
         });
 
-        this._dispatcher = this._createRpcDispatcher();
+        this._receiver = this._createRpcReceiver();
         if (_options?.messenger) {
-            this._dispatcher.setMessenger(_options.messenger);
+            this._receiver.setMessenger(_options.messenger);
         }
 
         const storedHidden = this._host.storage.get<string[]>(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, []) ?? [];
@@ -159,7 +159,7 @@ export class LogViewController implements Disposable {
     }
 
     public setMessenger(messenger: WebviewPostMessageLike | undefined): void {
-        this._dispatcher.setMessenger(messenger);
+        this._receiver.setMessenger(messenger);
     }
 
     private bindRepo(repo: JjRepository | undefined): void {
@@ -186,7 +186,7 @@ export class LogViewController implements Disposable {
         if (this._disposed) {
             return false;
         }
-        return this._dispatcher.dispatch(rawMessage);
+        return this._receiver.dispatch(rawMessage);
     }
 
     public async refresh(reason?: string): Promise<void> {
@@ -256,7 +256,7 @@ export class LogViewController implements Disposable {
 
         this._onDidUpdateCommits.fire(enrichedCommits);
 
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     private _updateSelectionContextKeys(selectedCommitIds: readonly string[], hasImmutableSelection?: boolean): void {
@@ -297,7 +297,7 @@ export class LogViewController implements Disposable {
 
         this._onDidChangeSelection.fire(this._selectedCommitIds);
 
-        this._dispatcher.emitter.setSelection({ ids: [...commitIds] });
+        this._receiver.sender.setSelection({ ids: [...commitIds] });
     }
 
     public setHiddenActions(hiddenActions: readonly string[]): void {
@@ -312,7 +312,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._dispatcher.emitter.updateHiddenActions({ hiddenActions: [...validActions] });
+        this._receiver.sender.updateHiddenActions({ hiddenActions: [...validActions] });
     }
 
     public getHiddenActions(): string[] {
@@ -349,7 +349,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     public setTheme(theme: string): void {
@@ -359,7 +359,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     public setGraphLabelAlignment(alignment: string): void {
@@ -369,7 +369,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     public refreshSettings(): void {
@@ -404,7 +404,7 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     public async refreshCodeForge(): Promise<void> {
@@ -446,7 +446,7 @@ export class LogViewController implements Disposable {
     }
 
     public handlePanelClosed(changeId: string): void {
-        this._dispatcher.emitter.panelClosed({ changeId });
+        this._receiver.sender.panelClosed({ changeId });
     }
 
     private _updateActionContextKeys(): void {
@@ -478,8 +478,8 @@ export class LogViewController implements Disposable {
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage> {
-        return createWebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage>(
+    private _createRpcReceiver(): WebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage> {
+        return createWebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage>(
             LogViewToHostMessageSchema,
             {
                 webviewLoaded: async () => {
@@ -647,6 +647,6 @@ export class LogViewController implements Disposable {
         this._disposables.length = 0;
         this._onDidUpdateCommits.dispose();
         this._onDidChangeSelection.dispose();
-        this._dispatcher.dispose();
+        this._receiver.dispose();
     }
 }
