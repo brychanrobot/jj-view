@@ -77,4 +77,25 @@ describe('WebviewLogger', () => {
         expect(consoleInfoSpy).toHaveBeenCalledWith('[TestTag] Standalone info message', '');
         consoleInfoSpy.mockRestore();
     });
+
+    test('omits details when details parameter is undefined', () => {
+        const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        const mockVscodeApi: WebviewVsCodeApi = {
+            postMessage: vi.fn(),
+        };
+
+        const logger = new WebviewLogger('TestTag', mockVscodeApi);
+        logger.info('Simple message');
+
+        expect(mockVscodeApi.postMessage).toHaveBeenCalledWith({
+            type: 'logMessage',
+            payload: {
+                level: 'info',
+                message: '[TestTag] Simple message',
+                details: undefined,
+            },
+        });
+
+        consoleInfoSpy.mockRestore();
+    });
 });

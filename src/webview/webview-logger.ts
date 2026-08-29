@@ -3,14 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export interface WebviewVsCodeApi {
+export interface WebviewMessenger {
     postMessage(message: unknown): void;
 }
+
+export type WebviewVsCodeApi = WebviewMessenger;
 
 export class WebviewLogger {
     constructor(
         private readonly tag: string,
-        private readonly vscodeApi?: WebviewVsCodeApi,
+        private readonly messenger?: WebviewMessenger,
     ) {}
 
     public info(message: string, details?: unknown): void {
@@ -29,7 +31,7 @@ export class WebviewLogger {
     }
 
     private post(level: 'info' | 'warn' | 'error', message: string, details?: unknown): void {
-        if (!this.vscodeApi) {
+        if (!this.messenger) {
             return;
         }
         const detailStr =
@@ -39,7 +41,7 @@ export class WebviewLogger {
                   ? String(details)
                   : undefined;
 
-        this.vscodeApi.postMessage({
+        this.messenger.postMessage({
             type: 'logMessage',
             payload: {
                 level,

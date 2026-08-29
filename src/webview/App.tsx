@@ -14,25 +14,31 @@ import {
     useSensors,
 } from '@dnd-kit/core';
 import * as React from 'react';
-import type { ActionPayload, CommitAction, JjLogEntry, JjStatusEntry, WebviewPayload } from '../jj-types';
+import type {
+    ActionPayload,
+    CommitAction,
+    JjLogEntry,
+    JjStatusEntry,
+    WebviewInitialData,
+    WebviewPayload,
+} from '../jj-types';
 import { BookmarkPill } from './components/Bookmark';
 import { CommitDetails } from './components/CommitDetails';
 import { CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
 import { useDragModifiers } from './hooks/useDragModifiers';
+import { useBridge } from './transport/BridgeContext';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
-
-// Define the vscode API from the global scope (see global.d.ts)
-const vscode = window.acquireVsCodeApi();
 
 type DragItem =
     | { type: 'bookmark'; name: string; remote?: string }
     | (JjLogEntry & { type: 'commit'; changeId: string });
 
 const App: React.FC = () => {
-    // Initial State from Window (injected by provider)
-    const initialData = window.vscodeInitialData;
+    const bridge = useBridge();
+    // Initial State from Bridge
+    const initialData = bridge.getInitialData<WebviewInitialData>();
     const initialView = initialData?.view || 'graph';
 
     const [view] = React.useState<'graph' | 'details'>(initialView);
@@ -44,11 +50,16 @@ const App: React.FC = () => {
     const [graphLabelAlignment, setGraphLabelAlignment] = React.useState<string>(
         initialData?.payload?.graphLabelAlignment || 'aligned',
     );
-    // Use ref to access latest commits in event listeners without triggering re-effects
+    // Use refs to access latest state in event listeners without triggering re-effects
     const commitsRef = React.useRef(commits);
     React.useEffect(() => {
         commitsRef.current = commits;
     }, [commits]);
+
+    const viewRef = React.useRef(view);
+    React.useEffect(() => {
+        viewRef.current = view;
+    }, [view]);
 
     const [loading, setLoading] = React.useState(
         initialView === 'graph' && !(initialData?.payload?.commits && initialData.payload.commits.length > 0),
@@ -85,7 +96,7 @@ const App: React.FC = () => {
             // Escape to deselect
             if (e.key === 'Escape') {
                 setSelectedCommitIds(new Set());
-                vscode.postMessage({
+                bridge.postMessage({
                     type: 'selectionChange',
                     payload: {
                         commitIds: [],
@@ -100,16 +111,29 @@ const App: React.FC = () => {
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, []);
+    }, [bridge]);
 
     React.useEffect(() => {
-        // Listen for messages from the extension
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
+        // Listen for messages from the host
+        const handleMessage = (rawMessage: unknown) => {
+            if (!rawMessage || typeof rawMessage !== 'object' || !('type' in rawMessage)) {
+                return;
+            }
+            const message = rawMessage as {
+                type: string;
+                commits?: JjLogEntry[];
+                minChangeIdLength?: number;
+                theme?: string;
+                graphLabelAlignment?: string;
+                hiddenActions?: CommitAction[];
+                payload?: { changeId?: string; description?: string; hiddenActions?: CommitAction[] } & WebviewPayload;
+                ids?: string[];
+            };
             switch (message.type) {
                 case 'update':
-                    if (view === 'graph') {
-                        setCommits(message.commits);
+                    if (viewRef.current === 'graph' && message.commits) {
+                        const newCommits = message.commits;
+                        setCommits(newCommits);
                         if (message.minChangeIdLength !== undefined) {
                             setMinChangeIdLength(message.minChangeIdLength);
                         }
@@ -131,14 +155,14 @@ const App: React.FC = () => {
                             }
 
                             const validIds = Array.from(prevIds).filter((id) =>
-                                message.commits.some((c: JjLogEntry) => c.change_id === id),
+                                newCommits.some((c: JjLogEntry) => c.change_id === id),
                             );
 
                             if (validIds.length !== prevIds.size) {
                                 const newIds = new Set(validIds);
-                                const hasImmutable = hasImmutableSelection(newIds, message.commits);
+                                const hasImmutable = hasImmutableSelection(newIds, newCommits);
 
-                                vscode.postMessage({
+                                bridge.postMessage({
                                     type: 'selectionChange',
                                     payload: {
                                         commitIds: validIds,
@@ -153,15 +177,14 @@ const App: React.FC = () => {
                     break;
                 case 'updateDetails':
                     // If we get an update while in details view (e.g. after save)
-                    if (view === 'details') {
-                        setDetailsCommit(message.payload);
+                    if (viewRef.current === 'details') {
+                        setDetailsCommit(message.payload ?? null);
                     }
                     break;
                 case 'saveComplete':
-                    if (view === 'details') {
-                        setDetailsCommit((prev) =>
-                            prev ? { ...prev, description: message.payload.description } : prev,
-                        );
+                    if (viewRef.current === 'details' && message.payload?.description !== undefined) {
+                        const newDesc = message.payload.description;
+                        setDetailsCommit((prev) => (prev ? { ...prev, description: newDesc } : prev));
                     }
                     break;
                 case 'setSelection': {
@@ -171,7 +194,7 @@ const App: React.FC = () => {
                     // Calculate immutability status for the new selection
                     const hasImmutable = hasImmutableSelection(newIds, commitsRef.current);
 
-                    vscode.postMessage({
+                    bridge.postMessage({
                         type: 'selectionChange',
                         payload: {
                             commitIds: Array.from(newIds),
@@ -182,9 +205,9 @@ const App: React.FC = () => {
                 }
                 case 'panelClosed':
                     setSelectedCommitIds((prevIds) => {
-                        if (prevIds.has(message.payload.changeId) && prevIds.size === 1) {
+                        if (message.payload?.changeId && prevIds.has(message.payload.changeId) && prevIds.size === 1) {
                             const clearedIds = new Set<string>();
-                            vscode.postMessage({
+                            bridge.postMessage({
                                 type: 'selectionChange',
                                 payload: {
                                     commitIds: [],
@@ -197,20 +220,22 @@ const App: React.FC = () => {
                     });
                     break;
                 case 'updateHiddenActions':
-                    setHiddenActions(new Set(message.payload.hiddenActions));
+                    if (message.payload?.hiddenActions) {
+                        setHiddenActions(new Set(message.payload.hiddenActions));
+                    }
                     break;
             }
         };
 
-        window.addEventListener('message', handleMessage);
+        const unsubscribe = bridge.onMessage(handleMessage);
 
         // Signal that we are ready
-        vscode.postMessage({ type: 'webviewLoaded' });
+        bridge.postMessage({ type: 'webviewLoaded' });
 
         return () => {
-            window.removeEventListener('message', handleMessage);
+            unsubscribe();
         };
-    }, [view]);
+    }, [bridge]);
 
     const handleGraphAction = (action: string, payload: ActionPayload) => {
         if (action === 'select') {
@@ -222,10 +247,10 @@ const App: React.FC = () => {
             // 2. Update visual selection state
             setSelectedCommitIds(nextSelectedIds);
 
-            // 3. Notify Extension of Selection Change
+            // 3. Notify Host of Selection Change
             const hasImmutable = hasImmutableSelection(nextSelectedIds, commits);
 
-            vscode.postMessage({
+            bridge.postMessage({
                 type: 'selectionChange',
                 payload: {
                     commitIds: Array.from(nextSelectedIds),
@@ -236,19 +261,19 @@ const App: React.FC = () => {
             // 4. Request Details ONLY if the item ends up selected
             // (If we toggled it off, we shouldn't open details)
             if (nextSelectedIds.has(changeId)) {
-                vscode.postMessage({ type: 'getDetails', payload });
+                bridge.postMessage({ type: 'getDetails', payload });
             }
             return;
         }
 
         if (action === 'showComments') {
-            vscode.postMessage({ type: 'showComments', payload });
+            bridge.postMessage({ type: 'showComments', payload });
             return;
         }
 
         if (action === 'contextMenu') {
             // Include current selection in payload for smarter menus
-            vscode.postMessage({
+            bridge.postMessage({
                 type: action,
                 payload: {
                     ...payload,
@@ -258,12 +283,12 @@ const App: React.FC = () => {
             return;
         }
 
-        vscode.postMessage({ type: action, payload });
+        bridge.postMessage({ type: action, payload });
     };
 
     const handleSaveDescription = (description: string) => {
         if (view === 'details' && detailsCommit) {
-            vscode.postMessage({
+            bridge.postMessage({
                 type: 'saveDescription',
                 payload: { changeId: detailsCommit.changeId, description },
             });
@@ -272,7 +297,7 @@ const App: React.FC = () => {
 
     const handleOpenDiff = (file: JjStatusEntry, isImmutable: boolean) => {
         if (view === 'details' && detailsCommit) {
-            vscode.postMessage({
+            bridge.postMessage({
                 type: 'openDiff',
                 payload: { changeId: detailsCommit.changeId, file, isImmutable },
             });
@@ -281,7 +306,7 @@ const App: React.FC = () => {
 
     const handleOpenMultiDiff = () => {
         if (view === 'details' && detailsCommit) {
-            vscode.postMessage({
+            bridge.postMessage({
                 type: 'openMultiDiff',
                 payload: { changeId: detailsCommit.changeId },
             });
@@ -350,8 +375,8 @@ const App: React.FC = () => {
                     });
                 });
 
-                // Send to extension
-                vscode.postMessage({
+                // Send to host
+                bridge.postMessage({
                     type: 'moveBookmark',
                     payload: { bookmark: bookmarkName, targetChangeId },
                 });
@@ -368,7 +393,7 @@ const App: React.FC = () => {
                 }
 
                 const message = activeModifier.buildMessagePayload(sourceChangeId, targetChangeId);
-                vscode.postMessage(message);
+                bridge.postMessage(message);
             }
         } finally {
             resetKeys();
@@ -397,7 +422,7 @@ const App: React.FC = () => {
                 onOpenDiff={handleOpenDiff}
                 onOpenMultiDiff={handleOpenMultiDiff}
                 onDescriptionChange={(description: string, selectionStart: number, selectionEnd: number) => {
-                    vscode.postMessage({
+                    bridge.postMessage({
                         type: 'descriptionChanged',
                         payload: { description, selectionStart, selectionEnd },
                     });
@@ -430,7 +455,7 @@ const App: React.FC = () => {
                         // Only clear if clicking the container itself, not children
                         if (e.target === e.currentTarget) {
                             setSelectedCommitIds(new Set());
-                            vscode.postMessage({
+                            bridge.postMessage({
                                 type: 'selectionChange',
                                 payload: {
                                     commitIds: [],

@@ -5,9 +5,14 @@
 import '@vscode-elements/elements';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { BridgeProvider } from './transport/BridgeContext';
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
     const root = createRoot(rootElement);
-    root.render(<App />);
+    root.render(
+        <BridgeProvider>
+            <App />
+        </BridgeProvider>,
+    );
 }

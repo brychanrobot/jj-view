@@ -6,6 +6,7 @@ import * as React from 'react';
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
+import { useMessageListener } from '../transport/BridgeContext';
 import { BasePill, BookmarkPill, TagPill } from './Bookmark';
 import { PersonInfo } from './PersonInfo';
 
@@ -114,47 +115,42 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         prevDescriptionRef.current = description;
     }, [description]);
 
-    React.useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const data = event.data;
-            if (!isWebviewMessage(data)) {
-                return;
-            }
+    useMessageListener((data: unknown) => {
+        if (!isWebviewMessage(data)) {
+            return;
+        }
 
-            if (data.type === 'saveFailed') {
-                setIsSaving(false);
-                if (saveTimeoutRef.current) {
-                    clearTimeout(saveTimeoutRef.current);
-                }
-            } else if (data.type === 'saveComplete') {
-                setIsSaving(false);
-                if (saveTimeoutRef.current) {
-                    clearTimeout(saveTimeoutRef.current);
-                }
-                const savedDescription = data.payload.description;
-                setDraftDescription(savedDescription);
-                if (textareaRef.current) {
-                    textareaRef.current.value = savedDescription;
-                }
-                prevDescriptionRef.current = savedDescription;
-            } else if (data.type === 'updateDescription') {
-                const { description: newDesc, selectionStart, selectionEnd } = data.payload;
-                isApplyingExtensionEdit.current = true;
-                try {
-                    if (textareaRef.current) {
-                        textareaRef.current.value = newDesc;
-                        setDraftDescription(newDesc);
-                        textareaRef.current.focus();
-                        textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
-                    }
-                } finally {
-                    isApplyingExtensionEdit.current = false;
-                }
+        if (data.type === 'saveFailed') {
+            setIsSaving(false);
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
             }
-        };
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-    }, []);
+        } else if (data.type === 'saveComplete') {
+            setIsSaving(false);
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+            const savedDescription = data.payload.description;
+            setDraftDescription(savedDescription);
+            if (textareaRef.current) {
+                textareaRef.current.value = savedDescription;
+            }
+            prevDescriptionRef.current = savedDescription;
+        } else if (data.type === 'updateDescription') {
+            const { description: newDesc, selectionStart, selectionEnd } = data.payload;
+            isApplyingExtensionEdit.current = true;
+            try {
+                if (textareaRef.current) {
+                    textareaRef.current.value = newDesc;
+                    setDraftDescription(newDesc);
+                    textareaRef.current.focus();
+                    textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+                }
+            } finally {
+                isApplyingExtensionEdit.current = false;
+            }
+        }
+    });
 
     const handleSave = async () => {
         setIsSaving(true);

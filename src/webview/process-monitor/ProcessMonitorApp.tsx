@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { useBridge } from '../transport/BridgeContext';
 import { getRelativeTimeString } from '../utils/time-utils';
 
 export interface ActiveTask {
@@ -36,13 +37,6 @@ export interface Metrics {
     totalCount: number;
     avgDurationMs: number;
 }
-
-// Acquire VS Code API
-declare function acquireVsCodeApi(): {
-    postMessage(message: unknown): void;
-};
-
-const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : { postMessage: () => {} };
 
 function ActiveDurationCell({ startPerformanceTime }: { startPerformanceTime: number }) {
     const [elapsedText, setElapsedText] = useState<string>(() => {
@@ -108,6 +102,7 @@ function HistoryTimestampDetail({ timestamp, fullTimestamp }: { timestamp: numbe
 }
 
 export default function ProcessMonitorApp() {
+    const bridge = useBridge();
     const [metrics, setMetrics] = useState<Metrics>({
         activeCount: 0,
         peakConcurrency: 0,
@@ -121,9 +116,17 @@ export default function ProcessMonitorApp() {
     const [copiedId, setCopiedId] = useState<string | null>(null);
 
     useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message?.type === 'update') {
+        const unsubscribe = bridge.onMessage((data: unknown) => {
+            if (!data || typeof data !== 'object' || !('type' in data)) {
+                return;
+            }
+            const message = data as {
+                type: string;
+                activeTasks?: ActiveTask[];
+                historyTasks?: HistoryTask[];
+                metrics?: Metrics;
+            };
+            if (message.type === 'update') {
                 setActiveTasks(message.activeTasks || []);
                 setHistoryTasks(message.historyTasks || []);
                 setMetrics(
@@ -135,11 +138,11 @@ export default function ProcessMonitorApp() {
                     },
                 );
             }
+        });
+        return () => {
+            unsubscribe();
         };
-
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [bridge]);
 
     const toggleExpand = (rowKey: string, e: React.SyntheticEvent) => {
         e.stopPropagation();
@@ -163,19 +166,19 @@ export default function ProcessMonitorApp() {
 
     const handleKillProcess = (id: number, e: React.MouseEvent) => {
         e.stopPropagation();
-        vscode.postMessage({ command: 'killProcess', id });
+        bridge.postMessage({ command: 'killProcess', id });
     };
 
     const handleKillAll = () => {
-        vscode.postMessage({ command: 'killAllProcesses' });
+        bridge.postMessage({ command: 'killAllProcesses' });
     };
 
     const handleClearHistory = () => {
-        vscode.postMessage({ command: 'clearHistory' });
+        bridge.postMessage({ command: 'clearHistory' });
     };
 
     const handleHidePanel = () => {
-        vscode.postMessage({ command: 'hidePanel' });
+        bridge.postMessage({ command: 'hidePanel' });
     };
 
     const copyToClipboard = (text: string, key: string, e: React.MouseEvent) => {

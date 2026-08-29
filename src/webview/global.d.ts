@@ -8,8 +8,14 @@ declare global {
     interface Window {
         vscode: unknown;
         vscodeInitialData?: WebviewInitialData;
+        __jjViewVsCodeApi?: {
+            postMessage: (message: unknown) => void;
+            setState?: (state: unknown) => void;
+            getState?: () => unknown;
+        };
+        __JJ_VIEW_WS_URL__?: string;
         acquireVsCodeApi: () => {
-            postMessage: (message: { type: string; payload?: unknown }) => void;
+            postMessage: (message: unknown) => void;
             setState: (state: unknown) => void;
             getState: () => unknown;
         };
