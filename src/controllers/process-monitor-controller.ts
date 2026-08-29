@@ -3,9 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { z } from 'zod';
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
+import {
+    type ProcessMonitorHostToWebviewMessage,
+    type ProcessMonitorToHostMessage,
+    ProcessMonitorToHostMessageSchema,
+} from '../common/ipc/process-monitor-schemas';
 import {
     createWebviewRpcDispatcher,
     type WebviewPostMessageLike,
@@ -19,14 +23,6 @@ import {
 } from '../jj-process-tracker';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import type { LoggerChannel } from '../utils/output-channel';
-
-export const ProcessMonitorToHostMessageSchema = z.discriminatedUnion('command', [
-    z.object({ command: z.literal('killProcess'), id: z.number() }),
-    z.object({ command: z.literal('killAllProcesses') }),
-    z.object({ command: z.literal('clearHistory') }),
-    z.object({ command: z.literal('hidePanel') }),
-]);
-export type ProcessMonitorToHostMessage = z.infer<typeof ProcessMonitorToHostMessageSchema>;
 
 export interface ProcessMonitorControllerOptions {
     messenger?: WebviewPostMessageLike;
@@ -84,7 +80,7 @@ export class ProcessMonitorController implements Disposable {
                 discriminatorKey: 'command',
                 logger: this._logger,
                 messenger: {
-                    postMessage: (m) => this._postMessage(m),
+                    postMessage: (m) => this._postMessage(m as ProcessMonitorHostToWebviewMessage),
                 },
             },
         );
@@ -175,7 +171,7 @@ export class ProcessMonitorController implements Disposable {
         this._processTracker.clearHistory();
     }
 
-    private _postMessage(message: unknown): void {
+    private _postMessage(message: ProcessMonitorHostToWebviewMessage): void {
         if (!this._disposed && this._messenger) {
             try {
                 this._messenger.postMessage(message);

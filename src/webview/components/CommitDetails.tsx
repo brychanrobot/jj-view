@@ -3,14 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
+import {
+    type CommitDetailsHostToWebviewMessage,
+    CommitDetailsHostToWebviewMessageSchema,
+} from '../../common/ipc/commit-details-schemas';
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
-import { useMessageListener } from '../transport/BridgeContext';
+import { useRpcDispatcher } from '../transport/BridgeContext';
 import { BasePill, BookmarkPill, TagPill } from './Bookmark';
 import { PersonInfo } from './PersonInfo';
 
-interface CommitDetailsProps {
+export interface CommitDetailsProps {
     changeId: string;
     commitId: string;
     description: string;
@@ -29,37 +33,6 @@ interface CommitDetailsProps {
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
-}
-
-interface SaveFailedMessage {
-    type: 'saveFailed';
-}
-
-interface SaveCompleteMessage {
-    type: 'saveComplete';
-    payload: {
-        description: string;
-    };
-}
-
-interface UpdateDescriptionMessage {
-    type: 'updateDescription';
-    payload: {
-        description: string;
-        selectionStart: number;
-        selectionEnd: number;
-    };
-}
-
-type WebviewMessage = SaveFailedMessage | SaveCompleteMessage | UpdateDescriptionMessage;
-
-function isWebviewMessage(data: unknown): data is WebviewMessage {
-    if (typeof data !== 'object' || data === null) {
-        return false;
-    }
-
-    const { type } = data as { type?: unknown };
-    return typeof type === 'string' && ['saveFailed', 'saveComplete', 'updateDescription'].includes(type);
 }
 
 export const CommitDetails: React.FC<CommitDetailsProps> = ({
@@ -101,6 +74,14 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
     const prevDescriptionRef = React.useRef(description);
 
     React.useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    React.useEffect(() => {
         // Synchronize the draft description with the canonical description from the backend.
         // We only overwrite the draft if the user hasn't made any unsaved edits (the draft
         // matches the previous description), or if the only difference is trailing whitespace
@@ -115,41 +96,39 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         prevDescriptionRef.current = description;
     }, [description]);
 
-    useMessageListener((data: unknown) => {
-        if (!isWebviewMessage(data)) {
-            return;
-        }
-
-        if (data.type === 'saveFailed') {
+    useRpcDispatcher<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
+        saveFailed: () => {
             setIsSaving(false);
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
-        } else if (data.type === 'saveComplete') {
+        },
+        saveComplete: (msg) => {
             setIsSaving(false);
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
             }
-            const savedDescription = data.payload.description;
+            const savedDescription = msg.payload.description;
             setDraftDescription(savedDescription);
             if (textareaRef.current) {
                 textareaRef.current.value = savedDescription;
             }
             prevDescriptionRef.current = savedDescription;
-        } else if (data.type === 'updateDescription') {
-            const { description: newDesc, selectionStart, selectionEnd } = data.payload;
+        },
+        updateDescription: (msg) => {
+            const { description: newDesc, selectionStart, selectionEnd } = msg.payload;
             isApplyingExtensionEdit.current = true;
             try {
                 if (textareaRef.current) {
                     textareaRef.current.value = newDesc;
                     setDraftDescription(newDesc);
                     textareaRef.current.focus();
-                    textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+                    textareaRef.current.setSelectionRange(selectionStart ?? 0, selectionEnd ?? 0);
                 }
             } finally {
                 isApplyingExtensionEdit.current = false;
             }
-        }
+        },
     });
 
     const handleSave = async () => {

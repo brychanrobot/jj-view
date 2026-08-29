@@ -5,7 +5,11 @@
 
 import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
-import { type WebviewToHostMessage, WebviewToHostMessageSchema } from '../common/ipc-schemas';
+import {
+    type LogViewHostToWebviewMessage,
+    type LogViewToHostMessage,
+    LogViewToHostMessageSchema,
+} from '../common/ipc/log-view-schemas';
 import { showJjError } from '../common/ui-helpers';
 import {
     createWebviewRpcDispatcher,
@@ -36,7 +40,7 @@ export class LogViewController implements Disposable {
     private _codeForgeDisposable: Disposable | undefined;
     private _messenger?: WebviewPostMessageLike;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<WebviewToHostMessage>;
+    private readonly _dispatcher: WebviewRpcDispatcher<LogViewToHostMessage>;
     private readonly _refreshQueue: CoalescingQueue;
 
     private _commits: readonly JjLogEntry[] = [];
@@ -236,11 +240,11 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            commits: enrichedCommits,
+            commits: [...enrichedCommits],
             minChangeIdLength: this._minChangeIdLength,
             theme: this._theme,
             graphLabelAlignment: this._graphLabelAlignment,
-            hiddenActions: this._hiddenActions,
+            hiddenActions: [...this._hiddenActions],
         });
     }
 
@@ -319,11 +323,11 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            commits: this._commits,
+            commits: [...this._commits],
             minChangeIdLength: this._minChangeIdLength,
             theme: this._theme,
             graphLabelAlignment: this._graphLabelAlignment,
-            hiddenActions: this._hiddenActions,
+            hiddenActions: [...this._hiddenActions],
         });
     }
 
@@ -381,7 +385,7 @@ export class LogViewController implements Disposable {
         }
     }
 
-    private _postMessage(message: unknown): void {
+    private _postMessage(message: LogViewHostToWebviewMessage): void {
         if (!this._disposed && this._messenger) {
             try {
                 this._messenger.postMessage(message);
@@ -411,9 +415,9 @@ export class LogViewController implements Disposable {
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<WebviewToHostMessage> {
+    private _createRpcDispatcher(): WebviewRpcDispatcher<LogViewToHostMessage> {
         return createWebviewRpcDispatcher(
-            WebviewToHostMessageSchema,
+            LogViewToHostMessageSchema,
             {
                 webviewLoaded: async () => {
                     await this.refresh('webviewLoaded');
@@ -552,6 +556,12 @@ export class LogViewController implements Disposable {
                 showComments: async (msg) => {
                     await this._host.commands.executeCommand('jj-view.showComments', msg.payload.changeId);
                 },
+                setContextKey: async (msg) => {
+                    this._host.commands.setContextKey(msg.payload.key, msg.payload.value);
+                },
+                contextMenu: async (msg) => {
+                    await this._host.commands.executeCommand('jj-view.contextMenu', msg.payload);
+                },
                 selectionChange: async (msg) => {
                     const count = msg.payload.commitIds.length;
                     const hasImmutable = Boolean(msg.payload.hasImmutableSelection);
@@ -594,7 +604,7 @@ export class LogViewController implements Disposable {
             {
                 logger: this._logger,
                 messenger: {
-                    postMessage: (m) => this._postMessage(m),
+                    postMessage: (m) => this._postMessage(m as LogViewHostToWebviewMessage),
                 },
             },
         );

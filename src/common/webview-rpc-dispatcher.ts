@@ -161,6 +161,14 @@ export class WebviewRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K ex
                 return false;
             }
         }
+
+        if (requestId && this.options?.messenger) {
+            this.options.messenger.postMessage({
+                type: '__rpc_response__',
+                requestId,
+                error: `No handler registered for '${String(typeValue)}'`,
+            });
+        }
         return false;
     }
 }

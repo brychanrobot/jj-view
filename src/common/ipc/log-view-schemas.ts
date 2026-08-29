@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { z } from 'zod';
-import { JjBookmarkSchema, JjLogEntrySchema, JjStatusEntrySchema } from '../jj-schemas';
+import { JjBookmarkSchema, JjLogEntrySchema, JjStatusEntrySchema } from '../../jj-schemas';
+
+export const CommitActionSchema = z.enum(['newChild', 'edit', 'squash', 'abandon', 'openCodeForge', 'upload']);
+export type CommitAction = z.infer<typeof CommitActionSchema>;
 
 export const ActionPayloadSchema = z.object({
     changeId: z.string(),
@@ -13,6 +16,7 @@ export const ActionPayloadSchema = z.object({
     changeIdShortest: z.string().optional(),
     isDivergent: z.boolean().optional(),
     changeIdOffset: z.number().optional(),
+    selectedCommitIds: z.array(z.string()).optional(),
 });
 export type ActionPayload = z.infer<typeof ActionPayloadSchema>;
 
@@ -21,7 +25,7 @@ export const WebviewPayloadSchema = z.object({
     minChangeIdLength: z.number().optional(),
     theme: z.string().optional(),
     graphLabelAlignment: z.string().optional(),
-    hiddenActions: z.array(z.string()).optional(),
+    hiddenActions: z.array(CommitActionSchema).optional(),
     changeId: z.string().optional(),
     commitId: z.string().optional(),
     description: z.string().optional(),
@@ -51,17 +55,10 @@ export const WebviewPayloadSchema = z.object({
 });
 export type WebviewPayload = z.infer<typeof WebviewPayloadSchema>;
 
-export const WebviewToHostMessageSchema = z.discriminatedUnion('type', [
+export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('webviewLoaded') }),
-    z.object({ type: z.literal('newChild'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('edit'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('squash'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('abandon'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('select'), payload: ActionPayloadSchema }),
-    z.object({ type: z.literal('undo') }),
-    z.object({ type: z.literal('redo') }),
-    z.object({ type: z.literal('getDetails'), payload: ActionPayloadSchema }),
     z.object({ type: z.literal('new') }),
+    z.object({ type: z.literal('newChild'), payload: ActionPayloadSchema }),
     z.object({
         type: z.literal('newBefore'),
         payload: z.object({ changeIds: z.array(z.string()).optional() }),
@@ -70,6 +67,13 @@ export const WebviewToHostMessageSchema = z.discriminatedUnion('type', [
         type: z.literal('newAfter'),
         payload: z.object({ changeIds: z.array(z.string()).optional() }),
     }),
+    z.object({ type: z.literal('edit'), payload: ActionPayloadSchema }),
+    z.object({ type: z.literal('squash'), payload: ActionPayloadSchema }),
+    z.object({ type: z.literal('abandon'), payload: ActionPayloadSchema }),
+    z.object({ type: z.literal('select'), payload: ActionPayloadSchema }),
+    z.object({ type: z.literal('undo') }),
+    z.object({ type: z.literal('redo') }),
+    z.object({ type: z.literal('getDetails'), payload: ActionPayloadSchema }),
     z.object({
         type: z.literal('resolve'),
         payload: z.object({ path: z.string() }),
@@ -88,7 +92,11 @@ export const WebviewToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('squashCommit'),
-        payload: z.object({ sourceChangeId: z.string(), targetChangeId: z.string(), mode: z.enum(['into', 'onto']) }),
+        payload: z.object({
+            sourceChangeId: z.string(),
+            targetChangeId: z.string(),
+            mode: z.enum(['into', 'onto']),
+        }),
     }),
     z.object({
         type: z.literal('duplicateCommit'),
@@ -116,41 +124,32 @@ export const WebviewToHostMessageSchema = z.discriminatedUnion('type', [
         payload: z.object({ url: z.string() }),
     }),
     z.object({
-        type: z.literal('saveDescription'),
-        payload: z.object({ changeId: z.string(), description: z.string() }),
+        type: z.literal('contextMenu'),
+        payload: ActionPayloadSchema,
+    }),
+]);
+export type LogViewToHostMessage = z.infer<typeof LogViewToHostMessageSchema>;
+
+export const LogViewHostToWebviewMessageSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('update'),
+        commits: z.array(JjLogEntrySchema),
+        minChangeIdLength: z.number().optional(),
+        theme: z.string().optional(),
+        graphLabelAlignment: z.string().optional(),
+        hiddenActions: z.array(CommitActionSchema).optional(),
     }),
     z.object({
-        type: z.literal('descriptionChanged'),
-        payload: z.object({
-            description: z.string(),
-            selectionStart: z.number().optional(),
-            selectionEnd: z.number().optional(),
-        }),
+        type: z.literal('updateHiddenActions'),
+        payload: z.object({ hiddenActions: z.array(CommitActionSchema) }),
     }),
     z.object({
-        type: z.literal('saveFileText'),
-        payload: z.object({ filePath: z.string(), content: z.string() }),
-    }),
-    z.object({
-        type: z.literal('openDiff'),
-        payload: z.object({
-            file: JjStatusEntrySchema,
-            changeId: z.string(),
-            isImmutable: z.boolean().optional(),
-        }),
-    }),
-    z.object({
-        type: z.literal('openMultiDiff'),
+        type: z.literal('panelClosed'),
         payload: z.object({ changeId: z.string() }),
     }),
+    z.object({
+        type: z.literal('setSelection'),
+        ids: z.array(z.string()),
+    }),
 ]);
-export type WebviewToHostMessage = z.infer<typeof WebviewToHostMessageSchema>;
-
-export const HostToWebviewMessageSchema = z.discriminatedUnion('type', [
-    z.object({ type: z.literal('updateData'), payload: WebviewPayloadSchema.optional() }),
-    z.object({ type: z.literal('updateDetails'), payload: WebviewPayloadSchema.optional() }),
-    z.object({ type: z.literal('updateTheme'), payload: z.object({ theme: z.string() }) }),
-    z.object({ type: z.literal('saveComplete'), payload: z.object({ description: z.string() }).optional() }),
-    z.object({ type: z.literal('saveFailed') }),
-]);
-export type HostToWebviewMessage = z.infer<typeof HostToWebviewMessageSchema>;
+export type LogViewHostToWebviewMessage = z.infer<typeof LogViewHostToWebviewMessageSchema>;
