@@ -25,15 +25,13 @@ import {
 import type { JjLogEntry } from '../../jj-types';
 import { BookmarkPill } from '../common/components/Bookmark';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
-import { CommitDragPreview } from './components/CommitDragPreview';
+import { type CommitDragData, CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
 import { useDragModifiers } from './hooks/useDragModifiers';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
-type DragItem =
-    | { type: 'bookmark'; name: string; remote?: string }
-    | (JjLogEntry & { type: 'commit'; changeId: string });
+type DragItem = { type: 'bookmark'; name: string; remote?: string } | (CommitDragData & { type: 'commit' });
 
 export const LogApp: React.FC = () => {
     const [commits, setCommits] = React.useState<JjLogEntry[]>([]);

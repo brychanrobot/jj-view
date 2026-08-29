@@ -52,6 +52,7 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
                 isRemoteBookmark: !!bookmark.remote,
                 preventDefaultContextMenuItems: true,
             })}
+            style={{ display: 'inline-flex', alignItems: 'center', minWidth: '22px', flexShrink: 1 }}
         >
             <BasePill
                 title={displayName}
@@ -62,7 +63,11 @@ export const BookmarkPill: React.FC<{ bookmark: JjBookmark; style?: React.CSSPro
                     ...style,
                 }}
             >
-                <span className="codicon codicon-bookmark" style={{ fontSize: '11px', flexShrink: 0 }} />
+                <span
+                    aria-hidden="true"
+                    className="codicon codicon-bookmark"
+                    style={{ fontSize: '11px', flexShrink: 0 }}
+                />
                 <span
                     style={{
                         overflow: 'hidden',
@@ -92,7 +97,7 @@ export const TagPill: React.FC<{ tag: string; style?: React.CSSProperties }> = (
                 ...style,
             }}
         >
-            <span className="codicon codicon-tag" style={{ fontSize: '11px', flexShrink: 0 }} />
+            <span aria-hidden="true" className="codicon codicon-tag" style={{ fontSize: '11px', flexShrink: 0 }} />
             <span
                 style={{
                     overflow: 'hidden',
