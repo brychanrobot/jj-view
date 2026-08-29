@@ -27,7 +27,7 @@ import { BookmarkPill } from './components/Bookmark';
 import { CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
 import { useDragModifiers } from './hooks/useDragModifiers';
-import { useRpcClient, useRpcDispatcher } from './transport/BridgeContext';
+import { useRpcReceiver, useRpcSender } from './transport/BridgeContext';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
@@ -49,7 +49,7 @@ const App: React.FC = () => {
         commitsRef.current = commits;
     }, [commits]);
 
-    const rpc = useRpcClient<LogViewToHostMessage>(LogViewToHostMessageSchema);
+    const sender = useRpcSender<LogViewToHostMessage>(LogViewToHostMessageSchema);
 
     // Drag State
     const [activeDragItem, setActiveDragItem] = React.useState<DragItem | null>(null);
@@ -69,7 +69,7 @@ const App: React.FC = () => {
         }),
     );
 
-    useRpcDispatcher<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
+    useRpcReceiver<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
         update: ({
             commits: newCommits,
             minChangeIdLength: minLen,
@@ -106,7 +106,7 @@ const App: React.FC = () => {
                     const newIds = new Set(validIds);
                     const hasImmutable = hasImmutableSelection(newIds, newCommits);
 
-                    void rpc.selectionChange({
+                    void sender.selectionChange({
                         commitIds: validIds,
                         hasImmutableSelection: hasImmutable,
                     });
@@ -122,7 +122,7 @@ const App: React.FC = () => {
         panelClosed: ({ changeId }) => {
             setSelectedCommitIds((prevIds) => {
                 if (prevIds.has(changeId) && prevIds.size === 1) {
-                    void rpc.selectionChange({
+                    void sender.selectionChange({
                         commitIds: [],
                         hasImmutableSelection: false,
                     });
@@ -135,7 +135,7 @@ const App: React.FC = () => {
             const newIds = new Set(ids);
             setSelectedCommitIds(newIds);
             const hasImmutable = hasImmutableSelection(newIds, commitsRef.current);
-            void rpc.selectionChange({
+            void sender.selectionChange({
                 commitIds: ids,
                 hasImmutableSelection: hasImmutable,
             });
@@ -143,14 +143,14 @@ const App: React.FC = () => {
     });
 
     React.useEffect(() => {
-        void rpc.webviewLoaded();
-    }, [rpc]);
+        void sender.webviewLoaded();
+    }, [sender]);
 
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setSelectedCommitIds(new Set());
-                void rpc.selectionChange({
+                void sender.selectionChange({
                     commitIds: [],
                     hasImmutableSelection: false,
                 });
@@ -161,7 +161,7 @@ const App: React.FC = () => {
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [rpc]);
+    }, [sender]);
 
     const handleGraphAction = (action: string, payload: ActionPayload) => {
         if (action === 'select') {
@@ -172,24 +172,24 @@ const App: React.FC = () => {
             const commitIds = Array.from(newSelection);
             const hasImmutable = hasImmutableSelection(newSelection, commitsRef.current);
 
-            void rpc.selectionChange({
+            void sender.selectionChange({
                 commitIds,
                 hasImmutableSelection: hasImmutable,
             });
 
             if (newSelection.has(payload.changeId)) {
-                void rpc.getDetails(payload);
+                void sender.getDetails(payload);
             }
             return;
         }
 
         if (action === 'showComments') {
-            void rpc.showComments({ changeId: payload.changeId });
+            void sender.showComments({ changeId: payload.changeId });
             return;
         }
 
         if (action === 'contextMenu') {
-            void rpc.contextMenu({
+            void sender.contextMenu({
                 ...payload,
                 selectedCommitIds: Array.from(selectedCommitIds),
             });
@@ -197,39 +197,39 @@ const App: React.FC = () => {
         }
 
         if (action === 'new') {
-            void rpc.new();
+            void sender.new();
             return;
         }
         if (action === 'newChild') {
-            void rpc.newChild(payload);
+            void sender.newChild(payload);
             return;
         }
         if (action === 'edit') {
-            void rpc.edit(payload);
+            void sender.edit(payload);
             return;
         }
         if (action === 'squash') {
-            void rpc.squash(payload);
+            void sender.squash(payload);
             return;
         }
         if (action === 'abandon') {
-            void rpc.abandon(payload);
+            void sender.abandon(payload);
             return;
         }
         if (action === 'undo') {
-            void rpc.undo();
+            void sender.undo();
             return;
         }
         if (action === 'redo') {
-            void rpc.redo();
+            void sender.redo();
             return;
         }
         if (action === 'upload') {
-            void rpc.upload(payload);
+            void sender.upload(payload);
             return;
         }
         if (action === 'openCodeForge' && payload.url) {
-            void rpc.openCodeForge({ url: payload.url });
+            void sender.openCodeForge({ url: payload.url });
         }
     };
 
@@ -287,7 +287,7 @@ const App: React.FC = () => {
                     });
                 });
 
-                void rpc.moveBookmark({ bookmark: bookmarkName, targetChangeId });
+                void sender.moveBookmark({ bookmark: bookmarkName, targetChangeId });
                 return;
             }
 
@@ -304,13 +304,13 @@ const App: React.FC = () => {
 
                 const message = activeModifier.buildMessagePayload(sourceChangeId, targetChangeId);
                 if (message.type === 'rebaseCommit') {
-                    void rpc.rebaseCommit(message.payload);
+                    void sender.rebaseCommit(message.payload);
                 } else if (message.type === 'squashCommit') {
-                    void rpc.squashCommit(message.payload);
+                    void sender.squashCommit(message.payload);
                 } else if (message.type === 'duplicateCommit') {
-                    void rpc.duplicateCommit(message.payload);
+                    void sender.duplicateCommit(message.payload);
                 } else if (message.type === 'mergeCommit') {
-                    void rpc.mergeCommit(message.payload);
+                    void sender.mergeCommit(message.payload);
                 }
             }
         } finally {
@@ -341,7 +341,7 @@ const App: React.FC = () => {
                     onClick={(e) => {
                         if (e.target === e.currentTarget) {
                             setSelectedCommitIds(new Set());
-                            void rpc.selectionChange({
+                            void sender.selectionChange({
                                 commitIds: [],
                                 hasImmutableSelection: false,
                             });

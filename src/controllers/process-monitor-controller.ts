@@ -12,9 +12,9 @@ import {
     ProcessMonitorToHostMessageSchema,
 } from '../common/ipc/process-monitor-schemas';
 import {
-    createWebviewRpcDispatcher,
+    createWebviewRpcReceiver,
     type WebviewPostMessageLike,
-    type WebviewRpcDispatcher,
+    type WebviewRpcReceiver,
 } from '../common/webview-rpc-dispatcher';
 import {
     getTaskExitCode,
@@ -36,7 +36,7 @@ export class ProcessMonitorController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private readonly _logger?: LoggerChannel;
     private readonly _updateQueue: CoalescingQueue;
-    private readonly _dispatcher: WebviewRpcDispatcher<
+    private readonly _receiver: WebviewRpcReceiver<
         ProcessMonitorToHostMessage,
         ProcessMonitorHostToWebviewMessage,
         'command'
@@ -71,7 +71,7 @@ export class ProcessMonitorController implements Disposable {
             }),
         );
 
-        this._dispatcher = createWebviewRpcDispatcher<
+        this._receiver = createWebviewRpcReceiver<
             ProcessMonitorToHostMessage,
             ProcessMonitorHostToWebviewMessage,
             'command'
@@ -99,7 +99,7 @@ export class ProcessMonitorController implements Disposable {
         );
 
         if (options?.messenger) {
-            this._dispatcher.setMessenger(options.messenger);
+            this._receiver.setMessenger(options.messenger);
         }
 
         this.updateWebview();
@@ -152,14 +152,14 @@ export class ProcessMonitorController implements Disposable {
     }
 
     public setMessenger(messenger: WebviewPostMessageLike | undefined): void {
-        this._dispatcher.setMessenger(messenger);
+        this._receiver.setMessenger(messenger);
     }
 
     public async handleMessage(rawMessage: unknown): Promise<boolean> {
         if (this._disposed) {
             return false;
         }
-        return this._dispatcher.dispatch(rawMessage);
+        return this._receiver.dispatch(rawMessage);
     }
 
     public updateWebview(): void {
@@ -168,7 +168,7 @@ export class ProcessMonitorController implements Disposable {
         }
 
         this._onDidUpdate.fire();
-        this._dispatcher.emitter.update(this.getState());
+        this._receiver.sender.update(this.getState());
     }
 
     public getMetrics(): JjProcessMetrics {
@@ -194,6 +194,6 @@ export class ProcessMonitorController implements Disposable {
         }
         this._disposables.length = 0;
         this._onDidUpdate.dispose();
-        this._dispatcher.dispose();
+        this._receiver.dispose();
     }
 }

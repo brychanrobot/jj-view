@@ -12,7 +12,7 @@ import {
     type ProcessMonitorToHostMessage,
     ProcessMonitorToHostMessageSchema,
 } from '../../common/ipc/process-monitor-schemas';
-import { useRpcClient, useRpcDispatcher } from '../transport/BridgeContext';
+import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
 import { getRelativeTimeString } from '../utils/time-utils';
 
 export type { ActiveTask, HistoryTask, Metrics };
@@ -81,7 +81,7 @@ function HistoryTimestampDetail({ timestamp, fullTimestamp }: { timestamp: numbe
 }
 
 export default function ProcessMonitorApp() {
-    const rpc = useRpcClient<ProcessMonitorToHostMessage, 'command'>(ProcessMonitorToHostMessageSchema, {
+    const sender = useRpcSender<ProcessMonitorToHostMessage, 'command'>(ProcessMonitorToHostMessageSchema, {
         discriminatorKey: 'command',
     });
     const [metrics, setMetrics] = useState<Metrics>({
@@ -96,7 +96,7 @@ export default function ProcessMonitorApp() {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [copiedId, setCopiedId] = useState<string | null>(null);
 
-    useRpcDispatcher(ProcessMonitorHostToWebviewMessageSchema, {
+    useRpcReceiver(ProcessMonitorHostToWebviewMessageSchema, {
         update: ({ activeTasks: tasks, historyTasks: history, metrics: currentMetrics }) => {
             setActiveTasks(tasks);
             setHistoryTasks(history);
@@ -105,8 +105,8 @@ export default function ProcessMonitorApp() {
     });
 
     useEffect(() => {
-        void rpc.webviewLoaded();
-    }, [rpc]);
+        void sender.webviewLoaded();
+    }, [sender]);
 
     const toggleExpand = (rowKey: string, e: React.SyntheticEvent) => {
         e.stopPropagation();
@@ -130,19 +130,19 @@ export default function ProcessMonitorApp() {
 
     const handleKillProcess = (id: number, e: React.MouseEvent) => {
         e.stopPropagation();
-        void rpc.killProcess({ id });
+        void sender.killProcess({ id });
     };
 
     const handleKillAll = () => {
-        void rpc.killAllProcesses();
+        void sender.killAllProcesses();
     };
 
     const handleClearHistory = () => {
-        void rpc.clearHistory();
+        void sender.clearHistory();
     };
 
     const handleHidePanel = () => {
-        void rpc.hidePanel();
+        void sender.hidePanel();
     };
 
     const copyToClipboard = (text: string, key: string, e: React.MouseEvent) => {

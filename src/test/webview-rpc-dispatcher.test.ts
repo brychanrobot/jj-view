@@ -4,10 +4,16 @@
  */
 import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
-import { createWebviewRpcClient, createWebviewRpcDispatcher } from '../common/webview-rpc-dispatcher';
+import {
+    createWebviewRpcClient,
+    createWebviewRpcDispatcher,
+    createWebviewRpcReceiver,
+    createWebviewRpcSender,
+    WebviewRpcReceiver,
+} from '../common/webview-rpc-dispatcher';
 import type { LoggerChannel } from '../utils/output-channel';
 
-describe('WebviewRpcDispatcher', () => {
+describe('WebviewRpcReceiver', () => {
     const testSchema = z.discriminatedUnion('type', [
         z.object({ type: z.literal('ping'), payload: z.object({ value: z.string() }) }),
         z.object({ type: z.literal('count'), payload: z.object({ amount: z.number() }) }),
@@ -449,43 +455,49 @@ describe('WebviewRpcDispatcher', () => {
         sub.dispose();
     });
 
-    test('supports typed emitter proxy for broadcasting messages', () => {
+    test('supports typed sender proxy for broadcasting messages', () => {
         type OutboundEvents =
             | { type: 'update'; payload: { count: number } }
             | { type: 'reset' }
             | { type: 'notify'; payload: { message: string } };
 
-        const dispatcher = createWebviewRpcDispatcher<z.infer<typeof testSchema>, OutboundEvents>(testSchema, {});
+        const receiver = createWebviewRpcReceiver<z.infer<typeof testSchema>, OutboundEvents>(testSchema, {});
 
         const messenger = { postMessage: vi.fn() };
-        dispatcher.addMessenger(messenger);
+        receiver.addMessenger(messenger);
 
-        dispatcher.emitter.update({ count: 42 });
+        receiver.sender.update({ count: 42 });
         expect(messenger.postMessage).toHaveBeenCalledWith({
             type: 'update',
             payload: { count: 42 },
         });
 
-        dispatcher.emitter.reset();
+        receiver.sender.reset();
         expect(messenger.postMessage).toHaveBeenCalledWith({
             type: 'reset',
         });
 
-        dispatcher.emitter.notify({ message: 'hello' });
+        receiver.sender.notify({ message: 'hello' });
         expect(messenger.postMessage).toHaveBeenCalledWith({
             type: 'notify',
             payload: { message: 'hello' },
         });
 
-        const dynamicEmitter = dispatcher.emitter as Record<string | symbol, unknown>;
-        expect(dynamicEmitter.then).toBeUndefined();
-        expect(dynamicEmitter.toJSON).toBeUndefined();
-        expect(dynamicEmitter.constructor).toBeUndefined();
-        expect(dynamicEmitter[Symbol.iterator]).toBeUndefined();
+        // Test alias emitter behaves identically
+        receiver.emitter.reset();
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'reset',
+        });
+
+        const dynamicSender = receiver.sender as Record<string | symbol, unknown>;
+        expect(dynamicSender.then).toBeUndefined();
+        expect(dynamicSender.toJSON).toBeUndefined();
+        expect(dynamicSender.constructor).toBeUndefined();
+        expect(dynamicSender[Symbol.iterator]).toBeUndefined();
     });
 });
 
-describe('createWebviewRpcClient', () => {
+describe('createWebviewRpcSender', () => {
     const testSchema = z.discriminatedUnion('type', [
         z.object({ type: z.literal('ping'), payload: z.object({ value: z.string() }) }),
         z.object({ type: z.literal('count'), payload: z.object({ amount: z.number() }) }),
@@ -496,9 +508,9 @@ describe('createWebviewRpcClient', () => {
             postMessage: vi.fn().mockReturnValue(Promise.resolve(true)),
         };
 
-        const client = createWebviewRpcClient(mockWebview, testSchema);
+        const sender = createWebviewRpcSender(mockWebview, testSchema);
 
-        client.ping({ value: 'hello' });
+        sender.ping({ value: 'hello' });
         expect(mockWebview.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'ping',
@@ -506,7 +518,7 @@ describe('createWebviewRpcClient', () => {
             }),
         );
 
-        client.count({ amount: 10 });
+        sender.count({ amount: 10 });
         expect(mockWebview.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'count',
@@ -520,8 +532,8 @@ describe('createWebviewRpcClient', () => {
             postMessage: vi.fn().mockReturnValue(Promise.resolve(true)),
         };
 
-        const client = createWebviewRpcClient(mockWebview, testSchema);
-        const untypedCount = client.count as (payload: Record<string, unknown>) => Promise<unknown>;
+        const sender = createWebviewRpcSender(mockWebview, testSchema);
+        const untypedCount = sender.count as (payload: Record<string, unknown>) => Promise<unknown>;
 
         expect(() => untypedCount({ amount: 'invalid' })).toThrowError(/Invalid RPC message 'count'/);
         expect(mockWebview.postMessage).not.toHaveBeenCalled();
@@ -539,12 +551,12 @@ describe('createWebviewRpcClient', () => {
 
         const messenger = {
             postMessage: vi.fn((msg) => {
-                dispatcher.dispatch(msg);
+                receiver.dispatch(msg);
                 return Promise.resolve(true);
             }),
         };
 
-        const dispatcher = createWebviewRpcDispatcher(
+        const receiver = createWebviewRpcReceiver(
             rpcSchema,
             {
                 greet: async ({ name }) => `Hello ${name}`,
@@ -555,23 +567,23 @@ describe('createWebviewRpcClient', () => {
             { messenger },
         );
 
-        const client = createWebviewRpcClient(messenger, rpcSchema, { dispatcher });
+        const sender = createWebviewRpcSender(messenger, rpcSchema, { dispatcher: receiver });
 
-        const greeting = await client.greet({ name: 'Alice' });
+        const greeting = await sender.greet({ name: 'Alice' });
         expect(greeting).toBe('Hello Alice');
 
-        await expect(client.fail()).rejects.toThrowError('Something went wrong');
+        await expect(sender.fail()).rejects.toThrowError('Something went wrong');
     });
 
     test('ignores then, toJSON, constructor, and symbol properties on client proxy', () => {
         const mockWebview = { postMessage: vi.fn() };
-        const client = createWebviewRpcClient(mockWebview, testSchema);
-        const dynamicClient = client as Record<string | symbol, unknown>;
+        const sender = createWebviewRpcSender(mockWebview, testSchema);
+        const dynamicSender = sender as Record<string | symbol, unknown>;
 
-        expect(dynamicClient.then).toBeUndefined();
-        expect(dynamicClient.toJSON).toBeUndefined();
-        expect(dynamicClient.constructor).toBeUndefined();
-        expect(dynamicClient[Symbol.iterator]).toBeUndefined();
+        expect(dynamicSender.then).toBeUndefined();
+        expect(dynamicSender.toJSON).toBeUndefined();
+        expect(dynamicSender.constructor).toBeUndefined();
+        expect(dynamicSender[Symbol.iterator]).toBeUndefined();
         expect(mockWebview.postMessage).not.toHaveBeenCalled();
     });
 
@@ -588,11 +600,32 @@ describe('createWebviewRpcClient', () => {
             },
         };
 
-        const client = createWebviewRpcClient(errorWebview, testSchema, {
+        const sender = createWebviewRpcSender(errorWebview, testSchema, {
             dispatcher: mockDispatcher,
         });
 
-        expect(() => client.ping({ value: 'fail' })).toThrowError('Transport write failure');
+        expect(() => sender.ping({ value: 'fail' })).toThrowError('Transport write failure');
         expect(unregisterSpy).toHaveBeenCalledWith(expect.stringMatching(/^req_/));
+    });
+
+    test('supports createWebviewRpcClient and createWebviewRpcDispatcher aliases', async () => {
+        const mockWebview = { postMessage: vi.fn().mockReturnValue(Promise.resolve(true)) };
+        const client = createWebviewRpcClient(mockWebview, testSchema);
+        client.ping({ value: 'alias' });
+        expect(mockWebview.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'ping',
+                payload: { value: 'alias' },
+            }),
+        );
+
+        const receiverInstance = new WebviewRpcReceiver(testSchema, {});
+        expect(receiverInstance.isDisposed).toBe(false);
+        receiverInstance.dispose();
+        expect(receiverInstance.isDisposed).toBe(true);
+
+        const legacyDispatcher = createWebviewRpcDispatcher(testSchema, {});
+        expect(legacyDispatcher.isDisposed).toBe(false);
+        legacyDispatcher.dispose();
     });
 });

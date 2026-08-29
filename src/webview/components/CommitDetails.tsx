@@ -10,7 +10,7 @@ import {
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
-import { useRpcDispatcher } from '../transport/BridgeContext';
+import { useRpcReceiver } from '../transport/BridgeContext';
 import { BasePill, BookmarkPill, TagPill } from './Bookmark';
 import { PersonInfo } from './PersonInfo';
 
@@ -96,7 +96,7 @@ export const CommitDetails: React.FC<CommitDetailsProps> = ({
         prevDescriptionRef.current = description;
     }, [description]);
 
-    useRpcDispatcher<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
+    useRpcReceiver<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
         saveFailed: () => {
             setIsSaving(false);
             if (saveTimeoutRef.current) {
