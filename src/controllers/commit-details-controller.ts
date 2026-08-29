@@ -104,6 +104,12 @@ export class CommitDetailsController implements Disposable {
 
     public addMessenger(messenger: WebviewPostMessageLike): Disposable {
         this._messengers.add(messenger);
+        if (this.detailsPayload) {
+            messenger.postMessage({
+                type: 'updateDetails',
+                payload: this.detailsPayload,
+            });
+        }
         return {
             dispose: () => {
                 this._messengers.delete(messenger);
@@ -318,7 +324,14 @@ export class CommitDetailsController implements Disposable {
         return createWebviewRpcDispatcher(
             CommitDetailsToHostMessageSchema,
             {
-                webviewLoaded: async () => {},
+                webviewLoaded: async () => {
+                    if (this.detailsPayload) {
+                        this.broadcast({
+                            type: 'updateDetails',
+                            payload: this.detailsPayload,
+                        });
+                    }
+                },
                 descriptionChanged: async (payload) => {
                     const newText = payload.description;
                     const newSelection = {

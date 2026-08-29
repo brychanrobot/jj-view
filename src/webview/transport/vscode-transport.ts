@@ -55,13 +55,6 @@ export class VsCodeWebviewTransport implements WebviewTransport {
         };
     }
 
-    public getInitialData<T>(): T | undefined {
-        if (typeof window === 'undefined') {
-            return undefined;
-        }
-        return window.vscodeInitialData as T | undefined;
-    }
-
     public dispose(): void {
         if (typeof window !== 'undefined') {
             for (const listener of this._listeners) {
