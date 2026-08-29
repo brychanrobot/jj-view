@@ -109,4 +109,49 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         expect(handled).toBe(true);
         expect(controller.draftDescription).toBe('typed from webview');
     });
+
+    test('replays initial state snapshot to newly attached messenger after load', async () => {
+        testRepo.writeFile('file.txt', 'data\n');
+        testRepo.describe('initial commit for replay');
+
+        await controller.load();
+
+        const lateMessages: unknown[] = [];
+        controller.addMessenger({
+            postMessage: (m) => lateMessages.push(m),
+        });
+
+        expect(lateMessages).toHaveLength(1);
+        expect(lateMessages[0]).toEqual(
+            expect.objectContaining({
+                type: 'update',
+                payload: expect.objectContaining({
+                    description: 'initial commit for replay',
+                }),
+            }),
+        );
+    });
+
+    test('fires onDidClose only when the last messenger detaches', async () => {
+        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        const testController = new CommitDetailsController('@', repo, fakeHost);
+        const closeListener = vi.fn();
+        testController.onDidClose(closeListener);
+
+        const messenger1 = { postMessage: vi.fn() };
+        const messenger2 = { postMessage: vi.fn() };
+
+        const sub1 = testController.addMessenger(messenger1);
+        const sub2 = testController.addMessenger(messenger2);
+
+        // Disposing first messenger does not fire onDidClose because messenger2 is still attached
+        sub1.dispose();
+        expect(closeListener).not.toHaveBeenCalled();
+
+        // Disposing second messenger fires onDidClose
+        sub2.dispose();
+        expect(closeListener).toHaveBeenCalledTimes(1);
+
+        testController.dispose();
+    });
 });

@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../code-forge-registry';
 import { LogViewController } from '../controllers/log-view-controller';
+import { JjContextKey } from '../jj-context-keys';
 import { JjRepositoryManager } from '../jj-repository-manager';
 import type { JjLogEntry } from '../jj-types';
 import { Uri } from '../uri-utils';
@@ -152,5 +153,32 @@ describe('LogViewController Domain Unit Tests', () => {
         await controller.refresh('test');
         expect(controller.commits.length).toBeGreaterThan(0);
         expect(controller.commits[0].description).toContain('feature: add example');
+    });
+
+    test('replays initial snapshot on setMessenger and updates context keys on setCommits', async () => {
+        testRepo.writeFile('example.txt', 'test content\n');
+        testRepo.describe('feature: add example');
+        await controller.refresh('test');
+
+        const newMessages: unknown[] = [];
+        controller.setMessenger({
+            postMessage: (m) => newMessages.push(m),
+        });
+
+        expect(newMessages).toHaveLength(1);
+        expect(newMessages[0]).toEqual(
+            expect.objectContaining({
+                type: 'update',
+                payload: expect.objectContaining({
+                    commits: expect.any(Array),
+                }),
+            }),
+        );
+
+        // Selection context keys update on setCommits
+        const changeId = controller.commits[0].change_id;
+        controller.setSelectedCommits([changeId]);
+        controller.setCommits(controller.commits);
+        expect(fakeHost.commands.contextKeys.get(JjContextKey.SelectionAllowAbandon)).toBe(true);
     });
 });

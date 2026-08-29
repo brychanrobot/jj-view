@@ -113,8 +113,8 @@ suite('Webview Visibility Integration Test', () => {
         );
 
         await provider.controller.refresh();
-        assert.strictEqual(sentMessages.length, 1, 'Should have sent initial update message');
-        const initialCommits = sentMessages[0].payload.commits;
+        assert.ok(sentMessages.length >= 1, 'Should have sent initial update message');
+        const initialCommits = sentMessages[sentMessages.length - 1].payload.commits;
         assert.ok(
             initialCommits.some((c: JjLogEntry) => c.description.includes('Initial Commit')),
             'Should contain initial description',

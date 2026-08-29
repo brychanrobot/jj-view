@@ -5,6 +5,7 @@
 import { z } from 'zod';
 
 export const ProcessMonitorToHostMessageSchema = z.discriminatedUnion('command', [
+    z.object({ command: z.literal('webviewLoaded') }),
     z.object({
         command: z.literal('killProcess'),
         payload: z.object({ id: z.number() }),
