@@ -10,8 +10,8 @@ import {
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
 } from '../../common/ipc/commit-details-schemas';
-import { CommitDetails } from '../components/CommitDetails';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
+import { CommitDetails } from './CommitDetails';
 
 export const CommitDetailsApp: React.FC = () => {
     const [detailsCommit, setDetailsCommit] = React.useState<CommitDetailsPayload | null>(null);

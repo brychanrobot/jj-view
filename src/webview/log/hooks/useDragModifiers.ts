@@ -3,8 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import type { PressedKeysState } from '../utils/drag-modifiers';
+import type { DragActionModifier, PressedKeysState } from '../utils/drag-modifiers';
 import { resolveActiveModifier } from '../utils/drag-modifiers';
+
+export interface UseDragModifiersResult {
+    pressedKeys: PressedKeysState;
+    activeModifier: DragActionModifier;
+    resetKeys: () => void;
+}
 
 const initialKeys: PressedKeysState = {
     r: false,
@@ -55,7 +61,7 @@ function getPressedKeyProperty(e: KeyboardEvent, isPressed: boolean): keyof Pres
     return null;
 }
 
-export function useDragModifiers() {
+export function useDragModifiers(): UseDragModifiersResult {
     const [pressedKeys, setPressedKeys] = React.useState<PressedKeysState>(initialKeys);
 
     const resetKeys = React.useCallback(() => {

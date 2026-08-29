@@ -2,7 +2,9 @@
     "entry": [
         "src/extension.ts",
         "src/test/**/*.ts",
-        "src/webview/index.tsx",
+        "src/webview/log/index.tsx",
+        "src/webview/commit-details/index.tsx",
+        "src/webview/process-monitor/index.tsx",
         ".vscode-test.mjs",
         "vitest.config.ts",
         "esbuild.js",

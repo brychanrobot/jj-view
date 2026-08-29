@@ -4,13 +4,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { JjLogEntry } from '../jj-types';
-import type { GraphLayout } from '../webview/graph-model';
+import type { GraphLayout } from '../webview/log/graph-model';
 import {
     computeCompactRowMaxX,
     computeGap,
     computeGraphAreaWidth,
     computeMaxShortestIdLength,
-} from '../webview/layout-utils';
+} from '../webview/log/layout-utils';
 import { createMock } from './test-utils';
 
 describe('Layout Utils', () => {

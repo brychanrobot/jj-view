@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
-import { computeGraphLayout } from '../webview/graph-compute';
-import { type GraphLayout, type GraphNode, isElisionRow } from '../webview/graph-model';
+import { computeGraphLayout } from '../webview/log/graph-compute';
+import { type GraphLayout, type GraphNode, isElisionRow } from '../webview/log/graph-model';
 import { buildGraph, TestRepo } from './test-repo';
 
 // Helper: ASCII renderer to verify layout against jj log output

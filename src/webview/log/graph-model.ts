@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { match } from 'ts-pattern';
-import type { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../../jj-types';
 
 export interface GraphNode {
     commitId: string;

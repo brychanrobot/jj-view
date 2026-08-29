@@ -21,13 +21,13 @@ import {
     LogViewHostToWebviewMessageSchema,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
-} from '../common/ipc/log-view-schemas';
-import type { JjLogEntry } from '../jj-types';
-import { BookmarkPill } from './components/Bookmark';
+} from '../../common/ipc/log-view-schemas';
+import type { JjLogEntry } from '../../jj-types';
+import { BookmarkPill } from '../common/components/Bookmark';
+import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
 import { CommitDragPreview } from './components/CommitDragPreview';
 import { CommitGraph } from './components/CommitGraph';
 import { useDragModifiers } from './hooks/useDragModifiers';
-import { useRpcReceiver, useRpcSender } from './transport/BridgeContext';
 import { snapToCursorLeft } from './utils/modifiers';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
@@ -35,7 +35,7 @@ type DragItem =
     | { type: 'bookmark'; name: string; remote?: string }
     | (JjLogEntry & { type: 'commit'; changeId: string });
 
-const App: React.FC = () => {
+export const LogApp: React.FC = () => {
     const [commits, setCommits] = React.useState<JjLogEntry[]>([]);
     const [minChangeIdLength, setMinChangeIdLength] = React.useState<number>(1);
     const [theme, setTheme] = React.useState<string>('default');
@@ -387,4 +387,4 @@ const App: React.FC = () => {
     );
 };
 
-export default App;
+export default LogApp;

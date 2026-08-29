@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export function getRelativeTimeString(timestamp: string | number, now: number | null = null): string {
+export function getRelativeTimeString(timestamp: string | number, now: number = Date.now()): string {
     const time = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
     if (Number.isNaN(time)) {
         return String(timestamp);
@@ -13,7 +13,7 @@ export function getRelativeTimeString(timestamp: string | number, now: number | 
     const SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60;
     const SECONDS_PER_MONTH = SECONDS_PER_YEAR / 12;
 
-    const diffMs = (now ?? Date.now()) - time;
+    const diffMs = now - time;
     // This function only works for timestamps in the past.
     if (diffMs > -5000 && diffMs < 0) {
         return 'just now';

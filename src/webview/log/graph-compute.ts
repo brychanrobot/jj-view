@@ -4,10 +4,10 @@
  */
 import { type Ancestor, GraphRowRenderer, NodeLine } from 'renderdag-ts';
 import { match } from 'ts-pattern';
-import type { JjLogEntry } from '../jj-types';
+import type { JjLogEntry } from '../../jj-types';
+import { getColor } from '../themes.generated';
 import type { GraphEdge, GraphLayout, GraphNode, GraphPoint, GraphRow } from './graph-model';
 import { isElisionRow } from './graph-model';
-import { getColor } from './themes.generated';
 
 function cleanupPoints(points: GraphPoint[]): GraphPoint[] {
     if (points.length <= 2) {
@@ -62,13 +62,6 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
     });
 
     const renderer = new GraphRowRenderer<string>();
-
-    const commitToRowIndex = new Map<string, number>();
-    displayRows.forEach((row, i) => {
-        if (!isElisionRow(row)) {
-            commitToRowIndex.set(row.change_id, i);
-        }
-    });
 
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -126,19 +119,18 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
 
         const nodeColor = getColor(nodeLane, themeName);
         if (!isElisionRow(row)) {
-            const commit = row as JjLogEntry;
             nodes.push({
-                commitId: commit.commit_id,
-                changeId: commit.change_id,
+                commitId: row.commit_id,
+                changeId: row.change_id,
                 x: nodeLane,
                 y: nodeY,
                 color: nodeColor,
-                isCurrentWorkingCopy: !!commit.is_current_working_copy,
-                workingCopies: commit.working_copies,
-                conflict: commit.conflict,
-                isEmpty: commit.is_empty,
-                isImmutable: commit.is_immutable,
-                isHidden: commit.is_hidden,
+                isCurrentWorkingCopy: !!row.is_current_working_copy,
+                workingCopies: row.working_copies,
+                conflict: row.conflict,
+                isEmpty: row.is_empty,
+                isImmutable: row.is_immutable,
+                isHidden: row.is_hidden,
             });
         }
 

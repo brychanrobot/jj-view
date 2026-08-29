@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { calculateNextSelection, hasImmutableSelection } from '../webview/utils/selection-utils';
+import { calculateNextSelection, hasImmutableSelection } from '../webview/log/utils/selection-utils';
 
 describe('selection-utils', () => {
     describe('calculateNextSelection', () => {

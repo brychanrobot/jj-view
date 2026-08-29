@@ -4,7 +4,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import { BridgeProvider } from '../transport/BridgeContext';
-import ProcessMonitorApp from './ProcessMonitorApp';
+import { ProcessMonitorApp } from './ProcessMonitorApp';
 
 const rootElement = document.getElementById('root');
 if (rootElement) {

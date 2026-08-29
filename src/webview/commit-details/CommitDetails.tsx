@@ -10,9 +10,9 @@ import {
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { formatDisplayChangeId } from '../../utils/jj-utils';
+import { BasePill, BookmarkPill, TagPill } from '../common/components/Bookmark';
+import { PersonInfo } from '../common/components/PersonInfo';
 import { useRpcReceiver } from '../transport/BridgeContext';
-import { BasePill, BookmarkPill, TagPill } from './Bookmark';
-import { PersonInfo } from './PersonInfo';
 
 export interface CommitDetailsProps {
     changeId: string;

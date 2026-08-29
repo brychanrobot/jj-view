@@ -12,8 +12,8 @@ import {
     type ProcessMonitorToHostMessage,
     ProcessMonitorToHostMessageSchema,
 } from '../../common/ipc/process-monitor-schemas';
+import { getRelativeTimeString } from '../common/utils/time-utils';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
-import { getRelativeTimeString } from '../utils/time-utils';
 
 export type { ActiveTask, HistoryTask, Metrics };
 
@@ -80,7 +80,7 @@ function HistoryTimestampDetail({ timestamp, fullTimestamp }: { timestamp: numbe
     );
 }
 
-export default function ProcessMonitorApp() {
+export const ProcessMonitorApp: React.FC = () => {
     const sender = useRpcSender<ProcessMonitorToHostMessage, 'command'>(ProcessMonitorToHostMessageSchema, {
         discriminatorKey: 'command',
     });
@@ -788,7 +788,7 @@ export default function ProcessMonitorApp() {
             </section>
         </div>
     );
-}
+};
 
 function getStatusColor(status: string): string {
     switch (status) {
@@ -804,3 +804,5 @@ function getStatusColor(status: string): string {
             return 'var(--vscode-foreground)';
     }
 }
+
+export default ProcessMonitorApp;
