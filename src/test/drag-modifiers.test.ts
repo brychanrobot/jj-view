@@ -8,7 +8,7 @@ import {
     type PressedKeysState,
     resolveActiveModifier,
     SQUASH_ONTO_MODIFIER,
-} from '../webview/utils/drag-modifiers';
+} from '../webview/log/utils/drag-modifiers';
 
 describe('DragModifierFramework', () => {
     const emptyKeys: PressedKeysState = {

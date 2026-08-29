@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type * as React from 'react';
-import type { JjLogEntry } from '../../jj-types';
-import { getChangeIdDisplayLength, shortenChangeId } from '../../utils/jj-utils';
+import type { JjLogEntry } from '../../../jj-types';
+import { getChangeIdDisplayLength, shortenChangeId } from '../../../utils/jj-utils';
 import { BUILT_IN_MODIFIERS, type DragActionModifier, REBASE_BRANCH_MODIFIER } from '../utils/drag-modifiers';
 
 const AVAILABLE_MODIFIERS = BUILT_IN_MODIFIERS.filter((m) => m.id !== 'rebase-branch');

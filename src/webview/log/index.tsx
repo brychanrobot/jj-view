@@ -4,15 +4,15 @@
  */
 import '@vscode-elements/elements';
 import { createRoot } from 'react-dom/client';
-import App from './App';
-import { BridgeProvider } from './transport/BridgeContext';
+import { BridgeProvider } from '../transport/BridgeContext';
+import { LogApp } from './LogApp';
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
     const root = createRoot(rootElement);
     root.render(
         <BridgeProvider>
-            <App />
+            <LogApp />
         </BridgeProvider>,
     );
 }

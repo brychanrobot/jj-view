@@ -5,14 +5,24 @@
 import type * as React from 'react';
 import { getRelativeTimeString } from '../utils/time-utils';
 
-export { getRelativeTimeString } from '../utils/time-utils';
-
 export interface PersonInfoProps {
     person?: { name: string; email: string; timestamp: string };
     label: string;
 }
 
-export function getPersonDisplayStrings(person: { name: string; email: string; timestamp: string }) {
+export interface PersonDisplayStrings {
+    nameToDisplay: string;
+    emailToDisplay: string;
+    fullTime: string;
+    relTime: string;
+    hasEmail: boolean;
+}
+
+export function getPersonDisplayStrings(person: {
+    name: string;
+    email: string;
+    timestamp: string;
+}): PersonDisplayStrings {
     const hasName = !!person.name && person.name !== '•';
     const hasEmail = !!person.email;
 

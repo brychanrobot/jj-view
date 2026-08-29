@@ -4,16 +4,14 @@
  */
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import * as React from 'react';
-import type { ActionPayload, CommitAction } from '../../common/ipc/log-view-schemas';
-import type { JjBookmark, JjLogEntry } from '../../jj-types';
+import type { ActionPayload, CommitAction } from '../../../common/ipc/log-view-schemas';
+import type { JjBookmark, JjLogEntry } from '../../../jj-types';
+import { BookmarkPill, TagPill, WorkspacePill } from '../../common/components/Bookmark';
+import { IconButton } from '../../common/components/IconButton';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { computeCommitActions } from '../utils/commit-utils';
 import type { DragActionModifier } from '../utils/drag-modifiers';
-import { BookmarkPill, DraggableBookmark, TagPill, WorkspacePill } from './Bookmark';
-import { IconButton } from './IconButton';
-
-// Exported for DragOverlay in App.tsx
-export { BookmarkPill } from './Bookmark';
+import { DraggableBookmark } from './DraggableBookmark';
 
 interface CommitNodeProps {
     commit: JjLogEntry;
@@ -46,9 +44,8 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
 
     // Memoized Visibility and Context Keys
     const { visibleActions, vscodeContext } = React.useMemo(
-        () =>
-            computeCommitActions(commit, hiddenActions, isImmutable, isSelected, selectionCount, hasImmutableSelection),
-        [commit, hiddenActions, isImmutable, isSelected, selectionCount, hasImmutableSelection],
+        () => computeCommitActions(commit, hiddenActions, isSelected, selectionCount, hasImmutableSelection),
+        [commit, hiddenActions, isSelected, selectionCount, hasImmutableSelection],
     );
 
     const { setNodeRef, listeners, attributes, isDragging } = useDraggable({

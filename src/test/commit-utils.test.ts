@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../jj-service';
 import type { CommitAction, JjLogEntry } from '../jj-types';
-import { computeCommitActions } from '../webview/utils/commit-utils';
+import { computeCommitActions } from '../webview/log/utils/commit-utils';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('computeCommitActions', () => {
@@ -18,8 +18,6 @@ describe('computeCommitActions', () => {
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
     });
-
-    afterEach(() => {});
 
     async function getCommit(revision: string): Promise<JjLogEntry> {
         const log = await jj.getLog({ revision });
@@ -35,7 +33,7 @@ describe('computeCommitActions', () => {
         commit.is_current_working_copy = false;
 
         const hiddenActions = new Set<CommitAction>();
-        const result = computeCommitActions(commit, hiddenActions, false, false, 0, false);
+        const result = computeCommitActions(commit, hiddenActions, false, 0, false);
 
         expect(result.visibleActions).toEqual({
             newChild: true,
@@ -51,7 +49,7 @@ describe('computeCommitActions', () => {
         // Root is immutable
         const commit = await getCommit('root()');
         const hiddenActions = new Set<CommitAction>();
-        const result = computeCommitActions(commit, hiddenActions, true, false, 0, false);
+        const result = computeCommitActions(commit, hiddenActions, false, 0, false);
 
         expect(result.visibleActions.edit).toBe(false);
         expect(result.visibleActions.abandon).toBe(false);
@@ -68,7 +66,7 @@ describe('computeCommitActions', () => {
         commit.is_current_working_copy = false;
 
         const hiddenActions = new Set<CommitAction>(['newChild', 'squash']);
-        const result = computeCommitActions(commit, hiddenActions, false, false, 0, false);
+        const result = computeCommitActions(commit, hiddenActions, false, 0, false);
 
         expect(result.visibleActions.newChild).toBe(false);
         expect(result.visibleActions.squash).toBe(false);
@@ -86,17 +84,17 @@ describe('computeCommitActions', () => {
 
         // Child of root (one immutable parent)
         const commitA = await getCommit(ids.A.changeId);
-        const result1 = computeCommitActions(commitA, new Set(), false, false, 0, false);
+        const result1 = computeCommitActions(commitA, new Set(), false, 0, false);
         expect(result1.visibleActions.squash).toBe(false);
 
         // Child of mutable (one mutable parent)
         const commitB = await getCommit(ids.B.changeId);
-        const result2 = computeCommitActions(commitB, new Set(), false, false, 0, false);
+        const result2 = computeCommitActions(commitB, new Set(), false, 0, false);
         expect(result2.visibleActions.squash).toBe(true);
 
         // Merge commit (two parents)
         const commitMerge = await getCommit(ids.Merge.changeId);
-        const result3 = computeCommitActions(commitMerge, new Set(), false, false, 0, false);
+        const result3 = computeCommitActions(commitMerge, new Set(), false, 0, false);
         expect(result3.visibleActions.squash).toBe(false);
     });
 
@@ -106,12 +104,12 @@ describe('computeCommitActions', () => {
         commit.is_current_working_copy = false;
 
         // Single selection
-        const result1 = computeCommitActions(commit, new Set(), false, true, 1, false);
+        const result1 = computeCommitActions(commit, new Set(), true, 1, false);
         expect(result1.vscodeContext.viewItem).toBe('jj-commit-selected');
         expect(result1.vscodeContext['jj.canEdit']).toBe(true);
 
         // Multi selection
-        const result2 = computeCommitActions(commit, new Set(), false, true, 2, false);
+        const result2 = computeCommitActions(commit, new Set(), true, 2, false);
         expect(result2.vscodeContext['jj.canEdit']).toBe(false);
         expect(result2.vscodeContext['jj.canMerge']).toBe(true);
     });
@@ -120,7 +118,7 @@ describe('computeCommitActions', () => {
         const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
         const commit = await getCommit(ids.A.changeId);
 
-        const result = computeCommitActions(commit, new Set(), false, true, 1, false);
+        const result = computeCommitActions(commit, new Set(), true, 1, false);
         expect(result.vscodeContext['jj.canRebaseOnto']).toBe(false);
     });
 
@@ -128,7 +126,7 @@ describe('computeCommitActions', () => {
         const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
         const commit = await getCommit(ids.A.changeId);
 
-        const result = computeCommitActions(commit, new Set(), false, false, 1, false);
+        const result = computeCommitActions(commit, new Set(), false, 1, false);
         expect(result.vscodeContext['jj.canRebaseOnto']).toBe(true);
     });
 
@@ -140,12 +138,12 @@ describe('computeCommitActions', () => {
 
         // Parent is root (immutable)
         const commitA = await getCommit(ids.A.changeId);
-        const result1 = computeCommitActions(commitA, new Set(), false, false, 0, false);
+        const result1 = computeCommitActions(commitA, new Set(), false, 0, false);
         expect(result1.vscodeContext['jj.canAbsorb']).toBe(false);
 
         // Parent is mutable
         const commitB = await getCommit(ids.B.changeId);
-        const result2 = computeCommitActions(commitB, new Set(), false, false, 0, false);
+        const result2 = computeCommitActions(commitB, new Set(), false, 0, false);
         expect(result2.vscodeContext['jj.canAbsorb']).toBe(true);
     });
 
@@ -158,12 +156,12 @@ describe('computeCommitActions', () => {
         commit.is_current_working_copy = false;
 
         // Selected in multi-selection
-        const result1 = computeCommitActions(commit, new Set(), false, true, 2, false);
+        const result1 = computeCommitActions(commit, new Set(), true, 2, false);
         expect(result1.vscodeContext['jj.canEdit']).toBe(false);
         expect(result1.vscodeContext['jj.canAbsorb']).toBe(false);
 
         // Unselected while others are selected
-        const result2 = computeCommitActions(commit, new Set(), false, false, 2, false);
+        const result2 = computeCommitActions(commit, new Set(), false, 2, false);
         expect(result2.vscodeContext['jj.canEdit']).toBe(true);
         expect(result2.vscodeContext['jj.canAbsorb']).toBe(true);
     });
@@ -173,7 +171,7 @@ describe('computeCommitActions', () => {
         const commit = await getCommit(ids.A.changeId);
 
         // Selection has immutable commit (e.g. root)
-        const result = computeCommitActions(commit, new Set(), false, true, 2, true);
+        const result = computeCommitActions(commit, new Set(), true, 2, true);
 
         expect(result.vscodeContext['jj.canAbandon']).toBe(false);
         expect(result.vscodeContext['jj.canNewBefore']).toBe(false);
@@ -185,12 +183,12 @@ describe('computeCommitActions', () => {
         const commit = await getCommit(ids.A.changeId);
 
         // Single selection
-        const result1 = computeCommitActions(commit, new Set(), false, true, 1, false);
+        const result1 = computeCommitActions(commit, new Set(), true, 1, false);
         expect(result1.vscodeContext['jj.canNewChild']).toBe(true);
         expect(result1.vscodeContext['jj.canDuplicate']).toBe(true);
 
         // Multi selection
-        const result2 = computeCommitActions(commit, new Set(), false, true, 2, false);
+        const result2 = computeCommitActions(commit, new Set(), true, 2, false);
         expect(result2.vscodeContext['jj.canNewChild']).toBe(false);
         expect(result2.vscodeContext['jj.canDuplicate']).toBe(false);
     });
@@ -201,7 +199,7 @@ describe('computeCommitActions', () => {
         // Simulate working copy
         commit.is_current_working_copy = true;
 
-        const result = computeCommitActions(commit, new Set(), false, false, 0, false);
+        const result = computeCommitActions(commit, new Set(), false, 0, false);
 
         expect(result.visibleActions.edit).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);

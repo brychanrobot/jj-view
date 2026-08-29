@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
-import type { ActionPayload, CommitAction } from '../../common/ipc/log-view-schemas';
-import type { JjLogEntry } from '../../jj-types';
+import type { ActionPayload, CommitAction } from '../../../common/ipc/log-view-schemas';
+import type { JjLogEntry } from '../../../jj-types';
 import { computeGraphLayout } from '../graph-compute';
 import { isElisionRow } from '../graph-model';
 import {
