@@ -50,7 +50,7 @@ export class VsCodeProcessMonitorProvider implements vscode.WebviewViewProvider,
         webviewView.webview.html = getWebviewHtml({
             webview: webviewView.webview,
             extensionUri: this._extensionUri,
-            scriptPath: ['dist', 'process-monitor', 'index.js'],
+            scriptPath: ['dist', 'webview', 'process-monitor.js'],
             title: 'JJ Process Monitor',
         });
 

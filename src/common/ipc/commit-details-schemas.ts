@@ -73,7 +73,7 @@ export type CommitDetailsPayload = z.infer<typeof CommitDetailsPayloadSchema>;
 
 export const CommitDetailsHostToWebviewMessageSchema = z.discriminatedUnion('type', [
     z.object({
-        type: z.literal('updateDetails'),
+        type: z.literal('update'),
         payload: CommitDetailsPayloadSchema,
     }),
     z.object({

@@ -104,6 +104,10 @@ export default function ProcessMonitorApp() {
         },
     });
 
+    useEffect(() => {
+        void rpc.webviewLoaded();
+    }, [rpc]);
+
     const toggleExpand = (rowKey: string, e: React.SyntheticEvent) => {
         e.stopPropagation();
         setExpandedIds((prev) => {

@@ -7,6 +7,7 @@ import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import {
     type ProcessMonitorHostToWebviewMessage,
+    type ProcessMonitorPayload,
     type ProcessMonitorToHostMessage,
     ProcessMonitorToHostMessageSchema,
 } from '../common/ipc/process-monitor-schemas';
@@ -22,6 +23,7 @@ import {
     type JjProcessTracker,
 } from '../jj-process-tracker';
 import { CoalescingQueue } from '../utils/coalescing-queue';
+import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 
 export interface ProcessMonitorControllerOptions {
@@ -32,10 +34,13 @@ export interface ProcessMonitorControllerOptions {
 export class ProcessMonitorController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
-    private _messenger?: WebviewPostMessageLike;
     private readonly _logger?: LoggerChannel;
     private readonly _updateQueue: CoalescingQueue;
-    private readonly _dispatcher: WebviewRpcDispatcher<ProcessMonitorToHostMessage, 'command'>;
+    private readonly _dispatcher: WebviewRpcDispatcher<
+        ProcessMonitorToHostMessage,
+        ProcessMonitorHostToWebviewMessage,
+        'command'
+    >;
 
     private readonly _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
@@ -45,22 +50,32 @@ export class ProcessMonitorController implements Disposable {
         private readonly _host: HostEnvironment,
         options?: ProcessMonitorControllerOptions,
     ) {
-        this._messenger = options?.messenger;
         this._logger = options?.logger;
 
         this._updateQueue = new CoalescingQueue(async () => {
-            this.updateWebview();
+            try {
+                this.updateWebview();
+            } catch (err) {
+                this._logger?.error('ProcessMonitorController updateWebview error', toError(err));
+            }
         });
 
         this._disposables.push(
             this._processTracker.onDidChangeProcesses(() => {
-                if (!this._disposed) {
-                    this._updateQueue.run();
+                if (this._disposed) {
+                    return;
                 }
+                this._updateQueue.run().catch((err) => {
+                    this._logger?.error('ProcessMonitorController update queue run failed', toError(err));
+                });
             }),
         );
 
-        this._dispatcher = createWebviewRpcDispatcher(
+        this._dispatcher = createWebviewRpcDispatcher<
+            ProcessMonitorToHostMessage,
+            ProcessMonitorHostToWebviewMessage,
+            'command'
+        >(
             ProcessMonitorToHostMessageSchema,
             {
                 killProcess: (payload) => {
@@ -79,11 +94,13 @@ export class ProcessMonitorController implements Disposable {
             {
                 discriminatorKey: 'command',
                 logger: this._logger,
-                messenger: {
-                    postMessage: (m) => this._postMessage(m as ProcessMonitorHostToWebviewMessage),
-                },
+                getState: () => this.getState(),
             },
         );
+
+        if (options?.messenger) {
+            this._dispatcher.setMessenger(options.messenger);
+        }
 
         this.updateWebview();
     }
@@ -100,25 +117,7 @@ export class ProcessMonitorController implements Disposable {
         return this._processTracker.getHistory();
     }
 
-    public setMessenger(messenger: WebviewPostMessageLike | undefined): void {
-        this._messenger = messenger;
-        if (messenger) {
-            this.updateWebview();
-        }
-    }
-
-    public async handleMessage(rawMessage: unknown): Promise<boolean> {
-        if (this._disposed) {
-            return false;
-        }
-        return this._dispatcher.dispatch(rawMessage);
-    }
-
-    public updateWebview(): void {
-        if (this._disposed) {
-            return;
-        }
-
+    public getState(): ProcessMonitorPayload {
         const activeTasks = this._processTracker.getActiveTasks().map((t: JjProcessTask) => ({
             id: t.id,
             command: t.command,
@@ -145,15 +144,33 @@ export class ProcessMonitorController implements Disposable {
 
         const metrics = this._processTracker.getMetrics();
 
-        this._onDidUpdate.fire();
+        return {
+            activeTasks,
+            historyTasks,
+            metrics,
+        };
+    }
 
+    public setMessenger(messenger: WebviewPostMessageLike | undefined): void {
+        this._dispatcher.setMessenger(messenger);
+    }
+
+    public async handleMessage(rawMessage: unknown): Promise<boolean> {
+        if (this._disposed) {
+            return false;
+        }
+        return this._dispatcher.dispatch(rawMessage);
+    }
+
+    public updateWebview(): void {
+        if (this._disposed) {
+            return;
+        }
+
+        this._onDidUpdate.fire();
         this._postMessage({
             type: 'update',
-            payload: {
-                activeTasks,
-                historyTasks,
-                metrics,
-            },
+            payload: this.getState(),
         });
     }
 
@@ -174,13 +191,10 @@ export class ProcessMonitorController implements Disposable {
     }
 
     private _postMessage(message: ProcessMonitorHostToWebviewMessage): void {
-        if (!this._disposed && this._messenger) {
-            try {
-                this._messenger.postMessage(message);
-            } catch (e) {
-                this._logger?.error(`[ProcessMonitorController] Failed to post message: ${e}`);
-            }
+        if (this._disposed) {
+            return;
         }
+        this._dispatcher.broadcast(message);
     }
 
     public dispose(): void {
@@ -190,5 +204,6 @@ export class ProcessMonitorController implements Disposable {
         }
         this._disposables.length = 0;
         this._onDidUpdate.dispose();
+        this._dispatcher.dispose();
     }
 }

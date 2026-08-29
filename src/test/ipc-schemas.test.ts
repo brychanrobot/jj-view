@@ -299,7 +299,7 @@ describe('IPC Schemas Unit Tests', () => {
         it('validates CommitDetailsHostToWebviewMessage variants', () => {
             expect(
                 CommitDetailsHostToWebviewMessageSchema.safeParse({
-                    type: 'updateDetails',
+                    type: 'update',
                     payload: {
                         changeId: 'kkmpptxz',
                         commitId: 'abcdef12',

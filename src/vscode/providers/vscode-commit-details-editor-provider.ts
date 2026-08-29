@@ -130,7 +130,7 @@ export class VsCodeCommitDetailsEditorProvider
 
         let controller = this._controllers.get(document.changeId);
         if (!controller) {
-            controller = new CommitDetailsController(document.changeId, repo, host, {
+            const newController = new CommitDetailsController(document.changeId, repo, host, {
                 logger: this._repositoryManager.outputChannel,
                 onEditRecorded: (edit) => {
                     this._onDidChangeCustomDocument.fire({
@@ -150,17 +150,20 @@ export class VsCodeCommitDetailsEditorProvider
                     }
                 },
             });
-            this._controllers.set(document.changeId, controller);
-        }
+            this._controllers.set(document.changeId, newController);
+            controller = newController;
 
-        controller.onDidClose(() => {
-            this._controllers.delete(document.changeId);
-            this._onDidClosePanel.fire(document.changeId);
-            controller.dispose();
-        });
+            newController.onDidClose(() => {
+                this._controllers.delete(document.changeId);
+                this._onDidClosePanel.fire(document.changeId);
+                newController.dispose();
+            });
+        }
 
         const log = await controller.load();
         if (!log) {
+            this._controllers.delete(document.changeId);
+            controller.dispose();
             panel.dispose();
             return;
         }
@@ -176,16 +179,12 @@ export class VsCodeCommitDetailsEditorProvider
         });
         const messengerDisposable = controller.addMessenger(panel.webview);
 
-        const viewSubscriptions: vscode.Disposable[] = [
-            messageDisposable,
-            messengerDisposable,
-            panel.onDidDispose(() => {
-                messengerDisposable.dispose();
-                for (const d of viewSubscriptions) {
-                    d.dispose();
-                }
-            }),
-        ];
+        const panelDisposables: vscode.Disposable[] = [messageDisposable, messengerDisposable];
+        panel.onDidDispose(() => {
+            for (const d of panelDisposables) {
+                d.dispose();
+            }
+        });
 
         panel.webview.html = getWebviewHtml({
             webview: panel.webview,

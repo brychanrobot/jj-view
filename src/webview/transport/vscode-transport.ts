@@ -7,6 +7,7 @@ import type { WebviewTransport } from './types';
 
 /**
  * VS Code Webview Transport using window.acquireVsCodeApi() and window message events.
+ * Automatically buffers early inbound messages until handlers subscribe.
  */
 export class VsCodeWebviewTransport implements WebviewTransport {
     private readonly vscodeApi: {
@@ -14,7 +15,9 @@ export class VsCodeWebviewTransport implements WebviewTransport {
         setState?: (state: unknown) => void;
         getState?: () => unknown;
     };
-    private readonly _listeners = new Set<(event: MessageEvent) => void>();
+    private readonly _handlers = new Set<(message: unknown) => void>();
+    private readonly _inboundQueue: unknown[] = [];
+    private readonly _windowListener?: (event: MessageEvent) => void;
 
     constructor() {
         if (typeof window === 'undefined' || typeof window.acquireVsCodeApi !== 'function') {
@@ -28,6 +31,32 @@ export class VsCodeWebviewTransport implements WebviewTransport {
             window.__jjViewVsCodeApi = window.acquireVsCodeApi();
         }
         this.vscodeApi = window.__jjViewVsCodeApi;
+
+        if (typeof window.addEventListener === 'function') {
+            this._windowListener = (event: MessageEvent) => {
+                this._handleIncomingMessage(event.data);
+            };
+            window.addEventListener('message', this._windowListener);
+        }
+    }
+
+    private _handleIncomingMessage(data: unknown): void {
+        if (this._handlers.size === 0) {
+            this._inboundQueue.push(data);
+            return;
+        }
+
+        for (const handler of Array.from(this._handlers)) {
+            this._dispatchSingle(handler, data);
+        }
+    }
+
+    private _dispatchSingle(handler: (message: unknown) => void, data: unknown): void {
+        try {
+            handler(data);
+        } catch (err) {
+            console.error('[VsCodeWebviewTransport] Error in message handler:', err);
+        }
     }
 
     public postMessage(message: unknown): void {
@@ -35,32 +64,23 @@ export class VsCodeWebviewTransport implements WebviewTransport {
     }
 
     public onMessage(handler: (message: unknown) => void): () => void {
-        if (typeof window === 'undefined') {
-            return () => {};
+        this._handlers.add(handler);
+
+        const pending = this._inboundQueue.splice(0, this._inboundQueue.length);
+        for (const queued of pending) {
+            this._dispatchSingle(handler, queued);
         }
 
-        const listener = (event: MessageEvent) => {
-            try {
-                handler(event.data);
-            } catch (err) {
-                console.error('[VsCodeWebviewTransport] Error in onMessage subscriber:', err);
-            }
-        };
-
-        this._listeners.add(listener);
-        window.addEventListener('message', listener);
         return () => {
-            this._listeners.delete(listener);
-            window.removeEventListener('message', listener);
+            this._handlers.delete(handler);
         };
     }
 
     public dispose(): void {
-        if (typeof window !== 'undefined') {
-            for (const listener of this._listeners) {
-                window.removeEventListener('message', listener);
-            }
+        if (typeof window !== 'undefined' && this._windowListener) {
+            window.removeEventListener('message', this._windowListener);
         }
-        this._listeners.clear();
+        this._handlers.clear();
+        this._inboundQueue.length = 0;
     }
 }

@@ -7,10 +7,12 @@ import type { WebviewTransport } from './types';
 
 /**
  * WebSocket Transport for self-hosted Web / Browser client.
+ * Automatically buffers early inbound and outbound messages.
  */
 export class WebSocketWebviewTransport implements WebviewTransport {
     private socket?: WebSocket;
     private readonly messageQueue: unknown[] = [];
+    private readonly inboundQueue: unknown[] = [];
     private readonly handlers = new Set<(message: unknown) => void>();
     private _disposed = false;
     private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -53,12 +55,13 @@ export class WebSocketWebviewTransport implements WebviewTransport {
                 return;
             }
 
+            if (this.handlers.size === 0) {
+                this.inboundQueue.push(data);
+                return;
+            }
+
             for (const handler of Array.from(this.handlers)) {
-                try {
-                    handler(data);
-                } catch (err) {
-                    console.error('[WebSocketWebviewTransport] Error in onMessage subscriber:', err);
-                }
+                this.dispatchSingle(handler, data);
             }
         };
 
@@ -86,6 +89,14 @@ export class WebSocketWebviewTransport implements WebviewTransport {
         }, delay);
     }
 
+    private dispatchSingle(handler: (message: unknown) => void, data: unknown): void {
+        try {
+            handler(data);
+        } catch (err) {
+            console.error('[WebSocketWebviewTransport] Error in onMessage subscriber:', err);
+        }
+    }
+
     public postMessage(message: unknown): void {
         const isSocketOpen =
             this.socket &&
@@ -96,6 +107,10 @@ export class WebSocketWebviewTransport implements WebviewTransport {
                 this.socket?.send(JSON.stringify(message));
             } catch (err) {
                 console.error('[WebSocketWebviewTransport] Failed to send message:', err);
+                if (this.messageQueue.length >= WebSocketWebviewTransport.MAX_QUEUE_SIZE) {
+                    this.messageQueue.shift();
+                }
+                this.messageQueue.push(message);
             }
             return;
         }
@@ -108,6 +123,12 @@ export class WebSocketWebviewTransport implements WebviewTransport {
 
     public onMessage(handler: (message: unknown) => void): () => void {
         this.handlers.add(handler);
+
+        const pending = this.inboundQueue.splice(0, this.inboundQueue.length);
+        for (const queued of pending) {
+            this.dispatchSingle(handler, queued);
+        }
+
         return () => {
             this.handlers.delete(handler);
         };
@@ -129,5 +150,6 @@ export class WebSocketWebviewTransport implements WebviewTransport {
         }
         this.handlers.clear();
         this.messageQueue.length = 0;
+        this.inboundQueue.length = 0;
     }
 }

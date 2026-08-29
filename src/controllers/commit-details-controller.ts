@@ -31,10 +31,9 @@ export interface CommitDetailsControllerOptions {
 export class CommitDetailsController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
-    private readonly _messengers = new Set<WebviewPostMessageLike>();
     private _loadVersion = 0;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<CommitDetailsToHostMessage>;
+    private readonly _dispatcher: WebviewRpcDispatcher<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>;
 
     private _logEntry?: JjLogEntry;
     private _changes?: readonly JjStatusEntry[];
@@ -78,7 +77,7 @@ export class CommitDetailsController implements Disposable {
         return this._persistedDescription;
     }
 
-    public get detailsPayload(): CommitDetailsPayload | undefined {
+    public getState(): CommitDetailsPayload | undefined {
         if (!this._logEntry) {
             return undefined;
         }
@@ -103,17 +102,16 @@ export class CommitDetailsController implements Disposable {
     }
 
     public addMessenger(messenger: WebviewPostMessageLike): Disposable {
-        this._messengers.add(messenger);
-        if (this.detailsPayload) {
-            messenger.postMessage({
-                type: 'updateDetails',
-                payload: this.detailsPayload,
-            });
-        }
+        const sub = this._dispatcher.addMessenger(messenger);
+        let disposed = false;
         return {
             dispose: () => {
-                this._messengers.delete(messenger);
-                if (this._messengers.size === 0) {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
+                sub.dispose();
+                if (!this._dispatcher.hasMessengers) {
                     this._onDidClose.fire(this.changeId);
                 }
             },
@@ -161,40 +159,32 @@ export class CommitDetailsController implements Disposable {
 
             if (!wasDirty) {
                 this._draftDescription = freshPersisted;
+                this._lastPushedText = freshPersisted;
             }
-
-            this._lastPushedText = freshPersisted;
 
             this._onDidUpdate.fire(log);
 
-            this.broadcast({
-                type: 'updateDetails',
-                payload: {
-                    changeId: this.changeId,
-                    commitId: log.commit_id,
-                    description: (log.description || '').trim(),
-                    files: changes,
-                    isImmutable: log.is_immutable,
-                    author: log.author,
-                    committer: log.committer,
-                    bookmarks: log.bookmarks || [],
-                    tags: log.tags || [],
-                    isEmpty: log.is_empty,
-                    isConflict: log.conflict,
-                    minChangeIdLength: this._host.config.get<number>('minChangeIdLength', 1),
-                    theme: this._host.config.get<string>('logTheme', 'default'),
-                    titleWidthRuler: this._host.config.get<number | undefined>('commit.titleWidthRuler'),
-                    bodyWidthRuler: this._host.config.get<number | undefined>('commit.bodyWidthRuler'),
-                    formatDescriptionOnSave: this._host.config.get<boolean>('commit.formatDescriptionOnSave', false),
-                },
-            });
+            const state = this.getState();
+            if (state) {
+                this.broadcast({
+                    type: 'update',
+                    payload: state,
+                });
+            }
             return log;
-        } finally {
-            // Completed load
+        } catch (err) {
+            this._logger?.error(
+                `[CommitDetailsController] Failed to load commit details for ${this.changeId}`,
+                toError(err),
+            );
+            return undefined;
         }
     }
 
     public updateDraft(newText: string, selection: { start: number; end: number } = { start: 0, end: 0 }): void {
+        if (this._disposed) {
+            return;
+        }
         this._draftDescription = newText;
 
         if (this._debounceTimer) {
@@ -261,6 +251,9 @@ export class CommitDetailsController implements Disposable {
     }
 
     public async save(finalDescription?: string): Promise<boolean> {
+        if (this._disposed) {
+            return false;
+        }
         this.flushDebounce();
 
         const descriptionToSave = finalDescription ?? this._draftDescription ?? this._logEntry?.description ?? '';
@@ -311,27 +304,16 @@ export class CommitDetailsController implements Disposable {
         if (this._disposed) {
             return;
         }
-        for (const messenger of this._messengers) {
-            try {
-                messenger.postMessage(message);
-            } catch (e) {
-                this._logger?.error('[CommitDetailsController] Failed to post message', toError(e));
-            }
-        }
+        this._dispatcher.broadcast(message);
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<CommitDetailsToHostMessage> {
-        return createWebviewRpcDispatcher(
+    private _createRpcDispatcher(): WebviewRpcDispatcher<
+        CommitDetailsToHostMessage,
+        CommitDetailsHostToWebviewMessage
+    > {
+        return createWebviewRpcDispatcher<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>(
             CommitDetailsToHostMessageSchema,
             {
-                webviewLoaded: async () => {
-                    if (this.detailsPayload) {
-                        this.broadcast({
-                            type: 'updateDetails',
-                            payload: this.detailsPayload,
-                        });
-                    }
-                },
                 descriptionChanged: async (payload) => {
                     const newText = payload.description;
                     const newSelection = {
@@ -358,9 +340,7 @@ export class CommitDetailsController implements Disposable {
             },
             {
                 logger: this._logger,
-                messenger: {
-                    postMessage: (m) => this.broadcast(m as CommitDetailsHostToWebviewMessage),
-                },
+                getState: () => this.getState(),
             },
         );
     }
@@ -375,7 +355,6 @@ export class CommitDetailsController implements Disposable {
             d.dispose();
         }
         this._disposables.length = 0;
-        this._messengers.clear();
         this._onDidUpdate.dispose();
         this._onDidClose.dispose();
         this._dispatcher.dispose();

@@ -54,18 +54,17 @@ export function useMessageListener<T = unknown>(handler: (message: T) => void): 
     }, [bridge]);
 }
 
-export function useRpcClient<
-    TMessage extends DiscriminatedMessage<K>,
-    K extends string = 'type',
-    TResponseMsg extends DiscriminatedMessage<K> = DiscriminatedMessage<K>,
->(schema?: z.ZodType<TMessage>, options?: WebviewRpcClientOptions<K, TResponseMsg>): RpcClientMethods<TMessage, K> {
+export function useRpcClient<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
+    schema?: z.ZodType<TMessage>,
+    options?: WebviewRpcClientOptions<K>,
+): RpcClientMethods<TMessage, K> {
     const bridge = useBridge();
     const discriminatorKey = options?.discriminatorKey;
     const dispatcher = options?.dispatcher;
 
     return useMemo(
         () =>
-            createWebviewRpcClient<TMessage, K, TResponseMsg>(bridge, schema, {
+            createWebviewRpcClient<TMessage, K>(bridge, schema, {
                 discriminatorKey,
                 dispatcher,
             }),
@@ -73,10 +72,14 @@ export function useRpcClient<
     );
 }
 
-export function useRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K extends string = 'type'>(
+export function useRpcDispatcher<
+    TMessage extends DiscriminatedMessage<K>,
+    TOutbound extends DiscriminatedMessage<'type'> = DiscriminatedMessage<'type'>,
+    K extends string = 'type',
+>(
     schema: z.ZodType<TMessage>,
     handlers: MessageHandlerMap<TMessage, K>,
-    options?: WebviewRpcDispatcherOptions<K>,
+    options?: WebviewRpcDispatcherOptions<TOutbound, K>,
 ): void {
     const bridge = useBridge();
     const handlersRef = useRef(handlers);
@@ -96,7 +99,7 @@ export function useRpcDispatcher<TMessage extends DiscriminatedMessage<K>, K ext
             },
         });
 
-        const dispatcher = createWebviewRpcDispatcher(schema, forwardingHandlers, {
+        const dispatcher = createWebviewRpcDispatcher<TMessage, TOutbound, K>(schema, forwardingHandlers, {
             ...optionsRef.current,
             onError: (err, raw) => optionsRef.current?.onError?.(err, raw),
             messenger: {

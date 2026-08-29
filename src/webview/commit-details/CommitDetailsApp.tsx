@@ -18,7 +18,7 @@ export const CommitDetailsApp: React.FC = () => {
     const rpc = useRpcClient<CommitDetailsToHostMessage>(CommitDetailsToHostMessageSchema);
 
     useRpcDispatcher<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
-        updateDetails: (payload) => {
+        update: (payload) => {
             setDetailsCommit(payload);
         },
         saveComplete: ({ description }) => {

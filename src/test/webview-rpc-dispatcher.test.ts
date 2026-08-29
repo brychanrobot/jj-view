@@ -224,7 +224,229 @@ describe('WebviewRpcDispatcher', () => {
 
         expect(handled).toBe(true);
         expect(customLogMessageHandler).toHaveBeenCalledTimes(1);
-        expect(customLogMessageHandler).toHaveBeenCalledWith(rawLogMessage);
+        expect(customLogMessageHandler).toHaveBeenCalledWith(rawLogMessage.payload);
+    });
+
+    test('buffers outbound messages before messenger attaches and flushes in order on addMessenger', () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, {});
+        expect(dispatcher.hasMessengers).toBe(false);
+
+        dispatcher.broadcast({ type: 'queued1' });
+        dispatcher.broadcast({ type: 'queued2' });
+
+        const messenger = {
+            postMessage: vi.fn(),
+        };
+
+        const sub = dispatcher.addMessenger(messenger);
+        expect(dispatcher.hasMessengers).toBe(true);
+        expect(messenger.postMessage).toHaveBeenCalledTimes(2);
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(1, { type: 'queued1' });
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(2, { type: 'queued2' });
+
+        dispatcher.broadcast({ type: 'immediate' });
+        expect(messenger.postMessage).toHaveBeenCalledTimes(3);
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(3, { type: 'immediate' });
+
+        sub.dispose();
+        expect(dispatcher.hasMessengers).toBe(false);
+    });
+
+    test('sends initial state upon messenger attachment and on webviewLoaded handshake', async () => {
+        let currentState = { count: 1 };
+        const dispatcher = createWebviewRpcDispatcher(
+            testSchema,
+            {
+                ping: vi.fn(),
+            },
+            {
+                getInitialState: () => ({ type: 'snapshot', count: currentState.count }),
+            },
+        );
+
+        const messenger = {
+            postMessage: vi.fn(),
+        };
+
+        dispatcher.addMessenger(messenger);
+        expect(messenger.postMessage).toHaveBeenCalledWith({ type: 'snapshot', count: 1 });
+
+        currentState = { count: 2 };
+        await dispatcher.dispatch({ type: 'webviewLoaded' });
+        expect(messenger.postMessage).toHaveBeenCalledWith({ type: 'snapshot', count: 2 });
+    });
+
+    test('supports getState returning state payload directly', () => {
+        const dispatcher = createWebviewRpcDispatcher(
+            testSchema,
+            {},
+            {
+                getState: () => ({
+                    commits: ['c1', 'c2'],
+                    theme: 'dark',
+                }),
+            },
+        );
+
+        const messenger = {
+            postMessage: vi.fn(),
+        };
+
+        dispatcher.addMessenger(messenger);
+        expect(messenger.postMessage).toHaveBeenCalledTimes(1);
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'update',
+            payload: { commits: ['c1', 'c2'], theme: 'dark' },
+        });
+    });
+
+    test('supports getInitialState returning keyed InitialStateMap', () => {
+        const dispatcher = createWebviewRpcDispatcher(
+            testSchema,
+            {},
+            {
+                getInitialState: () => ({
+                    update: { commits: ['c1', 'c2'] },
+                    skipped: undefined,
+                }),
+            },
+        );
+
+        const messenger = {
+            postMessage: vi.fn(),
+        };
+
+        dispatcher.addMessenger(messenger);
+        expect(messenger.postMessage).toHaveBeenCalledTimes(1);
+        expect(messenger.postMessage).toHaveBeenCalledWith({
+            type: 'update',
+            payload: { commits: ['c1', 'c2'] },
+        });
+    });
+
+    test('supports setMessenger to replace active messenger and flush queues', () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, {});
+
+        const messenger1 = { postMessage: vi.fn() };
+        dispatcher.setMessenger(messenger1);
+        expect(dispatcher.hasMessengers).toBe(true);
+
+        dispatcher.broadcast({ type: 'msg1' });
+        expect(messenger1.postMessage).toHaveBeenCalledWith({ type: 'msg1' });
+
+        const messenger2 = { postMessage: vi.fn() };
+        dispatcher.setMessenger(messenger2);
+
+        dispatcher.broadcast({ type: 'msg2' });
+        expect(messenger1.postMessage).not.toHaveBeenCalledWith({ type: 'msg2' });
+        expect(messenger2.postMessage).toHaveBeenCalledWith({ type: 'msg2' });
+
+        dispatcher.setMessenger(undefined);
+        expect(dispatcher.hasMessengers).toBe(false);
+    });
+
+    test('broadcasts to multiple simultaneous messengers and handles selective disposal', () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, {});
+        const messengerA = { postMessage: vi.fn() };
+        const messengerB = { postMessage: vi.fn() };
+
+        const subA = dispatcher.addMessenger(messengerA);
+        const subB = dispatcher.addMessenger(messengerB);
+        expect(dispatcher.hasMessengers).toBe(true);
+
+        dispatcher.broadcast({ type: 'multi1' });
+        expect(messengerA.postMessage).toHaveBeenCalledWith({ type: 'multi1' });
+        expect(messengerB.postMessage).toHaveBeenCalledWith({ type: 'multi1' });
+
+        subA.dispose();
+        expect(dispatcher.hasMessengers).toBe(true);
+
+        dispatcher.broadcast({ type: 'multi2' });
+        expect(messengerA.postMessage).not.toHaveBeenCalledWith({ type: 'multi2' });
+        expect(messengerB.postMessage).toHaveBeenCalledWith({ type: 'multi2' });
+
+        subB.dispose();
+        expect(dispatcher.hasMessengers).toBe(false);
+    });
+
+    test('enforces maxQueueSize on outbound message buffer', () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, {}, { maxQueueSize: 2 });
+        dispatcher.broadcast({ type: 'msg1' });
+        dispatcher.broadcast({ type: 'msg2' });
+        dispatcher.broadcast({ type: 'msg3' });
+
+        const messenger = { postMessage: vi.fn() };
+        dispatcher.addMessenger(messenger);
+
+        expect(messenger.postMessage).toHaveBeenCalledTimes(2);
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(1, { type: 'msg2' });
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(2, { type: 'msg3' });
+    });
+
+    test('handles getInitialState returning array of messages or undefined', async () => {
+        let stateMode = 'array';
+        const dispatcher = createWebviewRpcDispatcher(
+            testSchema,
+            {},
+            {
+                getInitialState: () => {
+                    if (stateMode === 'undefined') {
+                        return undefined;
+                    }
+                    return [{ type: 'item1' }, undefined, { type: 'item2' }];
+                },
+            },
+        );
+
+        const messenger = { postMessage: vi.fn() };
+        dispatcher.addMessenger(messenger);
+
+        expect(messenger.postMessage).toHaveBeenCalledTimes(2);
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(1, { type: 'item1' });
+        expect(messenger.postMessage).toHaveBeenNthCalledWith(2, { type: 'item2' });
+
+        messenger.postMessage.mockClear();
+        stateMode = 'undefined';
+        await dispatcher.dispatch({ type: 'webviewLoaded' });
+        expect(messenger.postMessage).not.toHaveBeenCalled();
+    });
+
+    test('sends RPC error response when known command fails payload validation', async () => {
+        const messenger = { postMessage: vi.fn() };
+        const dispatcher = createWebviewRpcDispatcher(testSchema, { count: vi.fn() }, { messenger });
+
+        const result = await dispatcher.dispatch({
+            type: 'count',
+            requestId: 'req_val_err',
+            payload: { amount: 'invalid_type' },
+        });
+
+        expect(result).toBe(false);
+        expect(messenger.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: '__rpc_response__',
+                requestId: 'req_val_err',
+                error: expect.stringContaining('Validation failed'),
+            }),
+        );
+    });
+
+    test('guards against operations after disposal', async () => {
+        const dispatcher = createWebviewRpcDispatcher(testSchema, { ping: vi.fn() });
+        dispatcher.dispose();
+        expect(dispatcher.isDisposed).toBe(true);
+
+        dispatcher.broadcast({ type: 'ping', payload: { value: 'test' } });
+        const handled = await dispatcher.dispatch({ type: 'ping', payload: { value: 'test' } });
+        expect(handled).toBe(false);
+
+        await expect(dispatcher.registerPendingRequest('req_after_dispose')).rejects.toThrowError(
+            'WebviewRpcDispatcher is disposed',
+        );
+
+        const sub = dispatcher.addMessenger({ postMessage: vi.fn() });
+        expect(dispatcher.hasMessengers).toBe(false);
+        sub.dispose();
     });
 });
 
@@ -304,5 +526,37 @@ describe('createWebviewRpcClient', () => {
         expect(greeting).toBe('Hello Alice');
 
         await expect(client.fail()).rejects.toThrowError('Something went wrong');
+    });
+
+    test('ignores then, toJSON, and symbol properties on client proxy', () => {
+        const mockWebview = { postMessage: vi.fn() };
+        const client = createWebviewRpcClient(mockWebview, testSchema);
+        const dynamicClient = client as Record<string | symbol, unknown>;
+
+        expect(dynamicClient.then).toBeUndefined();
+        expect(dynamicClient.toJSON).toBeUndefined();
+        expect(dynamicClient[Symbol.iterator]).toBeUndefined();
+        expect(mockWebview.postMessage).not.toHaveBeenCalled();
+    });
+
+    test('unregisters pending request when webview.postMessage throws synchronously', () => {
+        const unregisterSpy = vi.fn();
+        const mockDispatcher = {
+            registerPendingRequest: vi.fn().mockReturnValue(new Promise(() => {})),
+            unregisterPendingRequest: unregisterSpy,
+        };
+
+        const errorWebview = {
+            postMessage: () => {
+                throw new Error('Transport write failure');
+            },
+        };
+
+        const client = createWebviewRpcClient(errorWebview, testSchema, {
+            dispatcher: mockDispatcher,
+        });
+
+        expect(() => client.ping({ value: 'fail' })).toThrowError('Transport write failure');
+        expect(unregisterSpy).toHaveBeenCalledWith(expect.stringMatching(/^req_/));
     });
 });

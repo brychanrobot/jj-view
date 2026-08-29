@@ -7,6 +7,7 @@ import { type Disposable, type Event, EventEmitter } from '../common/events';
 import type { HostEnvironment } from '../common/host-environment';
 import {
     type LogViewHostToWebviewMessage,
+    type LogViewPayload,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
     TOGGLEABLE_COMMIT_ACTIONS,
@@ -40,9 +41,8 @@ export class LogViewController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
-    private _messenger?: WebviewPostMessageLike;
     private readonly _logger?: LoggerChannel;
-    private readonly _dispatcher: WebviewRpcDispatcher<LogViewToHostMessage>;
+    private readonly _dispatcher: WebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     private readonly _refreshQueue: CoalescingQueue;
 
     private _commits: readonly JjLogEntry[] = [];
@@ -63,20 +63,23 @@ export class LogViewController implements Disposable {
         private readonly _host: HostEnvironment,
         private readonly _options?: LogViewControllerOptions,
     ) {
-        this._messenger = _options?.messenger;
         this._logger = _options?.logger;
         this._theme = this._host.config.get<string>('logTheme', 'default');
         this._graphLabelAlignment = this._host.config.get<string>('graphLabelAlignment', 'aligned');
         this._minChangeIdLength = this._host.config.get<number>('minChangeIdLength', 1);
-
-        const storedHidden = this._host.storage.get<string[]>(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, []) ?? [];
-        this.setHiddenActions(storedHidden);
 
         this._refreshQueue = new CoalescingQueue(async () => {
             await this._doRefresh();
         });
 
         this._dispatcher = this._createRpcDispatcher();
+        if (_options?.messenger) {
+            this._dispatcher.setMessenger(_options.messenger);
+        }
+
+        const storedHidden = this._host.storage.get<string[]>(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, []) ?? [];
+        this.setHiddenActions(storedHidden);
+
         this.bindRepo(this._repo);
 
         if (this._host.config.onDidChangeConfiguration) {
@@ -126,15 +129,27 @@ export class LogViewController implements Disposable {
         return this._minChangeIdLength;
     }
 
+    public getState(): LogViewPayload {
+        return {
+            commits: [...this._commits],
+            minChangeIdLength: this._minChangeIdLength,
+            theme: this._theme,
+            graphLabelAlignment: this._graphLabelAlignment,
+            hiddenActions: [...this._hiddenActions],
+        };
+    }
+
     public get repository(): JjRepository | undefined {
         return this._repo;
     }
 
     public set repository(repo: JjRepository | undefined) {
-        if (this._repo?.rootUri.fsPath === repo?.rootUri.fsPath) {
+        if (this._disposed || this._repo?.rootUri.fsPath === repo?.rootUri.fsPath) {
             return;
         }
         this._repo = repo;
+        this._selectedCommitIds = [];
+        this._updateSelectionContextKeys(this._selectedCommitIds);
         this.bindRepo(repo);
         this.refresh('repoChanged');
     }
@@ -144,7 +159,7 @@ export class LogViewController implements Disposable {
     }
 
     public setMessenger(messenger: WebviewPostMessageLike | undefined): void {
-        this._messenger = messenger;
+        this._dispatcher.setMessenger(messenger);
     }
 
     private bindRepo(repo: JjRepository | undefined): void {
@@ -233,6 +248,7 @@ export class LogViewController implements Disposable {
         }
 
         this._commits = enrichedCommits;
+        this._updateSelectionContextKeys(this._selectedCommitIds);
 
         if (this._disposed) {
             return;
@@ -242,25 +258,41 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            payload: {
-                commits: [...enrichedCommits],
-                minChangeIdLength: this._minChangeIdLength,
-                theme: this._theme,
-                graphLabelAlignment: this._graphLabelAlignment,
-                hiddenActions: [...this._hiddenActions],
-            },
+            payload: this.getState(),
         });
     }
 
-    public setSelectedCommits(commitIds: readonly string[]): void {
+    private _updateSelectionContextKeys(selectedCommitIds: readonly string[], hasImmutableSelection?: boolean): void {
+        const count = selectedCommitIds.length;
+        const selectedCommits = this._commits.filter((c) => selectedCommitIds.includes(c.change_id));
+        const containsImmutable = hasImmutableSelection ?? selectedCommits.some((c) => c.is_immutable);
+
+        const allowAbandon = count > 0 && !containsImmutable;
+        const allowMerge = count > 1;
+        const allowNewBefore = count > 0 && !containsImmutable;
+
+        let parentMutable = false;
+        if (count === 1 && selectedCommits.length === 1) {
+            parentMutable = canAbsorbCommit(selectedCommits[0]);
+        }
+
+        this._host.commands.setContextKey(JjContextKey.SelectionAllowAbandon, allowAbandon);
+        this._host.commands.setContextKey(JjContextKey.SelectionAllowMerge, allowMerge);
+        this._host.commands.setContextKey(JjContextKey.SelectionAllowNewBefore, allowNewBefore);
+        this._host.commands.setContextKey(JjContextKey.SelectionParentMutable, parentMutable);
+    }
+
+    public setSelectedCommits(commitIds: readonly string[], hasImmutableSelection?: boolean): void {
         if (
             this._selectedCommitIds.length === commitIds.length &&
             this._selectedCommitIds.every((id, idx) => id === commitIds[idx])
         ) {
+            this._updateSelectionContextKeys(this._selectedCommitIds, hasImmutableSelection);
             return;
         }
 
         this._selectedCommitIds = [...commitIds];
+        this._updateSelectionContextKeys(this._selectedCommitIds, hasImmutableSelection);
 
         if (this._disposed) {
             return;
@@ -332,13 +364,20 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            payload: {
-                commits: [...this._commits],
-                minChangeIdLength: this._minChangeIdLength,
-                theme: this._theme,
-                graphLabelAlignment: this._graphLabelAlignment,
-                hiddenActions: [...this._hiddenActions],
-            },
+            payload: this.getState(),
+        });
+    }
+
+    public setGraphLabelAlignment(alignment: string): void {
+        this._graphLabelAlignment = alignment;
+
+        if (this._disposed) {
+            return;
+        }
+
+        this._postMessage({
+            type: 'update',
+            payload: this.getState(),
         });
     }
 
@@ -376,13 +415,7 @@ export class LogViewController implements Disposable {
 
         this._postMessage({
             type: 'update',
-            payload: {
-                commits: [...this._commits],
-                minChangeIdLength: this._minChangeIdLength,
-                theme: this._theme,
-                graphLabelAlignment: this._graphLabelAlignment,
-                hiddenActions: [...this._hiddenActions],
-            },
+            payload: this.getState(),
         });
     }
 
@@ -441,12 +474,8 @@ export class LogViewController implements Disposable {
     }
 
     private _postMessage(message: LogViewHostToWebviewMessage): void {
-        if (!this._disposed && this._messenger) {
-            try {
-                this._messenger.postMessage(message);
-            } catch (e) {
-                this._logger?.error('[LogViewController] Failed to post message', toError(e));
-            }
+        if (!this._disposed) {
+            this._dispatcher.broadcast(message);
         }
     }
 
@@ -470,8 +499,8 @@ export class LogViewController implements Disposable {
         }
     }
 
-    private _createRpcDispatcher(): WebviewRpcDispatcher<LogViewToHostMessage> {
-        return createWebviewRpcDispatcher(
+    private _createRpcDispatcher(): WebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage> {
+        return createWebviewRpcDispatcher<LogViewToHostMessage, LogViewHostToWebviewMessage>(
             LogViewToHostMessageSchema,
             {
                 webviewLoaded: async () => {
@@ -540,11 +569,10 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.newAfter', ...(msg.changeIds || []));
                 },
                 resolve: async (msg) => {
-                    if (this.jj) {
-                        await this.jj.resolve(msg.path);
-                        await this.refresh('resolveComplete');
+                    await this.executeJjMutation('Resolving conflict...', 'Failed to resolve conflict', async (jj) => {
+                        await jj.resolve(msg.path);
                         await this._host.commands.executeCommand('jj-view.refresh');
-                    }
+                    });
                 },
                 moveBookmark: async (msg) => {
                     if (!msg.bookmark || !msg.targetChangeId) {
@@ -597,7 +625,7 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.showComments', msg.changeId);
                 },
                 setContextKey: async (msg) => {
-                    this._host.commands.setContextKey(msg.key, msg.value);
+                    await this._host.commands.setContextKey(msg.key, msg.value);
                 },
                 contextMenu: async (msg) => {
                     await this._host.commands.executeCommand('jj-view.contextMenu', msg);
@@ -620,32 +648,13 @@ export class LogViewController implements Disposable {
                         }
                     }
 
-                    const allowAbandon = count > 0 && !hasImmutable;
-                    const allowMerge = count > 1;
-                    const allowNewBefore = count > 0 && !hasImmutable;
-
-                    let parentMutable = false;
-                    if (count === 1) {
-                        const selectedCommit = this._commits.find((c) => c.change_id === msg.commitIds[0]);
-                        if (selectedCommit) {
-                            parentMutable = canAbsorbCommit(selectedCommit);
-                        }
-                    }
-
-                    this._host.commands.setContextKey(JjContextKey.SelectionAllowAbandon, allowAbandon);
-                    this._host.commands.setContextKey(JjContextKey.SelectionAllowMerge, allowMerge);
-                    this._host.commands.setContextKey(JjContextKey.SelectionAllowNewBefore, allowNewBefore);
-                    this._host.commands.setContextKey(JjContextKey.SelectionParentMutable, parentMutable);
-
-                    this.setSelectedCommits(msg.commitIds);
+                    this.setSelectedCommits(msg.commitIds, hasImmutable);
                     this._options?.onSelectionChange?.(msg.commitIds);
                 },
             },
             {
                 logger: this._logger,
-                messenger: {
-                    postMessage: (m) => this._postMessage(m as LogViewHostToWebviewMessage),
-                },
+                getState: () => this.getState(),
             },
         );
     }

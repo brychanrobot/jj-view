@@ -88,6 +88,19 @@ describe('WebviewTransport', () => {
             expect(received).toHaveLength(0);
         });
 
+        it('buffers incoming messages before onMessage is registered and flushes to first subscriber', () => {
+            const transport = new MockWebviewTransport();
+            transport.simulateIncomingMessage({ type: 'early1' });
+            transport.simulateIncomingMessage({ type: 'early2' });
+
+            const received: unknown[] = [];
+            transport.onMessage((msg) => {
+                received.push(msg);
+            });
+
+            expect(received).toEqual([{ type: 'early1' }, { type: 'early2' }]);
+        });
+
         it('isolates subscriber errors during dispatch', () => {
             const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
             const transport = new MockWebviewTransport();
@@ -104,6 +117,15 @@ describe('WebviewTransport', () => {
             expect(received).toEqual([{ type: 'test' }]);
             expect(consoleErrorSpy).toHaveBeenCalled();
             consoleErrorSpy.mockRestore();
+        });
+
+        it('cleans up on dispose()', () => {
+            const transport = new MockWebviewTransport();
+            transport.postMessage({ type: 'queued' });
+            transport.onMessage(() => {});
+            transport.dispose();
+
+            expect(transport.sentMessages).toHaveLength(0);
         });
     });
 
@@ -166,13 +188,32 @@ describe('WebviewTransport', () => {
             expect(received).toHaveLength(1);
         });
 
+        it('buffers window messages before onMessage is registered and flushes to first subscriber', () => {
+            const transport = new VsCodeWebviewTransport();
+
+            const target = (globalThis as { window?: EventTarget }).window;
+            target?.dispatchEvent(
+                new MockMessageEvent('message', {
+                    data: { type: 'early_vscode_msg' },
+                }),
+            );
+
+            const received: unknown[] = [];
+            transport.onMessage((msg) => {
+                received.push(msg);
+            });
+
+            expect(received).toEqual([{ type: 'early_vscode_msg' }]);
+            transport.dispose();
+        });
+
         it('isolates subscriber errors in message listener', () => {
             const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
             const transport = new VsCodeWebviewTransport();
             const received: unknown[] = [];
 
             transport.onMessage(() => {
-                throw new Error('VsCode subscriber error');
+                throw new Error('Subscriber error');
             });
             transport.onMessage((msg) => {
                 received.push(msg);
@@ -181,20 +222,19 @@ describe('WebviewTransport', () => {
             const target = (globalThis as { window?: EventTarget }).window;
             target?.dispatchEvent(
                 new MockMessageEvent('message', {
-                    data: { type: 'update' },
+                    data: { type: 'safe_msg' },
                 }),
             );
 
-            expect(received).toEqual([{ type: 'update' }]);
+            expect(received).toEqual([{ type: 'safe_msg' }]);
             expect(consoleErrorSpy).toHaveBeenCalled();
             consoleErrorSpy.mockRestore();
             transport.dispose();
         });
 
-        it('cleans up listeners on dispose()', () => {
+        it('ignores window messages after dispose()', () => {
             const transport = new VsCodeWebviewTransport();
             const received: unknown[] = [];
-
             transport.onMessage((msg) => {
                 received.push(msg);
             });
@@ -204,13 +244,12 @@ describe('WebviewTransport', () => {
             const target = (globalThis as { window?: EventTarget }).window;
             target?.dispatchEvent(
                 new MockMessageEvent('message', {
-                    data: { type: 'update' },
+                    data: { type: 'post_dispose_msg' },
                 }),
             );
 
             expect(received).toHaveLength(0);
         });
-
         it('reuses cached acquireVsCodeApi across multiple instances', () => {
             const transport1 = new VsCodeWebviewTransport();
             const transport2 = new VsCodeWebviewTransport();
@@ -361,7 +400,6 @@ describe('WebviewTransport', () => {
             expect(consoleErrorSpy).toHaveBeenCalled();
             consoleErrorSpy.mockRestore();
         });
-
         it('reconnects automatically on socket close', () => {
             vi.useFakeTimers();
             const transport = new WebSocketWebviewTransport('ws://localhost:8080/rpc');
@@ -379,6 +417,23 @@ describe('WebviewTransport', () => {
 
             transport.dispose();
             vi.useRealTimers();
+        });
+
+        it('buffers incoming messages before onMessage is registered and flushes on subscribe', () => {
+            const transport = new WebSocketWebviewTransport('ws://localhost:8080/rpc');
+            const socket = MockWebSocket.instance;
+
+            socket?.onmessage?.({
+                data: JSON.stringify({ type: 'early_ws_msg' }),
+            });
+
+            const received: unknown[] = [];
+            transport.onMessage((msg) => {
+                received.push(msg);
+            });
+
+            expect(received).toEqual([{ type: 'early_ws_msg' }]);
+            transport.dispose();
         });
     });
 

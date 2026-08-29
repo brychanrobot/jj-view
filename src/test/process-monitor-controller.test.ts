@@ -77,4 +77,27 @@ describe('ProcessMonitorController Domain Unit Tests', () => {
         controller.cancelAllProcesses();
         expect(cancelAllSpy).toHaveBeenCalled();
     });
+
+    test('replays initial snapshot on setMessenger and responds to webviewLoaded', async () => {
+        const newMessages: unknown[] = [];
+        controller.setMessenger({
+            postMessage: (m) => newMessages.push(m),
+        });
+
+        expect(newMessages).toHaveLength(1);
+        expect(newMessages[0]).toEqual(
+            expect.objectContaining({
+                type: 'update',
+                payload: expect.objectContaining({
+                    activeTasks: expect.any(Array),
+                    historyTasks: expect.any(Array),
+                    metrics: expect.any(Object),
+                }),
+            }),
+        );
+
+        const loadedHandled = await controller.handleMessage({ command: 'webviewLoaded' });
+        expect(loadedHandled).toBe(true);
+        expect(newMessages).toHaveLength(2);
+    });
 });
