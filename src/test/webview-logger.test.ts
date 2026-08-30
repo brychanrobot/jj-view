@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, test, vi } from 'vitest';
-import { WebviewLogger, type WebviewVsCodeApi } from '../webview/webview-logger';
+import { WebviewLogger, type WebviewVsCodeApi } from '../core/webview/webview-logger';
 
 describe('WebviewLogger', () => {
     test('logs error to console and posts logMessage to vscodeApi', () => {

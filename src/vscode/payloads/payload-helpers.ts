@@ -4,15 +4,15 @@
  */
 
 import * as vscode from 'vscode';
-import { extractFileUri, extractRevision } from '../../commands/command-utils';
-import type { Uri } from '../../uri-utils';
+import { extractFileUri, extractRevision } from '../../core/commands/command-utils';
+import type { Uri } from '../../core/uri-utils';
 
 export interface FileAndRevisionPayload {
     fileUri?: Uri;
     revision?: string;
 }
 
-import { isLineChangeArray, type LineChange } from '../../commands/command-utils';
+import { isLineChangeArray, type LineChange } from '../../core/commands/command-utils';
 
 export type { LineChange };
 export { isLineChangeArray };

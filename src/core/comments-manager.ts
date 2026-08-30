@@ -6,9 +6,9 @@
 import * as path from 'node:path';
 import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { CommentThread } from './comments-types';
-import { type Disposable, type Event, EventEmitter } from './common/events';
-import type { HostEnvironment } from './common/host-environment';
-import { showJjError } from './common/ui-helpers';
+import { type Disposable, type Event, EventEmitter } from './host/events';
+import type { HostEnvironment } from './host/host-environment';
+import { showJjError } from './host/ui-helpers';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';

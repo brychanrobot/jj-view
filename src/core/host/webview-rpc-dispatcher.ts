@@ -4,8 +4,8 @@
  */
 import { z } from 'zod';
 
-import { toError } from '../utils/error-utils';
-import type { LoggerChannel } from '../utils/output-channel';
+import { toError } from '../../utils/error-utils';
+import type { LoggerChannel } from '../../utils/output-channel';
 
 export type DiscriminatedMessage<K extends string = 'type'> = {
     [P in K]: string;

@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { MergeCommandArg, NewMergeChangePayload } from '../../commands/merge';
+import type { MergeCommandArg, NewMergeChangePayload } from '../../core/commands/merge';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createNewMergeChangePayload(args: unknown[], scmProvider?: VsCodeScmProvider): NewMergeChangePayload {

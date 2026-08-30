@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import { abandonCommand } from '../commands/abandon';
-import { absorbCommand } from '../commands/absorb';
-import { setBookmarkCommand } from '../commands/bookmark';
-import { advanceBookmarkCommand } from '../commands/bookmark-advance';
-import { advanceBookmarkAndUploadCommand } from '../commands/bookmark-advance-upload';
-import { deleteBookmarkCommand } from '../commands/bookmark-delete';
+import { abandonCommand } from '../core/commands/abandon';
+import { absorbCommand } from '../core/commands/absorb';
+import { setBookmarkCommand } from '../core/commands/bookmark';
+import { advanceBookmarkCommand } from '../core/commands/bookmark-advance';
+import { advanceBookmarkAndUploadCommand } from '../core/commands/bookmark-advance-upload';
+import { deleteBookmarkCommand } from '../core/commands/bookmark-delete';
 import {
     ackCommentCommand,
     copyUnresolvedCommentsCommand,
@@ -18,52 +18,52 @@ import {
     resolveCommentThreadCommand,
     showCommentsCommand,
     unresolveCommentThreadCommand,
-} from '../commands/comments';
-import { commitCommand } from '../commands/commit';
-import { commitPromptCommand } from '../commands/commit-prompt';
-import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
-import { compareFileWithRevisionCommand } from '../commands/compare-file-with-revision';
-import { setDescriptionCommand } from '../commands/describe';
-import { describePromptCommand } from '../commands/describe-prompt';
-import { showDetailsCommand } from '../commands/details';
-import { discardChangeCommand } from '../commands/discard-change';
-import { duplicateCommand } from '../commands/duplicate';
-import { editCommand } from '../commands/edit';
-import { newMergeChangeCommand } from '../commands/merge';
-import { openMergeEditorCommand } from '../commands/merge-editor';
-import { showMultiFileDiffCommand } from '../commands/multi-diff';
-import { newCommand } from '../commands/new';
-import { newAfterCommand } from '../commands/new-after';
-import { newBeforeCommand } from '../commands/new-before';
-import { openChangesCommand, openFileCommand } from '../commands/open';
-import { rebaseOntoSelectedCommand } from '../commands/rebase';
-import { redoCommand } from '../commands/redo';
-import { refreshCommand } from '../commands/refresh';
-import { restoreCommand } from '../commands/restore';
+} from '../core/commands/comments';
+import { commitCommand } from '../core/commands/commit';
+import { commitPromptCommand } from '../core/commands/commit-prompt';
+import { compareAllFilesWithRevisionCommand } from '../core/commands/compare-all-files-with-revision';
+import { compareFileWithRevisionCommand } from '../core/commands/compare-file-with-revision';
+import { setDescriptionCommand } from '../core/commands/describe';
+import { describePromptCommand } from '../core/commands/describe-prompt';
+import { showDetailsCommand } from '../core/commands/details';
+import { discardChangeCommand } from '../core/commands/discard-change';
+import { duplicateCommand } from '../core/commands/duplicate';
+import { editCommand } from '../core/commands/edit';
+import { newMergeChangeCommand } from '../core/commands/merge';
+import { openMergeEditorCommand } from '../core/commands/merge-editor';
+import { showMultiFileDiffCommand } from '../core/commands/multi-diff';
+import { newCommand } from '../core/commands/new';
+import { newAfterCommand } from '../core/commands/new-after';
+import { newBeforeCommand } from '../core/commands/new-before';
+import { openChangesCommand, openFileCommand } from '../core/commands/open';
+import { rebaseOntoSelectedCommand } from '../core/commands/rebase';
+import { redoCommand } from '../core/commands/redo';
+import { refreshCommand } from '../core/commands/refresh';
+import { restoreCommand } from '../core/commands/restore';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
     squashFilesIntoParentCommand,
-} from '../commands/squash-files';
+} from '../core/commands/squash-files';
 import {
     completeSquashRevisionCommand,
     squashRevisionIntoAncestorCommand,
     squashRevisionIntoParentCommand,
-} from '../commands/squash-revision';
-import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../commands/squash-selection';
-import { undoCommand } from '../commands/undo';
-import { uploadCommand } from '../commands/upload';
-import { viewFileAtRevisionCommand } from '../commands/view-file-at-revision';
-import { workspaceAddCommand } from '../commands/workspace-add';
-import { workspaceDeleteCommand } from '../commands/workspace-delete';
-import { workspaceForgetCommand } from '../commands/workspace-forget';
-import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../commands/workspace-open';
-import type { CommentsManager } from '../comments-manager';
-import type { CommandContext } from '../common/command-context';
-import { TOGGLEABLE_COMMIT_ACTIONS } from '../common/ipc/log-view-schemas';
-import { resolveRepository } from '../common/ui-helpers';
-import type { JjRepository } from '../jj-repository';
-import type { JjRepositoryManager } from '../jj-repository-manager';
+} from '../core/commands/squash-revision';
+import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
+import { undoCommand } from '../core/commands/undo';
+import { uploadCommand } from '../core/commands/upload';
+import { viewFileAtRevisionCommand } from '../core/commands/view-file-at-revision';
+import { workspaceAddCommand } from '../core/commands/workspace-add';
+import { workspaceDeleteCommand } from '../core/commands/workspace-delete';
+import { workspaceForgetCommand } from '../core/commands/workspace-forget';
+import { workspaceOpenInCurrentWindowCommand, workspaceOpenInNewWindowCommand } from '../core/commands/workspace-open';
+import type { CommentsManager } from '../core/comments-manager';
+import type { CommandContext } from '../core/host/command-context';
+import { TOGGLEABLE_COMMIT_ACTIONS } from '../core/host/ipc/log-view-schemas';
+import { resolveRepository } from '../core/host/ui-helpers';
+import type { JjRepository } from '../core/jj-repository';
+import type { JjRepositoryManager } from '../core/jj-repository-manager';
 import type { LoggerChannel } from '../utils/output-channel';
 import { createAbandonPayload } from './payloads/abandon.payload';
 import { createAbsorbPayload } from './payloads/absorb.payload';

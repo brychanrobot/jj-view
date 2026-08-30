@@ -3,10 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as cp from 'node:child_process';
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { z } from 'zod';
+import { AsyncCache } from '../utils/async-cache';
+import { getErrorMessage } from '../utils/error-utils';
+import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import {
     ChangesAndStatsOutputSchema,
@@ -29,9 +33,6 @@ import {
 import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
-import { AsyncCache } from './utils/async-cache';
-import { getErrorMessage } from './utils/error-utils';
-import { type LoggerChannel, NO_OP_LOGGER } from './utils/output-channel';
 
 export { NO_OP_LOGGER };
 
@@ -208,7 +209,11 @@ export class JjService {
     private getScriptPath(scriptBaseName: string): string {
         const isWin = process.platform === 'win32';
         const scriptName = isWin ? `${scriptBaseName}.bat` : `${scriptBaseName}.sh`;
-        return path.join(__dirname, '..', 'scripts', scriptName);
+        const candidate1 = path.join(__dirname, '..', 'scripts', scriptName);
+        if (fsSync.existsSync(candidate1)) {
+            return candidate1;
+        }
+        return path.join(__dirname, '..', '..', 'scripts', scriptName);
     }
 
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {

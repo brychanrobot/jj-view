@@ -4,7 +4,7 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import type { Api } from '../extension';
+import type { Api } from '../vscode/extension';
 import { TestRepo } from './test-repo';
 
 suite('Extension Test Suite', () => {

@@ -5,7 +5,7 @@
 
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { JjStatusEntry } from '../jj-types';
+import type { JjStatusEntry } from '../core/jj-types';
 import {
     createCommitDetailsUri,
     createDiffUris,
@@ -16,7 +16,7 @@ import {
     toFileUri,
     toForwardSlash,
     Uri,
-} from '../uri-utils';
+} from '../core/uri-utils';
 import './vitest-utils';
 
 // Mock vscode

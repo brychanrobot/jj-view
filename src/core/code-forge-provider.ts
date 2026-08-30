@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { Event } from './common/events';
+import type { Event } from './host/events';
 import type { CodeForgeChangeInfo, CommitParent } from './jj-types';
 
 export interface GitRemote {

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { collectResourceStates } from '../../commands/command-utils';
-import type { RestorePayload } from '../../commands/restore';
-import { getFsPathFromUri } from '../../uri-utils';
+import { collectResourceStates } from '../../core/commands/command-utils';
+import type { RestorePayload } from '../../core/commands/restore';
+import { getFsPathFromUri } from '../../core/uri-utils';
 
 export function createRestorePayload(args: unknown[]): RestorePayload {
     const resourceStates = collectResourceStates(args);

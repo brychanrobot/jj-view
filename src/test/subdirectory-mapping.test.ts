@@ -5,7 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService } from '../core/jj-service';
 import { TestRepo } from './test-repo';
 
 describe('JjService Subdirectory Mapping', () => {

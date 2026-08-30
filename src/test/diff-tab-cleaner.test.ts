@@ -4,10 +4,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HostDiffTab } from '../common/host-environment';
-import { DiffTabCleaner } from '../diff-tab-cleaner';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import { getFsPathFromUri, Uri } from '../uri-utils';
+import { DiffTabCleaner } from '../core/diff-tab-cleaner';
+import type { HostDiffTab } from '../core/host/host-environment';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { getFsPathFromUri, Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';

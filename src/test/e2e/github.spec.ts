@@ -4,7 +4,7 @@
  */
 
 import { expect } from '@playwright/test';
-import { ACK_REPLY_TEXT, DONE_REPLY_TEXT } from '../../comments-constants';
+import { ACK_REPLY_TEXT, DONE_REPLY_TEXT } from '../../core/comments-constants';
 import { FakeGitHubServer } from '../helpers/fake-github-server';
 import { buildGraph, type CommitDefinition, TestRepo } from '../test-repo';
 import {

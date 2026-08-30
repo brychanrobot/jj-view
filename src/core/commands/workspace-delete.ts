@@ -4,8 +4,8 @@
  */
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
-import type { CommandContext } from '../common/command-context';
-import { showJjError } from '../common/ui-helpers';
+import type { CommandContext } from '../host/command-context';
+import { showJjError } from '../host/ui-helpers';
 import { getErrorMessage } from './command-utils';
 import { resolveWorkspaceName } from './workspace-utils';
 

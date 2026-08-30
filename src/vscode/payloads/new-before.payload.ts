@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { resolveRevisionsWithSelection } from '../../commands/command-utils';
-import type { NewBeforePayload } from '../../commands/new-before';
+import { resolveRevisionsWithSelection } from '../../core/commands/command-utils';
+import type { NewBeforePayload } from '../../core/commands/new-before';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createNewBeforePayload(args: unknown[], scmProvider?: VsCodeScmProvider): NewBeforePayload {

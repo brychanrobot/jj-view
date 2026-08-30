@@ -5,9 +5,9 @@
 
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { CodeForgeComment, CodeForgeCommentThread } from '../../code-forge-provider';
-import type { CommentsManager } from '../../comments-manager';
-import { Uri } from '../../uri-utils';
+import type { CodeForgeComment, CodeForgeCommentThread } from '../../core/code-forge-provider';
+import type { CommentsManager } from '../../core/comments-manager';
+import { Uri } from '../../core/uri-utils';
 
 function resolveThreadUri(filePath: string, activeRepoPath: string): Uri {
     if (path.isAbsolute(filePath)) {

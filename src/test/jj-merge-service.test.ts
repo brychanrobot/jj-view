@@ -4,9 +4,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { JjMergeService } from '../jj-merge-service';
-import type { JjService } from '../jj-service';
-import { Uri } from '../uri-utils';
+import { JjMergeService } from '../core/jj-merge-service';
+import type { JjService } from '../core/jj-service';
+import { Uri } from '../core/uri-utils';
 import { createMock } from './test-utils';
 
 describe('JjMergeService Unit Tests', () => {

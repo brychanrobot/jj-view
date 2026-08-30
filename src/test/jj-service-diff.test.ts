@@ -9,7 +9,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('JjService Diff Tests', () => {

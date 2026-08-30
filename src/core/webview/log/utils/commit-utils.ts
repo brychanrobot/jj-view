@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { CommitAction } from '../../../common/ipc/log-view-schemas';
+
+import { canAbsorbCommit, canSquashCommit, isMutableCommit } from '../../../../utils/jj-utils';
+import type { CommitAction } from '../../../host/ipc/log-view-schemas';
 import type { JjLogEntry } from '../../../jj-types';
-import { canAbsorbCommit, canSquashCommit, isMutableCommit } from '../../../utils/jj-utils';
 
 export interface CommitActionStates {
     newChild: boolean;

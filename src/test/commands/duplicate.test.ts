@@ -4,9 +4,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { duplicateCommand } from '../../commands/duplicate';
-import type { JjRepository } from '../../jj-repository';
-import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { duplicateCommand } from '../../core/commands/duplicate';
+import type { JjRepository } from '../../core/jj-repository';
+import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';

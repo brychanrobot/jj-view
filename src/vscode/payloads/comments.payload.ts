@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { extractRevision } from '../../commands/command-utils';
+import { extractRevision } from '../../core/commands/command-utils';
 import {
     type AckCommentPayload,
     type Comment,
@@ -19,8 +19,8 @@ import {
     type ResolveCommentThreadPayload,
     type ShowCommentsPayload,
     type UnresolveCommentThreadPayload,
-} from '../../commands/comments';
-import { Uri } from '../../uri-utils';
+} from '../../core/commands/comments';
+import { Uri } from '../../core/uri-utils';
 
 function fromVscodeCommentMode(mode?: vscode.CommentMode): CommentMode | undefined {
     if (mode === undefined) {

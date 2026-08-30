@@ -4,8 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import type { JjMergeService } from '../../jj-merge-service';
-import type { Uri } from '../../uri-utils';
+import type { JjMergeService } from '../../core/jj-merge-service';
+import type { Uri } from '../../core/uri-utils';
 
 /**
  * Thin VS Code TextDocumentContentProvider adapting JjMergeService to VS Code's merge editor input.

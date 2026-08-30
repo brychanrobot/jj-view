@@ -5,9 +5,9 @@
 
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepository } from '../jj-repository';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjRepository } from '../core/jj-repository';
+import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';

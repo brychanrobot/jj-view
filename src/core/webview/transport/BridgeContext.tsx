@@ -14,7 +14,7 @@ import {
     type RpcSenderMethods,
     type WebviewRpcReceiverOptions,
     type WebviewRpcSenderOptions,
-} from '../../common/webview-rpc-dispatcher';
+} from '../../host/webview-rpc-dispatcher';
 import { getWebviewTransport } from './registry';
 import type { WebviewTransport } from './types';
 

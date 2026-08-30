@@ -5,8 +5,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { showJjError } from '../common/ui-helpers';
-import { JjService } from '../jj-service';
+import { showJjError } from '../core/host/ui-helpers';
+import { JjService } from '../core/jj-service';
 import { FakeHostUi } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';

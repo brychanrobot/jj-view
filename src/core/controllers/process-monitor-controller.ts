@@ -3,28 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type Disposable, type Event, EventEmitter } from '../common/events';
-import type { HostEnvironment } from '../common/host-environment';
+import { CoalescingQueue } from '../../utils/coalescing-queue';
+import { toError } from '../../utils/error-utils';
+import type { LoggerChannel } from '../../utils/output-channel';
+import { type Disposable, type Event, EventEmitter } from '../host/events';
+import type { HostEnvironment } from '../host/host-environment';
 import {
     type ProcessMonitorHostToWebviewMessage,
     type ProcessMonitorPayload,
     type ProcessMonitorToHostMessage,
     ProcessMonitorToHostMessageSchema,
-} from '../common/ipc/process-monitor-schemas';
+} from '../host/ipc/process-monitor-schemas';
 import {
     createWebviewRpcReceiver,
     type WebviewPostMessageLike,
     type WebviewRpcReceiver,
-} from '../common/webview-rpc-dispatcher';
+} from '../host/webview-rpc-dispatcher';
 import {
     getTaskExitCode,
     type JjProcessMetrics,
     type JjProcessTask,
     type JjProcessTracker,
 } from '../jj-process-tracker';
-import { CoalescingQueue } from '../utils/coalescing-queue';
-import { toError } from '../utils/error-utils';
-import type { LoggerChannel } from '../utils/output-channel';
 
 export interface ProcessMonitorControllerOptions {
     messenger?: WebviewPostMessageLike;

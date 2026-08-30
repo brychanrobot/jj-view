@@ -3,8 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type Disposable, type Event, EventEmitter } from '../common/events';
-import type { HostEnvironment } from '../common/host-environment';
+import { CoalescingQueue } from '../../utils/coalescing-queue';
+import { toError } from '../../utils/error-utils';
+import { canAbsorbCommit } from '../../utils/jj-utils';
+import type { LoggerChannel } from '../../utils/output-channel';
+import { type Disposable, type Event, EventEmitter } from '../host/events';
+import type { HostEnvironment } from '../host/host-environment';
 import {
     type LogViewHostToWebviewMessage,
     type LogViewPayload,
@@ -12,22 +16,18 @@ import {
     LogViewToHostMessageSchema,
     TOGGLEABLE_COMMIT_ACTIONS,
     type ToggleableCommitAction,
-} from '../common/ipc/log-view-schemas';
-import { showJjError } from '../common/ui-helpers';
+} from '../host/ipc/log-view-schemas';
+import { showJjError } from '../host/ui-helpers';
 import {
     createWebviewRpcReceiver,
     type WebviewPostMessageLike,
     type WebviewRpcReceiver,
-} from '../common/webview-rpc-dispatcher';
+} from '../host/webview-rpc-dispatcher';
 import { JjContextKey } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
 import type { JjService } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
 import { Uri } from '../uri-utils';
-import { CoalescingQueue } from '../utils/coalescing-queue';
-import { toError } from '../utils/error-utils';
-import { canAbsorbCommit } from '../utils/jj-utils';
-import type { LoggerChannel } from '../utils/output-channel';
 
 export interface LogViewControllerOptions {
     messenger?: WebviewPostMessageLike;

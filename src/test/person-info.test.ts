@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { getPersonDisplayStrings } from '../webview/common/components/PersonInfo';
-import { getRelativeTimeString } from '../webview/common/utils/time-utils';
+import { getPersonDisplayStrings } from '../core/webview/common/components/PersonInfo';
+import { getRelativeTimeString } from '../core/webview/common/utils/time-utils';
 
 describe('PersonInfo Logic', () => {
     describe('getPersonDisplayStrings', () => {

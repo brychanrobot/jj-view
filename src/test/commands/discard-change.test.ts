@@ -5,10 +5,10 @@
 
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { discardChangeCommand } from '../../commands/discard-change';
-import type { JjRepository } from '../../jj-repository';
-import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { Uri } from '../../uri-utils';
+import { discardChangeCommand } from '../../core/commands/discard-change';
+import type { JjRepository } from '../../core/jj-repository';
+import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
+import { Uri } from '../../core/uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';

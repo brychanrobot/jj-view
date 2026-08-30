@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { formatCommitDescription } from '../../utils/format-utils';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjResourceState } from '../scm-resource-state';
 import { getFsPathFromUri, Uri } from '../uri-utils';
-import { formatCommitDescription } from '../utils/format-utils';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -284,7 +284,7 @@ export function extractFileUri(args: unknown[]): Uri | undefined {
     return extractUriFromArgs(args);
 }
 
-export { getErrorMessage, toError } from '../utils/error-utils';
+export { getErrorMessage, toError } from '../../utils/error-utils';
 
 export const RevisionQuery = {
     Parents: 'parents(@)',

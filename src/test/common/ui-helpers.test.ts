@@ -6,18 +6,18 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CodeForgeRegistry } from '../../code-forge-registry';
-import { RevisionQuery } from '../../commands/command-utils';
+import { CodeForgeRegistry } from '../../core/code-forge-registry';
+import { RevisionQuery } from '../../core/commands/command-utils';
 import {
     promptForRevision,
     promptSelectOrCreate,
     resolveRepository,
     showJjError,
     withDelayedProgress,
-} from '../../common/ui-helpers';
-import { JjRepositoryManager } from '../../jj-repository-manager';
-import { JjService, NO_OP_LOGGER } from '../../jj-service';
-import { Uri } from '../../uri-utils';
+} from '../../core/host/ui-helpers';
+import { JjRepositoryManager } from '../../core/jj-repository-manager';
+import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
+import { Uri } from '../../core/uri-utils';
 import { FakeHostEnvironment, FakeHostUi } from '../fake-host-environment';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMockLogOutputChannel } from '../test-utils';

@@ -6,11 +6,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BackendType } from '@parcel/watcher';
-import type { HostDisposable, HostEnvironment } from './common/host-environment';
+import type { LoggerChannel } from '../utils/output-channel';
 import { DirectoryWatcher } from './directory-watcher';
+import type { HostDisposable, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import { Poller } from './poller';
-import type { LoggerChannel } from './utils/output-channel';
 
 export class ChangeDetectionManager implements HostDisposable {
     private _disposed = false;

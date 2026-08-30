@@ -4,9 +4,9 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import type { CommitAction, JjLogEntry } from '../jj-types';
-import { computeCommitActions } from '../webview/log/utils/commit-utils';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import type { CommitAction, JjLogEntry } from '../core/jj-types';
+import { computeCommitActions } from '../core/webview/log/utils/commit-utils';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('computeCommitActions', () => {

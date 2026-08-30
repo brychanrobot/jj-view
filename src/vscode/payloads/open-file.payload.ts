@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { OpenFilePayload } from '../../commands/open';
+import type { OpenFilePayload } from '../../core/commands/open';
 import { extractActiveResourceUri } from './payload-helpers';
 
 export function createOpenFilePayload(args: unknown[]): OpenFilePayload {

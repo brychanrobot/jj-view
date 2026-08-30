@@ -5,7 +5,7 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { describe, expect, test, vi } from 'vitest';
-import { getTaskExitCode, isProcessTerminated, type JjProcessTask, JjProcessTracker } from '../jj-process-tracker';
+import { getTaskExitCode, isProcessTerminated, type JjProcessTask, JjProcessTracker } from '../core/jj-process-tracker';
 import { createMock } from './test-utils';
 
 describe('JjProcessTracker Unit Tests', () => {

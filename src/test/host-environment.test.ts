@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { JjRepository } from '../jj-repository';
-import { Uri } from '../uri-utils';
+import type { JjRepository } from '../core/jj-repository';
+import { Uri } from '../core/uri-utils';
 import {
     FakeCommandContext,
     FakeHostAuth,

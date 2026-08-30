@@ -10,7 +10,7 @@ import {
     setWebviewTransport,
     VsCodeWebviewTransport,
     WebSocketWebviewTransport,
-} from '../../webview/transport';
+} from '../../core/webview/transport';
 
 class MockMessageEvent extends Event {
     public readonly data: unknown;

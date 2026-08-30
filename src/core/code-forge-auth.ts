@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthManageItem } from './code-forge-provider';
-import { type Disposable, type Event, EventEmitter } from './common/events';
-import type { HostEnvironment, HostSecrets } from './common/host-environment';
-import type { LoggerChannel } from './utils/output-channel';
+import { type Disposable, type Event, EventEmitter } from './host/events';
+import type { HostEnvironment, HostSecrets } from './host/host-environment';
 
 export type AuthToken = string;
 

@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { CommandContext } from '../common/command-context';
-import { promptForRevision, showJjError } from '../common/ui-helpers';
+import type { CommandContext } from '../host/command-context';
+import { promptForRevision, showJjError } from '../host/ui-helpers';
 import { RevisionQuery } from './command-utils';
 
 export interface AbandonPayload {

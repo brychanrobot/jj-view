@@ -5,16 +5,16 @@
 
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { DiffTabCleaner } from '../../diff-tab-cleaner';
-import { JjContextKey, ScmContextValue } from '../../jj-context-keys';
-import { JjDecorationModel } from '../../jj-decoration-model';
-import type { JjRepository } from '../../jj-repository';
-import type { JjRepositoryManager } from '../../jj-repository-manager';
-import type { JjService } from '../../jj-service';
-import type { JjStatusEntry } from '../../jj-types';
-import { ScmModel, type ScmSnapshot } from '../../scm-model';
-import { createJjResourceState, type JjResourceState } from '../../scm-resource-state';
-import { getRepoRelativePath, type Uri } from '../../uri-utils';
+import { DiffTabCleaner } from '../../core/diff-tab-cleaner';
+import { JjContextKey, ScmContextValue } from '../../core/jj-context-keys';
+import { JjDecorationModel } from '../../core/jj-decoration-model';
+import type { JjRepository } from '../../core/jj-repository';
+import type { JjRepositoryManager } from '../../core/jj-repository-manager';
+import type { JjService } from '../../core/jj-service';
+import type { JjStatusEntry } from '../../core/jj-types';
+import { ScmModel, type ScmSnapshot } from '../../core/scm-model';
+import { createJjResourceState, type JjResourceState } from '../../core/scm-resource-state';
+import { getRepoRelativePath, type Uri } from '../../core/uri-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeDecorationProvider } from './vscode-decoration-provider';
 import type { VsCodeEditFsProvider } from './vscode-edit-fs-provider';

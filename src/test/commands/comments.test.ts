@@ -12,8 +12,8 @@ vi.mock('vscode', async () => {
     return createVscodeMock();
 });
 
-import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../../code-forge-provider';
-import { CodeForgeRegistry } from '../../code-forge-registry';
+import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../../core/code-forge-provider';
+import { CodeForgeRegistry } from '../../core/code-forge-registry';
 import {
     ackCommentCommand,
     copyUnresolvedCommentsCommand,
@@ -23,10 +23,10 @@ import {
     resolveCommentThreadCommand,
     showCommentsCommand,
     unresolveCommentThreadCommand,
-} from '../../commands/comments';
-import { CommentsManager } from '../../comments-manager';
-import { JjRepositoryManager } from '../../jj-repository-manager';
-import { Uri } from '../../uri-utils';
+} from '../../core/commands/comments';
+import { CommentsManager } from '../../core/comments-manager';
+import { JjRepositoryManager } from '../../core/jj-repository-manager';
+import { Uri } from '../../core/uri-utils';
 import {
     createReplyCommentPayload,
     createResolveCommentThreadPayload,

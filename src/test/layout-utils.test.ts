@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import type { JjLogEntry } from '../jj-types';
-import type { GraphLayout } from '../webview/log/graph-model';
+import type { JjLogEntry } from '../core/jj-types';
+import type { GraphLayout } from '../core/webview/log/graph-model';
 import {
     computeCompactRowMaxX,
     computeGap,
     computeGraphAreaWidth,
     computeMaxShortestIdLength,
-} from '../webview/log/layout-utils';
+} from '../core/webview/log/layout-utils';
 import { createMock } from './test-utils';
 
 describe('Layout Utils', () => {

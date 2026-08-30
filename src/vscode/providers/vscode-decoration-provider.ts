@@ -4,9 +4,9 @@
  */
 
 import * as vscode from 'vscode';
-import type { JjDecoration, JjDecorationModel } from '../../jj-decoration-model';
-import type { JjStatusEntry } from '../../jj-types';
-import type { Uri } from '../../uri-utils';
+import type { JjDecoration, JjDecorationModel } from '../../core/jj-decoration-model';
+import type { JjStatusEntry } from '../../core/jj-types';
+import type { Uri } from '../../core/uri-utils';
 
 /**
  * Thin VS Code FileDecorationProvider translating domain decorations to VS Code FileDecoration.

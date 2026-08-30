@@ -6,16 +6,16 @@
 import { realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { CoalescingQueue } from '../utils/coalescing-queue';
+import { toError } from '../utils/error-utils';
+import { type LoggerChannel, OutputChannel } from '../utils/output-channel';
 import type { CodeForgeRegistry } from './code-forge-registry';
-import { type Event, EventEmitter } from './common/events';
-import type { HostDisposable, HostEnvironment, HostStorage } from './common/host-environment';
+import { type Event, EventEmitter } from './host/events';
+import type { HostDisposable, HostEnvironment, HostStorage } from './host/host-environment';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
 import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
-import { CoalescingQueue } from './utils/coalescing-queue';
-import { toError } from './utils/error-utils';
-import { type LoggerChannel, OutputChannel } from './utils/output-channel';
 
 interface DetectedRepoInfo {
     rootPath: string;

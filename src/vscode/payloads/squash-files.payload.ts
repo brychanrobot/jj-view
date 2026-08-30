@@ -8,13 +8,13 @@ import {
     extractAncestorRevision,
     extractChildRevision,
     extractRevision,
-} from '../../commands/command-utils';
+} from '../../core/commands/command-utils';
 import type {
     SquashFilesIntoAncestorPayload,
     SquashFilesIntoChildPayload,
     SquashFilesIntoParentPayload,
-} from '../../commands/squash-files';
-import { getFsPathFromUri } from '../../uri-utils';
+} from '../../core/commands/squash-files';
+import { getFsPathFromUri } from '../../core/uri-utils';
 
 export function createSquashFilesIntoParentPayload(args: unknown[]): SquashFilesIntoParentPayload {
     const resourceStates = collectResourceStates(args);

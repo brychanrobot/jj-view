@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { collectResourceStates } from '../../commands/command-utils';
-import type { OpenMergeEditorPayload } from '../../commands/merge-editor';
+import { collectResourceStates } from '../../core/commands/command-utils';
+import type { OpenMergeEditorPayload } from '../../core/commands/merge-editor';
 
 export function createOpenMergeEditorPayload(args: unknown[]): OpenMergeEditorPayload {
     const resourceStates = collectResourceStates(args);

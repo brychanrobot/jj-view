@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import type { LoggerChannel } from '../../utils/output-channel';
 import type { CommentsManager } from '../comments-manager';
 import type { JjRepository } from '../jj-repository';
-import type { LoggerChannel } from '../utils/output-channel';
 import type { HostEnvironment } from './host-environment';
 
 export interface CommandServices {

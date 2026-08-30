@@ -5,8 +5,8 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { GitRemote } from '../code-forge-provider';
-import type { HostEnvironment } from '../common/host-environment';
+import type { GitRemote } from '../core/code-forge-provider';
+import type { HostEnvironment } from '../core/host/host-environment';
 import { getGitConfig } from './gerrit-credential-utils';
 import type { LoggerChannel } from './output-channel';
 

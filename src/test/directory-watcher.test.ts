@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { DirectoryWatcher } from '../directory-watcher';
+import { DirectoryWatcher } from '../core/directory-watcher';
 import type { LoggerChannel } from '../utils/output-channel';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { createMockLogOutputChannel } from './test-utils';

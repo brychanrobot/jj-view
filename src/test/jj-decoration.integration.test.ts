@@ -6,7 +6,7 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { toFileUri, Uri } from '../uri-utils';
+import { toFileUri, Uri } from '../core/uri-utils';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';

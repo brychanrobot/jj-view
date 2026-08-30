@@ -5,9 +5,9 @@
 
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
-import { LogViewController } from '../../controllers/log-view-controller';
-import type { JjRepository } from '../../jj-repository';
-import type { Uri } from '../../uri-utils';
+import { LogViewController } from '../../core/controllers/log-view-controller';
+import type { JjRepository } from '../../core/jj-repository';
+import type { Uri } from '../../core/uri-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { getWebviewHtml } from '../vscode-webview-html';

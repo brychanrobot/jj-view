@@ -4,10 +4,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { JjDecorationModel } from '../jj-decoration-model';
-import type { JjService } from '../jj-service';
-import type { JjStatusEntry } from '../jj-types';
-import { Uri } from '../uri-utils';
+import { JjDecorationModel } from '../core/jj-decoration-model';
+import type { JjService } from '../core/jj-service';
+import type { JjStatusEntry } from '../core/jj-types';
+import { Uri } from '../core/uri-utils';
 import { createMock } from './test-utils';
 
 describe('JjDecorationModel Unit Tests', () => {

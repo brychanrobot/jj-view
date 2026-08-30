@@ -7,16 +7,16 @@ import { describe, expect, it } from 'vitest';
 import {
     CommitDetailsHostToWebviewMessageSchema,
     CommitDetailsToHostMessageSchema,
-} from '../common/ipc/commit-details-schemas';
+} from '../core/host/ipc/commit-details-schemas';
 import {
     CommitActionSchema,
     LogViewHostToWebviewMessageSchema,
     LogViewToHostMessageSchema,
-} from '../common/ipc/log-view-schemas';
+} from '../core/host/ipc/log-view-schemas';
 import {
     ProcessMonitorHostToWebviewMessageSchema,
     ProcessMonitorToHostMessageSchema,
-} from '../common/ipc/process-monitor-schemas';
+} from '../core/host/ipc/process-monitor-schemas';
 
 describe('IPC Schemas Unit Tests', () => {
     describe('LogView Schemas', () => {

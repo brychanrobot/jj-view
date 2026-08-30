@@ -14,7 +14,7 @@ import {
     CommentThreadCollapsibleState,
     CommentThreadState,
 } from '../comments-types';
-import type { CommandContext } from '../common/command-context';
+import type { CommandContext } from '../host/command-context';
 
 export type { Comment, CommentAuthorInformation, CommentBody, CommentReaction, CommentThread };
 export { CommentMode, CommentThreadCollapsibleState, CommentThreadState };

@@ -4,9 +4,9 @@
  */
 
 import type * as vscode from 'vscode';
-import { ProcessMonitorController } from '../../controllers/process-monitor-controller';
-import type { JjProcessTracker } from '../../jj-process-tracker';
-import type { Uri } from '../../uri-utils';
+import { ProcessMonitorController } from '../../core/controllers/process-monitor-controller';
+import type { JjProcessTracker } from '../../core/jj-process-tracker';
+import type { Uri } from '../../core/uri-utils';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { getWebviewHtml } from '../vscode-webview-html';
 

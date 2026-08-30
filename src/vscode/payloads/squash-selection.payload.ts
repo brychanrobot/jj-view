@@ -3,9 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type * as vscode from 'vscode';
-import { isLineChangeArray } from '../../commands/command-utils';
-import type { SquashHunkIntoParentPayload, SquashSelectionIntoParentPayload } from '../../commands/squash-selection';
-import type { Uri } from '../../uri-utils';
+import { isLineChangeArray } from '../../core/commands/command-utils';
+import type {
+    SquashHunkIntoParentPayload,
+    SquashSelectionIntoParentPayload,
+} from '../../core/commands/squash-selection';
+import type { Uri } from '../../core/uri-utils';
 
 export function createSquashHunkIntoParentPayload(args: unknown[]): SquashHunkIntoParentPayload {
     const uri = args[0] as Uri | undefined;

@@ -9,7 +9,7 @@ import {
     type CommitDetailsPayload,
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
-} from '../../common/ipc/commit-details-schemas';
+} from '../../host/ipc/commit-details-schemas';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
 import { CommitDetails } from './CommitDetails';
 

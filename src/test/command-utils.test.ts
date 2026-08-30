@@ -9,7 +9,7 @@ import {
     maybeFormatDescriptionOnSave,
     RevisionQuery,
     resolveRevisionsWithSelection,
-} from '../commands/command-utils';
+} from '../core/commands/command-utils';
 
 describe('RevisionQuery', () => {
     it('generates expected revision query strings', () => {

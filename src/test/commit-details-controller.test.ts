@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CommitDetailsController } from '../controllers/commit-details-controller';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CommitDetailsController } from '../core/controllers/commit-details-controller';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';

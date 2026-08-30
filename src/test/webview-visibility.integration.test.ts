@@ -5,8 +5,8 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import type { JjLogEntry } from '../jj-types';
-import { Uri } from '../uri-utils';
+import type { JjLogEntry } from '../core/jj-types';
+import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';

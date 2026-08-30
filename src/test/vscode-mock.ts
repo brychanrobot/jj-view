@@ -5,7 +5,7 @@
 import { vi } from 'vitest';
 import type * as vscode from 'vscode';
 
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 
 let activeTextEditorState: unknown;
 

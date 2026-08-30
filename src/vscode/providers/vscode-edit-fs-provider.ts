@@ -4,9 +4,9 @@
  */
 
 import * as vscode from 'vscode';
-import { type JjEditFsService, parseEditUri } from '../../jj-edit-fs-service';
-import type { JjRepository } from '../../jj-repository';
-import type { Uri } from '../../uri-utils';
+import { type JjEditFsService, parseEditUri } from '../../core/jj-edit-fs-service';
+import type { JjRepository } from '../../core/jj-repository';
+import type { Uri } from '../../core/uri-utils';
 import { getErrorMessage } from '../../utils/error-utils';
 
 export { parseEditUri };

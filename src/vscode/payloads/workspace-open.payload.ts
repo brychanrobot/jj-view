@@ -5,7 +5,7 @@
 import type {
     WorkspaceOpenInCurrentWindowPayload,
     WorkspaceOpenInNewWindowPayload,
-} from '../../commands/workspace-open';
+} from '../../core/commands/workspace-open';
 
 export function createWorkspaceOpenInCurrentWindowPayload(args: unknown[]): WorkspaceOpenInCurrentWindowPayload {
     return extractWorkspacePayload(args);

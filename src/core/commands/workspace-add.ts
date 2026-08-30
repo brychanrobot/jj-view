@@ -5,8 +5,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { CommandContext } from '../common/command-context';
-import { showJjError } from '../common/ui-helpers';
+import type { CommandContext } from '../host/command-context';
+import { showJjError } from '../host/ui-helpers';
 import { Uri } from '../uri-utils';
 import { getErrorMessage } from './command-utils';
 

@@ -4,7 +4,7 @@
  */
 import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { JjService } from '../jj-service';
+import { JjService } from '../core/jj-service';
 
 vi.mock('child_process');
 

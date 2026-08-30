@@ -12,11 +12,11 @@ vi.mock('vscode', async () => {
     return createVscodeMock();
 });
 
-import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../code-forge-provider';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CommentsManager } from '../comments-manager';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../core/code-forge-provider';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CommentsManager } from '../core/comments-manager';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { VsCodeCommentsProvider } from '../vscode/providers/vscode-comments-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';

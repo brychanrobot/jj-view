@@ -4,7 +4,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
-import { type Disposable, type Event, EventEmitter } from './common/events';
+import { type Disposable, type Event, EventEmitter } from './host/events';
 
 export type JjProcessStatus = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
 

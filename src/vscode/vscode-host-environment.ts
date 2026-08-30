@@ -4,7 +4,7 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { type Event, EventEmitter } from '../common/events';
+import { type Event, EventEmitter } from '../core/host/events';
 import type {
     HostAuth,
     HostAuthSession,
@@ -24,8 +24,8 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
-} from '../common/host-environment';
-import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../uri-utils';
+} from '../core/host/host-environment';
+import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../core/uri-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
 import { getJjViewConfig } from './config-utils';
 

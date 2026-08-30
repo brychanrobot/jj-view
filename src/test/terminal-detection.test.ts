@@ -5,7 +5,7 @@
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import { handleTerminalExecution } from '../extension';
+import { handleTerminalExecution } from '../vscode/extension';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
@@ -13,7 +13,7 @@ vi.mock('vscode', async () => {
 });
 
 // Import after mock
-import type { CodeForgeService } from '../code-forge-service';
+import type { CodeForgeService } from '../core/code-forge-service';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 

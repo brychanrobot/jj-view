@@ -11,9 +11,9 @@ vi.mock('vscode', async () => {
     return createVscodeMock();
 });
 
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';

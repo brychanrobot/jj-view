@@ -4,12 +4,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { CodeForgeProvider, GitRemote } from '../code-forge-provider';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CodeForgeService } from '../code-forge-service';
-import { EventEmitter } from '../common/events';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
+import type { CodeForgeProvider, GitRemote } from '../core/code-forge-provider';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CodeForgeService } from '../core/code-forge-service';
+import { EventEmitter } from '../core/host/events';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import type { CodeForgeChangeInfo, JjLogEntry } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMock } from './test-utils';
