@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { AbsorbPayload } from '../../commands/absorb';
-import { collectResourceStates, extractRevisions } from '../../commands/command-utils';
-import { getFsPathFromUri } from '../../uri-utils';
+import type { AbsorbPayload } from '../../core/commands/absorb';
+import { collectResourceStates, extractRevisions } from '../../core/commands/command-utils';
+import { getFsPathFromUri } from '../../core/uri-utils';
 
 export function createAbsorbPayload(args: unknown[]): AbsorbPayload {
     const resourceStates = collectResourceStates(args);

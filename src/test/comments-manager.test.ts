@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as path from 'node:path';
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 // sort-imports-ignore
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -14,11 +14,11 @@ vi.mock('vscode', async () => {
     return createVscodeMock();
 });
 
-import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../code-forge-provider';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CommentsManager, type CommentThread } from '../comments-manager';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import type { CodeForgeChangeInfo } from '../jj-types';
+import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../core/code-forge-provider';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CommentsManager, type CommentThread } from '../core/comments-manager';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { VsCodeCommentsProvider } from '../vscode/providers/vscode-comments-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';

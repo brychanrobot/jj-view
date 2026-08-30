@@ -4,11 +4,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CodeForgeService } from '../code-forge-service';
-import { GerritProvider, type GerritRevision } from '../gerrit-provider';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import type { CodeForgeChangeInfo, JjLogEntry } from '../jj-types';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CodeForgeService } from '../core/code-forge-service';
+import { GerritProvider, type GerritRevision } from '../core/gerrit-provider';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import type { CodeForgeChangeInfo, JjLogEntry } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { TestRepo } from './test-repo';

@@ -12,7 +12,7 @@ import { test as baseTest, expect } from '@playwright/test';
 import { downloadAndUnzipVSCode, resolveCliPathFromVSCodeExecutablePath, SilentReporter } from '@vscode/test-electron';
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright';
 import type * as vscodeType from 'vscode';
-import type { Api as ExtensionApi } from '../../extension';
+import type { Api as ExtensionApi } from '../../vscode/extension';
 import { logPerf } from './perf-logger';
 
 export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';

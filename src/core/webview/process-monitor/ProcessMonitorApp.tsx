@@ -11,7 +11,7 @@ import {
     ProcessMonitorHostToWebviewMessageSchema,
     type ProcessMonitorToHostMessage,
     ProcessMonitorToHostMessageSchema,
-} from '../../common/ipc/process-monitor-schemas';
+} from '../../host/ipc/process-monitor-schemas';
 import { getRelativeTimeString } from '../common/utils/time-utils';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';
 

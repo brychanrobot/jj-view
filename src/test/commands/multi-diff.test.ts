@@ -4,9 +4,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { showMultiFileDiffCommand } from '../../commands/multi-diff';
-import type { JjRepository } from '../../jj-repository';
-import { JjService, NO_OP_LOGGER } from '../../jj-service';
+import { showMultiFileDiffCommand } from '../../core/commands/multi-diff';
+import type { JjRepository } from '../../core/jj-repository';
+import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { FakeCommandContext } from '../fake-host-environment';
 import { TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';

@@ -132,7 +132,7 @@ function runGeneration() {
 }
 
 async function watchThemes() {
-    const themesPath = path.join(import.meta.dirname, '../src/webview/themes.json');
+    const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.json');
     const themesDir = path.dirname(themesPath);
     const themesFile = path.basename(themesPath);
 

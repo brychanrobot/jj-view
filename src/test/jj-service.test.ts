@@ -7,7 +7,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
 
 describe('JjService Unit Tests', () => {

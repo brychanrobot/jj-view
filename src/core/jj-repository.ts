@@ -5,16 +5,16 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { DebouncingQueue } from '../utils/debouncing-queue';
+import type { LoggerChannel } from '../utils/output-channel';
 import { ChangeDetectionManager } from './change-detection-manager';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CodeForgeService } from './code-forge-service';
-import { AsyncEventEmitter, type Disposable } from './common/events';
-import type { HostEnvironment } from './common/host-environment';
+import { AsyncEventEmitter, type Disposable } from './host/events';
+import type { HostEnvironment } from './host/host-environment';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjService } from './jj-service';
 import type { Uri } from './uri-utils';
-import { DebouncingQueue } from './utils/debouncing-queue';
-import type { LoggerChannel } from './utils/output-channel';
 
 interface RefreshPayload {
     forceSnapshot: boolean;

@@ -4,12 +4,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { LogViewController } from '../controllers/log-view-controller';
-import { JjContextKey } from '../jj-context-keys';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import type { JjLogEntry } from '../jj-types';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { LogViewController } from '../core/controllers/log-view-controller';
+import { JjContextKey } from '../core/jj-context-keys';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import type { JjLogEntry } from '../core/jj-types';
+import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';

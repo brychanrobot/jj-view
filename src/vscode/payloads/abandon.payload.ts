@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { AbandonPayload } from '../../commands/abandon';
-import { extractRevisions, isCurrentWorkingCopyResourceGroup } from '../../commands/command-utils';
+import type { AbandonPayload } from '../../core/commands/abandon';
+import { extractRevisions, isCurrentWorkingCopyResourceGroup } from '../../core/commands/command-utils';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createAbandonPayload(args: unknown[], scmProvider?: VsCodeScmProvider): AbandonPayload {

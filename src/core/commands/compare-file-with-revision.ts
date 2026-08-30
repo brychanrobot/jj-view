@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as path from 'node:path';
-import type { CommandContext } from '../common/command-context';
-import { promptForRevision, showJjError } from '../common/ui-helpers';
+import type { CommandContext } from '../host/command-context';
+import { promptForRevision, showJjError } from '../host/ui-helpers';
 import { createRevisionUri, type Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 

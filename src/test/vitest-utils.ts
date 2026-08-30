@@ -6,7 +6,7 @@
 import * as path from 'node:path';
 import { expect, type Mock, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 
 function normalizePathForComparison(filePath: string): string {
     const resolved = Uri.file(path.resolve(filePath)).fsPath;

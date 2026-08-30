@@ -6,10 +6,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from 'vitest';
-import { ChangeDetectionManager } from '../change-detection-manager';
-import { DirectoryWatcher } from '../directory-watcher';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import { Uri } from '../uri-utils';
+import { ChangeDetectionManager } from '../core/change-detection-manager';
+import { DirectoryWatcher } from '../core/directory-watcher';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { Uri } from '../core/uri-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';

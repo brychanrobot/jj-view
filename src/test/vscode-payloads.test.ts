@@ -5,8 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import type { JjResourceState } from '../scm-resource-state';
-import { Uri } from '../uri-utils';
+import type { JjResourceState } from '../core/scm-resource-state';
+import { Uri } from '../core/uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createAbsorbPayload } from '../vscode/payloads/absorb.payload';
 import { createSetBookmarkPayload } from '../vscode/payloads/bookmark.payload';

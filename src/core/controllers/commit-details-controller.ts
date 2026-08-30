@@ -3,24 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type Disposable, type Event, EventEmitter } from '../common/events';
-import type { HostEnvironment } from '../common/host-environment';
+import { toError } from '../../utils/error-utils';
+import type { LoggerChannel } from '../../utils/output-channel';
+import { type Disposable, type Event, EventEmitter } from '../host/events';
+import type { HostEnvironment } from '../host/host-environment';
 import {
     type CommitDetailsHostToWebviewMessage,
     type CommitDetailsPayload,
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
-} from '../common/ipc/commit-details-schemas';
-import { showJjError } from '../common/ui-helpers';
+} from '../host/ipc/commit-details-schemas';
+import { showJjError } from '../host/ui-helpers';
 import {
     createWebviewRpcReceiver,
     type WebviewPostMessageLike,
     type WebviewRpcReceiver,
-} from '../common/webview-rpc-dispatcher';
+} from '../host/webview-rpc-dispatcher';
 import type { JjRepository } from '../jj-repository';
 import type { JjLogEntry, JjStatusEntry } from '../jj-types';
-import { toError } from '../utils/error-utils';
-import type { LoggerChannel } from '../utils/output-channel';
 
 export interface CommitDetailsControllerOptions {
     logger?: LoggerChannel;

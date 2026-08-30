@@ -5,11 +5,11 @@
 
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { resolveRepository } from '../common/ui-helpers';
-import type { JjRepository } from '../jj-repository';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { resolveRepository } from '../core/host/ui-helpers';
+import type { JjRepository } from '../core/jj-repository';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { TestRepo } from './test-repo';

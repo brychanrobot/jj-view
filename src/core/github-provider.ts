@@ -4,6 +4,9 @@
  */
 
 import { z } from 'zod';
+import { chunkArray } from '../utils/array-utils';
+import { fetchWithTimeout } from '../utils/fetch-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
     AuthManageItem,
@@ -13,11 +16,8 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
-import { type Event, EventEmitter } from './common/events';
+import { type Event, EventEmitter } from './host/events';
 import type { CodeForgeChangeInfo } from './jj-types';
-import { chunkArray } from './utils/array-utils';
-import { fetchWithTimeout } from './utils/fetch-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 export const GitHubPrNodeSchema = z.object({
     id: z.string(),

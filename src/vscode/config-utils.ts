@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
-import type { JjServiceConfigProvider } from '../jj-service';
+import type { JjServiceConfigProvider } from '../core/jj-service';
 
 /**
  * Standard configuration provider for 'jj-view' extension settings.

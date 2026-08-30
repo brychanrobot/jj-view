@@ -4,7 +4,7 @@
  */
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import * as React from 'react';
-import type { ActionPayload, CommitAction } from '../../../common/ipc/log-view-schemas';
+import type { ActionPayload, CommitAction } from '../../../host/ipc/log-view-schemas';
 import type { JjBookmark, JjLogEntry } from '../../../jj-types';
 import { BookmarkPill, TagPill, WorkspacePill } from '../../common/components/Bookmark';
 import { IconButton } from '../../common/components/IconButton';

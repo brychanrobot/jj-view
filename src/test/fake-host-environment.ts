@@ -4,9 +4,9 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { CommentsManager } from '../comments-manager';
-import type { CommandContext, CommandServices } from '../common/command-context';
-import { type Event, EventEmitter } from '../common/events';
+import type { CommentsManager } from '../core/comments-manager';
+import type { CommandContext, CommandServices } from '../core/host/command-context';
+import { type Event, EventEmitter } from '../core/host/events';
 import type {
     HostAuth,
     HostAuthSession,
@@ -26,9 +26,9 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
-} from '../common/host-environment';
-import type { JjRepository } from '../jj-repository';
-import type { Uri } from '../uri-utils';
+} from '../core/host/host-environment';
+import type { JjRepository } from '../core/jj-repository';
+import type { Uri } from '../core/uri-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 
 export class FakeHostUi implements HostUi {

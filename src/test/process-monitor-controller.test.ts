@@ -5,8 +5,8 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ProcessMonitorController } from '../controllers/process-monitor-controller';
-import { JjProcessTracker } from '../jj-process-tracker';
+import { ProcessMonitorController } from '../core/controllers/process-monitor-controller';
+import { JjProcessTracker } from '../core/jj-process-tracker';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { createMock } from './test-utils';
 

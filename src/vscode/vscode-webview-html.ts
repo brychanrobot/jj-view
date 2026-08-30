@@ -4,7 +4,7 @@
  */
 
 import type * as vscode from 'vscode';
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 
 export interface WebviewHtmlOptions {
     webview: vscode.Webview;

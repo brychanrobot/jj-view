@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { openMergeEditorCommand } from '../../commands/merge-editor';
-import type { JjRepository } from '../../jj-repository';
-import type { JjResourceState } from '../../scm-resource-state';
-import { Uri } from '../../uri-utils';
+import { openMergeEditorCommand } from '../../core/commands/merge-editor';
+import type { JjRepository } from '../../core/jj-repository';
+import type { JjResourceState } from '../../core/scm-resource-state';
+import { Uri } from '../../core/uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
 import { createMock } from '../test-utils';
 

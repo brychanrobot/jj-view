@@ -4,7 +4,7 @@
  */
 
 import * as path from 'node:path';
-import { type Disposable, type Event, EventEmitter } from './common/events';
+import { type Disposable, type Event, EventEmitter } from './host/events';
 import type { JjService } from './jj-service';
 import type { JjStatusEntry } from './jj-types';
 import { Uri } from './uri-utils';

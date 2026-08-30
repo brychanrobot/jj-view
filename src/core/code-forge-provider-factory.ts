@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import type { LoggerChannel } from '../utils/output-channel';
 import type { CodeForgeProvider } from './code-forge-provider';
-import type { HostEnvironment } from './common/host-environment';
-import type { LoggerChannel } from './utils/output-channel';
+import type { HostEnvironment } from './host/host-environment';
 
 export interface CodeForgeProviderFactory {
     readonly id: string;

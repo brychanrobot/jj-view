@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { extractAncestorRevision, extractRevision, extractTargetParent } from '../../commands/command-utils';
+import { extractAncestorRevision, extractRevision, extractTargetParent } from '../../core/commands/command-utils';
 import type {
     SquashRevisionIntoAncestorPayload,
     SquashRevisionIntoParentPayload,
-} from '../../commands/squash-revision';
+} from '../../core/commands/squash-revision';
 
 export function createSquashRevisionIntoParentPayload(args: unknown[]): SquashRevisionIntoParentPayload {
     const revision = extractRevision(args) || '@';

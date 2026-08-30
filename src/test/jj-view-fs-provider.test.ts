@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { JjViewFsService } from '../jj-view-fs-service';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { JjViewFsService } from '../core/jj-view-fs-service';
+import { Uri } from '../core/uri-utils';
 import { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';

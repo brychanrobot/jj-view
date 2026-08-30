@@ -2,6 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import { chunkArray } from '../utils/array-utils';
+import { fetchWithTimeout } from '../utils/fetch-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
     AuthManageItem,
@@ -11,12 +15,9 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
-import { type Event, EventEmitter } from './common/events';
-import type { HostEnvironment } from './common/host-environment';
+import { type Event, EventEmitter } from './host/events';
+import type { HostEnvironment } from './host/host-environment';
 import type { CodeForgeChangeInfo } from './jj-types';
-import { chunkArray } from './utils/array-utils';
-import { fetchWithTimeout } from './utils/fetch-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
 

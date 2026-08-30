@@ -6,7 +6,7 @@
 import * as fs from 'node:fs/promises';
 
 import * as path from 'node:path';
-import { type Disposable, type Event, EventEmitter } from './common/events';
+import { type Disposable, type Event, EventEmitter } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';

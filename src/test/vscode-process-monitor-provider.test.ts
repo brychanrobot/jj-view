@@ -10,8 +10,8 @@ vi.mock('vscode', async () => {
     return createVscodeMock();
 });
 
-import { JjProcessTracker } from '../jj-process-tracker';
-import { Uri } from '../uri-utils';
+import { JjProcessTracker } from '../core/jj-process-tracker';
+import { Uri } from '../core/uri-utils';
 import { VsCodeProcessMonitorProvider } from '../vscode/providers/vscode-process-monitor-provider';
 import { createMock } from './test-utils';
 

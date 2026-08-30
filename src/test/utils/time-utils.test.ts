@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { getRelativeTimeString } from '../../webview/common/utils/time-utils';
+import { getRelativeTimeString } from '../../core/webview/common/utils/time-utils';
 
 describe('time-utils tests', () => {
     describe('getRelativeTimeString', () => {

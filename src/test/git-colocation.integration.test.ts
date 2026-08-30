@@ -7,7 +7,7 @@ import * as assert from 'node:assert';
 import * as cp from 'node:child_process';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { checkGitColocation, resetGitColocationCheckForTesting } from '../vscode/git-colocation';
 import { TestRepo } from './test-repo';
 

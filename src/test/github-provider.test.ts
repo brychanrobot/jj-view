@@ -4,12 +4,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import type { CodeForgeAuthManager } from '../code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
-import type { HostSecrets } from '../common/host-environment';
-import { GitHubProvider } from '../github-provider';
-import { JjService } from '../jj-service';
-import type { CodeForgeChangeInfo } from '../jj-types';
+import type { CodeForgeAuthManager } from '../core/code-forge-auth';
+import type { AuthManageItem, ChangeStatusRequest } from '../core/code-forge-provider';
+import { GitHubProvider } from '../core/github-provider';
+import type { HostSecrets } from '../core/host/host-environment';
+import { JjService } from '../core/jj-service';
+import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
 import {

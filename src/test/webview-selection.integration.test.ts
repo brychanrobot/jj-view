@@ -6,7 +6,7 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';

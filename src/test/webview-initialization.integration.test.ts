@@ -5,9 +5,9 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import type { CodeForgeService } from '../code-forge-service';
-import type { JjRepository } from '../jj-repository';
-import { Uri } from '../uri-utils';
+import type { CodeForgeService } from '../core/code-forge-service';
+import type { JjRepository } from '../core/jj-repository';
+import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';

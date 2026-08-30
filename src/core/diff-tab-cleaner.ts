@@ -6,11 +6,11 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { HostDiffTab, HostEnvironment } from './common/host-environment';
+import { toError } from '../utils/error-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+import type { HostDiffTab, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import { getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
-import { toError } from './utils/error-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 interface CollectedTabs {
     uniqueRevisions: Set<string>;

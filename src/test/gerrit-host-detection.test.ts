@@ -8,7 +8,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import { NO_OP_LOGGER } from '../jj-service';
+import { NO_OP_LOGGER } from '../core/jj-service';
 import { detectGerritHost, normalizeHostUrl, parseRemoteUrl } from '../utils/gerrit-host-detection';
 import { FakeHostEnvironment } from './fake-host-environment';
 

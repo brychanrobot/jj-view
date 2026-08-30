@@ -4,7 +4,7 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { ScmContextValue } from '../jj-context-keys';
+import { ScmContextValue } from '../core/jj-context-keys';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
 import { TestRepo } from './test-repo';

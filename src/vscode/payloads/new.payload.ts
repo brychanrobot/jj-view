@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { extractRevisions } from '../../commands/command-utils';
-import type { NewPayload } from '../../commands/new';
+import { extractRevisions } from '../../core/commands/command-utils';
+import type { NewPayload } from '../../core/commands/new';
 
 export function createNewPayload(args: unknown[]): NewPayload {
     const revisions = extractRevisions(args);

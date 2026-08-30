@@ -4,11 +4,11 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import type { CodeForgeAuthManager } from '../code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest } from '../code-forge-provider';
-import type { HostSecrets } from '../common/host-environment';
-import { GitLabProvider } from '../gitlab-provider';
-import type { CodeForgeChangeInfo } from '../jj-types';
+import type { CodeForgeAuthManager } from '../core/code-forge-auth';
+import type { AuthManageItem, ChangeStatusRequest } from '../core/code-forge-provider';
+import { GitLabProvider } from '../core/gitlab-provider';
+import type { HostSecrets } from '../core/host/host-environment';
+import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGitLabServer } from './helpers/fake-gitlab-server';
 import {
@@ -332,7 +332,7 @@ describe('GitLabProvider', () => {
             });
         }
 
-        const mockJj = createMock<vscode.Disposable & import('../jj-service').JjService>({});
+        const mockJj = createMock<vscode.Disposable & import('../core/jj-service').JjService>({});
         const result = await provider.fetchStatuses(changes, mockJj);
         expect(result).toBe(true);
 

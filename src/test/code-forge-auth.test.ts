@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import { type AuthResult, CodeForgeAuthManager } from '../code-forge-auth';
+import { type AuthResult, CodeForgeAuthManager } from '../core/code-forge-auth';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { createMockLogOutputChannel } from './test-utils';
 

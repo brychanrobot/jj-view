@@ -6,9 +6,9 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { JjMergeService } from '../jj-merge-service';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
-import { Uri } from '../uri-utils';
+import { JjMergeService } from '../core/jj-merge-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { Uri } from '../core/uri-utils';
 import { VsCodeMergeContentProvider } from '../vscode/providers/vscode-merge-provider';
 import { TestRepo } from './test-repo';
 

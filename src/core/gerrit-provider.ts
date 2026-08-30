@@ -4,6 +4,13 @@
  */
 
 import { z } from 'zod';
+import { chunkArray } from '../utils/array-utils';
+import { fetchWithTimeout } from '../utils/fetch-utils';
+import { getGerritAuthHeader, resolveGitRoot } from '../utils/gerrit-credential-utils';
+import { detectGerritHost } from '../utils/gerrit-host-detection';
+import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import { convertJjChangeIdToHex } from '../utils/jj-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 import type {
     ChangeStatusRequest,
     CodeForgeComment,
@@ -11,17 +18,10 @@ import type {
     CodeForgeProvider,
     GitRemote,
 } from './code-forge-provider';
-import { type Event, EventEmitter } from './common/events';
-import type { HostEnvironment } from './common/host-environment';
+import { type Event, EventEmitter } from './host/events';
+import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
-import { chunkArray } from './utils/array-utils';
-import { fetchWithTimeout } from './utils/fetch-utils';
-import { getGerritAuthHeader, resolveGitRoot } from './utils/gerrit-credential-utils';
-import { detectGerritHost } from './utils/gerrit-host-detection';
-import { resolveGerritChangeKey, stripGerritTrailers } from './utils/gerrit-utils';
-import { convertJjChangeIdToHex } from './utils/jj-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 export const GerritFileSchema = z.object({
     status: z.string().optional(),

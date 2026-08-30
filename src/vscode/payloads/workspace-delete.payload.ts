@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { WorkspaceDeletePayload } from '../../commands/workspace-delete';
+import type { WorkspaceDeletePayload } from '../../core/commands/workspace-delete';
 
 export function createWorkspaceDeletePayload(args: unknown[]): WorkspaceDeletePayload {
     const arg = args[0];

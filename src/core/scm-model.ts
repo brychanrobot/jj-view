@@ -3,15 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type AsyncEvent, AsyncEventEmitter, type Disposable } from './common/events';
+import { toError } from '../utils/error-utils';
+import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from '../utils/jj-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+import { type AsyncEvent, AsyncEventEmitter, type Disposable } from './host/events';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import type { CommitParent, JjLogEntry, JjStatusEntry } from './jj-types';
 import { encodeJjViewQuery, getRepoRelativePath, getRevisionFromUri, Uri } from './uri-utils';
-import { toError } from './utils/error-utils';
-import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from './utils/jj-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 export interface ScmAncestorEntry {
     entry: JjLogEntry;

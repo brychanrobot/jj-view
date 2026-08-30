@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
-import { type Disposable, type Event, EventEmitter } from './common/events';
+import { type Disposable, type Event, EventEmitter } from './host/events';
 
 export class CodeForgeRegistry implements Disposable {
     private factories = new Map<string, CodeForgeProviderFactory>();

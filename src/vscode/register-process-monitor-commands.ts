@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import type { JjProcessTracker } from '../jj-process-tracker';
+import type { JjProcessTracker } from '../core/jj-process-tracker';
 
 export function registerProcessMonitorCommands(
     context: vscode.ExtensionContext,

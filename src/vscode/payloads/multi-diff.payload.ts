@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { extractRevision } from '../../commands/command-utils';
-import type { ShowMultiFileDiffPayload } from '../../commands/multi-diff';
+import { extractRevision } from '../../core/commands/command-utils';
+import type { ShowMultiFileDiffPayload } from '../../core/commands/multi-diff';
 
 export function createShowMultiFileDiffPayload(args: unknown[]): ShowMultiFileDiffPayload {
     const revision = extractRevision(args) || '@';

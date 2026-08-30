@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as React from 'react';
+import { formatCommitDescription } from '../../../utils/format-utils';
+import { formatDisplayChangeId } from '../../../utils/jj-utils';
 import {
     type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
-} from '../../common/ipc/commit-details-schemas';
+} from '../../host/ipc/commit-details-schemas';
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
-import { formatCommitDescription } from '../../utils/format-utils';
-import { formatDisplayChangeId } from '../../utils/jj-utils';
 import { BasePill, BookmarkPill, TagPill } from '../common/components/Bookmark';
 import { PersonInfo } from '../common/components/PersonInfo';
 import { useRpcReceiver } from '../transport/BridgeContext';

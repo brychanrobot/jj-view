@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ActionPayload, CommitAction, ToggleableCommitAction } from './common/ipc/log-view-schemas';
-import { TOGGLEABLE_COMMIT_ACTIONS } from './common/ipc/log-view-schemas';
+import type { ActionPayload, CommitAction, ToggleableCommitAction } from './host/ipc/log-view-schemas';
+import { TOGGLEABLE_COMMIT_ACTIONS } from './host/ipc/log-view-schemas';
 import type {
     CodeForgeChangeInfo,
     CommitParent,

@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjEditFsService } from '../jj-edit-fs-service';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjEditFsService } from '../core/jj-edit-fs-service';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';

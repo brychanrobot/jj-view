@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { Poller } from '../poller';
+import { Poller } from '../core/poller';
 
 describe('Poller', () => {
     let callback: Mock<() => Promise<void>>;

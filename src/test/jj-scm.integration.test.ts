@@ -9,20 +9,20 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
-import { compareAllFilesWithRevisionCommand } from '../commands/compare-all-files-with-revision';
-import { setDescriptionCommand } from '../commands/describe';
-import { openMergeEditorCommand } from '../commands/merge-editor';
-import { squashFilesIntoParentCommand } from '../commands/squash-files';
+import { compareAllFilesWithRevisionCommand } from '../core/commands/compare-all-files-with-revision';
+import { setDescriptionCommand } from '../core/commands/describe';
+import { openMergeEditorCommand } from '../core/commands/merge-editor';
+import { squashFilesIntoParentCommand } from '../core/commands/squash-files';
 import {
     completeSquashRevisionCommand,
     getSquashStorageDir,
     squashRevisionIntoParentCommand,
-} from '../commands/squash-revision';
-import { squashSelectionIntoParentCommand } from '../commands/squash-selection';
-import type { CommentsManager } from '../comments-manager';
-import { ScmContextValue } from '../jj-context-keys';
-import type { JjResourceState } from '../scm-resource-state';
-import { toFileUri, Uri } from '../uri-utils';
+} from '../core/commands/squash-revision';
+import { squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
+import type { CommentsManager } from '../core/comments-manager';
+import { ScmContextValue } from '../core/jj-context-keys';
+import type { JjResourceState } from '../core/scm-resource-state';
+import { toFileUri, Uri } from '../core/uri-utils';
 import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/compare-all-files-with-revision.payload';
 import { createSetDescriptionPayload } from '../vscode/payloads/describe.payload';
 import { createOpenMergeEditorPayload } from '../vscode/payloads/merge-editor.payload';

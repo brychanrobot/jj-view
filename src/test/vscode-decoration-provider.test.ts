@@ -9,10 +9,10 @@ import { createVscodeMock } from './vscode-mock';
 vi.mock('vscode', () => createVscodeMock());
 
 import type * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjDecorationModel } from '../jj-decoration-model';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjDecorationModel } from '../core/jj-decoration-model';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { VsCodeDecorationProvider } from '../vscode/providers/vscode-decoration-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';

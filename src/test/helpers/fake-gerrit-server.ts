@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as http from 'node:http';
-import type { GerritChange } from '../../gerrit-provider';
+import type { GerritChange } from '../../core/gerrit-provider';
 
 export interface FakeGerritComment {
     id: string;

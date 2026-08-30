@@ -10,7 +10,7 @@ import {
     createWebviewRpcReceiver,
     createWebviewRpcSender,
     WebviewRpcReceiver,
-} from '../common/webview-rpc-dispatcher';
+} from '../core/host/webview-rpc-dispatcher';
 import type { LoggerChannel } from '../utils/output-channel';
 
 describe('WebviewRpcReceiver', () => {

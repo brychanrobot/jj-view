@@ -6,10 +6,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { CodeForgeService } from '../code-forge-service';
-import { GerritProvider } from '../gerrit-provider';
-import { JjService, NO_OP_LOGGER } from '../jj-service';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CodeForgeService } from '../core/code-forge-service';
+import { GerritProvider } from '../core/gerrit-provider';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import * as credentialUtils from '../utils/gerrit-credential-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';

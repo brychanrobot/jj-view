@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { extractRevisions } from '../../commands/command-utils';
-import type { SetDescriptionPayload } from '../../commands/describe';
-import type { DescribePromptPayload } from '../../commands/describe-prompt';
+import { extractRevisions } from '../../core/commands/command-utils';
+import type { SetDescriptionPayload } from '../../core/commands/describe';
+import type { DescribePromptPayload } from '../../core/commands/describe-prompt';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createSetDescriptionPayload(args: unknown[], scmProvider?: VsCodeScmProvider): SetDescriptionPayload {

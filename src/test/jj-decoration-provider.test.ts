@@ -6,9 +6,9 @@
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import type { JjService } from '../jj-service';
-import type { JjStatusEntry } from '../jj-types';
-import type { Uri } from '../uri-utils';
+import type { JjService } from '../core/jj-service';
+import type { JjStatusEntry } from '../core/jj-types';
+import type { Uri } from '../core/uri-utils';
 import { accessPrivate, createMock } from './test-utils';
 
 // Mock vscode
@@ -42,7 +42,7 @@ vi.mock('vscode', () => {
 });
 
 // Import after mock
-import { JjDecorationModel } from '../jj-decoration-model';
+import { JjDecorationModel } from '../core/jj-decoration-model';
 import { VsCodeDecorationProvider } from '../vscode/providers/vscode-decoration-provider';
 
 function createProvider(service: JjService, root = '/ws'): VsCodeDecorationProvider {

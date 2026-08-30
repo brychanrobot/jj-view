@@ -4,9 +4,9 @@
  */
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { JjStatusEntry } from '../jj-types';
-import { createJjResourceState } from '../scm-resource-state';
-import { Uri } from '../uri-utils';
+import type { JjStatusEntry } from '../core/jj-types';
+import { createJjResourceState } from '../core/scm-resource-state';
+import { Uri } from '../core/uri-utils';
 import './vitest-utils';
 
 describe('createJjResourceState', () => {

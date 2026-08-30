@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { CommandContext } from '../common/command-context';
-import { showJjError } from '../common/ui-helpers';
+import type { CommandContext } from '../host/command-context';
+import { showJjError } from '../host/ui-helpers';
 
 export interface CommitMenuContext {
     commitId: string;

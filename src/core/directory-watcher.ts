@@ -4,11 +4,11 @@
  */
 
 import { type AsyncSubscription, type BackendType, type Event, subscribe } from '@parcel/watcher';
-import type { HostDisposable, HostEnvironment } from './common/host-environment';
+import { isWatchmanAvailable } from '../utils/binary-utils';
+import { toError } from '../utils/error-utils';
+import type { LoggerChannel } from '../utils/output-channel';
+import type { HostDisposable, HostEnvironment } from './host/host-environment';
 import { Uri } from './uri-utils';
-import { isWatchmanAvailable } from './utils/binary-utils';
-import { toError } from './utils/error-utils';
-import type { LoggerChannel } from './utils/output-channel';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
 

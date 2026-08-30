@@ -4,10 +4,10 @@
  */
 
 import * as vscode from 'vscode';
-import { CommitDetailsController } from '../../controllers/commit-details-controller';
-import type { JjRepositoryManager } from '../../jj-repository-manager';
-import { createJjResourceState } from '../../scm-resource-state';
-import { parseCommitDetailsUri, type Uri } from '../../uri-utils';
+import { CommitDetailsController } from '../../core/controllers/commit-details-controller';
+import type { JjRepositoryManager } from '../../core/jj-repository-manager';
+import { createJjResourceState } from '../../core/scm-resource-state';
+import { parseCommitDetailsUri, type Uri } from '../../core/uri-utils';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { getWebviewHtml } from '../vscode-webview-html';
 

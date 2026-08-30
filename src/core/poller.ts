@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { HostDisposable } from './common/host-environment';
+import type { HostDisposable } from './host/host-environment';
 
 /**
  * Manages a polling loop with a strict gap between executions.

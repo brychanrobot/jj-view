@@ -2,15 +2,16 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import type { LoggerChannel } from '../utils/output-channel';
+import { TimerBucket } from '../utils/timer-bucket';
 import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
-import { type Disposable, disposeSafely, type Event, EventEmitter } from './common/events';
-import type { HostDisposable, HostEnvironment } from './common/host-environment';
+import { type Disposable, disposeSafely, type Event, EventEmitter } from './host/events';
+import type { HostDisposable, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
-import type { LoggerChannel } from './utils/output-channel';
-import { TimerBucket } from './utils/timer-bucket';
 
 export class CodeForgeService implements Disposable {
     private poller: NodeJS.Timeout | undefined;

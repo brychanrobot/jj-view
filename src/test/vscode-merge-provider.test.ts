@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjMergeService } from '../jj-merge-service';
-import { JjRepositoryManager } from '../jj-repository-manager';
-import { Uri } from '../uri-utils';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjMergeService } from '../core/jj-merge-service';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { Uri } from '../core/uri-utils';
 import { VsCodeMergeContentProvider } from '../vscode/providers/vscode-merge-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';

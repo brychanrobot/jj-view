@@ -9,7 +9,7 @@ test-results/
 test-artifacts/
 media/custom-icons/
 playwright-report/
-src/webview/themes.generated.ts
+src/core/webview/themes.generated.ts
 media/themes.generated.css
 build/
 *.log

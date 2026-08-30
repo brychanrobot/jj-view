@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Uri } from '../uri-utils';
+import { Uri } from '../core/uri-utils';
 import { createVscodeMock } from './vscode-mock';
 
 vi.mock('vscode', () => createVscodeMock());
@@ -12,9 +12,9 @@ vi.mock('vscode', () => createVscodeMock());
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CodeForgeRegistry } from '../code-forge-registry';
-import { JjEditFsService } from '../jj-edit-fs-service';
-import { JjRepositoryManager } from '../jj-repository-manager';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { JjEditFsService } from '../core/jj-edit-fs-service';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { VsCodeEditFsProvider } from '../vscode/providers/vscode-edit-fs-provider';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';

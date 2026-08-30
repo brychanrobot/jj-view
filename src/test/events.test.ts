@@ -11,7 +11,7 @@ import {
     disposeSafely,
     type Event,
     EventEmitter,
-} from '../common/events';
+} from '../core/host/events';
 import { createMock } from './test-utils';
 
 describe('EventEmitter (synchronous)', () => {

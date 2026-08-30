@@ -4,8 +4,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { type CommitDragData, CommitDragPreview } from '../webview/log/components/CommitDragPreview';
-import { SQUASH_INTO_MODIFIER } from '../webview/log/utils/drag-modifiers';
+import { type CommitDragData, CommitDragPreview } from '../core/webview/log/components/CommitDragPreview';
+import { SQUASH_INTO_MODIFIER } from '../core/webview/log/utils/drag-modifiers';
 
 describe('CommitDragPreview Component', () => {
     it('renders change ID with bold prefix and remainder string', () => {

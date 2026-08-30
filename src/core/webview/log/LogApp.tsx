@@ -21,7 +21,7 @@ import {
     LogViewHostToWebviewMessageSchema,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
-} from '../../common/ipc/log-view-schemas';
+} from '../../host/ipc/log-view-schemas';
 import type { JjLogEntry } from '../../jj-types';
 import { BookmarkPill } from '../common/components/Bookmark';
 import { useRpcReceiver, useRpcSender } from '../transport/BridgeContext';

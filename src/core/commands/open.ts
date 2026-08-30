@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { CommandContext } from '../common/command-context';
+import type { CommandContext } from '../host/command-context';
 import type { JjResourceState } from '../scm-resource-state';
 import { toFileUri, type Uri } from '../uri-utils';
 

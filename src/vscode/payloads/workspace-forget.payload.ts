@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { WorkspaceForgetPayload } from '../../commands/workspace-forget';
+import type { WorkspaceForgetPayload } from '../../core/commands/workspace-forget';
 
 export function createWorkspaceForgetPayload(args: unknown[]): WorkspaceForgetPayload {
     const arg = args[0];

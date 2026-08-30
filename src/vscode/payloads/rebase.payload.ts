@@ -2,8 +2,8 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { extractRevision } from '../../commands/command-utils';
-import type { RebaseOntoSelectedPayload } from '../../commands/rebase';
+import { extractRevision } from '../../core/commands/command-utils';
+import type { RebaseOntoSelectedPayload } from '../../core/commands/rebase';
 import type { VsCodeScmProvider } from '../providers/vscode-scm-provider';
 
 export function createRebaseOntoSelectedPayload(

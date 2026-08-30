@@ -4,8 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import type { JjViewFsService } from '../../jj-view-fs-service';
-import type { Uri } from '../../uri-utils';
+import type { JjViewFsService } from '../../core/jj-view-fs-service';
+import type { Uri } from '../../core/uri-utils';
 import { getErrorMessage } from '../../utils/error-utils';
 
 /**
