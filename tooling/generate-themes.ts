@@ -110,7 +110,7 @@ function writeIfChanged(filePath: string, content: string) {
 
 function runGeneration() {
     try {
-        const themesPath = path.join(import.meta.dirname, '../src/webview/themes.json');
+        const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.json');
         if (!fs.existsSync(themesPath)) {
             console.error(`Error: themes.json not found at ${themesPath}`);
             return;
@@ -120,7 +120,7 @@ function runGeneration() {
 
         const { ts, css } = generateThemes(themesData);
 
-        const tsOutputPath = path.join(import.meta.dirname, '../src/webview/themes.generated.ts');
+        const tsOutputPath = path.join(import.meta.dirname, '../src/core/webview/themes.generated.ts');
         const cssOutputPath = path.join(import.meta.dirname, '../media/themes.generated.css');
 
         writeIfChanged(tsOutputPath, ts);

@@ -48,7 +48,7 @@ function formatFile(filePath, { ignoreUnmatched = false } = {}) {
 
 async function main() {
     const extensionCtx = await esbuild.context({
-        entryPoints: ['src/extension.ts'],
+        entryPoints: ['src/vscode/extension.ts'],
         bundle: true,
         format: 'cjs',
         minify: production,
@@ -63,9 +63,9 @@ async function main() {
 
     const webviewCtx = await esbuild.context({
         entryPoints: {
-            index: 'src/webview/log/index.tsx',
-            'commit-details': 'src/webview/commit-details/index.tsx',
-            'process-monitor': 'src/webview/process-monitor/index.tsx',
+            index: 'src/core/webview/log/index.tsx',
+            'commit-details': 'src/core/webview/commit-details/index.tsx',
+            'process-monitor': 'src/core/webview/process-monitor/index.tsx',
         },
         bundle: true,
         format: 'iife',
