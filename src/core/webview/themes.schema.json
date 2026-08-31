@@ -16,6 +16,11 @@
                     "type": "string",
                     "pattern": "^var\\(--[a-zA-Z0-9-]+\\)$",
                     "description": "A VS Code charting color variable (e.g. var(--vscode-charts-green))."
+                },
+                {
+                    "type": "string",
+                    "pattern": "^--opaque\\(var\\(--[a-zA-Z0-9-]+\\)\\)$",
+                    "description": "A CSS custom function polyfill that strips opacity (e.g. --opaque(var(--vscode-charts-orange)))."
                 }
             ]
         },
