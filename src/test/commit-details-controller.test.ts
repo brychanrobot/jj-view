@@ -78,6 +78,7 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         await controller.load();
         expect(controller.draftDescription).toBe('in-progress draft editing');
         expect(controller.persistedDescription).toBe('persisted description');
+        expect(controller.getState()?.description).toBe('persisted description');
     });
 
     test('saves commit description to real repository', async () => {
