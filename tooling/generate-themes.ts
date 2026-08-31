@@ -1,12 +1,39 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
 import Handlebars from 'handlebars';
+import { type ParseError, parse } from 'jsonc-parser';
 
 export interface ThemeJsonConfig {
     strategy: 'cycle' | 'clamp';
     colors: string[];
     lightColors?: string[];
+}
+
+/**
+ * Resolves compile-time color expressions like `--opaque(var(--variable))`
+ * into modern CSS Relative Color Syntax (`rgb(from var(--variable) r g b / 1)`).
+ */
+export function resolveColor(color: string): string {
+    const trimmed = color.trim();
+    const opaqueMatch = /^--opaque\((.+)\)$/.exec(trimmed);
+    if (opaqueMatch) {
+        return `rgb(from ${opaqueMatch[1].trim()} r g b / 1)`;
+    }
+    return trimmed;
+}
+
+function normalizeThemeConfig(config: ThemeJsonConfig): ThemeJsonConfig {
+    return {
+        strategy: config.strategy,
+        colors: config.colors.map(resolveColor),
+        lightColors: config.lightColors ? config.lightColors.map(resolveColor) : undefined,
+    };
 }
 
 const TS_TEMPLATE = `/**
@@ -16,7 +43,7 @@ const TS_TEMPLATE = `/**
 
 /**
  * AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
- * Run \`pnpm build:themes\` to update this file from themes.json.
+ * Run \`pnpm build:themes\` to update this file from themes.jsonc.
  */
 
 export interface ThemeConfig {
@@ -57,7 +84,7 @@ const CSS_TEMPLATE = `/**
 
 /**
  * AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
- * Run \`pnpm build:themes\` to update this file from themes.json.
+ * Run \`pnpm build:themes\` to update this file from themes.jsonc.
  */
 
 {{#each themes}}
@@ -83,11 +110,14 @@ export function generateThemes(themesData: Record<string, ThemeJsonConfig>): { t
     const tsTemplate = Handlebars.compile(TS_TEMPLATE);
     const cssTemplate = Handlebars.compile(CSS_TEMPLATE);
 
-    const context = { themes: themesData };
+    const normalizedThemes: Record<string, ThemeJsonConfig> = {};
+    for (const [key, theme] of Object.entries(themesData)) {
+        normalizedThemes[key] = normalizeThemeConfig(theme);
+    }
 
     return {
-        ts: tsTemplate(context),
-        css: cssTemplate(context),
+        ts: tsTemplate({ themes: themesData }),
+        css: cssTemplate({ themes: normalizedThemes }),
     };
 }
 
@@ -110,15 +140,21 @@ function writeIfChanged(filePath: string, content: string) {
 
 function runGeneration() {
     try {
-        const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.json');
+        const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.jsonc');
         if (!fs.existsSync(themesPath)) {
-            console.error(`Error: themes.json not found at ${themesPath}`);
+            console.error(`Error: themes.jsonc not found at ${themesPath}`);
             return;
         }
 
-        const themesData: Record<string, ThemeJsonConfig> = JSON.parse(fs.readFileSync(themesPath, 'utf8'));
+        const raw = fs.readFileSync(themesPath, 'utf8');
+        const errors: ParseError[] = [];
+        const themesData: unknown = parse(raw, errors);
+        if (errors.length > 0 || !themesData || typeof themesData !== 'object') {
+            console.error(`Error parsing themes.jsonc: ${errors.map((e) => e.error).join(', ')}`);
+            return;
+        }
 
-        const { ts, css } = generateThemes(themesData);
+        const { ts, css } = generateThemes(themesData as Record<string, ThemeJsonConfig>);
 
         const tsOutputPath = path.join(import.meta.dirname, '../src/core/webview/themes.generated.ts');
         const cssOutputPath = path.join(import.meta.dirname, '../media/themes.generated.css');
@@ -132,7 +168,7 @@ function runGeneration() {
 }
 
 async function watchThemes() {
-    const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.json');
+    const themesPath = path.join(import.meta.dirname, '../src/core/webview/themes.jsonc');
     const themesDir = path.dirname(themesPath);
     const themesFile = path.basename(themesPath);
 

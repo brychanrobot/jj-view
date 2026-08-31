@@ -1,7 +1,7 @@
 {
     "json.schemas": [
         {
-            "fileMatch": ["src/core/webview/themes.json"],
+            "fileMatch": ["src/core/webview/themes.jsonc"],
             "url": "./src/core/webview/themes.schema.json"
         }
     ],

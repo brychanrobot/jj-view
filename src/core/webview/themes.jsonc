@@ -3,11 +3,14 @@
         "strategy": "cycle",
         "colors": [
             "var(--vscode-charts-green)",
-            "var(--vscode-charts-orange)",
             "var(--vscode-charts-blue)",
-            "var(--vscode-charts-red)",
-            "var(--vscode-charts-purple)",
             "var(--vscode-charts-yellow)",
+            "var(--vscode-charts-purple)",
+            "var(--vscode-charts-red)",
+            // VS Code's charts.orange fallback delegates to minimapFindMatch / editorFindMatchHighlight,
+            // which has ~33% alpha (#ea5c0055). See: https://github.com/microsoft/vscode/issues/333529
+            // We use --opaque() to strip the alpha channel at build time and guarantee 100% opacity.
+            "--opaque(var(--vscode-charts-orange))",
             "var(--vscode-charts-foreground)"
         ]
     },
