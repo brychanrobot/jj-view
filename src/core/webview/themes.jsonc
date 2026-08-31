@@ -34,5 +34,30 @@
         "strategy": "clamp",
         "colors": ["#eeeeee", "#666666", "#555555", "#444444", "#383838", "#303030", "#282828"],
         "lightColors": ["#111111", "#999999", "#aaaaaa", "#bbbbbb", "#c7c7c7", "#cfcfcf", "#d7d7d7"]
+    },
+    "nord": {
+        "strategy": "cycle",
+        "colors": ["#88c0d0", "#81a1c1", "#5e81ac", "#a3be8c", "#ebcb8b", "#d08770", "#bf616a", "#b48ead"]
+    },
+    "dracula": {
+        "strategy": "cycle",
+        "colors": ["#bd93f9", "#8be9fd", "#50fa7b", "#ffb86c", "#ff79c6", "#f1fa8c", "#ff5555"]
+    },
+    "forest": {
+        "strategy": "cycle",
+        "colors": ["#2d6a4f", "#e9c46a", "#70a036", "#b85d38", "#52b788", "#bc6c25", "#edd78a"]
+    },
+    "solarized": {
+        "strategy": "cycle",
+        "colors": ["#268bd2", "#2aa198", "#859900", "#b58900", "#cb4b16", "#dc322f", "#d33682", "#6c71c4"]
+    },
+    "autumn": {
+        "strategy": "clamp",
+        "colors": ["#f39c12", "#e67e22", "#d35400", "#c0392b", "#8e44ad", "#2c3e50"]
+    },
+    "matrix": {
+        "strategy": "clamp",
+        "colors": ["#00ff66", "#00dd55", "#00bb44", "#009933", "#007722", "#005511", "#003300"],
+        "lightColors": ["#005511", "#007722", "#009933", "#00bb44", "#00dd55", "#00ff66", "#33cc66"]
     }
 }
