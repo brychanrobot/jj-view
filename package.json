@@ -132,7 +132,13 @@
                         "sunset",
                         "neon",
                         "pastel",
-                        "monochrome"
+                        "monochrome",
+                        "nord",
+                        "dracula",
+                        "forest",
+                        "solarized",
+                        "autumn",
+                        "matrix"
                     ],
                     "description": "Color theme for the graph lanes in the JJ Log view."
                 },
