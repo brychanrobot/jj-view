@@ -39,7 +39,6 @@ export class VsCodeCommitDetailsEditorProvider
     public readonly onDidClosePanel = this._onDidClosePanel.event;
 
     private readonly _controllers = new Map<string, CommitDetailsController>();
-    private readonly _disposables: vscode.Disposable[] = [];
 
     constructor(
         private readonly _extensionUri: Uri,
@@ -47,19 +46,17 @@ export class VsCodeCommitDetailsEditorProvider
         private readonly _context: vscode.ExtensionContext,
     ) {}
 
-    public getController(changeId: string): CommitDetailsController | undefined {
-        return this._controllers.get(changeId);
+    private _getControllerKey(changeId: string, repoRoot?: Uri): string {
+        const rootPath = repoRoot?.fsPath ?? '';
+        return rootPath ? `${rootPath}#${changeId}` : changeId;
     }
 
-    public async refresh(changeId?: string): Promise<void> {
-        if (changeId && this._controllers.has(changeId)) {
-            const controller = this._controllers.get(changeId);
-            if (controller) {
-                await controller.load();
-            }
-            return;
-        }
+    public getController(changeId: string, repoRoot?: Uri): CommitDetailsController | undefined {
+        const key = this._getControllerKey(changeId, repoRoot);
+        return this._controllers.get(key) ?? this._controllers.get(changeId);
+    }
 
+    public async refresh(): Promise<void> {
         for (const controller of this._controllers.values()) {
             await controller.load();
         }
@@ -69,7 +66,8 @@ export class VsCodeCommitDetailsEditorProvider
         document: JjCommitDocument,
         _cancellation: vscode.CancellationToken,
     ): Promise<void> {
-        const controller = this._controllers.get(document.changeId);
+        const key = this._getControllerKey(document.changeId, document.repoRoot);
+        const controller = this._controllers.get(key) ?? this._controllers.get(document.changeId);
         if (controller) {
             await controller.save();
         }
@@ -128,7 +126,13 @@ export class VsCodeCommitDetailsEditorProvider
             context: this._context,
         });
 
-        let controller = this._controllers.get(document.changeId);
+        const controllerKey = this._getControllerKey(document.changeId, document.repoRoot ?? repo.rootUri);
+        let controller = this._controllers.get(controllerKey);
+        if (controller?.isDisposed) {
+            this._controllers.delete(controllerKey);
+            controller = undefined;
+        }
+
         if (!controller) {
             const newController = new CommitDetailsController(document.changeId, repo, host, {
                 logger: this._repositoryManager.outputChannel,
@@ -150,22 +154,14 @@ export class VsCodeCommitDetailsEditorProvider
                     }
                 },
             });
-            this._controllers.set(document.changeId, newController);
+            this._controllers.set(controllerKey, newController);
             controller = newController;
 
             newController.onDidClose(() => {
-                this._controllers.delete(document.changeId);
+                this._controllers.delete(controllerKey);
                 this._onDidClosePanel.fire(document.changeId);
                 newController.dispose();
             });
-        }
-
-        const log = await controller.load();
-        if (!log) {
-            this._controllers.delete(document.changeId);
-            controller.dispose();
-            panel.dispose();
-            return;
         }
 
         panel.webview.options = {
@@ -175,7 +171,14 @@ export class VsCodeCommitDetailsEditorProvider
         };
 
         const messageDisposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-            await controller.handleMessage(message);
+            try {
+                await controller.handleMessage(message);
+            } catch (err) {
+                this._repositoryManager.outputChannel.error(
+                    `[VsCodeCommitDetailsEditorProvider] Error handling message for ${document.changeId}:`,
+                    err instanceof Error ? err : new Error(String(err)),
+                );
+            }
         });
         const messengerDisposable = controller.addMessenger(panel.webview);
 
@@ -185,6 +188,12 @@ export class VsCodeCommitDetailsEditorProvider
                 d.dispose();
             }
         });
+
+        const log = await controller.load();
+        if (!log && !controller.isDisposed) {
+            panel.dispose();
+            return;
+        }
 
         panel.webview.html = getWebviewHtml({
             webview: panel.webview,
@@ -199,10 +208,6 @@ export class VsCodeCommitDetailsEditorProvider
             controller.dispose();
         }
         this._controllers.clear();
-        for (const d of this._disposables) {
-            d.dispose();
-        }
-        this._disposables.length = 0;
         this._onDidChangeCustomDocument.dispose();
         this._onDidClosePanel.dispose();
     }
