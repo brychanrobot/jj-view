@@ -6,9 +6,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { CommitDetailsController } from '../core/controllers/commit-details-controller';
+import {
+    type CommitDetailsHostToWebviewMessage,
+    CommitDetailsHostToWebviewMessageSchema,
+    type CommitDetailsToHostMessage,
+    CommitDetailsToHostMessageSchema,
+} from '../core/host/ipc/commit-details-schemas';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
+import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
@@ -17,11 +24,10 @@ describe('CommitDetailsController Domain Unit Tests', () => {
     let repositoryManager: JjRepositoryManager;
     let fakeHost: FakeHostEnvironment;
     let controller: CommitDetailsController;
-    let postedMessages: unknown[];
+    let client: MockWebviewClient<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>;
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        postedMessages = [];
         testRepo = new TestRepo();
         testRepo.init();
 
@@ -40,15 +46,20 @@ describe('CommitDetailsController Domain Unit Tests', () => {
             throw new Error('Failed to register repo in test');
         }
 
-        controller = new CommitDetailsController('@', repo, fakeHost);
-        controller.addMessenger({
-            postMessage: (m) => postedMessages.push(m),
+        client = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
         });
+
+        controller = new CommitDetailsController('@', repo, fakeHost);
+        controller.addMessenger(client.webview);
     });
 
     afterEach(async () => {
+        client.dispose();
         controller.dispose();
         await repositoryManager.dispose();
+        testRepo.dispose();
     });
 
     test('loads commit details and changes from real repository', async () => {
@@ -117,35 +128,46 @@ describe('CommitDetailsController Domain Unit Tests', () => {
 
         await controller.load();
 
-        const lateMessages: unknown[] = [];
-        controller.addMessenger({
-            postMessage: (m) => lateMessages.push(m),
+        const lateClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        controller.addMessenger(lateClient.webview);
+        await Promise.resolve();
+
+        expect(lateClient.receivedMessages).toHaveLength(1);
+        expect(lateClient.receivedMessages[0]).toEqual({
+            type: 'update',
+            payload: expect.objectContaining({
+                description: 'initial commit for replay',
+            }),
         });
 
-        expect(lateMessages).toHaveLength(1);
-        expect(lateMessages[0]).toEqual(
-            expect.objectContaining({
-                type: 'update',
-                payload: expect.objectContaining({
-                    description: 'initial commit for replay',
-                }),
-            }),
-        );
+        lateClient.dispose();
     });
 
     test('fires onDidClose only when the last messenger detaches', async () => {
         const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repo) {
+            throw new Error('repo not found');
+        }
         const testController = new CommitDetailsController('@', repo, fakeHost);
         const closeListener = vi.fn();
         testController.onDidClose(closeListener);
 
-        const messenger1 = { postMessage: vi.fn() };
-        const messenger2 = { postMessage: vi.fn() };
+        const client1 = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        const client2 = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
 
-        const sub1 = testController.addMessenger(messenger1);
-        const sub2 = testController.addMessenger(messenger2);
+        const sub1 = testController.addMessenger(client1.webview);
+        const sub2 = testController.addMessenger(client2.webview);
 
-        // Disposing first messenger does not fire onDidClose because messenger2 is still attached
+        // Disposing first messenger does not fire onDidClose because client2 is still attached
         sub1.dispose();
         expect(closeListener).not.toHaveBeenCalled();
 
@@ -153,6 +175,83 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         sub2.dispose();
         expect(closeListener).toHaveBeenCalledTimes(1);
 
+        client1.dispose();
+        client2.dispose();
         testController.dispose();
+    });
+
+    test('loads commit details for a conflicted commit', async () => {
+        testRepo.writeFile('file.txt', 'base content\n');
+        testRepo.describe('base');
+
+        testRepo.new(['@'], 'side 1');
+        testRepo.writeFile('file.txt', 'side 1 content\n');
+
+        testRepo.new(['@-'], 'side 2');
+        testRepo.writeFile('file.txt', 'side 2 content\n');
+
+        testRepo.new(['@-+', '@'], 'merge with conflict');
+
+        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repo) {
+            throw new Error('repo not found');
+        }
+        const conflictController = new CommitDetailsController('@', repo, fakeHost);
+        const conflictClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        conflictController.addMessenger(conflictClient.webview);
+
+        const log = await conflictController.load();
+        expect(log).toBeDefined();
+        expect(conflictController.logEntry?.conflict).toBe(true);
+
+        const state = conflictController.getState();
+        expect(state).toBeDefined();
+        expect(state?.isConflict).toBe(true);
+
+        const updates = conflictClient.receivedMessages.filter((m) => m.type === 'update');
+        expect(updates.length).toBeGreaterThanOrEqual(1);
+        expect(updates[0]).toEqual({
+            type: 'update',
+            payload: expect.objectContaining({
+                isConflict: true,
+            }),
+        });
+
+        conflictClient.dispose();
+        conflictController.dispose();
+    });
+
+    test('loads commit details for a divergent commit', async () => {
+        testRepo.writeFile('file.txt', 'v1\n');
+        testRepo.describe('feature v1');
+        const changeId = testRepo.getChangeId('@');
+        const commitIdV1 = testRepo.getCommitId('@');
+
+        testRepo.describe('feature v2', changeId);
+        testRepo.bookmark('old-version', commitIdV1);
+
+        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repo) {
+            throw new Error('repo not found');
+        }
+
+        const logs = await repo.jj.getLog({ revision: 'all()' });
+        const divergentEntry = logs.find((l) => l.is_divergent);
+        expect(divergentEntry).toBeDefined();
+        if (!divergentEntry) {
+            throw new Error('divergentEntry not found');
+        }
+        expect(divergentEntry.change_id).toContain('/');
+
+        const divergentController = new CommitDetailsController(divergentEntry.change_id, repo, fakeHost);
+        const log = await divergentController.load();
+        expect(log).toBeDefined();
+        expect(divergentController.logEntry?.change_id).toBe(divergentEntry.change_id);
+        expect(divergentController.getState()?.changeId).toBe(divergentEntry.change_id);
+
+        divergentController.dispose();
     });
 });

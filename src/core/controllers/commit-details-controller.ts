@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
@@ -31,7 +32,7 @@ export interface CommitDetailsControllerOptions {
 export class CommitDetailsController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
-    private _loadVersion = 0;
+    private readonly _loadQueue: CoalescingQueue;
     private readonly _logger?: LoggerChannel;
     private readonly _receiver: WebviewRpcReceiver<CommitDetailsToHostMessage, CommitDetailsHostToWebviewMessage>;
 
@@ -59,6 +60,13 @@ export class CommitDetailsController implements Disposable {
     ) {
         this._logger = _options?.logger;
         this._receiver = this._createRpcReceiver();
+        this._loadQueue = new CoalescingQueue(async () => {
+            await this._doLoad();
+        });
+    }
+
+    public get isDisposed(): boolean {
+        return this._disposed;
     }
 
     public get logEntry(): JjLogEntry | undefined {
@@ -130,21 +138,31 @@ export class CommitDetailsController implements Disposable {
             return undefined;
         }
 
-        const currentVersion = ++this._loadVersion;
+        await this._loadQueue.run();
+        return this._logEntry;
+    }
+
+    private async _doLoad(): Promise<void> {
+        if (!this.repo || this._disposed) {
+            return;
+        }
+
         try {
             const logsPromise = this.repo.jj.getLog({ revision: this.changeId });
             const changesPromise = this.repo.jj.getChanges(this.changeId).catch(() => null);
 
             const [logs, rawChanges] = await Promise.all([logsPromise, changesPromise]);
 
-            if (currentVersion !== this._loadVersion || this._disposed) {
-                return undefined;
+            if (this._disposed) {
+                return;
             }
 
             if (logs.length === 0) {
+                this._logEntry = undefined;
+                this._changes = undefined;
                 this._logger?.info?.(`[CommitDetailsController] Commit ${this.changeId} not found/deleted`);
                 this._onDidClose.fire(this.changeId);
-                return undefined;
+                return;
             }
 
             const log = logs[0];
@@ -168,13 +186,11 @@ export class CommitDetailsController implements Disposable {
             if (state) {
                 this._receiver.sender.update(state);
             }
-            return log;
         } catch (err) {
             this._logger?.error(
                 `[CommitDetailsController] Failed to load commit details for ${this.changeId}`,
                 toError(err),
             );
-            return undefined;
         }
     }
 

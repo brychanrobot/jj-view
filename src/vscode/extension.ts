@@ -214,7 +214,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                     e.affectsConfiguration('jj-view.minChangeIdLength') ||
                     e.affectsConfiguration('jj-view.logTheme')
                 ) {
-                    await commitDetailsProvider.refresh('config change');
+                    await commitDetailsProvider.refresh();
                 }
             }),
         );
@@ -458,7 +458,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                     // Refresh webview and commit details panel in parallel
                     await Promise.all([
                         logWebviewProvider.controller.refresh(event.reason),
-                        commitDetailsProvider.refresh(event.reason),
+                        commitDetailsProvider.refresh(),
                     ]);
                 }
             });
