@@ -2,6 +2,9 @@
 
 **JJ View** brings the power of [Jujutsu (jj)](https://github.com/martinvonz/jj) version control directly into VS Code. Visualize your revision graph, manage changes, and streamline your workflow without leaving the editor.
 
+![JJ View Overview](media/screenshots/scm-view.png)
+_JJ View Source Control & Interactive Revision Graph in VS Code (Theme: Default)._
+
 ## Features
 
 ### 🌲 Interactive Revision Graph
@@ -26,7 +29,21 @@ Visualize your `jj` repo history with a clear, interactive graph.
 - **Ghost Nodes**: Displays visual representations of hidden commits in the graph.
 - **Divergent Commits**: Highlights divergent revisions with distinct visual styling (e.g. purple highlights and change ID offsets like `/1`).
 - **Multi-Workspace Support**: Displays workspace indicators (working copy pills) for all workspaces associated with a commit in the log view.
-- **Customizable Graph Lanes**: Choose from multiple built-in color themes (Oceanic, Sunset, Neon, Pastel, Monochrome) for log lanes.
+- **Customizable Graph Lanes**: Choose from multiple built-in color themes (`default`, `oceanic`, `sunset`, `neon`, `pastel`, `monochrome`, `nord`, `dracula`, `forest`, `solarized`, `autumn`, `matrix`) for log lanes.
+
+![Interactive Drag & Drop](media/screenshots/drag-drop.png)
+_Interactive drag-and-drop revision management across parallel lanes with real-time modifier hints (Theme: Dracula)._
+
+### 🛠️ Source Control Integration
+
+Full integration with VS Code's Source Control view (SCM) and Jujutsu workflows:
+
+- **Working Copy**: View modified files, stage modifications (via `jj` commit/squash workflows), and restore files.
+- **Commit Management**: Create new changes (revisions), set descriptions, and squash modifications directly from the SCM panel.
+- **Navigation & History**: Quickly switch focus between parent and child revisions, and undo or redo `jj` operations with a single click.
+- **Squashing & Absorbing**: Squash whole revisions or individual files into parent or ancestor revisions, or automatically absorb changes into the mutable ancestor where they were introduced.
+- **Merge Conflicts**: Identify and resolve conflicts using VS Code's merge editor.
+- **File Decorations**: Automatically highlights modified, added, conflicted, and ignored files in the Explorer with color-coded badges.
 
 ### 📝 Commit Details Panel
 
@@ -34,7 +51,7 @@ A dedicated view for inspecting and managing commits.
 
 - **Status Indicators**: View clear visual pills for commit properties like Immutable, Empty, Conflicted, Tags and Bookmarks.
 - **Commit Info**: Displays Author, Committer, and Relative Timestamps. Includes a click-to-copy utility for Commit and Change IDs.
-- **Format Body**: Automatically format the commit description body to the configured width.
+- **Format Body**: Automatically format the commit description body to the configured width with 50/72 character rulers.
 - **Diff Management**:
     - **Open Multi-File Diff**: View all changes in the revision in a single scrollable editor.
     - **Single-File Diff**: Click any file to open a side-by-side diff.
@@ -42,46 +59,61 @@ A dedicated view for inspecting and managing commits.
     - **Compare with Revision**: Compare the working copy or a specific file against any chosen ancestor revision.
 - **Navigation**: Quickly jump between changed files.
 
-### 🛠️ Source Control Integration
+![Commit Details Panel](media/screenshots/commit-details.png)
+_Dedicated `.jj-commit` editor with character rulers, status pills, and changed file list (Theme: Forest)._
 
-Full integration with VS Code's Source Control view (SCM).
+### 🔍 Multi-File & Editable Diffs
 
-- **Working Copy**: View modified files, stage modifications (via `jj` commit/squash workflows), and restore files.
-- **Commit Management**: Create new changes (revisions), set descriptions, and squash modifications directly from the SCM panel.
-- **Merge Conflicts**: Identify and resolve conflicts using VS Code's merge editor.
-- **File Decorations**: Automatically highlights modified, added, conflicted, and ignored files in the Explorer with color-coded badges.
-- **Code Forge Integration**: Track pull request (GitHub), merge request (GitLab), and change list (Gerrit) review status directly in the Source Control view, with contextual upload actions that visually indicate if a change is dirty (needs to be uploaded).
+Comprehensive diff viewing and editing for changesets across your repository:
 
-![SCM View](media/screenshots/scm-view.png)
-_Source Control view managing `jj` changes._
+- **Multi-File Diff Editor**: Review all file changes within a revision stacked in a single scrollable editor with collapsible diff blocks, line counts, and file badges.
+- **Editable Diffs**: Edit any mutable commit directly inside the diff editor. Modifications across multiple files are batched and applied on save (`Ctrl+S`).
+- **Arbitrary Revision Comparisons**: Compare the working copy or individual files against any ancestor revision or commit in your graph.
 
-### 🚀 Efficient Workflows
+![Multi-File Diff View](media/screenshots/multi-file-diff.png)
+_Multi-File Diff editor reviewing changes across revisions (Theme: Autumn)._
 
-Support for common and advanced `jj` operations:
+### 🌐 Code Forge & Review Integrations
 
-- **Navigation**: Quickly switch focus between parent and child revisions.
-- **Undo/Redo**: Quickly undo or redo `jj` operations.
-- **Squashing**: Squash whole revisions or individual files into parent or child revisions.
-- **Absorbing**: Automatically move changes into the mutable ancestor where they were introduced.
-- **Rebasing**: Rebase changes onto other revisions.
-- **Workspace Management**: Create new `jj` workspaces directly from the UI, with configurable default locations.
-- **Workspace Actions**: Add, forget, or delete workspaces directly from the Log View context menu or workspace pills.
-- **Editable Diffs**: Edit any mutable commit directly in the diff editor. Changes are batched and applied on save, with full support for single and multi-file diffs.
+**JJ View** integrates with popular code forge providers to bring pull requests, merge requests, and code reviews directly into VS Code:
 
-### 🗂️ Multi-Repository Support
+- **🤖 Gerrit Integration**: Displays current Gerrit status (e.g. Active, Merged) and provides direct links to CLs. Auto-detects from `.gitreview` or git remotes.
+- **🐱 GitHub Integration**: Displays PR status (Open, Merged, Draft), checks mergeability, and tracks unresolved comment counts. Supports uploading changes via SCM actions.
+- **🦊 GitLab Integration**: Displays Merge Request status, checks mergeability, and tracks unresolved comments for GitLab and self-hosted instances.
+- **💬 Review Discussions & Inline Comments**:
+    - **Unresolved Comments Bubble**: Displays a counter pill on each revision with pending unresolved comments.
+    - **Inline Comment Threads**: View code review comments inline directly in the VS Code diff editors.
+    - **Reply & Resolution Actions**: Quickly respond with `Ack`, `Done`, `Reply & Resolve`, or `Reply`.
+    - **Copy Unresolved Comments**: Copies a formatted markdown summary of unresolved comments for the active revision to your clipboard.
+- **🔑 Seamless Authentication**: Integrates with VS Code's built-in OAuth flows or Personal Access Tokens (PAT), prompting automatically when required and providing a **Manage Code Forge Authentication** menu in the SCM title bar.
 
-Full support for working with multiple `jj` repositories in the same workspace.
+### 🗂️ Multi-Repository & Workspace Management
+
+Full support for working with multiple repositories and Jujutsu workspaces:
 
 - **Automatic Repository Detection**: Recursively scans workspace folders to discover and register all `jj` repositories.
-- **Automatic Active Repository Switching**: Dynamically switches the active/focused repository when switching between editor tabs or files belonging to different repositories.
+- **Automatic Active Repository Switching**: Dynamically switches the active repository when navigating files and tabs across different repos.
 - **Manual Switching**: Focus specific repositories in the JJ Log view via SCM title actions or the `Show Repository in JJ Log` command.
-- **Customizable Detection**: Fine-tune detection with settings to ignore specific folders or target explicit paths.
+- **Workspace Management**: Create new `jj` workspaces directly from the UI, with configurable default locations (`.workspaces`).
+- **Workspace Actions**: Add, forget, or delete workspaces directly from the Log View context menu or workspace pills.
 
-## Commands
+## Commands & Keybindings
 
-Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`) or context menus.
+### ⌨️ Keybindings
 
-### General
+- **Commit**: `Ctrl+Enter` (or `Cmd+Enter` on macOS) in the SCM input box to commit changes.
+- **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box or Commit Details panel to save the description without finishing the commit.
+- **Focus SCM Description Input**: `Ctrl+Shift+G` (or `Cmd+Shift+G` on macOS) to open Source Control and focus the description input field (overrides VS Code's default SCM view binding when `scmProvider == 'jj'`).
+
+### 🔄 Automatic Refresh
+
+The extension automatically refreshes the view when:
+
+- File changes are detected in the workspace.
+- `jj` operations are performed via the CLI (external changes are polled or event-driven).
+- You switch focus back to the VS Code window.
+
+### General Commands
 
 - `JJ View: Refresh`: Refresh the current status and log.
 - `JJ View: Show Current Change`: Focus the graph on the current working copy change.
@@ -92,7 +124,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Redo`: Redo the last undone `jj` operation.
 - `JJ View: Manage Code Forge Authentication`: Manage authentication preferences for code forge integrations.
 
-### Change Management
+### Change Management Commands
 
 - `JJ View: New`: Create a new empty change at the current head.
 - `JJ View: New Before`: Create a new change _before_ the current revisions (inserts a new parent).
@@ -118,7 +150,7 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: Compare All Files with Revision...`: Compare all files between a selected revision and the working copy.
 - `JJ View: Compare File with Revision...`: Compare a specific file against a selected revision.
 
-### History & Merging
+### History & Merging Commands
 
 - `JJ View: Squash Revision into Parent`: Squash the current change into its parent.
 - `JJ View: Squash Revision into Ancestor...`: Squash the current change into an ancestor.
@@ -126,58 +158,9 @@ Access these commands from the Command Palette (`Ctrl+Shift+P` or `⌘+Shift+P`)
 - `JJ View: New Merge Change`: Create a merge commit.
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.
 
-## Features & Integration
+## Configuration
 
-### ⌨️ Keybindings
-
-- **Commit**: `Ctrl+Enter` (or `Cmd+Enter` on macOS) in the SCM input box to commit changes.
-- **Set Description**: `Ctrl+S` (or `Cmd+S` on macOS) in the SCM input box or Commit Details panel to save the description without finishing the commit.
-- **Focus SCM Description Input**: `Ctrl+Shift+G` (or `Cmd+Shift+G` on macOS) to open Source Control and focus the description input field (overrides VS Code's default SCM view binding when `scmProvider == 'jj'`).
-
-### 🔄 Automatic Refresh
-
-The extension automatically refreshes the view when:
-
-- File changes are detected in the workspace.
-- `jj` operations are performed via the CLI (external changes are polled).
-- You switch focus back to the VS Code window.
-
-## 🌐 Code Forge Integrations
-
-**JJ View** integrates with popular code forge providers to bring your pull request/change reviews directly into the VS Code interface:
-
-### 🤖 Gerrit Integration
-- Displays the current **Gerrit Status** (e.g., Active, Merged) and provides a click-to-open link to the CL.
-- Configuration: Set `jj-view.gerrit.host` and `jj-view.gerrit.project` if they aren't automatically detected from your remotes or `.gitreview`.
-
-### 🐱 GitHub Integration
-- Displays the **PR status** (e.g., Open, Merged, Draft), checks for mergeability, and shows the count of unresolved comments.
-- Supports uploading changes directly via SCM actions.
-- Automatically detected from your Git remote URL.
-
-### 🦊 GitLab Integration
-- Displays the **Merge Request status** (e.g., Open, Merged, Draft), checks for mergeability, and shows the count of unresolved comments.
-- Supports uploading changes directly via SCM actions.
-- Auto-detected from Git remote URLs (including self-hosted instances). Set `jj-view.gitlab.host` if you use a custom self-hosted instance.
-
-### 💬 Review Discussions & Comments
-- **Unresolved Comments Bubble**: Displays a counter pill on each revision with pending unresolved comments. Clicking it focuses and fetches review comments.
-- **Inline Comment Threads**: Displays code review comments inline directly in the VS Code diff editors.
-- **Direct Reply & Resolution Actions**:
-  - **Ack**: Submits a default reply of `"Acknowledged"` and resolves the comment thread.
-  - **Done**: Submits a default reply of `"Done"` and resolves the comment thread.
-  - **Reply & Resolve**: Submits your typed response and resolves the comment thread.
-  - **Reply**: Submits your typed response and leaves the comment thread unresolved.
-- **Copy Unresolved Comments**: Copies a formatted markdown summary of all unresolved comments for the active revision to your clipboard using the copy action in the Comments panel title bar.
-
-### 🔑 Authentication
-
-Configuring credentials (such as OAuth tokens or Personal Access Tokens) for GitHub and GitLab is seamless:
-- Integrates with VS Code's built-in OAuth flows or allows you to securely store a Personal Access Token (PAT).
-- Automatically prompts you when authentication is required to fetch status for private repositories.
-- Provides a **Manage Code Forge Authentication** option in the Source Control title bar to easily update tokens, disable/enable auth prompts, or reset preferences.
-
-## Extension Settings
+### Extension Settings
 
 Customize **JJ View** behavior in VS Code settings.
 
@@ -208,9 +191,7 @@ Customize **JJ View** behavior in VS Code settings.
 | `jj-view.scanRepositories`             | `[]`          | List of absolute or workspace-relative directory paths to explicitly scan for jj repositories.                                                                                                                                                                                                        |
 | `jj-view.ignoredRepositories`          | `[]`          | List of absolute directory paths of jj repositories that should be explicitly ignored.                                                                                                                                                                                                                |
 
-## Advanced Configuration
-
-### Conditional `jj` configuration
+### Conditional `jj` Configuration
 
 When `jj-view` executes `jj` commands, it sets the `JJ_VIEW_EXTENSION=1` environment variable. This allows you to configure conditional logic in your `.jjconfig.toml` file to apply specific settings only when interacting with the repository via the VS Code extension.
 
@@ -223,7 +204,7 @@ For example, you can configure a different default log revset for the extension:
 log = "trunk().." # Or any other revset you prefer for the graph view
 ```
 
-## File Watcher Mode
+### File Watcher Mode
 
 The `"watch"` mode uses [parcel-watcher](https://github.com/parcel-bundler/watcher) for native, event-driven file change detection instead of periodic polling. This is more efficient for large repos, but may require additional setup depending on your platform.
 

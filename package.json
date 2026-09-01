@@ -1224,7 +1224,7 @@
         "test:integration": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test.mjs",
         "test:activation": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test-activation.mjs",
         "test:integration:all": "node esbuild.js && pnpm build:tests && vscode-test --config .vscode-test.mjs && vscode-test --config .vscode-test-activation.mjs",
-        "test:screenshots": "playwright test",
+        "test:screenshots": "node esbuild.js && pnpm build:tests && playwright test",
         "test:e2e": "node esbuild.js && pnpm build:tests && playwright test -c playwright.e2e.config.ts",
         "test:unit": "vitest run",
         "test:failures": "node tooling/parse-test-failures.ts",
