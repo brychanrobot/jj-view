@@ -9,4 +9,8 @@ const content: string = args.join(' ');
 if (!content) {
     process.exit(0);
 }
-console.log(encodeURIComponent(content));
+let encoded = encodeURIComponent(content);
+// Encode parentheses to prevent Markdown link [text](url) syntax from terminating early
+encoded = encoded.replace(/\(/g, '%28').replace(/\)/g, '%29');
+
+console.log(encoded);

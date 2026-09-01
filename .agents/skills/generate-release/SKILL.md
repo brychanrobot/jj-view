@@ -36,6 +36,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
 10. **Encode Notes:** Use the encoding script to encode the release notes for a URL: `pnpm release:encode -- "<release_notes>"`. The script is located at `.agents/scripts/encode-release-notes.ts`.
 11. **Generate Release Link:** Craft a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
 12. **Final Output:** Present the finalized Release Notes and the one-click Release Link directly to the user.
+    - Always provide the finalized release notes in a clean markdown code block as a copy-paste fallback in case URL query parameters are mangled by chat link handlers.
     - Include links to both marketplaces in the release notes output:
         - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jj-view.jj-view)
         - [Open VSX](https://open-vsx.org/extension/jj-view/jj-view)
@@ -46,6 +47,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
 ## Edge Cases
 
 - If `pnpm release:encode` fails, ensure the arguments are wrapped in quotes.
+- **URL Encoding & Chat Link Limitations**: Clicking Markdown links in chat UIs can cause external URI parsers to improperly decode or pass special characters like `#` (pound signs appearing as literal `%23`) and `&` (truncating query parameters). Always present the full release notes in a raw code block so the user can easily copy-paste them directly into the release form.
 
 ## Completion Criteria
 
