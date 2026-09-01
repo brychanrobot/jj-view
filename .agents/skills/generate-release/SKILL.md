@@ -11,6 +11,8 @@ This skill details the process for generating release notes and bumping the vers
 
 Use this skill when the user wants to cut a new release of the extension. It requires reading commit history, determining the next version number, updating the changelog, and preparing a GitHub release link.
 
+**No Verification / Tests Required:** There is no need to run any tests (unit, integration, or E2E), type checks, or linters during release generation.
+
 ## Execution Steps
 
 1.  **Check Current Version:** Read the `version` field in `package.json`.

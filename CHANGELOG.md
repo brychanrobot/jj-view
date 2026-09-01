@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.7.0
+
+### Features
+
+- **Log Themes**:
+    - Add six new built-in log themes (`nord`, `dracula`, `forest`, `solarized`, `autumn`, and `matrix`) for graph lane color visualization.
+
+### Fixes
+
+- **Background Operations & Refresh**:
+    - Prevent repository refresh deadlocks by unifying debounced refreshes and task flushing into a single `DebouncingQueue`.
+    - Prevent extension deadlocks by decoupling interactive authentication prompts from the blocking refresh queue.
+    - Make obsolete revision diff tab cleanup non-blocking during SCM refreshes.
+    - Add request timeouts to GCE metadata checks during Gerrit authentication.
+- **Revision Diff Editor**:
+    - Prevent file corruption and synchronization mismatches during editable diff saves on ancestor commits and large files by serializing batch edit flushes.
+- **Jujutsu Compatibility**:
+    - Support `FsPath` in Jujutsu 0.44 workspace templates using the built-in `json()` templating function.
+- **Commands & Queries**:
+    - Restrict interactive ancestor squash and bookmark advance prompts to mutable revisions.
+- **Log Themes**:
+    - Strip alpha channel transparency from default orange graph lane colors using a CSS Relative Color Syntax polyfill to prevent faint rendering on VS Code themes.
+- **Commit Details Editor**:
+    - Preserve uncommitted draft description edits and dirty state across background repository reloads.
+- **Drag & Drop**:
+    - Fix change ID formatting in the drag preview overlay to properly highlight unique prefix characters.
+
+### Chores & Internal
+
+- **Architecture**:
+    - Reorganize core domain logic and webview modules into `src/core/` with core isolation lint enforcement.
+    - Decouple commands, SCM providers, and services behind a unified `HostEnvironment` contract.
+    - Standardize webview RPC messaging semantics around sender and receiver abstractions with bidirectional queuing and Zod validation.
+- **Documentation**:
+    - Reorganize feature documentation and add automated promotional screenshots.
+- **Accessibility**:
+    - Add ARIA attributes to bookmark and tag pills and optimize icon rendering in log view.
+
 ## 2.6.0
 
 ### Features
