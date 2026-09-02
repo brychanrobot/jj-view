@@ -19,7 +19,7 @@ import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock, createMockLogOutputChannel } from './test-utils';
 
-suite('Webview Selection Integration Test', () => {
+suite('Log Webview Selection Integration Test', () => {
     let provider: VsCodeLogWebviewProvider;
     let client: MockWebviewClient<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     let executeCommandStub: sinon.SinonStub;

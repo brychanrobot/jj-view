@@ -15,7 +15,7 @@ import { createMockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
-suite('Webview Initialization Integration Test', () => {
+suite('Log Webview Initialization Integration Test', () => {
     let provider: VsCodeLogWebviewProvider;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
