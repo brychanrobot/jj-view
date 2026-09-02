@@ -171,7 +171,7 @@ describe('VsCodeCommentsProvider Tests', () => {
         expect(thread1?.comments).toHaveLength(1);
         expect(thread1?.contextValue).toBe('unresolved:thread-1');
         expect(thread1?.range?.start.line).toBe(41);
-        expect(thread1?.uri.fsPath).toBe(Uri.file(path.join(testRepo.path, 'src/index.ts')).fsPath);
+        expect(thread1?.uri.fsPath).toBeSameFsPath(path.join(testRepo.path, 'src/index.ts'));
     });
 
     test('correctly syncs file-level comments (line: 0)', async () => {
