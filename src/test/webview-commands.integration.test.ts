@@ -13,6 +13,12 @@ import { redoCommand } from '../core/commands/redo';
 import { squashRevisionIntoParentCommand } from '../core/commands/squash-revision';
 import { undoCommand } from '../core/commands/undo';
 import type { CommentsManager } from '../core/comments-manager';
+import {
+    type LogViewHostToWebviewMessage,
+    LogViewHostToWebviewMessageSchema,
+    type LogViewToHostMessage,
+    LogViewToHostMessageSchema,
+} from '../core/host/ipc/log-view-schemas';
 import { Uri } from '../core/uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
 import { createEditPayload } from '../vscode/payloads/edit.payload';
@@ -25,46 +31,19 @@ import {
     createTestRepositoryContext,
     type TestRepositoryContext,
 } from './integration-test-utils';
+import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
 suite('Webview Commands End-to-End Integration Test', () => {
     let scm: VsCodeScmProvider;
     let provider: VsCodeLogWebviewProvider;
-    let messageHandler: (m: unknown) => Promise<void>;
+    let client: MockWebviewClient<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     let repo: TestRepo;
     let disposables: vscode.Disposable[] = [];
     let executeCommandStub: sinon.SinonStub;
     let outputChannel: vscode.LogOutputChannel;
     let contextHelper: TestRepositoryContext;
-
-    // Mock Webview
-    const mockWebview = createMock<vscode.Webview>({
-        options: {},
-        html: '',
-        onDidReceiveMessage: (handler: (m: unknown) => Promise<void>) => {
-            messageHandler = handler;
-            return { dispose: () => {} };
-        },
-        asWebviewUri: (uri: Uri) => uri,
-        cspSource: '',
-        postMessage: async () => {
-            return true;
-        },
-    });
-
-    const mockWebviewView = createMock<vscode.WebviewView>({
-        webview: mockWebview,
-        viewType: 'jj-view.logView',
-        onDidChangeVisibility: () => {
-            return { dispose: () => {} };
-        },
-        onDidDispose: () => {
-            return { dispose: () => {} };
-        },
-        visible: true,
-    });
-
     let showInfoStub: sinon.SinonStub;
 
     setup(async () => {
@@ -143,15 +122,21 @@ suite('Webview Commands End-to-End Integration Test', () => {
             return asSinonStub(executeCommandStub).wrappedMethod.call(vscode.commands, command, ...args);
         });
 
+        client = createMockWebviewClient({
+            toHostSchema: LogViewToHostMessageSchema,
+            hostToWebviewSchema: LogViewHostToWebviewMessageSchema,
+        });
+
         // Webview Provider
         provider.resolveWebviewView(
-            mockWebviewView,
+            client.view,
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
     });
 
     teardown(async () => {
+        client.dispose();
         if (showInfoStub) {
             showInfoStub.restore();
         }
@@ -165,8 +150,6 @@ suite('Webview Commands End-to-End Integration Test', () => {
         if (contextHelper) {
             await contextHelper.dispose();
         }
-        if (repo) {
-        }
         if (outputChannel) {
             outputChannel.dispose();
         }
@@ -179,11 +162,8 @@ suite('Webview Commands End-to-End Integration Test', () => {
         const commitToAbandonId = repo.getChangeId('@');
 
         // 2. Simulate Webview Message
-        await messageHandler({
-            type: 'abandon',
-            payload: {
-                changeId: commitToAbandonId,
-            },
+        await client.sender.abandon({
+            changeId: commitToAbandonId,
         });
 
         // After abandon, the working copy should involve a new commit (or parent)
@@ -202,10 +182,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
     test('New command creates a new change', async () => {
         const initialHead = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'new',
-            payload: {},
-        });
+        await client.sender.new();
 
         const newHead = repo.getChangeId('@');
         assert.notStrictEqual(newHead, initialHead, 'Should have a new head');
@@ -218,10 +195,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('Parent Commit');
         const parentId = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'newChild',
-            payload: { changeId: parentId },
-        });
+        await client.sender.newChild({ changeId: parentId });
 
         const childId = repo.getChangeId('@');
         assert.notStrictEqual(childId, parentId);
@@ -245,10 +219,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
         assert.notStrictEqual(currentId, targetId);
 
         // Send Edit
-        await messageHandler({
-            type: 'edit',
-            payload: { changeId: targetId },
-        });
+        await client.sender.edit({ changeId: targetId });
 
         // Verify working copy is now targetId
         const newWcId = repo.getChangeId('@');
@@ -267,18 +238,12 @@ suite('Webview Commands End-to-End Integration Test', () => {
         assert.notStrictEqual(id1, id2);
 
         // Undo
-        await messageHandler({
-            type: 'undo',
-            payload: {},
-        });
+        await client.sender.undo();
 
         assert.strictEqual(repo.getChangeId('@'), id1, 'Should undo back to first commit');
 
         // Redo
-        await messageHandler({
-            type: 'redo',
-            payload: {},
-        });
+        await client.sender.redo();
 
         assert.strictEqual(repo.getChangeId('@'), id2, 'Should redo back to second commit');
     });
@@ -296,10 +261,7 @@ suite('Webview Commands End-to-End Integration Test', () => {
         // Force snapshot of working copy changes
         repo.snapshot();
 
-        await messageHandler({
-            type: 'squash',
-            payload: { changeId: childId },
-        });
+        await client.sender.squash({ changeId: childId });
 
         const parentContent = repo.getFileContent('@-', 'file.txt');
         assert.strictEqual(parentContent, 'changes', 'Parent (@-) should contain squashed changes');
@@ -319,12 +281,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         let bookmarksA = repo.getBookmarks(commitA);
         assert.ok(bookmarksA.includes('my-bookmark'), 'Bookmark should be on A');
 
-        await messageHandler({
-            type: 'moveBookmark',
-            payload: {
-                bookmark: 'my-bookmark',
-                targetChangeId: commitB,
-            },
+        await client.sender.moveBookmark({
+            bookmark: 'my-bookmark',
+            targetChangeId: commitB,
         });
 
         bookmarksA = repo.getBookmarks(commitA);
@@ -347,13 +306,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('B');
         const idB = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'rebaseCommit',
-            payload: {
-                sourceChangeId: idB,
-                targetChangeId: idA,
-                mode: 'source',
-            },
+        await client.sender.rebaseCommit({
+            sourceChangeId: idB,
+            targetChangeId: idA,
+            mode: 'source',
         });
 
         // Verify B's parent is now A
@@ -369,13 +325,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('Source B');
         const idB = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'squashCommit',
-            payload: {
-                sourceChangeId: idB,
-                targetChangeId: idA,
-                mode: 'into',
-            },
+        await client.sender.squashCommit({
+            sourceChangeId: idB,
+            targetChangeId: idA,
+            mode: 'into',
         });
 
         const logOutput = repo.log();
@@ -391,13 +344,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('Source B');
         const idB = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'squashCommit',
-            payload: {
-                sourceChangeId: idB,
-                targetChangeId: idA,
-                mode: 'onto',
-            },
+        await client.sender.squashCommit({
+            sourceChangeId: idB,
+            targetChangeId: idA,
+            mode: 'onto',
         });
 
         const logOutput = repo.log();
@@ -412,12 +362,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('Source B');
         const idB = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'duplicateCommit',
-            payload: {
-                sourceChangeId: idB,
-                targetChangeId: idA,
-            },
+        await client.sender.duplicateCommit({
+            sourceChangeId: idB,
+            targetChangeId: idA,
         });
 
         const logOutput = repo.log();
@@ -432,12 +379,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         repo.describe('Parent B');
         const idB = repo.getChangeId('@');
 
-        await messageHandler({
-            type: 'mergeCommit',
-            payload: {
-                sourceChangeId: idB,
-                targetChangeId: idA,
-            },
+        await client.sender.mergeCommit({
+            sourceChangeId: idB,
+            targetChangeId: idA,
         });
 
         const parents = repo.getParents('@');
@@ -451,13 +395,10 @@ suite('Webview Commands End-to-End Integration Test', () => {
         const idA = repo.getChangeId('@');
         const initialLog = repo.log();
 
-        await messageHandler({
-            type: 'squashCommit',
-            payload: {
-                sourceChangeId: idA,
-                targetChangeId: idA,
-                mode: 'into',
-            },
+        await client.sender.squashCommit({
+            sourceChangeId: idA,
+            targetChangeId: idA,
+            mode: 'into',
         });
 
         const finalLog = repo.log();
@@ -473,12 +414,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         const idA = repo.getChangeId('@');
         const initialLog = repo.log();
 
-        await messageHandler({
-            type: 'duplicateCommit',
-            payload: {
-                sourceChangeId: idA,
-                targetChangeId: idA,
-            },
+        await client.sender.duplicateCommit({
+            sourceChangeId: idA,
+            targetChangeId: idA,
         });
 
         const finalLog = repo.log();
@@ -494,12 +432,9 @@ suite('Webview Commands End-to-End Integration Test', () => {
         const idA = repo.getChangeId('@');
         const initialLog = repo.log();
 
-        await messageHandler({
-            type: 'mergeCommit',
-            payload: {
-                sourceChangeId: '',
-                targetChangeId: idA,
-            },
+        await client.sender.mergeCommit({
+            sourceChangeId: '',
+            targetChangeId: idA,
         });
 
         const finalLog = repo.log();

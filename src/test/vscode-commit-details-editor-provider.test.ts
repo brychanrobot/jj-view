@@ -150,6 +150,7 @@ describe('VsCodeCommitDetailsEditorProvider Unit & Concurrency Tests', () => {
         });
 
         const client = createCommitDetailsClient();
+        const disposeSpy = vi.spyOn(client.panel, 'dispose');
         const resolvePromise = provider.resolveCustomEditor(document, client.panel, cancellationToken);
 
         // Concurrent background refresh occurs while load() is in flight
@@ -158,7 +159,7 @@ describe('VsCodeCommitDetailsEditorProvider Unit & Concurrency Tests', () => {
         await resolvePromise;
 
         // Panel should NOT have been disposed
-        expect(client.panel.dispose).not.toHaveBeenCalled();
+        expect(disposeSpy).not.toHaveBeenCalled();
 
         await client.sender.webviewLoaded();
         expect(client.receivedUpdates.length).toBeGreaterThanOrEqual(1);

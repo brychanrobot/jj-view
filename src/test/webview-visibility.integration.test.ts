@@ -5,59 +5,19 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
+import {
+    type LogViewHostToWebviewMessage,
+    LogViewHostToWebviewMessageSchema,
+    type LogViewToHostMessage,
+    LogViewToHostMessageSchema,
+} from '../core/host/ipc/log-view-schemas';
 import type { JjLogEntry } from '../core/jj-types';
 import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
+import { createMockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
-
-interface UpdateMessage {
-    type: 'update';
-    payload: {
-        commits: JjLogEntry[];
-    };
-}
-
-function createMockWebviewView() {
-    let visibilityListener!: (e: undefined) => void;
-    const sentMessages: UpdateMessage[] = [];
-
-    const mockWebview = createMock<vscode.Webview>({
-        options: {},
-        html: '',
-        onDidReceiveMessage: () => ({ dispose: () => {} }),
-        postMessage: (message: unknown) => {
-            if (typeof message === 'object' && message !== null && 'type' in message) {
-                const msg = message as { type: string };
-                if (msg.type === 'update') {
-                    sentMessages.push(message as UpdateMessage);
-                }
-            }
-            return Promise.resolve(true);
-        },
-        asWebviewUri: (uri: vscode.Uri) => uri,
-        cspSource: 'https://*.vscode-cdn.net',
-    });
-
-    const mockWebviewView = createMock<vscode.WebviewView>({
-        webview: mockWebview,
-        visible: true,
-        onDidChangeVisibility: (listener: (e: undefined) => void) => {
-            visibilityListener = listener;
-            return { dispose: () => {} };
-        },
-        onDidDispose: () => ({ dispose: () => {} }),
-        show: () => {},
-    });
-
-    return {
-        view: mockWebviewView,
-        webview: mockWebview,
-        sentMessages,
-        triggerVisibilityChange: () => visibilityListener(undefined),
-    };
-}
 
 suite('Webview Visibility Integration Test', () => {
     let provider: VsCodeLogWebviewProvider;
@@ -105,47 +65,53 @@ suite('Webview Visibility Integration Test', () => {
         // 1. Initial setup with one commit
         repo.describe('Initial Commit');
 
-        const { view, sentMessages, triggerVisibilityChange } = createMockWebviewView();
+        const client = createMockWebviewClient<LogViewToHostMessage, LogViewHostToWebviewMessage>({
+            toHostSchema: LogViewToHostMessageSchema,
+            hostToWebviewSchema: LogViewHostToWebviewMessageSchema,
+        });
+
         provider.resolveWebviewView(
-            view,
+            client.view,
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
 
         await provider.controller.refresh();
-        assert.ok(sentMessages.length >= 1, 'Should have sent initial update message');
-        const initialCommits = sentMessages[sentMessages.length - 1].payload.commits;
+        const updateMessages = client.receivedMessages.filter((m) => m.type === 'update');
+        assert.ok(updateMessages.length >= 1, 'Should have sent initial update message');
+        const initialCommits = updateMessages[updateMessages.length - 1].payload.commits;
         assert.ok(
             initialCommits.some((c: JjLogEntry) => c.description.includes('Initial Commit')),
             'Should contain initial description',
         );
 
         // 2. Hide the webview
-        Object.defineProperty(view, 'visible', { get: () => false });
-        triggerVisibilityChange();
+        client.triggerVisibilityChange(false);
 
         // 3. Perform a change while hidden
         repo.describe('Updated Commit while hidden');
         await provider.controller.refresh();
 
-        // provider.refresh() calls _renderCommits, so it will postMessage
-        const messagesCountWhileHidden = sentMessages.length;
+        const messagesCountWhileHidden = client.receivedMessages.filter((m) => m.type === 'update').length;
         assert.ok(messagesCountWhileHidden >= 1);
 
         // 4. Show the webview
-        Object.defineProperty(view, 'visible', { get: () => true });
-        triggerVisibilityChange();
+        client.triggerVisibilityChange(true);
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
         // 5. Verify that a new message was sent
+        const messagesAfterVisible = client.receivedMessages.filter((m) => m.type === 'update');
         assert.ok(
-            sentMessages.length > messagesCountWhileHidden,
+            messagesAfterVisible.length > messagesCountWhileHidden,
             'Should have sent an additional message when becoming visible',
         );
-        const lastMessage = sentMessages[sentMessages.length - 1];
+        const lastMessage = messagesAfterVisible[messagesAfterVisible.length - 1];
         assert.strictEqual(lastMessage.type, 'update');
         assert.ok(
             lastMessage.payload.commits.some((c: JjLogEntry) => c.description.includes('Updated Commit while hidden')),
             'Last message should contain updated data',
         );
+
+        client.dispose();
     });
 });
