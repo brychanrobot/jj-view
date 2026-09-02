@@ -35,7 +35,7 @@ import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock } from './test-utils';
 
-suite('Webview Commands End-to-End Integration Test', () => {
+suite('Log Webview Commands End-to-End Integration Test', () => {
     let scm: VsCodeScmProvider;
     let provider: VsCodeLogWebviewProvider;
     let client: MockWebviewClient<LogViewToHostMessage, LogViewHostToWebviewMessage>;
