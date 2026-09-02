@@ -6,51 +6,31 @@
 import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import {
+    type LogViewHostToWebviewMessage,
+    LogViewHostToWebviewMessageSchema,
+    type LogViewToHostMessage,
+    LogViewToHostMessageSchema,
+} from '../core/host/ipc/log-view-schemas';
 import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext, type TestRepositoryContext } from './integration-test-utils';
+import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { asSinonStub, createMock, createMockLogOutputChannel } from './test-utils';
 
 suite('Webview Selection Integration Test', () => {
     let provider: VsCodeLogWebviewProvider;
-    let messageHandler: (m: unknown) => Promise<void>;
+    let client: MockWebviewClient<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     let executeCommandStub: sinon.SinonStub;
     let repo: TestRepo;
     let contextHelper: TestRepositoryContext;
-
-    // Mock Webview
-    const mockWebview = createMock<vscode.Webview>({
-        options: {},
-        html: '',
-        onDidReceiveMessage: (handler: (m: unknown) => Promise<void>) => {
-            messageHandler = handler;
-            return { dispose: () => {} };
-        },
-        asWebviewUri: (uri: Uri) => uri,
-        cspSource: '',
-        postMessage: async () => {
-            return true;
-        },
-    });
-
-    const mockWebviewView = createMock<vscode.WebviewView>({
-        webview: mockWebview,
-        viewType: 'jj-view.logView',
-        onDidChangeVisibility: () => {
-            return { dispose: () => {} };
-        },
-        onDidDispose: () => {
-            return { dispose: () => {} };
-        },
-        visible: true,
-    });
 
     setup(async () => {
         repo = new TestRepo();
         repo.init();
 
-        const extensionUri = Uri.file(__dirname); // Mock URI
+        const extensionUri = Uri.file(__dirname);
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
@@ -81,15 +61,21 @@ suite('Webview Selection Integration Test', () => {
             return undefined;
         });
 
+        client = createMockWebviewClient({
+            toHostSchema: LogViewToHostMessageSchema,
+            hostToWebviewSchema: LogViewHostToWebviewMessageSchema,
+        });
+
         // Initialize provider
         provider.resolveWebviewView(
-            mockWebviewView,
+            client.view,
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
     });
 
     teardown(async () => {
+        client.dispose();
         if (executeCommandStub) {
             executeCommandStub.restore();
         }
@@ -101,12 +87,9 @@ suite('Webview Selection Integration Test', () => {
 
     test('Selection Change updates Context Keys', async () => {
         // user selects 1 item, immutable=false
-        await messageHandler({
-            type: 'selectionChange',
-            payload: {
-                commitIds: ['commit-1'],
-                hasImmutableSelection: false,
-            },
+        await client.sender.selectionChange({
+            commitIds: ['commit-1'],
+            hasImmutableSelection: false,
         });
 
         const getContextCalls = (key: string) =>
@@ -121,12 +104,9 @@ suite('Webview Selection Integration Test', () => {
         assert.strictEqual(calls.at(-1)?.args[2], false, 'allowMerge should be false (count=1)');
 
         // Test Multi-Selection (2 items)
-        await messageHandler({
-            type: 'selectionChange',
-            payload: {
-                commitIds: ['commit-1', 'commit-2'],
-                hasImmutableSelection: false,
-            },
+        await client.sender.selectionChange({
+            commitIds: ['commit-1', 'commit-2'],
+            hasImmutableSelection: false,
         });
 
         // Verify jj.selection.allowAbandon -> true
@@ -138,17 +118,11 @@ suite('Webview Selection Integration Test', () => {
         assert.strictEqual(calls.at(-1)?.args[2], true, 'allowMerge should be true (count > 1)');
 
         // Test Immutable Selection
-        await messageHandler({
-            type: 'selectionChange',
-            payload: {
-                commitIds: ['commit-1'],
-                hasImmutableSelection: true,
-            },
+        await client.sender.selectionChange({
+            commitIds: ['commit-1'],
+            hasImmutableSelection: true,
         });
 
-        // Verify jj.selection.allowAbandon -> false
-        calls = getContextCalls('jj.selection.allowAbandon');
-        assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
         // Verify jj.selection.allowAbandon -> false
         calls = getContextCalls('jj.selection.allowAbandon');
         assert.strictEqual(calls.at(-1)?.args[2], false, 'allowAbandon should be false for immutable selection');
@@ -160,10 +134,7 @@ suite('Webview Selection Integration Test', () => {
 
     test('Abandon command from webview triggers extension command', async () => {
         const payload = { changeId: 'commit-to-abandon' };
-        await messageHandler({
-            type: 'abandon',
-            payload,
-        });
+        await client.sender.abandon(payload);
 
         // It should call 'jj-view.abandon' with the payload
         const calls = executeCommandStub.getCalls().filter((call) => call.args[0] === 'jj-view.abandon');

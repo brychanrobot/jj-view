@@ -6,29 +6,40 @@
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ProcessMonitorController } from '../core/controllers/process-monitor-controller';
+import {
+    type ProcessMonitorHostToWebviewMessage,
+    ProcessMonitorHostToWebviewMessageSchema,
+    type ProcessMonitorToHostMessage,
+    ProcessMonitorToHostMessageSchema,
+} from '../core/host/ipc/process-monitor-schemas';
 import { JjProcessTracker } from '../core/jj-process-tracker';
 import { FakeHostEnvironment } from './fake-host-environment';
+import { createMockWebviewClient, type MockWebviewClient } from './mock-webview-client';
 import { createMock } from './test-utils';
 
 describe('ProcessMonitorController Domain Unit Tests', () => {
     let tracker: JjProcessTracker;
     let fakeHost: FakeHostEnvironment;
     let controller: ProcessMonitorController;
-    let postedMessages: unknown[];
+    let client: MockWebviewClient<ProcessMonitorToHostMessage, ProcessMonitorHostToWebviewMessage, 'command'>;
 
     beforeEach(() => {
         tracker = new JjProcessTracker();
         fakeHost = new FakeHostEnvironment();
-        postedMessages = [];
+
+        client = createMockWebviewClient({
+            toHostSchema: ProcessMonitorToHostMessageSchema,
+            hostToWebviewSchema: ProcessMonitorHostToWebviewMessageSchema,
+            toHostDiscriminatorKey: 'command',
+        });
 
         controller = new ProcessMonitorController(tracker, fakeHost, {
-            messenger: {
-                postMessage: (m) => postedMessages.push(m),
-            },
+            messenger: client.webview,
         });
     });
 
     afterEach(() => {
+        client.dispose();
         controller.dispose();
     });
 
@@ -79,13 +90,16 @@ describe('ProcessMonitorController Domain Unit Tests', () => {
     });
 
     test('replays initial snapshot on setMessenger and responds to webviewLoaded', async () => {
-        const newMessages: unknown[] = [];
-        controller.setMessenger({
-            postMessage: (m) => newMessages.push(m),
+        const newClient = createMockWebviewClient({
+            toHostSchema: ProcessMonitorToHostMessageSchema,
+            hostToWebviewSchema: ProcessMonitorHostToWebviewMessageSchema,
+            toHostDiscriminatorKey: 'command',
         });
+        controller.setMessenger(newClient.webview);
+        await Promise.resolve();
 
-        expect(newMessages).toHaveLength(1);
-        expect(newMessages[0]).toEqual(
+        expect(newClient.receivedMessages).toHaveLength(1);
+        expect(newClient.receivedMessages[0]).toEqual(
             expect.objectContaining({
                 type: 'update',
                 payload: expect.objectContaining({
@@ -98,6 +112,9 @@ describe('ProcessMonitorController Domain Unit Tests', () => {
 
         const loadedHandled = await controller.handleMessage({ command: 'webviewLoaded' });
         expect(loadedHandled).toBe(true);
-        expect(newMessages).toHaveLength(2);
+        await Promise.resolve();
+        expect(newClient.receivedMessages).toHaveLength(2);
+
+        newClient.dispose();
     });
 });

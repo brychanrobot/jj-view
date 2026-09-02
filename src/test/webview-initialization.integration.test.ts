@@ -6,42 +6,14 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import type { CodeForgeService } from '../core/code-forge-service';
+import { LogViewHostToWebviewMessageSchema, LogViewToHostMessageSchema } from '../core/host/ipc/log-view-schemas';
 import type { JjRepository } from '../core/jj-repository';
 import { Uri } from '../core/uri-utils';
 import { VsCodeLogWebviewProvider } from '../vscode/providers/vscode-log-webview-provider';
 import { createTestRepositoryContext } from './integration-test-utils';
+import { createMockWebviewClient } from './mock-webview-client';
 import { TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
-
-function createMockWebviewView() {
-    let visibilityListener!: (e: undefined) => void;
-
-    const mockWebview = createMock<vscode.Webview>({
-        options: {},
-        html: '',
-        onDidReceiveMessage: () => ({ dispose: () => {} }),
-        asWebviewUri: (uri: Uri) => uri,
-        cspSource: '',
-        postMessage: async () => true,
-    });
-
-    const mockWebviewView = createMock<vscode.WebviewView>({
-        webview: mockWebview,
-        viewType: 'jj-view.logView',
-        onDidChangeVisibility: (listener: (e: undefined) => void) => {
-            visibilityListener = listener;
-            return { dispose: () => {} };
-        },
-        onDidDispose: () => ({ dispose: () => {} }),
-        visible: true,
-    });
-
-    return {
-        view: mockWebviewView,
-        webview: mockWebview,
-        triggerVisibilityChange: () => visibilityListener(undefined),
-    };
-}
 
 suite('Webview Initialization Integration Test', () => {
     let provider: VsCodeLogWebviewProvider;
@@ -91,18 +63,23 @@ suite('Webview Initialization Integration Test', () => {
         repo.describe('Test Commit 1');
 
         // 1. Initial Resolve & Refresh
-        const { view: initialView, webview: initialWebview } = createMockWebviewView();
+        const client = createMockWebviewClient({
+            toHostSchema: LogViewToHostMessageSchema,
+            hostToWebviewSchema: LogViewHostToWebviewMessageSchema,
+        });
         provider.resolveWebviewView(
-            initialView,
+            client.view,
             createMock<vscode.WebviewViewResolveContext>({}),
             createMock<vscode.CancellationToken>({}),
         );
         await provider.controller.refresh();
 
         // 2. Verify HTML is clean and points to webview bundle
-        const html = initialWebview.html;
+        const html = client.webview.html;
         assert.ok(html.includes('dist/webview/index.js'), 'HTML should reference webview bundle');
         assert.ok(!html.includes('window.vscodeInitialData'), 'HTML should not contain initial data script injection');
+
+        client.dispose();
     });
 
     test('repository getter returns undefined until updateRepository is called', async () => {
