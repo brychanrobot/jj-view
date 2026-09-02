@@ -165,7 +165,7 @@ describe('vscode payloads', () => {
             const uri = Uri.file('/test/file.txt');
             const resourceState = createMock<JjResourceState>({ resourceUri: uri });
             const payload = createOpenMergeEditorPayload([resourceState]);
-            expect(payload.resourceStates[0].resourceUri.fsPath).toBe(uri.fsPath);
+            expect(payload.resourceStates[0].resourceUri.fsPath).toBeSameFsPath(uri.fsPath);
         });
     });
 
@@ -307,7 +307,7 @@ describe('vscode payloads', () => {
                 },
             ];
             const payload = createSquashHunkIntoParentPayload([uri, changes, 0]);
-            expect(payload.uri?.fsPath).toBe(uri.fsPath);
+            expect(payload.uri?.fsPath).toBeSameFsPath(uri.fsPath);
             expect(payload.ranges).toEqual([{ startLine: 1, endLine: 1 }]);
         });
 
@@ -323,7 +323,7 @@ describe('vscode payloads', () => {
                 ],
             });
             const payload = createSquashSelectionIntoParentPayload(editor);
-            expect(payload.uri?.fsPath).toBe(uri.fsPath);
+            expect(payload.uri?.fsPath).toBeSameFsPath(uri.fsPath);
             expect(payload.ranges).toEqual([{ startLine: 0, endLine: 2 }]);
         });
     });

@@ -45,7 +45,7 @@ describe('Credential Utils', () => {
 
             const gitRoot = await resolveGitRoot(repo.path);
             expect(gitRoot).not.toBeNull();
-            expect(gitRoot).toBe(path.join(repo.path, '.git'));
+            expect(gitRoot).toBeSameFsPath(path.join(repo.path, '.git'));
         });
 
         test('returns null when not in a jj repo', async () => {

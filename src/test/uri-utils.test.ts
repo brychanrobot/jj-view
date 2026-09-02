@@ -326,7 +326,7 @@ describe('getFsPathFromUri edge cases', () => {
         });
 
         const result = getFsPathFromUri(uri);
-        expect(result).toBe(fsPath);
+        expect(result).toBeSameFsPath(fsPath);
     });
 });
 
