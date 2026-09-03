@@ -75,6 +75,7 @@ interface GerritCommentGql {
     author?: GerritAuthorGql;
     unresolved?: boolean;
     in_reply_to?: string;
+    patch_set?: number;
 }
 
 export type GerritCommentWithDraftStatus = GerritCommentGql & {
@@ -655,7 +656,8 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         // Post draft comment reply
-        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/drafts`;
+        const revisionId = parentComment.patch_set ?? 'current';
+        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
             headers: {
@@ -672,7 +674,10 @@ export class GerritProvider implements CodeForgeProvider {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to post Gerrit draft reply: ${response.statusText}`);
+            const errorBody = (await response.text().catch(() => '')).trim();
+            throw new Error(
+                `Failed to post Gerrit draft reply: ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`,
+            );
         }
 
         const responseText = await response.text();
@@ -747,7 +752,8 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         // Post draft resolution reply comment
-        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/current/drafts`;
+        const revisionId = parentComment.patch_set ?? 'current';
+        const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
             headers: {
@@ -764,7 +770,10 @@ export class GerritProvider implements CodeForgeProvider {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to resolve Gerrit comment: ${response.statusText}`);
+            const errorBody = (await response.text().catch(() => '')).trim();
+            throw new Error(
+                `Failed to resolve Gerrit comment: ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`,
+            );
         }
     }
 
