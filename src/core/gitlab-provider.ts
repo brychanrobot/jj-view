@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
 import { fetchWithTimeout } from '../utils/fetch-utils';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -14,6 +15,8 @@ import type {
     CodeForgeCommentThread,
     CodeForgeProvider,
     GitRemote,
+    StackCommitNode,
+    StackSyncResult,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
@@ -21,32 +24,35 @@ import type { CodeForgeChangeInfo } from './jj-types';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
 
-import { z } from 'zod';
-
 export const GitLabMergeRequestSchema = z.object({
     id: z.number(),
     iid: z.number(),
     state: z.string(),
-    draft: z.boolean().optional(),
-    work_in_progress: z.boolean().optional(),
-    has_conflicts: z.boolean().optional(),
-    merge_status: z.string().optional(),
-    detailed_merge_status: z.string().optional(),
-    blocking_discussions_resolved: z.boolean().optional(),
-    user_notes_count: z.number().optional(),
+    draft: z.boolean().nullable().optional(),
+    work_in_progress: z.boolean().nullable().optional(),
+    has_conflicts: z.boolean().nullable().optional(),
+    merge_status: z.string().nullable().optional(),
+    detailed_merge_status: z.string().nullable().optional(),
+    blocking_discussions_resolved: z.boolean().nullable().optional(),
+    user_notes_count: z.number().nullable().optional(),
     web_url: z.string(),
-    sha: z.string(),
-    source_project_id: z.number().optional(),
+    sha: z.string().nullable().optional(),
+    source_project_id: z.number().nullable().optional(),
+    source_branch: z.string().nullable().optional(),
+    target_branch: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
 });
 export type GitLabMergeRequest = z.infer<typeof GitLabMergeRequestSchema>;
 
 export const GitLabProjectInfoSchema = z.object({
     id: z.number().optional(),
+    default_branch: z.string().nullable().optional(),
     forked_from_project: z
         .object({
             id: z.number().optional(),
             path_with_namespace: z.string().optional(),
         })
+        .nullable()
         .optional(),
 });
 export type GitLabProjectInfo = z.infer<typeof GitLabProjectInfoSchema>;
@@ -114,6 +120,7 @@ export class GitLabProvider implements CodeForgeProvider {
     }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
+        this.allowedProjectIds.clear();
         const preferredHost = this.host.config.get<string>('gitlab.host')?.trim();
 
         const remotePriority = (name: string): number => {
@@ -623,16 +630,7 @@ export class GitLabProvider implements CodeForgeProvider {
         apiBaseUrl: string,
         path: string,
         token: string | undefined,
-    ): Promise<
-        | {
-              id?: number;
-              forked_from_project?: {
-                  id?: number;
-                  path_with_namespace?: string;
-              };
-          }
-        | undefined
-    > {
+    ): Promise<GitLabProjectInfo | undefined> {
         try {
             const projectUrl = `${apiBaseUrl}/projects/${encodeURIComponent(path)}`;
             const response = await fetchWithTimeout(projectUrl, 10000, {
@@ -693,7 +691,7 @@ export class GitLabProvider implements CodeForgeProvider {
             submittable,
             url: mr.web_url,
             unresolvedComments,
-            currentRevision: mr.sha,
+            currentRevision: mr.sha ?? undefined,
         };
     }
 
@@ -708,6 +706,208 @@ export class GitLabProvider implements CodeForgeProvider {
             args.push('-r', revision);
         }
         return { subcommand: 'git', args };
+    }
+
+    public async prepareStackedChanges(stack: StackCommitNode[]): Promise<void> {
+        const apiBaseUrl =
+            process.env.JJ_VIEW_GITLAB_API_URL || (this.gitlabHost ? `${this.gitlabHost}/api/v4` : undefined);
+        if (stack.length <= 1 || !this.projectPath || !apiBaseUrl) {
+            return;
+        }
+
+        const token = await this.getSessionToken(true);
+        if (!token) {
+            return;
+        }
+
+        const targetPath = this.resolvedProjectPath || this.projectPath;
+        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, token);
+        const defaultBranch = projectInfo?.default_branch || 'main';
+
+        const bookmarkIndexMap = new Map<string, number>();
+        const bookmarkToCommitId = new Map<string, string>();
+        for (let i = 0; i < stack.length; i++) {
+            bookmarkIndexMap.set(stack[i].bookmark, i);
+            bookmarkToCommitId.set(stack[i].bookmark, stack[i].commitId);
+        }
+
+        for (let i = 0; i < stack.length; i++) {
+            const node = stack[i];
+            try {
+                const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
+                const mrResp = await fetchWithTimeout(mrUrl, 15000, {
+                    headers: this.getHeaders(token),
+                });
+                if (!mrResp.ok) {
+                    continue;
+                }
+
+                const parsed = (await mrResp.json()) as unknown;
+                const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
+                if (!listValidation.success || listValidation.data.length === 0) {
+                    continue;
+                }
+
+                const filteredMrs = this.filterGitLabMrs(listValidation.data, node.bookmark, bookmarkToCommitId);
+                if (filteredMrs.length === 0) {
+                    continue;
+                }
+
+                const existingMr = filteredMrs[0];
+                const baseIndex = existingMr.target_branch ? bookmarkIndexMap.get(existingMr.target_branch) : undefined;
+                if (baseIndex !== undefined && baseIndex > i) {
+                    this.outputChannel?.info?.(
+                        `[GitLabProvider] Preemptively retargeting MR !${existingMr.iid} (${node.bookmark}) from ${existingMr.target_branch} to ${defaultBranch} before push to avoid forge auto-closure`,
+                    );
+                    const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
+                    const updateResp = await fetchWithTimeout(updateUrl, 15000, {
+                        method: 'PUT',
+                        headers: {
+                            ...this.getHeaders(token),
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ target_branch: defaultBranch }),
+                    });
+                    if (!updateResp.ok) {
+                        this.outputChannel?.warn?.(
+                            `[GitLabProvider] Preemptive retarget of MR !${existingMr.iid} returned ${updateResp.status}: ${updateResp.statusText}`,
+                        );
+                    }
+                }
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.outputChannel?.warn?.(
+                    `[GitLabProvider] Failed during preemptive retarget check for ${node.bookmark}: ${msg}`,
+                );
+            }
+        }
+    }
+
+    public async syncStackedChanges(stack: StackCommitNode[]): Promise<StackSyncResult> {
+        const result: StackSyncResult = { created: [], retargeted: [], unchanged: [] };
+        const apiBaseUrl =
+            process.env.JJ_VIEW_GITLAB_API_URL || (this.gitlabHost ? `${this.gitlabHost}/api/v4` : undefined);
+        if (stack.length === 0 || !this.projectPath || !apiBaseUrl) {
+            return result;
+        }
+
+        const token = await this.getSessionToken(true);
+        if (!token) {
+            this.outputChannel?.warn('[GitLabProvider] No session token available for syncStackedChanges');
+            return result;
+        }
+
+        const targetPath = this.resolvedProjectPath || this.projectPath;
+        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, token);
+        const defaultBranch = projectInfo?.default_branch || 'main';
+
+        const bookmarkToCommitId = new Map<string, string>();
+        for (const node of stack) {
+            bookmarkToCommitId.set(node.bookmark, node.commitId);
+        }
+
+        for (let i = 0; i < stack.length; i++) {
+            const node = stack[i];
+            const expectedTarget = i === 0 ? defaultBranch : stack[i - 1].bookmark;
+
+            try {
+                // Query existing open MR for this bookmark
+                const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
+                const mrResp = await fetchWithTimeout(mrUrl, 15000, {
+                    headers: this.getHeaders(token),
+                });
+
+                if (!mrResp.ok) {
+                    this.handle403Warning(mrResp);
+                    throw new Error(
+                        `Failed to query merge requests for ${node.bookmark}: ${mrResp.status} ${mrResp.statusText}`,
+                    );
+                }
+
+                let existingMr: GitLabMergeRequest | undefined;
+                const parsed = (await mrResp.json()) as unknown;
+                const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
+                if (listValidation.success && listValidation.data.length > 0) {
+                    const filteredMrs = this.filterGitLabMrs(listValidation.data, node.bookmark, bookmarkToCommitId);
+                    if (filteredMrs.length > 0) {
+                        existingMr = filteredMrs[0];
+                    }
+                }
+
+                if (existingMr) {
+                    if (existingMr.target_branch !== expectedTarget) {
+                        const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
+                        const updateResp = await fetchWithTimeout(updateUrl, 15000, {
+                            method: 'PUT',
+                            headers: {
+                                ...this.getHeaders(token),
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ target_branch: expectedTarget }),
+                        });
+                        if (!updateResp.ok) {
+                            this.handle403Warning(updateResp);
+                            throw new Error(`Failed to update merge request target branch: ${updateResp.statusText}`);
+                        }
+                        result.retargeted.push({
+                            changeId: node.changeId,
+                            prNumber: existingMr.iid,
+                            url: existingMr.web_url,
+                            oldBase: existingMr.target_branch ?? '',
+                            newBase: expectedTarget,
+                        });
+                        continue;
+                    }
+
+                    result.unchanged.push({
+                        changeId: node.changeId,
+                        prNumber: existingMr.iid,
+                    });
+                    continue;
+                }
+
+                const lines = node.description.trim().split('\n');
+                const title = lines[0]?.trim() || `Commit ${node.changeId.slice(0, 8)}`;
+                const description = lines.slice(1).join('\n').trim();
+
+                const createUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests`;
+                const createResp = await fetchWithTimeout(createUrl, 15000, {
+                    method: 'POST',
+                    headers: {
+                        ...this.getHeaders(token),
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        source_branch: node.bookmark,
+                        target_branch: expectedTarget,
+                        title,
+                        description,
+                    }),
+                });
+                if (!createResp.ok) {
+                    this.handle403Warning(createResp);
+                    throw new Error(`Failed to create merge request: ${createResp.statusText}`);
+                }
+                const createdJson = (await createResp.json()) as unknown;
+                const validation = GitLabMergeRequestSchema.safeParse(createdJson);
+                if (!validation.success) {
+                    throw new Error(`Failed to validate created merge request: ${validation.error.message}`);
+                }
+                const createdMr = validation.data;
+                result.created.push({
+                    changeId: node.changeId,
+                    prNumber: createdMr.iid,
+                    url: createdMr.web_url,
+                    base: expectedTarget,
+                    head: node.bookmark,
+                });
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.outputChannel?.warn?.(`[GitLabProvider] Failed to sync MR for ${node.bookmark}: ${msg}`);
+            }
+        }
+
+        return result;
     }
 
     private handle403Warning(response: Response) {
@@ -745,10 +945,7 @@ export class GitLabProvider implements CodeForgeProvider {
         const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions?per_page=100`;
 
         const response = await fetchWithTimeout(url, 15000, {
-            headers: {
-                'Private-Token': token || '',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
+            headers: this.getHeaders(token),
             signal,
         });
 
@@ -811,9 +1008,8 @@ export class GitLabProvider implements CodeForgeProvider {
         const response = await fetchWithTimeout(url, 15000, {
             method: 'POST',
             headers: {
-                'Private-Token': token || '',
+                ...this.getHeaders(token),
                 'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({ body }),
         });
@@ -860,10 +1056,7 @@ export class GitLabProvider implements CodeForgeProvider {
 
         const response = await fetchWithTimeout(`${url}?resolved=${resolved}`, 15000, {
             method: 'PUT',
-            headers: {
-                'Private-Token': token || '',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
+            headers: this.getHeaders(token),
         });
 
         if (!response.ok) {

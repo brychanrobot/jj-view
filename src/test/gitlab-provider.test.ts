@@ -5,12 +5,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../core/code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest } from '../core/code-forge-provider';
-import { GitLabProvider } from '../core/gitlab-provider';
+import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
+import { GitLabProjectInfoSchema, GitLabProvider } from '../core/gitlab-provider';
 import type { HostSecrets } from '../core/host/host-environment';
+import { JjService } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGitLabServer } from './helpers/fake-gitlab-server';
+import { TestRepo } from './test-repo';
 import {
     accessPrivate,
     createMock,
@@ -332,8 +334,16 @@ describe('GitLabProvider', () => {
             });
         }
 
-        const mockJj = createMock<vscode.Disposable & import('../core/jj-service').JjService>({});
-        const result = await provider.fetchStatuses(changes, mockJj);
+        const testRepo = new TestRepo();
+        testRepo.init();
+        const jj = new JjService(testRepo.path, {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            debug: () => {},
+        });
+        const result = await provider.fetchStatuses(changes, jj);
+        testRepo.dispose();
         expect(result).toBe(true);
 
         expect(fetchBatchSpy).toHaveBeenCalledTimes(3);
@@ -709,6 +719,311 @@ describe('GitLabProvider', () => {
             await priv.promptInstallGitLabExtension();
 
             expect(mockAuthManager.promptForPat).toHaveBeenCalled();
+        });
+    });
+
+    describe('syncStackedChanges', () => {
+        let server: FakeGitLabServer;
+        let originalApiUrl: string | undefined;
+
+        beforeEach(async () => {
+            server = new FakeGitLabServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITLAB_API_URL;
+            process.env.JJ_VIEW_GITLAB_API_URL = `${server.url}/api/v4`;
+            setPrivate(provider, 'projectPath', 'test-group/test-project');
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            process.env.JJ_VIEW_GITLAB_API_URL = originalApiUrl;
+        });
+
+        test('creates chained MRs when none exist', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1\n\nBody 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2\n\nBody 2', bookmark: 'bm-2' },
+                { commitId: 'c3', changeId: 'ch3', description: 'Commit 3\n\nBody 3', bookmark: 'bm-3' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(3);
+            expect(result.created[0]).toMatchObject({
+                changeId: 'ch1',
+                base: 'main',
+                head: 'bm-1',
+            });
+            expect(result.created[1]).toMatchObject({
+                changeId: 'ch2',
+                base: 'bm-1',
+                head: 'bm-2',
+            });
+            expect(result.created[2]).toMatchObject({
+                changeId: 'ch3',
+                base: 'bm-2',
+                head: 'bm-3',
+            });
+            expect(result.retargeted.length).toBe(0);
+            expect(result.unchanged.length).toBe(0);
+            expect(server.createdMrs.length).toBe(3);
+        });
+
+        test('retargets MR target_branch when intermediate commit is inserted or reordered', async () => {
+            server.registerMR('bm-2', {
+                id: 200,
+                iid: 20,
+                state: 'opened',
+                title: 'Commit 2',
+                description: 'Body 2',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/20',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc2',
+                target_branch: 'main',
+            });
+
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(1);
+            expect(result.created[0].head).toBe('bm-1');
+
+            expect(result.retargeted.length).toBe(1);
+            expect(result.retargeted[0]).toMatchObject({
+                changeId: 'ch2',
+                prNumber: 20,
+                oldBase: 'main',
+                newBase: 'bm-1',
+            });
+            expect(server.retargetedMrs.length).toBe(1);
+            expect(server.retargetedMrs[0]).toEqual({
+                iid: 20,
+                target_branch: 'bm-1',
+            });
+        });
+
+        test('reports unchanged when MRs exist and target_branch is already correct', async () => {
+            server.registerMR('bm-1', {
+                id: 100,
+                iid: 10,
+                state: 'opened',
+                title: 'Commit 1',
+                description: 'Body 1',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/10',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc1',
+                target_branch: 'main',
+            });
+            server.registerMR('bm-2', {
+                id: 200,
+                iid: 20,
+                state: 'opened',
+                title: 'Commit 2',
+                description: 'Body 2',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/20',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc2',
+                target_branch: 'bm-1',
+            });
+
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(0);
+            expect(result.retargeted.length).toBe(0);
+            expect(result.unchanged.length).toBe(2);
+        });
+
+        test('prepareStackedChanges retargets inverted MR to defaultBranch before push', async () => {
+            server.registerMR('bm-a', {
+                id: 100,
+                iid: 10,
+                state: 'opened',
+                title: 'Commit 1',
+                description: 'Body 1',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/10',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc1',
+                target_branch: 'main',
+            });
+            server.registerMR('bm-b', {
+                id: 200,
+                iid: 20,
+                state: 'opened',
+                title: 'Commit 2',
+                description: 'Body 2',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/20',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc2',
+                target_branch: 'bm-a',
+            });
+
+            // Inverted stack: bm-b is now before bm-a
+            const reorderedStack: StackCommitNode[] = [
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-b' },
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-a' },
+            ];
+
+            await provider.prepareStackedChanges(reorderedStack);
+
+            expect(server.retargetedMrs).toContainEqual({
+                iid: 20,
+                target_branch: 'main',
+            });
+        });
+
+        test('prepareStackedChanges ignores MRs whose base is not inverted', async () => {
+            server.registerMR('bm-a', {
+                id: 100,
+                iid: 10,
+                state: 'opened',
+                title: 'Commit 1',
+                description: 'Body 1',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/10',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc1',
+                target_branch: 'main',
+            });
+            server.registerMR('bm-b', {
+                id: 200,
+                iid: 20,
+                state: 'opened',
+                title: 'Commit 2',
+                description: 'Body 2',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/20',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'abc2',
+                target_branch: 'bm-a',
+            });
+
+            // Normal order: bm-a is before bm-b
+            const normalStack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-a' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-b' },
+            ];
+
+            await provider.prepareStackedChanges(normalStack);
+
+            expect(server.retargetedMrs.length).toBe(0);
+        });
+
+        test('syncStackedChanges continues processing remaining commits even if one MR fails', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'fail-bm' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'success-bm' },
+            ];
+
+            const origFetch = global.fetch;
+            try {
+                global.fetch = async (input, init) => {
+                    const body = String(init?.body || '');
+                    if (init?.method === 'POST' && body.includes('"source_branch":"fail-bm"')) {
+                        return new Response(JSON.stringify({ message: 'Branch already exists or error' }), {
+                            status: 400,
+                            headers: { 'Content-Type': 'application/json' },
+                        });
+                    }
+                    return origFetch(input, init);
+                };
+
+                const result = await provider.syncStackedChanges(stack);
+
+                expect(result.created.length).toBe(1);
+                expect(result.created[0].head).toBe('success-bm');
+            } finally {
+                global.fetch = origFetch;
+            }
+        });
+
+        test('GitLabProjectInfoSchema successfully parses non-fork project with forked_from_project null', () => {
+            const raw = {
+                id: 123,
+                default_branch: 'main',
+                forked_from_project: null,
+            };
+            const parsed = GitLabProjectInfoSchema.safeParse(raw);
+            expect(parsed.success).toBe(true);
+            if (parsed.success) {
+                expect(parsed.data.default_branch).toBe('main');
+                expect(parsed.data.forked_from_project).toBeNull();
+            }
+        });
+
+        test('fetchStatuses with FakeGitLabServer prefers opened MR over older closed MR on same bookmark', async () => {
+            server.registerMR('feature-bm', {
+                id: 30,
+                iid: 3,
+                state: 'closed',
+                title: 'Old Closed MR',
+                description: 'Old Description',
+                web_url: `${server.url}/test-group/test-project/-/merge_requests/3`,
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'c1',
+                source_project_id: 100,
+            });
+            server.registerMR('feature-bm', {
+                id: 40,
+                iid: 4,
+                state: 'opened',
+                title: 'Active Open MR',
+                description: 'Active Description',
+                web_url: `${server.url}/test-group/test-project/-/merge_requests/4`,
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                sha: 'c1',
+                source_project_id: 100,
+            });
+
+            setPrivate(provider, 'gitlabHost', server.url);
+            setPrivate(provider, 'projectPath', 'test-group/test-project');
+            setPrivate(provider, 'resolvedProjectPath', 'test-group/test-project');
+
+            const testRepo = new TestRepo();
+            testRepo.init();
+            try {
+                const jj = new JjService(testRepo.path, {
+                    info: () => {},
+                    warn: () => {},
+                    error: () => {},
+                    debug: () => {},
+                });
+
+                const changed = await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature-bm'] }], jj);
+
+                expect(changed).toBe(true);
+                const cached = provider.getCachedChangeInfo(undefined, undefined, ['feature-bm']);
+                expect(cached).toBeDefined();
+                expect(cached?.number).toBe(4);
+                expect(cached?.displayLabel).toBe('MR !4');
+                expect(cached?.status).toBe('NEW');
+            } finally {
+                testRepo.dispose();
+            }
         });
     });
 });

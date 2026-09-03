@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { CodeForgeAuthManager } from '../core/code-forge-auth';
-import type { AuthManageItem, ChangeStatusRequest } from '../core/code-forge-provider';
+import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
 import { GitHubProvider } from '../core/github-provider';
 import type { HostSecrets } from '../core/host/host-environment';
 import { JjService } from '../core/jj-service';
@@ -541,6 +541,76 @@ describe('GitHubProvider', () => {
         expect(requestBody.query).toContain('parent {');
     });
 
+    test('fetchBatchFromNetwork prefers OPEN PR over CLOSED/ABANDONED PR on the same bookmark', async () => {
+        setPrivate(provider, 'owner', 'my-owner');
+        setPrivate(provider, 'repo', 'my-repo');
+        const allowedOwners = accessPrivate<Set<string>>(provider, 'allowedOwners');
+        allowedOwners.clear();
+        allowedOwners.add('my-owner');
+
+        const origFetch = global.fetch;
+        try {
+            const fetchMock = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    data: {
+                        repository: {
+                            pr_0: {
+                                nodes: [
+                                    {
+                                        id: 'pr-closed-id',
+                                        number: 3,
+                                        state: 'CLOSED',
+                                        mergeable: 'UNKNOWN',
+                                        url: 'https://github.com/my-owner/my-repo/pull/3',
+                                        headRefName: 'push-feature',
+                                        headRepository: {
+                                            owner: { login: 'my-owner' },
+                                        },
+                                    },
+                                    {
+                                        id: 'pr-open-id',
+                                        number: 4,
+                                        state: 'OPEN',
+                                        mergeable: 'MERGEABLE',
+                                        url: 'https://github.com/my-owner/my-repo/pull/4',
+                                        headRefName: 'push-feature',
+                                        headRepository: {
+                                            owner: { login: 'my-owner' },
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                }),
+            });
+            global.fetch = fetchMock;
+
+            const fetchBatch = exposePrivate<{
+                fetchBatchFromNetwork(
+                    bookmarkNames: string[],
+                    bookmarkToCommitId: Map<string, string>,
+                ): Promise<Map<string, CodeForgeChangeInfo>>;
+            }>(provider).fetchBatchFromNetwork.bind(provider);
+
+            const results = await fetchBatch(['push-feature'], new Map([['push-feature', 'sha-1']]));
+            expect(results.size).toBe(1);
+            const pr = results.get('push-feature');
+            expect(pr).toBeDefined();
+            expect(pr?.id).toBe('pr-open-id');
+            expect(pr?.number).toBe(4);
+            expect(pr?.status).toBe('NEW');
+            expect(pr?.displayLabel).toBe('PR #4');
+
+            const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+            expect(requestBody.query).toContain('orderBy: { field: CREATED_AT, direction: DESC }');
+        } finally {
+            global.fetch = origFetch;
+        }
+    });
+
     test('fetchStatuses matches closed/merged PRs even if local commit ID differs', async () => {
         setPrivate(provider, 'owner', 'my-owner');
         setPrivate(provider, 'repo', 'my-repo');
@@ -864,6 +934,392 @@ describe('GitHubProvider', () => {
             await provider.resolveCommentThread('pr_node_id_123', thread, false);
             threads = await provider.getCommentThreads('pr_node_id_123');
             expect(threads[0].isResolved).toBe(false);
+        });
+    });
+
+    describe('syncStackedChanges', () => {
+        let server: FakeGitHubServer;
+        let originalApiUrl: string | undefined;
+
+        beforeEach(async () => {
+            server = new FakeGitHubServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITHUB_API_URL;
+            process.env.JJ_VIEW_GITHUB_API_URL = server.url;
+            setPrivate(provider, 'owner', 'test-owner');
+            setPrivate(provider, 'repo', 'test-repo');
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+        });
+
+        test('creates chained PRs when none exist', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1\n\nBody 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2\n\nBody 2', bookmark: 'bm-2' },
+                { commitId: 'c3', changeId: 'ch3', description: 'Commit 3\n\nBody 3', bookmark: 'bm-3' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(3);
+            expect(result.created[0]).toMatchObject({
+                changeId: 'ch1',
+                base: 'main',
+                head: 'bm-1',
+            });
+            expect(result.created[1]).toMatchObject({
+                changeId: 'ch2',
+                base: 'bm-1',
+                head: 'bm-2',
+            });
+            expect(result.created[2]).toMatchObject({
+                changeId: 'ch3',
+                base: 'bm-2',
+                head: 'bm-3',
+            });
+            expect(result.retargeted.length).toBe(0);
+            expect(result.unchanged.length).toBe(0);
+            expect(server.createdPrs.length).toBe(3);
+        });
+
+        test('retargets PR base when intermediate commit is inserted or reordered', async () => {
+            // Suppose bm-2 already had a PR targeting 'main'
+            server.registerPR('bm-2', {
+                id: 'pr_node_2',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'main',
+            });
+
+            // Now the stack is: main <- bm-1 <- bm-2
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(1);
+            expect(result.created[0].head).toBe('bm-1');
+
+            expect(result.retargeted.length).toBe(1);
+            expect(result.retargeted[0]).toMatchObject({
+                changeId: 'ch2',
+                prNumber: 102,
+                oldBase: 'main',
+                newBase: 'bm-1',
+            });
+            expect(server.retargetedPrs.length).toBe(1);
+            expect(server.retargetedPrs[0]).toEqual({
+                pullRequestId: 'pr_node_2',
+                baseRefName: 'bm-1',
+            });
+        });
+
+        test('reports unchanged when PRs exist and have correct base', async () => {
+            server.registerPR('bm-1', {
+                id: 'pr_node_1',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/101',
+                baseRefName: 'main',
+            });
+            server.registerPR('bm-2', {
+                id: 'pr_node_2',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'bm-1',
+            });
+
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(0);
+            expect(result.retargeted.length).toBe(0);
+            expect(result.unchanged.length).toBe(2);
+        });
+
+        test('prepareStackedChanges retargets inverted PR to defaultBranch before push', async () => {
+            // Suppose bm-a had PR 1 (base: main)
+            server.registerPR('bm-a', {
+                id: 'pr_node_1',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/101',
+                baseRefName: 'main',
+            });
+            // bm-b had PR 2 (base: bm-a)
+            server.registerPR('bm-b', {
+                id: 'pr_node_2',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'bm-a',
+            });
+
+            // The stack has been reordered: bm-b is now before bm-a
+            const reorderedStack: StackCommitNode[] = [
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-b' },
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-a' },
+            ];
+
+            await provider.prepareStackedChanges(reorderedStack);
+
+            // PR 2 (bm-b) had base bm-a, which is now placed AFTER bm-b. It should be retargeted to 'main'.
+            expect(server.retargetedPrs).toContainEqual({
+                pullRequestId: 'pr_node_2',
+                baseRefName: 'main',
+            });
+        });
+
+        test('prepareStackedChanges ignores PRs whose base is not inverted', async () => {
+            server.registerPR('bm-a', {
+                id: 'pr_node_1',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/101',
+                baseRefName: 'main',
+            });
+            server.registerPR('bm-b', {
+                id: 'pr_node_2',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'bm-a',
+            });
+
+            // Normal topological order: bm-a is before bm-b
+            const normalStack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-a' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-b' },
+            ];
+
+            await provider.prepareStackedChanges(normalStack);
+
+            expect(server.retargetedPrs.length).toBe(0);
+        });
+
+        test('syncStackedChanges continues processing remaining commits even if one PR fails', async () => {
+            // Stack with 2 commits, both unbookmarked previously, needing new PRs
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'fail-bm' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'success-bm' },
+            ];
+
+            // Simulate createPullRequest error for 'fail-bm'
+            const origFetch = global.fetch;
+            try {
+                global.fetch = async (input, init) => {
+                    const body = String(init?.body || '');
+                    if (body.includes('createPullRequest') && body.includes('"headRefName":"fail-bm"')) {
+                        return new Response(
+                            JSON.stringify({
+                                errors: [{ message: 'A pull request already exists for owner:fail-bm.' }],
+                            }),
+                            { status: 200, headers: { 'Content-Type': 'application/json' } },
+                        );
+                    }
+                    return origFetch(input, init);
+                };
+
+                const result = await provider.syncStackedChanges(stack);
+
+                // 'fail-bm' failed, but 'success-bm' was successfully created
+                expect(result.created.length).toBe(1);
+                expect(result.created[0].head).toBe('success-bm');
+                // Native stack registration must be omitted if any PR failed
+                expect(server.createdStacks).toHaveLength(0);
+            } finally {
+                global.fetch = origFetch;
+            }
+        });
+
+        test('syncStackedChanges automatically registers native GitHub stack for multi-PR stacks', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(2);
+            expect(server.createdStacks).toEqual([
+                { pull_requests: [result.created[0].prNumber, result.created[1].prNumber] },
+            ]);
+        });
+
+        test('syncStackedChanges gracefully skips native stack registration when API returns 404', async () => {
+            server.stacksResponseStatus = 404;
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(2);
+            expect(server.createdStacks).toHaveLength(1);
+        });
+
+        test('syncStackedChanges appends new PR to existing native stack when 422 is returned', async () => {
+            // Suppose PR 101 and 102 are already in stack #5 on GitHub
+            server.stacks = [
+                {
+                    id: 5,
+                    number: 5,
+                    pull_requests: [{ number: 101 }, { number: 102 }],
+                },
+            ];
+            server.stacksResponseStatus = 422;
+
+            // Register existing PRs for bm-1 and bm-2
+            server.registerPR('bm-1', {
+                id: 'pr_node_101',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/101',
+                baseRefName: 'main',
+            });
+            server.registerPR('bm-2', {
+                id: 'pr_node_102',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'bm-1',
+            });
+
+            // Now we sync a stack with bm-1, bm-2, and new commit bm-3
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+                { commitId: 'c3', changeId: 'ch3', description: 'Commit 3', bookmark: 'bm-3' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created).toHaveLength(1);
+            expect(result.created[0].head).toBe('bm-3');
+            const newPrNumber = result.created[0].prNumber;
+
+            // Verify that it looked up the stack and called POST /stacks/5/add with the new PR
+            expect(server.addedToStacks).toEqual([
+                {
+                    stackNumber: 5,
+                    pull_requests: [newPrNumber],
+                },
+            ]);
+        });
+
+        test('syncStackedChanges does not call add endpoint if all PRs already belong to existing stack on 422', async () => {
+            server.stacks = [
+                {
+                    id: 5,
+                    number: 5,
+                    pull_requests: [{ number: 101 }, { number: 102 }],
+                },
+            ];
+            server.stacksResponseStatus = 422;
+
+            server.registerPR('bm-1', {
+                id: 'pr_node_101',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/101',
+                baseRefName: 'main',
+            });
+            server.registerPR('bm-2', {
+                id: 'pr_node_102',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/owner/repo/pull/102',
+                baseRefName: 'bm-1',
+            });
+
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-1' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'bm-2' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created).toHaveLength(0);
+            expect(server.addedToStacks).toHaveLength(0);
+        });
+
+        test('single commit stack does not invoke native stack registration', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'bm-single' },
+            ];
+
+            const result = await provider.syncStackedChanges(stack);
+
+            expect(result.created.length).toBe(1);
+            expect(server.createdStacks).toHaveLength(0);
+        });
+
+        test('fetchStatuses with FakeGitHubServer prefers OPEN PR over older CLOSED PR on same bookmark', async () => {
+            const allowedOwners = accessPrivate<Set<string>>(provider, 'allowedOwners');
+            allowedOwners.clear();
+            allowedOwners.add('test-owner');
+
+            server.registerPR('feature-bm', {
+                id: 'pr_node_3',
+                number: 3,
+                state: 'CLOSED',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/3',
+                headOwner: 'test-owner',
+            });
+            server.registerPR('feature-bm', {
+                id: 'pr_node_4',
+                number: 4,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/4',
+                headOwner: 'test-owner',
+            });
+
+            const testRepo = new TestRepo();
+            testRepo.init();
+            try {
+                const jj = new JjService(testRepo.path, {
+                    info: () => {},
+                    warn: () => {},
+                    error: () => {},
+                    debug: () => {},
+                });
+
+                const changed = await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature-bm'] }], jj);
+
+                expect(changed).toBe(true);
+                const cached = provider.getCachedChangeInfo(undefined, undefined, ['feature-bm']);
+                expect(cached).toBeDefined();
+                expect(cached?.number).toBe(4);
+                expect(cached?.displayLabel).toBe('PR #4');
+                expect(cached?.status).toBe('NEW');
+            } finally {
+                testRepo.dispose();
+            }
         });
     });
 });

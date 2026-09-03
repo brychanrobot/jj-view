@@ -343,7 +343,7 @@ export class JjService {
                     }
                     const duration = performance.now() - start;
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
-                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${logSummaryStr}`);
+                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${prefix}${fullCommandStr}`);
 
                     if (err) {
                         const combined: string[] = [];

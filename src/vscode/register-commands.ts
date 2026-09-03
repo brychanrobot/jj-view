@@ -53,6 +53,7 @@ import {
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
 import { undoCommand } from '../core/commands/undo';
 import { uploadCommand } from '../core/commands/upload';
+import { uploadStackCommand } from '../core/commands/upload-stack';
 import { viewFileAtRevisionCommand } from '../core/commands/view-file-at-revision';
 import { workspaceAddCommand } from '../core/commands/workspace-add';
 import { workspaceDeleteCommand } from '../core/commands/workspace-delete';
@@ -112,7 +113,7 @@ import {
     createSquashHunkIntoParentPayload,
     createSquashSelectionIntoParentPayload,
 } from './payloads/squash-selection.payload';
-import { createUploadPayload } from './payloads/upload.payload';
+import { createUploadPayload, createUploadStackPayload } from './payloads/upload.payload';
 import { createViewFileAtRevisionPayload } from './payloads/view-file-at-revision.payload';
 import { createWorkspaceDeletePayload } from './payloads/workspace-delete.payload';
 import { createWorkspaceForgetPayload } from './payloads/workspace-forget.payload';
@@ -275,6 +276,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.newBefore', createNewBeforePayload, newBeforeCommand),
         registerCommandWithPayload('jj-view.newAfter', createNewAfterPayload, newAfterCommand),
         registerCommandWithPayload('jj-view.upload', createUploadPayload, uploadCommand),
+        registerCommandWithPayload('jj-view.uploadStack', createUploadStackPayload, uploadStackCommand),
         registerCommandWithPayload('jj-view.setBookmark', createSetBookmarkPayload, setBookmarkCommand),
         registerCommandWithPayload('jj-view.advanceBookmark', createAdvanceBookmarkPayload, advanceBookmarkCommand),
         registerCommandWithPayload(

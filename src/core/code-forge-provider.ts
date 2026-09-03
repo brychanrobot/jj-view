@@ -69,6 +69,25 @@ export interface CodeForgeProvider {
     ): Promise<CodeForgeComment>;
     /** Resolve/unresolve a comment thread */
     resolveCommentThread?(changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void>;
+
+    /** Preemptively retarget inverted PRs/MRs before pushing commits to prevent forge auto-closure */
+    prepareStackedChanges?(stack: StackCommitNode[]): Promise<void>;
+
+    /** Synchronize a stack of commits by creating or retargeting chained PRs/MRs */
+    syncStackedChanges?(stack: StackCommitNode[]): Promise<StackSyncResult>;
+}
+
+export interface StackCommitNode {
+    commitId: string;
+    changeId: string;
+    description: string;
+    bookmark: string;
+}
+
+export interface StackSyncResult {
+    created: Array<{ changeId: string; prNumber: number; url: string; base: string; head: string }>;
+    retargeted: Array<{ changeId: string; prNumber: number; url: string; oldBase: string; newBase: string }>;
+    unchanged: Array<{ changeId: string; prNumber: number }>;
 }
 
 export interface CodeForgeComment {

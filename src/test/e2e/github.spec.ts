@@ -44,7 +44,7 @@ test.describe('GitHub Integration E2E', () => {
     });
 
     test.beforeEach(() => {
-        github.clearRequests();
+        github.clear();
     });
 
     test('Detects GitHub PR status via bookmark', async ({ vscode }) => {
@@ -749,5 +749,131 @@ test.describe('GitHub Integration E2E', () => {
         await page.locator('.comment-range-glyph').first().click();
         reviewWidget = await getReviewWidget(page, 'Review comment body');
         await expect(reviewWidget).toContainText('My custom reply and resolve');
+    });
+
+    test('Uploads stacked commits and displays all PR badges in JJ Log', async ({ vscode }) => {
+        github.defaultBranch = 'base';
+        const remoteRepo = new TestRepo();
+        remoteRepo.init();
+
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', remoteRepo.path);
+        repo.addRemote('origin-github', 'https://github.com/test-owner/test-repo.git');
+        repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+        repo.config('git.push', '"origin"');
+
+        // Create base commit on remote so immutable base exists
+        repo.describe('base commit');
+        repo.bookmark('base', '@');
+        repo.gitPush('base');
+        remoteRepo.gitImport();
+        repo.config('revset-aliases."trunk()"', '"base@origin"');
+
+        const graph: CommitDefinition[] = [
+            {
+                label: 'stack-1',
+                parents: ['base'],
+                description: 'Stack Commit 1',
+                bookmarks: ['stack-bm-1'],
+            },
+            {
+                label: 'stack-2',
+                parents: ['stack-1'],
+                description: 'Stack Commit 2',
+                bookmarks: ['stack-bm-2'],
+                isCurrentWorkingCopy: true,
+            },
+        ];
+        await buildGraph(repo, graph);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row1 = await waitForLogCommitRow(page, 'Stack Commit 1');
+        const row2 = await waitForLogCommitRow(page, 'Stack Commit 2');
+
+        // Trigger stacked upload
+        await vscode.executeCommand('jj-view.uploadStack');
+
+        // Verify git refs were pushed to remote repo
+        expect(remoteRepo.hasGitRef('refs/heads/stack-bm-1')).toBe(true);
+        expect(remoteRepo.hasGitRef('refs/heads/stack-bm-2')).toBe(true);
+
+        // Verify PR badges appear on both commits
+        await expectBadgeLink(row1, 'PR #100', 'https://github.com/test-owner/test-repo/pull/100');
+        await expectBadgeLink(row2, 'PR #101', 'https://github.com/test-owner/test-repo/pull/101');
+    });
+
+    test('Uploads stacked commits via regular upload when alwaysUploadStack is enabled', async ({ vscode }) => {
+        github.defaultBranch = 'base';
+        const remoteRepo = new TestRepo();
+        remoteRepo.init();
+
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', remoteRepo.path);
+        repo.addRemote('origin-github', 'https://github.com/test-owner/test-repo.git');
+        repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+        repo.config('git.push', '"origin"');
+
+        repo.describe('base commit');
+        repo.bookmark('base', '@');
+        repo.gitPush('base');
+        remoteRepo.gitImport();
+        repo.config('revset-aliases."trunk()"', '"base@origin"');
+
+        const graph: CommitDefinition[] = [
+            {
+                label: 'stack-1',
+                parents: ['base'],
+                description: 'Always Stack Commit 1',
+                bookmarks: ['always-bm-1'],
+            },
+            {
+                label: 'stack-2',
+                parents: ['stack-1'],
+                description: 'Always Stack Commit 2',
+                bookmarks: ['always-bm-2'],
+                isCurrentWorkingCopy: true,
+            },
+        ];
+        await buildGraph(repo, graph);
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+                'jj-view.alwaysUploadStack': true,
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row1 = await waitForLogCommitRow(page, 'Always Stack Commit 1');
+        const row2 = await waitForLogCommitRow(page, 'Always Stack Commit 2');
+
+        // Regular upload command (not uploadStack) should upload the whole stack
+        await vscode.executeCommand('jj-view.upload');
+
+        expect(remoteRepo.hasGitRef('refs/heads/always-bm-1')).toBe(true);
+        expect(remoteRepo.hasGitRef('refs/heads/always-bm-2')).toBe(true);
+
+        await expectBadgeLink(row1, 'PR #100', 'https://github.com/test-owner/test-repo/pull/100');
+        await expectBadgeLink(row2, 'PR #101', 'https://github.com/test-owner/test-repo/pull/101');
     });
 });

@@ -598,7 +598,7 @@ export class LogViewController implements Disposable {
                     );
                 },
                 upload: async (msg) => {
-                    await this._host.commands.executeCommand('jj-view.upload', msg);
+                    await this._host.commands.executeCommand('jj-view.upload', { ...msg, mode: 'auto' });
                 },
                 showComments: async (msg) => {
                     await this._host.commands.executeCommand('jj-view.showComments', msg.changeId);

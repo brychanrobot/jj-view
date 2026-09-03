@@ -15,6 +15,8 @@ import type {
     CodeForgeCommentThread,
     CodeForgeProvider,
     GitRemote,
+    StackCommitNode,
+    StackSyncResult,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './host/events';
 import type { CodeForgeChangeInfo } from './jj-types';
@@ -152,6 +154,118 @@ interface GitHubReplyResponseGql {
     } | null;
     errors?: unknown[] | null;
 }
+
+export const GitHubRepoMetadataSchema = z.object({
+    data: z
+        .object({
+            repository: z
+                .object({
+                    id: z.string(),
+                    defaultBranchRef: z
+                        .object({
+                            name: z.string(),
+                        })
+                        .nullable()
+                        .optional(),
+                })
+                .nullable()
+                .optional(),
+        })
+        .nullable()
+        .optional(),
+    errors: z.array(z.unknown()).nullable().optional(),
+});
+export type GitHubRepoMetadataGql = z.infer<typeof GitHubRepoMetadataSchema>;
+
+export const GitHubStackedPrNodeSchema = z.object({
+    id: z.string(),
+    number: z.number(),
+    url: z.string(),
+    baseRefName: z.string(),
+    headRefName: z.string().nullable().optional(),
+    headRepository: z
+        .object({
+            owner: z
+                .object({
+                    login: z.string(),
+                })
+                .optional(),
+        })
+        .nullable()
+        .optional(),
+});
+export type GitHubStackedPrNode = z.infer<typeof GitHubStackedPrNodeSchema>;
+
+export const GitHubStackedPrsResponseSchema = z.object({
+    data: z
+        .object({
+            repository: z
+                .record(
+                    z.string(),
+                    z
+                        .object({
+                            nodes: z.array(GitHubStackedPrNodeSchema.nullable()).optional(),
+                        })
+                        .nullable()
+                        .optional(),
+                )
+                .nullable()
+                .optional(),
+        })
+        .nullable()
+        .optional(),
+    errors: z.array(z.unknown()).nullable().optional(),
+});
+export type GitHubStackedPrsResponseGql = z.infer<typeof GitHubStackedPrsResponseSchema>;
+
+export const GitHubCreatePrResponseSchema = z.object({
+    data: z
+        .object({
+            createPullRequest: z
+                .object({
+                    pullRequest: GitHubStackedPrNodeSchema.nullable().optional(),
+                })
+                .nullable()
+                .optional(),
+        })
+        .nullable()
+        .optional(),
+    errors: z.array(z.unknown()).nullable().optional(),
+});
+export type GitHubCreatePrResponseGql = z.infer<typeof GitHubCreatePrResponseSchema>;
+
+export const GitHubUpdatePrResponseSchema = z.object({
+    data: z
+        .object({
+            updatePullRequest: z
+                .object({
+                    pullRequest: GitHubStackedPrNodeSchema.nullable().optional(),
+                })
+                .nullable()
+                .optional(),
+        })
+        .nullable()
+        .optional(),
+    errors: z.array(z.unknown()).nullable().optional(),
+});
+export type GitHubUpdatePrResponseGql = z.infer<typeof GitHubUpdatePrResponseSchema>;
+
+export const GitHubStackRecordSchema = z.object({
+    number: z.number().optional(),
+    stack_number: z.number().optional(),
+    pull_requests: z
+        .array(
+            z.union([
+                z.number(),
+                z.object({
+                    number: z.number(),
+                }),
+            ]),
+        )
+        .nullable()
+        .optional(),
+});
+export type GitHubStackRecord = z.infer<typeof GitHubStackRecordSchema>;
 
 export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
@@ -334,7 +448,7 @@ export class GitHubProvider implements CodeForgeProvider {
         const aliasQueries = bookmarkNames.map((name, index) => {
             const alias = `pr_${index}`;
             const escapedName = JSON.stringify(name);
-            return `${alias}: pullRequests(first: 1, headRefName: ${escapedName}) {
+            return `${alias}: pullRequests(first: 10, headRefName: ${escapedName}, orderBy: { field: CREATED_AT, direction: DESC }) {
                 nodes {
                     id
                     number
@@ -458,7 +572,8 @@ export class GitHubProvider implements CodeForgeProvider {
                 const chosenPrNodes = filteredParentNodes.length > 0 ? filteredParentNodes : filteredChildNodes;
 
                 if (chosenPrNodes.length > 0) {
-                    const pr = chosenPrNodes[0];
+                    const openPr = chosenPrNodes.find((pr) => pr.state === 'OPEN');
+                    const pr = openPr || chosenPrNodes[0];
                     const info = this.parseGitHubPr(pr);
                     if (info) {
                         results.set(bookmarkNames[i], info);
@@ -518,6 +633,513 @@ export class GitHubProvider implements CodeForgeProvider {
             args.push('-r', revision);
         }
         return { subcommand: 'git', args };
+    }
+
+    public async prepareStackedChanges(stack: StackCommitNode[]): Promise<void> {
+        if (stack.length <= 1 || !this.owner || !this.repo) {
+            return;
+        }
+
+        const token = await this.getSessionToken();
+        if (!token) {
+            return;
+        }
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const { defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, token);
+        const existingPrs = await this.fetchExistingPrs(apiUrl, token, stack);
+
+        // Map bookmark names to their new positions in the stack
+        const bookmarkIndexMap = new Map<string, number>();
+        for (let i = 0; i < stack.length; i++) {
+            bookmarkIndexMap.set(stack[i].bookmark, i);
+        }
+
+        for (let i = 0; i < stack.length; i++) {
+            const node = stack[i];
+            const existingPr = existingPrs.get(node.bookmark);
+            if (!existingPr) {
+                continue;
+            }
+
+            const baseIndex = bookmarkIndexMap.get(existingPr.baseRefName);
+            // If the PR's baseRefName is a bookmark in the stack placed AFTER this commit (baseIndex > i),
+            // this PR's base is about to become its descendant when branches are pushed.
+            // Retarget it immediately to defaultBranch to prevent GitHub from auto-closing it upon push.
+            if (baseIndex !== undefined && baseIndex > i) {
+                this.outputChannel?.info(
+                    `[GitHubProvider] Preemptively retargeting PR #${existingPr.number} (${node.bookmark}) from ${existingPr.baseRefName} to ${defaultBranch} before push to avoid forge auto-closure`,
+                );
+                try {
+                    await this.retargetPullRequest(apiUrl, token, existingPr.id, defaultBranch);
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.outputChannel?.warn(
+                        `[GitHubProvider] Failed to preemptively retarget PR #${existingPr.number} (${node.bookmark}): ${msg}`,
+                    );
+                }
+            }
+        }
+    }
+
+    public async syncStackedChanges(stack: StackCommitNode[]): Promise<StackSyncResult> {
+        const result: StackSyncResult = { created: [], retargeted: [], unchanged: [] };
+        if (stack.length === 0 || !this.owner || !this.repo) {
+            return result;
+        }
+
+        const token = await this.getSessionToken();
+        if (!token) {
+            return result;
+        }
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const { repositoryId, defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, token);
+        const existingPrs = await this.fetchExistingPrs(apiUrl, token, stack);
+
+        const orderedPrNumbers: number[] = [];
+        // Process each commit in the stack
+        for (let i = 0; i < stack.length; i++) {
+            const node = stack[i];
+            const expectedBase = i === 0 ? defaultBranch : stack[i - 1].bookmark;
+            const existingPr = existingPrs.get(node.bookmark);
+
+            try {
+                if (existingPr) {
+                    if (existingPr.baseRefName !== expectedBase) {
+                        await this.retargetPullRequest(apiUrl, token, existingPr.id, expectedBase);
+                        orderedPrNumbers.push(existingPr.number);
+                        result.retargeted.push({
+                            changeId: node.changeId,
+                            prNumber: existingPr.number,
+                            url: existingPr.url,
+                            oldBase: existingPr.baseRefName,
+                            newBase: expectedBase,
+                        });
+                        continue;
+                    }
+                    orderedPrNumbers.push(existingPr.number);
+                    result.unchanged.push({
+                        changeId: node.changeId,
+                        prNumber: existingPr.number,
+                    });
+                    continue;
+                }
+
+                const lines = node.description.trim().split('\n');
+                const title = lines[0]?.trim() || `Commit ${node.changeId.slice(0, 8)}`;
+                const body = lines.slice(1).join('\n').trim();
+
+                const createdPr = await this.createPullRequest(
+                    apiUrl,
+                    token,
+                    repositoryId,
+                    expectedBase,
+                    node.bookmark,
+                    title,
+                    body,
+                );
+                if (createdPr) {
+                    orderedPrNumbers.push(createdPr.number);
+                    result.created.push({
+                        changeId: node.changeId,
+                        prNumber: createdPr.number,
+                        url: createdPr.url,
+                        base: expectedBase,
+                        head: node.bookmark,
+                    });
+                } else {
+                    this.outputChannel?.warn(
+                        `[GitHubProvider] Failed to create pull request for ${node.bookmark}: createPullRequest returned empty response.`,
+                    );
+                }
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.outputChannel?.warn(`[GitHubProvider] Failed to sync PR for ${node.bookmark}: ${msg}`);
+            }
+        }
+
+        // Only register native stack if the entire stack succeeded without gaps or failures
+        if (orderedPrNumbers.length > 1 && orderedPrNumbers.length === stack.length) {
+            await this.registerNativeStack(apiUrl, token, orderedPrNumbers);
+        }
+
+        return result;
+    }
+
+    private async fetchRepositoryMetadata(
+        apiUrl: string,
+        token: string,
+    ): Promise<{ repositoryId: string; defaultBranch: string }> {
+        const repoQuery = `
+        query($owner: String!, $name: String!) {
+            repository(owner: $owner, name: $name) {
+                id
+                defaultBranchRef {
+                    name
+                }
+            }
+        }
+        `;
+        const repoResp = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query: repoQuery,
+                variables: { owner: this.owner, name: this.repo },
+            }),
+        });
+        if (!repoResp.ok) {
+            throw new Error(`Failed to query repository metadata: ${repoResp.statusText}`);
+        }
+        const rawJson = (await repoResp.json()) as unknown;
+        const parsed = GitHubRepoMetadataSchema.safeParse(rawJson);
+        if (!parsed.success) {
+            throw new Error(`Failed to parse repository metadata: ${parsed.error.message}`);
+        }
+        const repoJson = parsed.data;
+        if (repoJson.errors && repoJson.errors.length > 0) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(repoJson.errors)}`);
+        }
+        const repositoryId = repoJson.data?.repository?.id;
+        if (!repositoryId) {
+            throw new Error('Repository ID not found on GitHub.');
+        }
+        const defaultBranch = repoJson.data?.repository?.defaultBranchRef?.name || 'main';
+        return { repositoryId, defaultBranch };
+    }
+
+    private async fetchExistingPrs(
+        apiUrl: string,
+        token: string,
+        stack: StackCommitNode[],
+    ): Promise<Map<string, GitHubStackedPrNode>> {
+        const aliasQueries = stack
+            .map(
+                (node, i) =>
+                    `pr_${i}: pullRequests(first: 10, headRefName: ${JSON.stringify(node.bookmark)}, states: [OPEN], orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id number url baseRefName headRefName headRepository { owner { login } } } }`,
+            )
+            .join('\n');
+        const prsQuery = `
+        query($owner: String!, $name: String!) {
+            repository(owner: $owner, name: $name) {
+                ${aliasQueries}
+            }
+        }
+        `;
+        const prsResp = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query: prsQuery,
+                variables: { owner: this.owner, name: this.repo },
+            }),
+        });
+        if (!prsResp.ok) {
+            throw new Error(`Failed to query existing pull requests: ${prsResp.statusText}`);
+        }
+        const rawJson = (await prsResp.json()) as unknown;
+        const parsed = GitHubStackedPrsResponseSchema.safeParse(rawJson);
+        if (!parsed.success) {
+            throw new Error(`Failed to parse existing PRs response: ${parsed.error.message}`);
+        }
+        const prsJson = parsed.data;
+        if (prsJson.errors && prsJson.errors.length > 0) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(prsJson.errors)}`);
+        }
+
+        const existingPrs = new Map<string, GitHubStackedPrNode>();
+        const repositoryData = prsJson.data?.repository;
+        if (repositoryData) {
+            for (let i = 0; i < stack.length; i++) {
+                const prList = repositoryData[`pr_${i}`]?.nodes;
+                if (prList && prList.length > 0) {
+                    const validPr = prList.find((p) => {
+                        if (!p) {
+                            return false;
+                        }
+                        const headOwner = p.headRepository?.owner?.login;
+                        if (headOwner && this.allowedOwners.size > 0) {
+                            return this.allowedOwners.has(headOwner.toLowerCase());
+                        }
+                        return true;
+                    });
+                    if (validPr) {
+                        existingPrs.set(stack[i].bookmark, validPr);
+                    }
+                }
+            }
+        }
+        return existingPrs;
+    }
+
+    private async retargetPullRequest(
+        apiUrl: string,
+        token: string,
+        pullRequestId: string,
+        baseRefName: string,
+    ): Promise<void> {
+        const updateMutation = `
+        mutation($input: UpdatePullRequestInput!) {
+            updatePullRequest(input: $input) {
+                pullRequest {
+                    id
+                    number
+                    url
+                    baseRefName
+                }
+            }
+        }
+        `;
+        const updateResp = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query: updateMutation,
+                variables: {
+                    input: {
+                        pullRequestId,
+                        baseRefName,
+                    },
+                },
+            }),
+        });
+        if (!updateResp.ok) {
+            throw new Error(`Failed to update PR base: ${updateResp.statusText}`);
+        }
+        const rawJson = (await updateResp.json()) as unknown;
+        const parsed = GitHubUpdatePrResponseSchema.safeParse(rawJson);
+        if (!parsed.success) {
+            throw new Error(`Failed to parse update PR response: ${parsed.error.message}`);
+        }
+        const updateJson = parsed.data;
+        if (updateJson.errors && updateJson.errors.length > 0) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(updateJson.errors)}`);
+        }
+    }
+
+    private async createPullRequest(
+        apiUrl: string,
+        token: string,
+        repositoryId: string,
+        baseRefName: string,
+        headRefName: string,
+        title: string,
+        body: string,
+    ): Promise<GitHubStackedPrNode | undefined> {
+        const createMutation = `
+        mutation($input: CreatePullRequestInput!) {
+            createPullRequest(input: $input) {
+                pullRequest {
+                    id
+                    number
+                    url
+                    baseRefName
+                    headRefName
+                }
+            }
+        }
+        `;
+        const createResp = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query: createMutation,
+                variables: {
+                    input: {
+                        repositoryId,
+                        baseRefName,
+                        headRefName,
+                        title,
+                        body,
+                    },
+                },
+            }),
+        });
+        if (!createResp.ok) {
+            throw new Error(`Failed to create PR: ${createResp.statusText}`);
+        }
+        const rawJson = (await createResp.json()) as unknown;
+        const parsed = GitHubCreatePrResponseSchema.safeParse(rawJson);
+        if (!parsed.success) {
+            throw new Error(`Failed to parse create PR response: ${parsed.error.message}`);
+        }
+        const createJson = parsed.data;
+        if (createJson.errors && createJson.errors.length > 0) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(createJson.errors)}`);
+        }
+        return createJson.data?.createPullRequest?.pullRequest ?? undefined;
+    }
+
+    private getRestApiBaseUrl(gqlUrl: string): string {
+        const customRestUrl = process.env.JJ_VIEW_GITHUB_REST_API_URL;
+        if (customRestUrl && customRestUrl.trim().length > 0) {
+            return customRestUrl.trim();
+        }
+        try {
+            const parsed = new URL(gqlUrl);
+            if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+                return `${parsed.protocol}//${parsed.host}`;
+            }
+            if (parsed.hostname !== 'api.github.com') {
+                return `${parsed.protocol}//${parsed.host}/api/v3`;
+            }
+        } catch {
+            // Fall back to default GitHub REST API
+        }
+        return 'https://api.github.com';
+    }
+
+    private async findExistingStack(
+        restBaseUrl: string,
+        token: string,
+        pullRequestNumbers: number[],
+    ): Promise<{ number: number; prNumbers: number[] } | undefined> {
+        if (!this.owner || !this.repo) {
+            return undefined;
+        }
+
+        for (const prNum of pullRequestNumbers) {
+            const endpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks?pull_request=${prNum}`;
+            try {
+                const response = await fetchWithTimeout(endpoint, 15000, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        Accept: 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
+                        'User-Agent': 'jj-view-vscode-extension',
+                    },
+                });
+                if (!response.ok) {
+                    continue;
+                }
+                const rawJson = (await response.json()) as unknown;
+                const list = Array.isArray(rawJson) ? rawJson : [rawJson];
+                for (const item of list) {
+                    const parsed = GitHubStackRecordSchema.safeParse(item);
+                    if (!parsed.success) {
+                        continue;
+                    }
+                    const record = parsed.data;
+                    const stackNumber = record.number ?? record.stack_number;
+                    if (typeof stackNumber !== 'number') {
+                        continue;
+                    }
+                    const prNumbers: number[] = [];
+                    for (const p of record.pull_requests || []) {
+                        if (typeof p === 'number') {
+                            prNumbers.push(p);
+                        } else if (typeof p.number === 'number') {
+                            prNumbers.push(p.number);
+                        }
+                    }
+                    return { number: stackNumber, prNumbers };
+                }
+            } catch {
+                // Continue checking next PR
+            }
+        }
+        return undefined;
+    }
+
+    private async registerNativeStack(apiUrl: string, token: string, pullRequestNumbers: number[]): Promise<void> {
+        if (!this.owner || !this.repo || pullRequestNumbers.length <= 1) {
+            return;
+        }
+
+        const restBaseUrl = this.getRestApiBaseUrl(apiUrl);
+        const endpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks`;
+
+        try {
+            const response = await fetchWithTimeout(endpoint, 15000, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Accept: 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'jj-view-vscode-extension',
+                },
+                body: JSON.stringify({
+                    pull_requests: pullRequestNumbers,
+                }),
+            });
+
+            if (response.status === 201 || response.ok) {
+                this.outputChannel?.info(
+                    `[GitHubProvider] Successfully registered native GitHub stack for PRs: ${pullRequestNumbers.join(', ')}`,
+                );
+                return;
+            }
+
+            // 422 indicates that one or more pull requests are already part of an existing stack.
+            // In that case, look up the existing stack and append the new PR(s) to it via /stacks/{stack_number}/add.
+            if (response.status === 422) {
+                const existingStack = await this.findExistingStack(restBaseUrl, token, pullRequestNumbers);
+                if (existingStack) {
+                    const existingSet = new Set(existingStack.prNumbers);
+                    const toAdd = pullRequestNumbers.filter((num) => !existingSet.has(num));
+
+                    if (toAdd.length === 0) {
+                        this.outputChannel?.debug(
+                            `[GitHubProvider] All PRs [${pullRequestNumbers.join(', ')}] already belong to stack #${existingStack.number}`,
+                        );
+                        return;
+                    }
+
+                    const addEndpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks/${existingStack.number}/add`;
+                    const addResp = await fetchWithTimeout(addEndpoint, 15000, {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            Accept: 'application/vnd.github+json',
+                            'X-GitHub-Api-Version': '2022-11-28',
+                            'Content-Type': 'application/json',
+                            'User-Agent': 'jj-view-vscode-extension',
+                        },
+                        body: JSON.stringify({
+                            pull_requests: toAdd,
+                        }),
+                    });
+
+                    if (addResp.status === 200 || addResp.status === 201 || addResp.ok) {
+                        this.outputChannel?.info(
+                            `[GitHubProvider] Successfully added PRs [${toAdd.join(', ')}] to native GitHub stack #${existingStack.number}`,
+                        );
+                        return;
+                    }
+
+                    this.outputChannel?.debug(
+                        `[GitHubProvider] Failed to add PRs to stack #${existingStack.number} (status ${addResp.status}): ${addResp.statusText}`,
+                    );
+                    return;
+                }
+            }
+
+            this.outputChannel?.debug(
+                `[GitHubProvider] Native stack registration returned status ${response.status}: ${response.statusText}`,
+            );
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.outputChannel?.debug(`[GitHubProvider] Optional native stack registration skipped: ${msg}`);
+        }
     }
 
     /**
