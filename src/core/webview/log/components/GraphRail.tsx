@@ -12,6 +12,7 @@ import {
     LEFT_MARGIN,
     ROW_CENTER_Y,
     ROW_HEIGHT_ELISION,
+    ROW_HEIGHT_EXPANDED,
     ROW_HEIGHT_NORMAL,
 } from '../layout-constants';
 
@@ -119,7 +120,13 @@ export const GraphRail: React.FC<GraphRailProps> = ({
             if (isLastRowElision) {
                 trailingY = (rowOffsets[lastRowIndex] || 0) + ELISION_ROW_HEIGHT / 2;
             } else {
-                trailingY = (rowOffsets[lastRowIndex] || 0) + CY_OFFSET + (edge.isElided ? 24 : 12);
+                const lastRow = rows[lastRowIndex];
+                const lastRowHeight =
+                    lastRow && !isElisionRow(lastRow) && lastRow.codeForgeChange
+                        ? ROW_HEIGHT_EXPANDED
+                        : ROW_HEIGHT_NORMAL;
+                const baseOffset = lastRowHeight === ROW_HEIGHT_EXPANDED ? ROW_HEIGHT_EXPANDED - 2 : CY_OFFSET + 12;
+                trailingY = (rowOffsets[lastRowIndex] || 0) + baseOffset + (edge.isElided ? 12 : 0);
             }
         }
 
@@ -332,9 +339,14 @@ export const GraphRail: React.FC<GraphRailProps> = ({
             {sortedEdges.map((edge, i) => renderEdge(edge, i))}
             {terminations?.map((term) => {
                 const mx = getPixelX(term.x);
+                const lastRow = rows[rows.length - 1];
+                const lastRowOffset =
+                    lastRow && !isElisionRow(lastRow) && lastRow.codeForgeChange
+                        ? ROW_HEIGHT_EXPANDED + 10
+                        : CY_OFFSET + 24;
                 const my =
                     term.y >= rows.length
-                        ? (rowOffsets[rows.length - 1] || 0) + CY_OFFSET + 24
+                        ? (rowOffsets[rows.length - 1] || 0) + lastRowOffset
                         : getLayoutRowPixelY({ type: 'node', x: term.x, y: term.y });
                 return (
                     <g key={`term-${term.x}-${term.y}`} transform={`translate(${mx}, ${my})`}>

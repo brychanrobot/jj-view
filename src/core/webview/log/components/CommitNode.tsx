@@ -2,7 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
+import { type Active, useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import * as React from 'react';
 import type { ActionPayload, CommitAction } from '../../../host/ipc/log-view-schemas';
 import type { JjBookmark, JjLogEntry } from '../../../jj-types';
@@ -12,6 +12,64 @@ import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { computeCommitActions } from '../utils/commit-utils';
 import type { DragActionModifier } from '../utils/drag-modifiers';
 import { DraggableBookmark } from './DraggableBookmark';
+
+interface BookmarkDragData {
+    type: 'bookmark';
+    name: string;
+    remote?: string;
+}
+
+function isBookmarkDragData(data: unknown): data is BookmarkDragData {
+    if (!data || typeof data !== 'object') {
+        return false;
+    }
+    const d = data as Record<string, unknown>;
+    return d.type === 'bookmark' && typeof d.name === 'string';
+}
+
+interface CommitBookmarkListProps {
+    bookmarks?: JjBookmark[];
+    active?: Active | null;
+    isOver: boolean;
+    style?: React.CSSProperties;
+}
+
+const CommitBookmarkList: React.FC<CommitBookmarkListProps> = ({ bookmarks, active, isOver, style }) => {
+    const isDraggingBookmark = isBookmarkDragData(active?.data?.current);
+    const activeBookmark = isDraggingBookmark ? active.data.current : undefined;
+    const activeRemote = activeBookmark?.remote ?? null;
+    const hasActiveBookmarkAlready = bookmarks?.some(
+        (b) => b.name === activeBookmark?.name && (b.remote ?? null) === activeRemote,
+    );
+
+    return (
+        <span
+            style={{
+                display: 'flex',
+                gap: '4px',
+                alignItems: 'center',
+                overflow: 'hidden',
+                flexShrink: 1,
+                ...style,
+            }}
+        >
+            {bookmarks?.map((bookmark) => (
+                <DraggableBookmark key={`${bookmark.name}-${bookmark.remote || 'local'}`} bookmark={bookmark} />
+            ))}
+            {isOver && isDraggingBookmark && activeBookmark && !hasActiveBookmarkAlready && (
+                <BookmarkPill
+                    bookmark={{ name: activeBookmark.name, remote: activeBookmark.remote }}
+                    style={{
+                        opacity: 0.7,
+                        backgroundColor: 'transparent',
+                        border: '1px dashed var(--vscode-charts-blue)',
+                        boxShadow: 'inset 0 0 8px var(--vscode-charts-blue)',
+                    }}
+                />
+            )}
+        </span>
+    );
+};
 
 interface CommitNodeProps {
     commit: JjLogEntry;
@@ -396,12 +454,9 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             overflow: 'hidden',
                         }}
                     >
-                        {commit.bookmarks?.map((bookmark: JjBookmark) => (
-                            <DraggableBookmark
-                                key={`${bookmark.name}-${bookmark.remote || 'local'}`}
-                                bookmark={bookmark}
-                            />
-                        ))}
+                        {!codeForgeChange && (
+                            <CommitBookmarkList bookmarks={commit.bookmarks} active={active} isOver={isOver} />
+                        )}
                         {commit.working_copies &&
                             commit.working_copies.length > 0 &&
                             commit.working_copies.map((workspace: string) => (
@@ -427,23 +482,6 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 {activeModifier?.badgeText || 'Drop here'}
                             </span>
                         )}
-
-                        {isOver &&
-                            active?.data?.current?.type === 'bookmark' &&
-                            !commit.bookmarks?.some(
-                                (b: JjBookmark) =>
-                                    b.name === active.data.current?.name && b.remote === active.data.current?.remote,
-                            ) && (
-                                <BookmarkPill
-                                    bookmark={{ name: active.data.current?.name, remote: active.data.current?.remote }}
-                                    style={{
-                                        opacity: 0.7,
-                                        backgroundColor: 'transparent',
-                                        border: '1px dashed var(--vscode-charts-blue)',
-                                        boxShadow: 'inset 0 0 8px var(--vscode-charts-blue)',
-                                    }}
-                                />
-                            )}
                     </span>
                 </div>
 
@@ -455,7 +493,7 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
-                            marginTop: '-6px',
+                            marginTop: '-2px',
                             opacity: textOpacity,
                             overflow: 'hidden',
                             height: '22px',
@@ -614,6 +652,14 @@ export const CommitNode: React.FC<CommitNodeProps> = ({
                                 <span className="codicon codicon-check" style={{ fontSize: '12px' }} />
                             </span>
                         )}
+
+                        {/* Right-aligned Bookmarks on Second Row */}
+                        <CommitBookmarkList
+                            bookmarks={commit.bookmarks}
+                            active={active}
+                            isOver={isOver}
+                            style={{ marginLeft: 'auto', flex: '0 100 auto' }}
+                        />
                     </div>
                 )}
             </div>
