@@ -23,4 +23,4 @@ paginate = "never"
 auto-update-stale = true
 
 [templates]
-git_push_bookmark = "'up-' ++ change_id.shortest(3)"
+git_push_bookmark = "'up-' ++ change_id.shortest(5)"
