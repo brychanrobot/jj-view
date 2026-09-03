@@ -494,6 +494,14 @@ export class TestRepo {
         }
     }
 
+    getGitRefSha(ref: string): string {
+        const output = cp.execFileSync('git', ['rev-parse', ref], {
+            cwd: this.path,
+            encoding: 'utf-8',
+        });
+        return output.trim();
+    }
+
     listGitRefs(prefix?: string): string[] {
         try {
             const output = cp.execFileSync('git', ['show-ref'], {

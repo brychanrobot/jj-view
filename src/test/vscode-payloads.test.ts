@@ -39,6 +39,7 @@ import {
     createSquashHunkIntoParentPayload,
     createSquashSelectionIntoParentPayload,
 } from '../vscode/payloads/squash-selection.payload';
+import { createUploadPayload, createUploadStackPayload } from '../vscode/payloads/upload.payload';
 import {
     createWorkspaceOpenInCurrentWindowPayload,
     createWorkspaceOpenInNewWindowPayload,
@@ -337,6 +338,50 @@ describe('vscode payloads', () => {
         it('createWorkspaceOpenInNewWindowPayload extracts workspaceName', () => {
             const payload = createWorkspaceOpenInNewWindowPayload([{ workspaceName: 'ws1' }]);
             expect(payload.workspaceName).toBe('ws1');
+        });
+    });
+
+    describe('upload payloads', () => {
+        it('createUploadPayload defaults to single mode for context menu / standard invocations', () => {
+            const payload = createUploadPayload(['rev1']);
+            expect(payload.revision).toBe('rev1');
+            expect(payload.mode).toBe('single');
+
+            const payloadWithChangeIdOnly = createUploadPayload([{ changeId: 'rev1' }]);
+            expect(payloadWithChangeIdOnly.revision).toBe('rev1');
+            expect(payloadWithChangeIdOnly.mode).toBe('single');
+
+            const payloadWithBookmark = createUploadPayload([{ bookmarkName: 'my-feature' }]);
+            expect(payloadWithBookmark.revision).toBe('my-feature');
+            expect(payloadWithBookmark.mode).toBe('single');
+        });
+
+        it('createUploadPayload uses auto mode when invoked from webview cloud button', () => {
+            const payloadWithExplicitAuto = createUploadPayload([{ mode: 'auto', changeId: 'rev1' }]);
+            expect(payloadWithExplicitAuto.revision).toBe('rev1');
+            expect(payloadWithExplicitAuto.mode).toBe('auto');
+        });
+
+        it('createUploadPayload handles empty arguments (Command Palette)', () => {
+            const payload = createUploadPayload([]);
+            expect(payload.revision).toBeUndefined();
+            expect(payload.mode).toBe('single');
+        });
+
+        it('createUploadPayload preserves explicit mode', () => {
+            const payload = createUploadPayload([{ changeId: 'rev1', mode: 'stack' }]);
+            expect(payload.revision).toBe('rev1');
+            expect(payload.mode).toBe('stack');
+        });
+
+        it('createUploadStackPayload sets stack mode', () => {
+            const payload = createUploadStackPayload(['rev1']);
+            expect(payload.revision).toBe('rev1');
+            expect(payload.mode).toBe('stack');
+
+            const payloadEmpty = createUploadStackPayload([]);
+            expect(payloadEmpty.revision).toBeUndefined();
+            expect(payloadEmpty.mode).toBe('stack');
         });
     });
 });

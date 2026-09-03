@@ -80,7 +80,16 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
 }
 
 function extractRevisionsFromObject(arg: Record<string, unknown>, unique: Set<string>): void {
-    const scalarKeys = ['revision', 'jj.revision', 'changeId', 'jj.changeId', 'commitId', 'jj.commitId'];
+    const scalarKeys = [
+        'revision',
+        'jj.revision',
+        'changeId',
+        'jj.changeId',
+        'commitId',
+        'jj.commitId',
+        'bookmarkName',
+        'bookmark',
+    ];
     for (const key of scalarKeys) {
         const val = arg[key];
         if (typeof val === 'string' && val.trim().length > 0) {

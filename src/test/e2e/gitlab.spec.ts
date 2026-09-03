@@ -41,7 +41,7 @@ test.describe('GitLab Integration E2E', () => {
     });
 
     test.beforeEach(() => {
-        gitlab.clearRequests();
+        gitlab.clear();
     });
 
     test.afterEach(async ({ vscode }) => {

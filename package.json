@@ -107,9 +107,14 @@
                     "type": "string",
                     "description": "GitLab host URL (e.g., https://gitlab.com). If not set, extension attempts to detect it from git remotes."
                 },
+                "jj-view.alwaysUploadStack": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Always upload changes as stacked pull requests or merge requests. When enabled, the extra 'Upload Stack' context menu item is hidden and all upload actions upload the full stack."
+                },
                 "jj-view.uploadCommand": {
                     "type": "string",
-                    "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>'."
+                    "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>' or repeated '-r'/'-c' arguments for stacked uploads."
                 },
                 "jj-view.minChangeIdLength": {
                     "type": "number",
@@ -233,6 +238,12 @@
                 "title": "Upload",
                 "category": "JJ View",
                 "icon": "$(cloud-upload)"
+            },
+            {
+                "command": "jj-view.uploadStack",
+                "title": "Upload Stack",
+                "category": "JJ View",
+                "icon": "$(layers)"
             },
             {
                 "command": "jj-view.focusRepository",
@@ -650,6 +661,10 @@
         "menus": {
             "commandPalette": [
                 {
+                    "command": "jj-view.uploadStack",
+                    "when": "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'"
+                },
+                {
                     "command": "jj-view.killProcess",
                     "when": "false"
                 },
@@ -877,6 +892,11 @@
                     "command": "jj-view.upload",
                     "when": "webviewSection == 'commit' && jj.canUpload",
                     "group": "3_bookmark@2"
+                },
+                {
+                    "command": "jj-view.uploadStack",
+                    "when": "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+                    "group": "3_bookmark@3"
                 },
                 {
                     "command": "jj-view.rebaseOntoSelected",

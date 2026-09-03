@@ -19,6 +19,8 @@ export interface FakeMrInfo {
     sha: string;
     user_notes_count?: number;
     source_project_id?: number;
+    source_branch?: string;
+    target_branch?: string;
 }
 
 export interface FakeGitLabNote {
@@ -44,22 +46,42 @@ export interface FakeGitLabDiscussion {
 }
 
 export class FakeGitLabServer {
-    private mrs = new Map<string, FakeMrInfo>();
+    private mrs = new Map<string, FakeMrInfo[]>();
     private discussions = new Map<number, FakeGitLabDiscussion[]>(); // mrIid -> FakeGitLabDiscussion[]
     private server: http.Server | undefined;
     public url = '';
     public requests: { url: string; method: string }[] = [];
     public statusOverride: { status: number; headers?: Record<string, string>; body?: string } | undefined;
+    public defaultBranch = 'main';
+    public createdMrs: Array<{
+        source_branch: string;
+        target_branch: string;
+        title: string;
+        description: string;
+        iid: number;
+    }> = [];
+    public retargetedMrs: Array<{ iid: number; target_branch: string }> = [];
 
     public registerMR(bookmark: string, mr: FakeMrInfo) {
         if (mr.source_project_id === undefined) {
             mr.source_project_id = 100;
         }
-        this.mrs.set(bookmark, mr);
+        const list = this.mrs.get(bookmark) || [];
+        list.push(mr);
+        this.mrs.set(bookmark, list);
     }
 
     public registerDiscussions(mrIid: number, discussions: FakeGitLabDiscussion[]) {
         this.discussions.set(mrIid, discussions);
+    }
+
+    public clear() {
+        this.requests = [];
+        this.createdMrs = [];
+        this.retargetedMrs = [];
+        this.mrs.clear();
+        this.discussions.clear();
+        this.statusOverride = undefined;
     }
 
     public clearRequests() {
@@ -107,7 +129,14 @@ export class FakeGitLabServer {
                         body += chunk.toString();
                     });
                     req.on('end', () => {
-                        const parsed = JSON.parse(body) as { body: string };
+                        let parsed: { body: string };
+                        try {
+                            parsed = JSON.parse(body) as { body: string };
+                        } catch {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                            return;
+                        }
                         const list = this.discussions.get(mrIid) || [];
                         const disc = list.find((d) => d.id === discussionId);
 
@@ -150,13 +179,102 @@ export class FakeGitLabServer {
             }
 
             if (pathname.includes('/merge_requests')) {
+                if (req.method === 'POST' && pathname.endsWith('/merge_requests')) {
+                    let body = '';
+                    req.on('data', (chunk: Buffer) => {
+                        body += chunk.toString();
+                    });
+                    req.on('end', () => {
+                        let parsed: {
+                            source_branch: string;
+                            target_branch: string;
+                            title: string;
+                            description: string;
+                        };
+                        try {
+                            parsed = JSON.parse(body) as {
+                                source_branch: string;
+                                target_branch: string;
+                                title: string;
+                                description: string;
+                            };
+                        } catch {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                            return;
+                        }
+                        const totalMrs = Array.from(this.mrs.values()).reduce((sum, arr) => sum + arr.length, 0);
+                        const iid = totalMrs + 10;
+                        const newMr: FakeMrInfo = {
+                            id: iid * 10,
+                            iid,
+                            state: 'opened',
+                            title: parsed.title,
+                            description: parsed.description,
+                            web_url: `https://gitlab.com/test-group/test-project/-/merge_requests/${iid}`,
+                            draft: false,
+                            merge_status: 'can_be_merged',
+                            detailed_merge_status: 'mergeable',
+                            sha: 'abc1234',
+                            source_branch: parsed.source_branch,
+                            target_branch: parsed.target_branch,
+                            source_project_id: 100,
+                        };
+                        this.createdMrs.push({ ...parsed, iid });
+                        const list = this.mrs.get(parsed.source_branch) || [];
+                        list.push(newMr);
+                        this.mrs.set(parsed.source_branch, list);
+                        res.writeHead(201, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify(newMr));
+                    });
+                    return;
+                }
+
+                const putMrMatch = pathname.match(/\/merge_requests\/(\d+)$/);
+                if (putMrMatch && req.method === 'PUT') {
+                    const iid = parseInt(putMrMatch[1], 10);
+                    let body = '';
+                    req.on('data', (chunk: Buffer) => {
+                        body += chunk.toString();
+                    });
+                    req.on('end', () => {
+                        let parsed: { target_branch: string };
+                        try {
+                            parsed = JSON.parse(body) as { target_branch: string };
+                        } catch {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                            return;
+                        }
+                        this.retargetedMrs.push({ iid, target_branch: parsed.target_branch });
+                        for (const mrList of this.mrs.values()) {
+                            for (const mr of mrList) {
+                                if (mr.iid === iid) {
+                                    mr.target_branch = parsed.target_branch;
+                                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                                    res.end(JSON.stringify(mr));
+                                    return;
+                                }
+                            }
+                        }
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ message: '404 Not Found' }));
+                    });
+                    return;
+                }
+
                 const singleMrMatch = pathname.match(/\/merge_requests\/(\d+)$/);
-                if (singleMrMatch) {
+                if (singleMrMatch && req.method === 'GET') {
                     const iid = parseInt(singleMrMatch[1], 10);
                     let foundMr: FakeMrInfo | undefined;
-                    for (const mr of this.mrs.values()) {
-                        if (mr.iid === iid) {
-                            foundMr = mr;
+                    for (const mrList of this.mrs.values()) {
+                        for (const mr of mrList) {
+                            if (mr.iid === iid) {
+                                foundMr = mr;
+                                break;
+                            }
+                        }
+                        if (foundMr) {
                             break;
                         }
                     }
@@ -171,12 +289,23 @@ export class FakeGitLabServer {
                 }
 
                 const sourceBranch = urlObj.searchParams.get('source_branch');
+                const stateFilter = urlObj.searchParams.get('state');
                 const results: FakeMrInfo[] = [];
 
                 if (sourceBranch) {
-                    const mr = this.mrs.get(sourceBranch);
-                    if (mr) {
-                        results.push(mr);
+                    const list = this.mrs.get(sourceBranch) || [];
+                    for (const mr of list) {
+                        if (!stateFilter || mr.state === stateFilter) {
+                            results.push(mr);
+                        }
+                    }
+                } else {
+                    for (const list of this.mrs.values()) {
+                        for (const mr of list) {
+                            if (!stateFilter || mr.state === stateFilter) {
+                                results.push(mr);
+                            }
+                        }
                     }
                 }
 
@@ -195,6 +324,7 @@ export class FakeGitLabServer {
                         res.end(
                             JSON.stringify({
                                 id: 200,
+                                default_branch: this.defaultBranch,
                                 forked_from_project: {
                                     id: 100,
                                     path_with_namespace: 'mainline-owner/mainline-repo',
@@ -202,15 +332,15 @@ export class FakeGitLabServer {
                             }),
                         );
                         return;
-                    } else if (projectPath === 'mainline-owner/mainline-repo') {
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(
-                            JSON.stringify({
-                                id: 100,
-                            }),
-                        );
-                        return;
                     }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(
+                        JSON.stringify({
+                            id: 100,
+                            default_branch: this.defaultBranch,
+                        }),
+                    );
+                    return;
                 }
             }
 
@@ -232,6 +362,7 @@ export class FakeGitLabServer {
     public async stop(): Promise<void> {
         return new Promise((resolve) => {
             if (this.server) {
+                this.server.closeAllConnections?.();
                 this.server.close(() => resolve());
             } else {
                 resolve();
