@@ -373,6 +373,110 @@ describe('GerritProvider', () => {
             expect(threads[0].isResolved).toBe(false);
         });
 
+        test('replyToCommentThread posts a reply targeting parent comment patchset', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 2,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            expect(reply.body).toBe('Thanks!');
+            expect(server.requests.some((req) => req.includes('/changes/123/revisions/2/drafts'))).toBe(true);
+        });
+
+        test('replyToCommentThread falls back to current revision when patch_set is missing', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            expect(reply.body).toBe('Thanks!');
+            expect(server.requests.some((req) => req.includes('/changes/123/revisions/current/drafts'))).toBe(true);
+        });
+
+        test('resolveCommentThread posts a resolution targeting parent comment patchset', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 3,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            await provider.resolveCommentThread('I12345', 'comment-1', true);
+            expect(server.requests.some((req) => req.includes('/changes/123/revisions/3/drafts'))).toBe(true);
+        });
+
+        test('surfaces Gerrit error response body on failure in replyToCommentThread', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            server.failDraftsWithStatus = 400;
+            server.failDraftsResponseBody =
+                'Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.\n';
+
+            await expect(provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!')).rejects.toThrow(
+                'Failed to post Gerrit draft reply: Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
+            );
+        });
+
+        test('surfaces Gerrit error response body on failure in resolveCommentThread', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            server.failDraftsWithStatus = 400;
+            server.failDraftsResponseBody =
+                'Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.';
+
+            await expect(provider.resolveCommentThread('I12345', 'comment-1', true)).rejects.toThrow(
+                'Failed to resolve Gerrit comment: Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
+            );
+        });
+
         test('attaches authentication headers and rewrites URL when auth is available', async () => {
             const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-test-'));
             const gitRoot = path.join(tempRepoDir, '.git');

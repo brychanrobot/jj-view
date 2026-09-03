@@ -12,6 +12,7 @@ export interface FakeGerritComment {
     updated: string;
     unresolved?: boolean;
     in_reply_to?: string;
+    patch_set?: number;
     author?: {
         name: string;
         username: string;
@@ -27,6 +28,9 @@ export class FakeGerritServer {
     public requests: string[] = [];
     public lastHeaders: http.IncomingHttpHeaders | undefined;
     public failWithStatus: number | undefined;
+    public failResponseBody: string | undefined;
+    public failDraftsWithStatus: number | undefined;
+    public failDraftsResponseBody: string | undefined;
 
     private nextChangeNumber = 1000;
 
@@ -152,7 +156,7 @@ export class FakeGerritServer {
 
             if (this.failWithStatus) {
                 res.writeHead(this.failWithStatus);
-                res.end('Error');
+                res.end(this.failResponseBody ?? 'Error');
                 return;
             }
 
@@ -174,9 +178,15 @@ export class FakeGerritServer {
             }
 
             if (urlStr.includes('/drafts')) {
-                const matchPutDraft = urlStr.match(/\/changes\/(\d+)\/revisions\/current\/drafts/);
+                const matchPutDraft = urlStr.match(/\/changes\/(\d+)\/revisions\/([^/]+)\/drafts/);
                 if (matchPutDraft && (req.method === 'PUT' || req.method === 'POST')) {
+                    if (this.failDraftsWithStatus) {
+                        res.writeHead(this.failDraftsWithStatus);
+                        res.end(this.failDraftsResponseBody ?? 'Error');
+                        return;
+                    }
                     const changeNumber = parseInt(matchPutDraft[1], 10);
+                    const revisionId = matchPutDraft[2];
                     let body = '';
                     req.on('data', (chunk) => {
                         body += chunk;
@@ -194,6 +204,7 @@ export class FakeGerritServer {
                         const filePath = incoming.path;
                         currentDrafts[filePath] = currentDrafts[filePath] || [];
 
+                        const parsedPatchSet = revisionId === 'current' ? undefined : parseInt(revisionId, 10);
                         const newDraft: FakeGerritComment = {
                             id: `draft-${Date.now()}-${Math.random()}`,
                             line: incoming.line,
@@ -201,6 +212,10 @@ export class FakeGerritServer {
                             updated: new Date().toISOString(),
                             unresolved: incoming.unresolved,
                             in_reply_to: incoming.in_reply_to,
+                            patch_set:
+                                parsedPatchSet !== undefined && !Number.isNaN(parsedPatchSet)
+                                    ? parsedPatchSet
+                                    : undefined,
                             author: { name: 'Gerrit User', username: 'gerrit_user' },
                         };
                         currentDrafts[filePath].push(newDraft);
