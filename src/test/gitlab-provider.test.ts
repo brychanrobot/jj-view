@@ -643,7 +643,8 @@ describe('GitLabProvider', () => {
                 },
             ]);
 
-            const reply = await provider.replyToCommentThread('101', 'discussion-1', 'Thanks!');
+            const thread = { id: 'discussion-1', isResolved: false, comments: [] };
+            const reply = await provider.replyToCommentThread('101', thread, 'Thanks!');
             expect(reply.body).toBe('Thanks!');
             expect(reply.author.name).toBe('Replier Name');
         });
@@ -668,11 +669,12 @@ describe('GitLabProvider', () => {
                 },
             ]);
 
-            await provider.resolveCommentThread('101', 'discussion-1', true);
+            const thread = { id: 'discussion-1', isResolved: false, comments: [] };
+            await provider.resolveCommentThread('101', thread, true);
             let threads = await provider.getCommentThreads('101');
             expect(threads[0].isResolved).toBe(true);
 
-            await provider.resolveCommentThread('101', 'discussion-1', false);
+            await provider.resolveCommentThread('101', thread, false);
             threads = await provider.getCommentThreads('101');
             expect(threads[0].isResolved).toBe(false);
         });

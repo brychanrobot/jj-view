@@ -63,12 +63,12 @@ export interface CodeForgeProvider {
     /** Reply to a comment thread */
     replyToCommentThread?(
         changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment>;
     /** Resolve/unresolve a comment thread */
-    resolveCommentThread?(changeId: string, threadId: string, resolved: boolean): Promise<void>;
+    resolveCommentThread?(changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void>;
 }
 
 export interface CodeForgeComment {
@@ -88,6 +88,7 @@ export interface CodeForgeCommentThread {
     filePath?: string;
     line?: number;
     isResolved: boolean;
+    metadata?: Record<string, unknown>;
     comments: CodeForgeComment[];
 }
 

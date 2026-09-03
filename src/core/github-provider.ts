@@ -626,7 +626,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     public async replyToCommentThread(
         _changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
@@ -684,7 +684,7 @@ export class GitHubProvider implements CodeForgeProvider {
             },
             body: JSON.stringify({
                 query,
-                variables: { threadId, body },
+                variables: { threadId: thread.id, body },
             }),
         });
 
@@ -714,7 +714,11 @@ export class GitHubProvider implements CodeForgeProvider {
         };
     }
 
-    public async resolveCommentThread(_changeId: string, threadId: string, resolved: boolean): Promise<void> {
+    public async resolveCommentThread(
+        _changeId: string,
+        thread: CodeForgeCommentThread,
+        resolved: boolean,
+    ): Promise<void> {
         const token = await this.getSessionToken();
         if (!token) {
             throw new Error('Not authenticated');
@@ -748,7 +752,7 @@ export class GitHubProvider implements CodeForgeProvider {
             },
             body: JSON.stringify({
                 query,
-                variables: { threadId },
+                variables: { threadId: thread.id },
             }),
         });
 
