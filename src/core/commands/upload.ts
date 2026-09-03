@@ -5,6 +5,7 @@
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import type { JjRepository } from '../jj-repository';
+import type { JjService } from '../jj-service';
 
 export interface UploadPayload {
     revision?: string;
@@ -16,7 +17,7 @@ interface ResolvedUploadCommand {
     uploadRevision?: string;
 }
 
-async function checkHasLocalBookmark(jj: JjRepository['jj'], revision: string): Promise<boolean> {
+async function checkHasLocalBookmark(jj: JjService, revision: string): Promise<boolean> {
     try {
         const bookmarks = await jj.getBookmarks({ revision });
         return bookmarks.some((b) => !b.remote);
@@ -51,6 +52,7 @@ async function resolveUploadCommand(
     return {
         subcommand: provCommand.subcommand,
         commandArgs: provCommand.args,
+        // The forge provider embeds the revision in its arguments, so upload() should not append -r again.
         uploadRevision: undefined,
     };
 }
@@ -67,12 +69,10 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
         const { subcommand, commandArgs, uploadRevision } = await resolveUploadCommand(repo, revision, customCommand);
 
         if (!subcommand) {
-            await showJjError(ui, new Error('Invalid upload command configuration.'), 'Upload Error', repo.jj, ctx.log);
-            return;
+            throw new Error('Invalid upload command configuration.');
         }
 
-        const displayRev = revision || '@';
-        const title = displayRev ? `Uploading revision ${displayRev.substring(0, 8)}...` : 'Uploading...';
+        const title = revision ? `Uploading revision ${revision.substring(0, 8)}...` : 'Uploading...';
         await ui.withProgress(title, () => repo.jj.upload(uploadRevision, subcommand, ...commandArgs));
 
         await repo.refresh();
