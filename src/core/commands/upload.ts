@@ -4,9 +4,55 @@
  */
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
+import type { JjRepository } from '../jj-repository';
 
 export interface UploadPayload {
     revision?: string;
+}
+
+interface ResolvedUploadCommand {
+    subcommand: string;
+    commandArgs: string[];
+    uploadRevision?: string;
+}
+
+async function checkHasLocalBookmark(jj: JjRepository['jj'], revision: string): Promise<boolean> {
+    try {
+        const bookmarks = await jj.getBookmarks({ revision });
+        return bookmarks.some((b) => !b.remote);
+    } catch {
+        return false;
+    }
+}
+
+async function resolveUploadCommand(
+    repo: JjRepository,
+    revision?: string,
+    customCommand?: string,
+): Promise<ResolvedUploadCommand> {
+    const trimmedCommand = customCommand?.trim();
+    if (trimmedCommand) {
+        const [subcommand, ...commandArgs] = trimmedCommand.split(/\s+/);
+        return { subcommand, commandArgs, uploadRevision: revision };
+    }
+
+    const { activeProvider } = repo.codeForge;
+    if (!activeProvider?.getUploadCommand) {
+        return { subcommand: 'git', commandArgs: ['push'], uploadRevision: revision };
+    }
+
+    const rev = revision || '@';
+    const hasBookmark = await checkHasLocalBookmark(repo.jj, rev);
+    const provCommand = activeProvider.getUploadCommand(rev, hasBookmark);
+    if (!provCommand) {
+        return { subcommand: 'git', commandArgs: ['push'], uploadRevision: revision };
+    }
+
+    return {
+        subcommand: provCommand.subcommand,
+        commandArgs: provCommand.args,
+        uploadRevision: undefined,
+    };
 }
 
 export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload): Promise<void> {
@@ -18,41 +64,7 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
     const customCommand = config.get<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
-        let subcommand = '';
-        let commandArgs: string[] = [];
-        let uploadRevision: string | undefined = revision;
-
-        if (hasCustomCommand) {
-            const commandStr = customCommand?.trim() || '';
-            const [first, ...rest] = commandStr.split(/\s+/);
-            subcommand = first;
-            commandArgs = rest;
-        } else {
-            const { codeForge, jj } = repo;
-            const { activeProvider } = codeForge;
-            if (activeProvider?.getUploadCommand) {
-                const rev = revision || '@';
-                let hasBookmark = false;
-                try {
-                    const bookmarks = await jj.getBookmarks({ revision: rev });
-                    hasBookmark = bookmarks.some((b) => !b.remote);
-                } catch (_err) {
-                    // Ignore errors (e.g. revision doesn't exist yet) and default to false
-                }
-                const provCommand = activeProvider.getUploadCommand(rev, hasBookmark);
-                if (provCommand) {
-                    subcommand = provCommand.subcommand;
-                    commandArgs = provCommand.args;
-                    uploadRevision = undefined; // The provider handles revision in its args, don't append -r again
-                } else {
-                    subcommand = 'git';
-                    commandArgs = ['push'];
-                }
-            } else {
-                subcommand = 'git';
-                commandArgs = ['push'];
-            }
-        }
+        const { subcommand, commandArgs, uploadRevision } = await resolveUploadCommand(repo, revision, customCommand);
 
         if (!subcommand) {
             await showJjError(ui, new Error('Invalid upload command configuration.'), 'Upload Error', repo.jj, ctx.log);
