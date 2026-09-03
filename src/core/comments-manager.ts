@@ -16,7 +16,8 @@ import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
 export * from './comments-types';
 
 export class CommentsManager implements Disposable {
-    private _threads: CodeForgeCommentThread[] = [];
+    private _threads = new Map<string, CodeForgeCommentThread>();
+    private _threadsList: CodeForgeCommentThread[] = [];
     private activeChangeId: string | undefined;
     private activeChangeInfo: CodeForgeChangeInfo | undefined;
     private activeRepoPath: string | undefined;
@@ -50,11 +51,11 @@ export class CommentsManager implements Disposable {
     }
 
     public get threads(): readonly CodeForgeCommentThread[] {
-        return this._threads;
+        return this._threadsList;
     }
 
     public getThreads(): readonly CodeForgeCommentThread[] {
-        return this._threads;
+        return this._threadsList;
     }
 
     public get activeChange(): CodeForgeChangeInfo | undefined {
@@ -308,7 +309,8 @@ export class CommentsManager implements Disposable {
             this.activeChangeId = providerChangeId;
             this.activeChangeInfo = changeInfo;
             this.activeRepoPath = repo.rootUri.fsPath;
-            this._threads = threadsList;
+            this._threadsList = threadsList;
+            this._threads = new Map(threadsList.map((t) => [t.id, t]));
             this._onDidChangeThreads.fire(threadsList);
         } catch {
             // Ignore/log
@@ -344,7 +346,8 @@ export class CommentsManager implements Disposable {
     }
 
     private clearThreads(): void {
-        this._threads = [];
+        this._threadsList = [];
+        this._threads.clear();
         this._onDidChangeThreads.fire([]);
     }
 
@@ -365,6 +368,18 @@ export class CommentsManager implements Disposable {
             return;
         }
 
+        const targetThread = this._threads.get(threadId);
+        if (!targetThread) {
+            await showJjError(
+                this.host.ui,
+                new Error(`Comment thread not found: ${threadId}`),
+                'Failed to send reply',
+                repo?.jj,
+                this.repositoryManager.outputChannel,
+            );
+            return;
+        }
+
         const provider = activeProvider as Required<
             Pick<CodeForgeProvider, 'replyToCommentThread' | 'getCommentThreads'>
         > &
@@ -372,7 +387,7 @@ export class CommentsManager implements Disposable {
 
         const replyText = reply.text ?? '';
         const executeReply = async () => {
-            await provider.replyToCommentThread(changeId, threadId, replyText, resolved);
+            await provider.replyToCommentThread(changeId, targetThread, replyText, resolved);
             await this.refreshActiveChangeComments();
             repo.codeForge.requestRefreshWithBackoffs();
         };
@@ -407,13 +422,25 @@ export class CommentsManager implements Disposable {
             return;
         }
 
+        const targetThread = this._threads.get(threadId);
+        if (!targetThread) {
+            await showJjError(
+                this.host.ui,
+                new Error(`Comment thread not found: ${threadId}`),
+                'Failed to toggle resolve',
+                repo?.jj,
+                this.repositoryManager.outputChannel,
+            );
+            return;
+        }
+
         const provider = activeProvider as Required<
             Pick<CodeForgeProvider, 'resolveCommentThread' | 'getCommentThreads'>
         > &
             CodeForgeProvider;
 
         const executeToggle = async () => {
-            await provider.resolveCommentThread(changeId, threadId, resolved);
+            await provider.resolveCommentThread(changeId, targetThread, resolved);
             await this.refreshActiveChangeComments();
             repo.codeForge.requestRefreshWithBackoffs();
         };
@@ -432,7 +459,7 @@ export class CommentsManager implements Disposable {
     }
 
     public formatUnresolvedComments(workspaceRoot?: string): string | undefined {
-        const unresolvedThreads = this._threads.filter((thread) => !thread.isResolved);
+        const unresolvedThreads = this._threadsList.filter((thread) => !thread.isResolved);
         if (unresolvedThreads.length === 0) {
             return undefined;
         }
@@ -493,7 +520,7 @@ export class CommentsManager implements Disposable {
             return;
         }
 
-        const unresolvedCount = this._threads.filter((t) => !t.isResolved).length;
+        const unresolvedCount = this._threadsList.filter((t) => !t.isResolved).length;
 
         try {
             await this.host.nav.copyToClipboard(text);

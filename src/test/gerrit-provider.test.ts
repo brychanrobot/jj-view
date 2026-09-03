@@ -345,7 +345,8 @@ describe('GerritProvider', () => {
                 ],
             });
 
-            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            const threads = await provider.getCommentThreads('I12345');
+            const reply = await provider.replyToCommentThread('I12345', threads[0], 'Thanks!');
             expect(reply.body).toBe('Thanks!');
             expect(reply.author.name).toBe('Gerrit User');
         });
@@ -364,13 +365,14 @@ describe('GerritProvider', () => {
                 ],
             });
 
-            await provider.resolveCommentThread('I12345', 'comment-1', true);
-            let threads = await provider.getCommentThreads('I12345');
-            expect(threads[0].isResolved).toBe(true);
+            const threads = await provider.getCommentThreads('I12345');
+            await provider.resolveCommentThread('I12345', threads[0], true);
+            let updatedThreads = await provider.getCommentThreads('I12345');
+            expect(updatedThreads[0].isResolved).toBe(true);
 
-            await provider.resolveCommentThread('I12345', 'comment-1', false);
-            threads = await provider.getCommentThreads('I12345');
-            expect(threads[0].isResolved).toBe(false);
+            await provider.resolveCommentThread('I12345', threads[0], false);
+            updatedThreads = await provider.getCommentThreads('I12345');
+            expect(updatedThreads[0].isResolved).toBe(false);
         });
 
         test('replyToCommentThread posts a reply targeting parent comment patchset', async () => {
@@ -388,7 +390,8 @@ describe('GerritProvider', () => {
                 ],
             });
 
-            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            const threads = await provider.getCommentThreads('I12345');
+            const reply = await provider.replyToCommentThread('I12345', threads[0], 'Thanks!');
             expect(reply.body).toBe('Thanks!');
             expect(server.requests.some((req) => req.includes('/changes/123/revisions/2/drafts'))).toBe(true);
         });
@@ -407,7 +410,8 @@ describe('GerritProvider', () => {
                 ],
             });
 
-            const reply = await provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!');
+            const threads = await provider.getCommentThreads('I12345');
+            const reply = await provider.replyToCommentThread('I12345', threads[0], 'Thanks!');
             expect(reply.body).toBe('Thanks!');
             expect(server.requests.some((req) => req.includes('/changes/123/revisions/current/drafts'))).toBe(true);
         });
@@ -427,7 +431,8 @@ describe('GerritProvider', () => {
                 ],
             });
 
-            await provider.resolveCommentThread('I12345', 'comment-1', true);
+            const threads = await provider.getCommentThreads('I12345');
+            await provider.resolveCommentThread('I12345', threads[0], true);
             expect(server.requests.some((req) => req.includes('/changes/123/revisions/3/drafts'))).toBe(true);
         });
 
@@ -449,8 +454,9 @@ describe('GerritProvider', () => {
             server.failDraftsResponseBody =
                 'Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.\n';
 
-            await expect(provider.replyToCommentThread('I12345', 'comment-1', 'Thanks!')).rejects.toThrow(
-                'Failed to post Gerrit draft reply: Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
+            const threads = await provider.getCommentThreads('I12345');
+            await expect(provider.replyToCommentThread('I12345', threads[0], 'Thanks!')).rejects.toThrow(
+                'Failed to post Gerrit draft reply: 400 Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
             );
         });
 
@@ -472,9 +478,96 @@ describe('GerritProvider', () => {
             server.failDraftsResponseBody =
                 'Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.';
 
-            await expect(provider.resolveCommentThread('I12345', 'comment-1', true)).rejects.toThrow(
-                'Failed to resolve Gerrit comment: Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
+            const threads = await provider.getCommentThreads('I12345');
+            await expect(provider.resolveCommentThread('I12345', threads[0], true)).rejects.toThrow(
+                'Failed to resolve Gerrit comment: 400 Bad Request - Invalid comment in_reply_to. Comment replies must be submitted on the same patchset as the parent comment.',
             );
+        });
+
+        test('replyToCommentThread and resolveCommentThread use thread metadata without re-fetching comments', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 2,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            server.clearRequests();
+
+            await provider.resolveCommentThread('I12345', threads[0], true);
+            expect(server.requests.some((req) => req.includes('/comments'))).toBe(false);
+            expect(server.requests.some((req) => req.includes('/changes/123/revisions/2/drafts'))).toBe(true);
+        });
+
+        test('replyToCommentThread falls back to re-fetching when draft creation response is empty', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 2,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            server.emptyDraftResponseBody = true;
+            const threads = await provider.getCommentThreads('I12345');
+            const reply = await provider.replyToCommentThread('I12345', threads[0], 'Fallback draft reply');
+            expect(reply.body).toBe('Fallback draft reply');
+            expect(reply.isDraft).toBe(true);
+        });
+
+        test('replyToCommentThread defaults missing filePath to /PATCHSET_LEVEL', async () => {
+            server.registerComments(123, {
+                '/PATCHSET_LEVEL': [
+                    {
+                        id: 'comment-cl',
+                        line: 0,
+                        message: 'CL level comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 1,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            const threadWithoutPath = { ...threads[0], filePath: undefined };
+            const reply = await provider.replyToCommentThread('I12345', threadWithoutPath, 'Reply to CL comment');
+            expect(reply.body).toBe('Reply to CL comment');
+        });
+
+        test('replyToCommentThread with resolved parameter updates unresolved status', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 1,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            const reply = await provider.replyToCommentThread('I12345', threads[0], 'Resolved reply', true);
+            expect(reply.body).toBe('Resolved reply');
         });
 
         test('attaches authentication headers and rewrites URL when auth is available', async () => {

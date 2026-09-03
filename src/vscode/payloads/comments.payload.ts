@@ -85,14 +85,16 @@ function fromVscodeComment(comment: vscode.Comment): Comment {
 }
 
 function extractThreadId(thread: vscode.CommentThread): string | undefined {
+    if (thread.contextValue) {
+        const match = /^(?:resolved|unresolved):(.+)$/.exec(thread.contextValue);
+        if (match) {
+            return match[1];
+        }
+    }
     if ('id' in thread && typeof thread.id === 'string' && thread.id.length > 0) {
         return thread.id;
     }
-    if (!thread.contextValue) {
-        return undefined;
-    }
-    const match = /^(?:resolved|unresolved):(.+)$/.exec(thread.contextValue);
-    return match ? match[1] : undefined;
+    return undefined;
 }
 
 function fromVscodeCommentThread(thread: vscode.CommentThread): CommentThread | undefined {

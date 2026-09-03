@@ -77,7 +77,7 @@ class MockCommentsProvider implements CodeForgeProvider {
 
     async replyToCommentThread(
         _changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
@@ -87,20 +87,20 @@ class MockCommentsProvider implements CodeForgeProvider {
             body,
             createdAt: new Date().toISOString(),
         };
-        const thread = this.threads.find((t) => t.id === threadId);
-        if (thread) {
-            thread.comments.push(reply);
+        const found = this.threads.find((t) => t.id === thread.id);
+        if (found) {
+            found.comments.push(reply);
             if (resolved !== undefined) {
-                thread.isResolved = resolved;
+                found.isResolved = resolved;
             }
         }
         return reply;
     }
 
-    async resolveCommentThread(_changeId: string, threadId: string, resolved: boolean): Promise<void> {
-        const thread = this.threads.find((t) => t.id === threadId);
-        if (thread) {
-            thread.isResolved = resolved;
+    async resolveCommentThread(_changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void> {
+        const found = this.threads.find((t) => t.id === thread.id);
+        if (found) {
+            found.isResolved = resolved;
         }
     }
 
@@ -265,6 +265,27 @@ describe('CommentsManager Tests', () => {
         expect(threads[0].comments.length).toBe(0);
         expect(threads[1].comments.length).toBe(1);
         expect(threads[1].comments[0].body).toBe('Reply to thread 2');
+    });
+
+    test('replyToThread and toggleResolveThread show error when thread is not found in cache', async () => {
+        provider.setThreads([]);
+        await commentsManager.showCommentsForChange('@');
+
+        const spyError = vi.spyOn(fakeHost.ui, 'showErrorMessage');
+
+        await commentsManager.replyToThread({
+            thread: { id: 'non-existent-thread', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            text: 'Reply to missing thread',
+        });
+
+        expect(spyError).toHaveBeenCalled();
+
+        await commentsManager.toggleResolveThread(
+            { id: 'non-existent-thread', uri: Uri.file(path.join(testRepo.path, 'file.txt')) },
+            true,
+        );
+
+        expect(spyError).toHaveBeenCalledTimes(2);
     });
 
     test('toggleResolveThread should toggle resolved status and refresh', async () => {

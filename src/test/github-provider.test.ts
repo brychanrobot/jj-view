@@ -839,7 +839,8 @@ describe('GitHubProvider', () => {
                 },
             ]);
 
-            const reply = await provider.replyToCommentThread('pr_node_id_123', 'thread-1', 'Thanks!');
+            const thread = { id: 'thread-1', isResolved: false, comments: [] };
+            const reply = await provider.replyToCommentThread('pr_node_id_123', thread, 'Thanks!');
             expect(reply.body).toBe('Thanks!');
             expect(reply.author.name).toBe('replier-login');
         });
@@ -855,11 +856,12 @@ describe('GitHubProvider', () => {
                 },
             ]);
 
-            await provider.resolveCommentThread('pr_node_id_123', 'thread-1', true);
+            const thread = { id: 'thread-1', isResolved: false, comments: [] };
+            await provider.resolveCommentThread('pr_node_id_123', thread, true);
             let threads = await provider.getCommentThreads('pr_node_id_123');
             expect(threads[0].isResolved).toBe(true);
 
-            await provider.resolveCommentThread('pr_node_id_123', 'thread-1', false);
+            await provider.resolveCommentThread('pr_node_id_123', thread, false);
             threads = await provider.getCommentThreads('pr_node_id_123');
             expect(threads[0].isResolved).toBe(false);
         });

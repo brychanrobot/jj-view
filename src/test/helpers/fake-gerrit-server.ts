@@ -31,6 +31,7 @@ export class FakeGerritServer {
     public failResponseBody: string | undefined;
     public failDraftsWithStatus: number | undefined;
     public failDraftsResponseBody: string | undefined;
+    public emptyDraftResponseBody = false;
 
     private nextChangeNumber = 1000;
 
@@ -220,6 +221,12 @@ export class FakeGerritServer {
                         };
                         currentDrafts[filePath].push(newDraft);
                         this.drafts.set(changeNumber, currentDrafts);
+
+                        if (this.emptyDraftResponseBody) {
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end('');
+                            return;
+                        }
 
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(`)]}'\n${JSON.stringify(newDraft)}`);

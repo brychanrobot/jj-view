@@ -89,7 +89,7 @@ interface FetchGerritOptions extends RequestInit {
 const AUTH_HEADER_TTL_MS = 5 * 60 * 1000;
 
 function parseGerritJsonResponse<T>(text: string): T {
-    const cleanJson = text.replace(/^\)]}'\n/, '').trim();
+    const cleanJson = text.replace(/^\)]}'\r?\n/, '').trim();
     if (!cleanJson) {
         return {} as T;
     }
@@ -380,7 +380,7 @@ export class GerritProvider implements CodeForgeProvider {
     }
 
     private parseBatchResponse(text: string): GerritChange[][] {
-        const jsonStr = text.replace(/^\)]}'\n/, '');
+        const jsonStr = text.replace(/^\)]}'\r?\n/, '');
         let parsed: unknown;
         try {
             parsed = JSON.parse(jsonStr);
@@ -523,7 +523,9 @@ export class GerritProvider implements CodeForgeProvider {
         ]);
 
         if (!commentsResponse?.ok) {
-            throw new Error(`Failed to fetch Gerrit comments: ${commentsResponse?.statusText ?? 'Network error'}`);
+            const status = commentsResponse?.status ? `${commentsResponse.status} ` : '';
+            const statusText = commentsResponse?.statusText || 'Network error';
+            throw new Error(`Failed to fetch Gerrit comments: ${status}${statusText}`.trim());
         }
 
         const commentsText = await commentsResponse.text();
@@ -606,6 +608,9 @@ export class GerritProvider implements CodeForgeProvider {
                     filePath,
                     line: root.line || undefined,
                     isResolved,
+                    metadata: {
+                        patchSet: root.patch_set,
+                    },
                     comments: threadComments.map((c) => ({
                         id: c.id,
                         author: {
@@ -625,7 +630,7 @@ export class GerritProvider implements CodeForgeProvider {
 
     public async replyToCommentThread(
         changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
@@ -637,27 +642,21 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Gerrit provider not fully configured');
         }
 
-        const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
-
-        let parentComment: GerritCommentWithDraftStatus | undefined;
-        let parentFilePath: string | undefined;
-
-        for (const [filePath, comments] of Object.entries(commentsMap)) {
-            const found = comments.find((c) => c.id === threadId);
-            if (found) {
-                parentComment = found;
-                parentFilePath = filePath;
-                break;
-            }
-        }
-
-        if (!parentComment || !parentFilePath) {
-            throw new Error('Parent comment thread not found');
-        }
-
         // Post draft comment reply
-        const revisionId = parentComment.patch_set ?? 'current';
+        const patchSet =
+            typeof thread.metadata?.patchSet === 'number' &&
+            Number.isSafeInteger(thread.metadata.patchSet) &&
+            thread.metadata.patchSet > 0
+                ? thread.metadata.patchSet
+                : undefined;
+        const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
+        const filePath = thread.filePath || '/PATCHSET_LEVEL';
+        const line =
+            typeof thread.line === 'number' && Number.isSafeInteger(thread.line) && thread.line > 0
+                ? thread.line
+                : undefined;
+
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
             headers: {
@@ -665,18 +664,19 @@ export class GerritProvider implements CodeForgeProvider {
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                path: parentFilePath,
-                line: parentComment.line,
+                path: filePath,
+                line,
                 message: body,
-                in_reply_to: threadId,
-                unresolved: resolved !== undefined ? !resolved : (parentComment.unresolved ?? true),
+                in_reply_to: thread.id,
+                unresolved: resolved !== undefined ? !resolved : !thread.isResolved,
             }),
         });
 
         if (!response.ok) {
             const errorBody = (await response.text().catch(() => '')).trim();
+            const statusText = response.statusText ? ` ${response.statusText}` : '';
             throw new Error(
-                `Failed to post Gerrit draft reply: ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`,
+                `Failed to post Gerrit draft reply: ${response.status}${statusText}${errorBody ? ` - ${errorBody}` : ''}`,
             );
         }
 
@@ -703,8 +703,10 @@ export class GerritProvider implements CodeForgeProvider {
 
         // Re-fetch to retrieve the newly posted draft comment
         const updatedMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
-        const threadComments = updatedMap[parentFilePath] || [];
-        const replies = threadComments.filter((c) => c.in_reply_to === threadId || c.id === threadId);
+        const threadComments = updatedMap[filePath] || [];
+        const replies = threadComments.filter(
+            (c) => c.in_reply_to === thread.id && c.id !== thread.id && Boolean(c.isDraft),
+        );
         replies.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
         const newest = replies[0];
 
@@ -724,7 +726,11 @@ export class GerritProvider implements CodeForgeProvider {
         };
     }
 
-    public async resolveCommentThread(changeId: string, threadId: string, resolved: boolean): Promise<void> {
+    public async resolveCommentThread(
+        changeId: string,
+        thread: CodeForgeCommentThread,
+        resolved: boolean,
+    ): Promise<void> {
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
             throw new Error('Change not found in cache');
@@ -733,27 +739,21 @@ export class GerritProvider implements CodeForgeProvider {
             throw new Error('Gerrit provider not fully configured');
         }
 
-        const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
-
-        let parentComment: GerritCommentWithDraftStatus | undefined;
-        let parentFilePath: string | undefined;
-
-        for (const [filePath, comments] of Object.entries(commentsMap)) {
-            const found = comments.find((c) => c.id === threadId);
-            if (found) {
-                parentComment = found;
-                parentFilePath = filePath;
-                break;
-            }
-        }
-
-        if (!parentComment || !parentFilePath) {
-            throw new Error('Parent comment thread not found');
-        }
-
         // Post draft resolution reply comment
-        const revisionId = parentComment.patch_set ?? 'current';
+        const patchSet =
+            typeof thread.metadata?.patchSet === 'number' &&
+            Number.isSafeInteger(thread.metadata.patchSet) &&
+            thread.metadata.patchSet > 0
+                ? thread.metadata.patchSet
+                : undefined;
+        const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
+        const filePath = thread.filePath || '/PATCHSET_LEVEL';
+        const line =
+            typeof thread.line === 'number' && Number.isSafeInteger(thread.line) && thread.line > 0
+                ? thread.line
+                : undefined;
+
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
             headers: {
@@ -761,18 +761,19 @@ export class GerritProvider implements CodeForgeProvider {
                 'User-Agent': 'jj-view-vscode-extension',
             },
             body: JSON.stringify({
-                path: parentFilePath,
-                line: parentComment.line,
+                path: filePath,
+                line,
                 message: resolved ? 'Resolved' : 'Unresolved',
-                in_reply_to: threadId,
+                in_reply_to: thread.id,
                 unresolved: !resolved,
             }),
         });
 
         if (!response.ok) {
             const errorBody = (await response.text().catch(() => '')).trim();
+            const statusText = response.statusText ? ` ${response.statusText}` : '';
             throw new Error(
-                `Failed to resolve Gerrit comment: ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`,
+                `Failed to resolve Gerrit comment: ${response.status}${statusText}${errorBody ? ` - ${errorBody}` : ''}`,
             );
         }
     }

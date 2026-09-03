@@ -75,7 +75,7 @@ class MockForgeProvider implements CodeForgeProvider {
 
     async replyToCommentThread(
         _changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
@@ -85,20 +85,20 @@ class MockForgeProvider implements CodeForgeProvider {
             body,
             createdAt: new Date().toISOString(),
         };
-        const thread = this.threads.find((t) => t.id === threadId);
-        if (thread) {
-            thread.comments.push(reply);
+        const found = this.threads.find((t) => t.id === thread.id);
+        if (found) {
+            found.comments.push(reply);
             if (resolved !== undefined) {
-                thread.isResolved = resolved;
+                found.isResolved = resolved;
             }
         }
         return reply;
     }
 
-    async resolveCommentThread(_changeId: string, threadId: string, resolved: boolean): Promise<void> {
-        const thread = this.threads.find((t) => t.id === threadId);
-        if (thread) {
-            thread.isResolved = resolved;
+    async resolveCommentThread(_changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void> {
+        const found = this.threads.find((t) => t.id === thread.id);
+        if (found) {
+            found.isResolved = resolved;
         }
     }
 

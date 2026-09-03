@@ -791,7 +791,7 @@ export class GitLabProvider implements CodeForgeProvider {
 
     public async replyToCommentThread(
         changeId: string,
-        threadId: string,
+        thread: CodeForgeCommentThread,
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
@@ -806,7 +806,7 @@ export class GitLabProvider implements CodeForgeProvider {
         }
 
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
-        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${threadId}/notes`;
+        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${thread.id}/notes`;
 
         const response = await fetchWithTimeout(url, 15000, {
             method: 'POST',
@@ -825,7 +825,7 @@ export class GitLabProvider implements CodeForgeProvider {
         const note = (await response.json()) as GitLabNoteGql;
 
         if (resolved !== undefined) {
-            await this.resolveCommentThread(changeId, threadId, resolved);
+            await this.resolveCommentThread(changeId, thread, resolved);
         }
 
         return {
@@ -840,7 +840,11 @@ export class GitLabProvider implements CodeForgeProvider {
         };
     }
 
-    public async resolveCommentThread(changeId: string, threadId: string, resolved: boolean): Promise<void> {
+    public async resolveCommentThread(
+        changeId: string,
+        thread: CodeForgeCommentThread,
+        resolved: boolean,
+    ): Promise<void> {
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
             throw new Error('Change not found in cache');
@@ -852,7 +856,7 @@ export class GitLabProvider implements CodeForgeProvider {
         }
 
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
-        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${threadId}`;
+        const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${thread.id}`;
 
         const response = await fetchWithTimeout(`${url}?resolved=${resolved}`, 15000, {
             method: 'PUT',
