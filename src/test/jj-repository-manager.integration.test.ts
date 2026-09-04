@@ -240,6 +240,23 @@ suite('JjRepositoryManager Integration Test', () => {
         assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
     });
 
+    test('getRepositoryForUri works for jj-merge-output URIs', async () => {
+        const filePath = path.join(mainRepo.path, 'sub', 'conflict.txt');
+        const fileUri = Uri.file(filePath);
+        await manager.maybeRegisterRepositoryContainingUri(fileUri);
+
+        const mergeUri = Uri.from({
+            scheme: 'jj-merge-output',
+            authority: 'jj-merge',
+            path: '/sub/conflict.txt',
+            fragment: `path=${encodeURIComponent(filePath)}&part=base`,
+        });
+
+        const matched = manager.getRepositoryForUri(mergeUri);
+        assert.ok(matched, 'Should match repo for jj-merge-output URI');
+        assert.strictEqual(matched.rootUri.fsPath, mainRepo.path);
+    });
+
     test('scan discovers a single repository', async () => {
         await manager.scanForRepositories();
 

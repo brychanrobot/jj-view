@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { type Event, EventEmitter } from './host/events';
 import type { JjService } from './jj-service';
 import { getUriParams, type Uri } from './uri-utils';
@@ -13,29 +14,49 @@ export class JjMergeService {
 
     // Cache to avoid re-running jj resolve for same file
     private cache = new Map<string, { base: string; left: string; right: string }>();
+    private inFlight = new Map<string, Promise<{ base: string; left: string; right: string }>>();
 
     constructor(private jjService: JjService) {}
 
     async provideContent(uri: Uri): Promise<string> {
         const query = getUriParams(uri);
-        const fsPath = query.get('path');
+        const rawPath = query.get('path');
         const part = query.get('part'); // 'base', 'left', 'right'
 
-        if (!fsPath || !part) {
-            console.error('JjMergeService: Missing path or part');
+        if (!rawPath || !part) {
+            console.error('JjMergeService: Missing path or part in URI');
             return '';
         }
+
+        const fsPath = path.normalize(rawPath);
 
         try {
             // Check cache first
             let parts = this.cache.get(fsPath);
             if (!parts) {
-                // Get conflict parts from jj resolve
-                parts = await this.jjService.getConflictParts(fsPath);
-                this.cache.set(fsPath, parts);
-
-                // Clear cache after a short delay (file may change)
-                setTimeout(() => this.cache.delete(fsPath), 5000);
+                let promise = this.inFlight.get(fsPath);
+                if (!promise) {
+                    promise = this.jjService
+                        .getConflictParts(fsPath)
+                        .then((result) => {
+                            if (this.inFlight.get(fsPath) === promise) {
+                                this.cache.set(fsPath, result);
+                                setTimeout(() => {
+                                    if (this.cache.get(fsPath) === result) {
+                                        this.cache.delete(fsPath);
+                                    }
+                                }, 5000);
+                            }
+                            return result;
+                        })
+                        .finally(() => {
+                            if (this.inFlight.get(fsPath) === promise) {
+                                this.inFlight.delete(fsPath);
+                            }
+                        });
+                    this.inFlight.set(fsPath, promise);
+                }
+                parts = await promise;
             }
 
             if (part === 'base') {
@@ -48,22 +69,30 @@ export class JjMergeService {
                 return parts.right;
             }
 
-            return '';
+            throw new Error(`JjMergeService: Unknown merge part '${part}'`);
         } catch (e: unknown) {
             console.error(`JjMergeService: Failed to get conflict parts: ${e}`);
-            return `Error loading content: ${e}`;
+            throw e instanceof Error ? e : new Error(String(e));
         }
     }
 
     update(uri: Uri): void {
+        const query = getUriParams(uri);
+        const rawPath = query.get('path');
+        if (rawPath) {
+            this.clearCache(path.normalize(rawPath));
+        }
         this._onDidChange.fire(uri);
     }
 
     clearCache(fsPath?: string): void {
-        if (fsPath) {
-            this.cache.delete(fsPath);
-        } else {
+        if (!fsPath) {
             this.cache.clear();
+            this.inFlight.clear();
+            return;
         }
+        const normalized = path.normalize(fsPath);
+        this.cache.delete(normalized);
+        this.inFlight.delete(normalized);
     }
 }

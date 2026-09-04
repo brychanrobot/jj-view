@@ -83,6 +83,10 @@ function normalizePath(p: string): string {
 
 export function getFsPathFromUri(uri: Uri): string {
     const params = getUriParams(uri);
+    const targetPath = params.get('path');
+    if (targetPath) {
+        return path.normalize(targetPath);
+    }
     const root = params.get('root') || params.get('repoRoot');
     if (root) {
         const normPath = path.normalize(uri.fsPath);
