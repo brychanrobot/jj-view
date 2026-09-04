@@ -9,11 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstan
 import { ChangeDetectionManager } from '../core/change-detection-manager';
 import { DirectoryWatcher } from '../core/directory-watcher';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import type { Poller } from '../core/poller';
 import { Uri } from '../core/uri-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { TestRepo } from './test-repo';
-import { accessPrivate, createMockLogOutputChannel } from './test-utils';
+import { accessPrivate, createMockLogOutputChannel, setPrivate } from './test-utils';
 
 describe('ChangeDetectionManager', () => {
     let repo: TestRepo;
@@ -171,6 +172,129 @@ describe('ChangeDetectionManager', () => {
     describe('Native Watcher Integration (Real Timers)', () => {
         beforeEach(() => {
             vi.useRealTimers();
+        });
+
+        it('triggers refresh with forceSnapshot: true when working copy watcher reconnects without active writes', async () => {
+            host.config.set('fileWatcherMode', 'watch');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('Working Copy Watcher] Started');
+            triggerRefreshSpy.mockClear();
+
+            const wcWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher');
+            expect(wcWatcher).toBeDefined();
+            if (!wcWatcher) {
+                throw new Error('Working copy watcher undefined');
+            }
+            const onReconnect = accessPrivate<(() => void) | undefined>(wcWatcher, 'onReconnect');
+            expect(onReconnect).toBeDefined();
+
+            onReconnect?.();
+
+            await vi.waitFor(() => {
+                expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                    forceSnapshot: true,
+                    reason: 'file watcher reconnected',
+                });
+            });
+        });
+
+        it('triggers refresh with forceSnapshot: false when op_heads watcher reconnects without active writes', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('OpHeads Watcher] Started');
+            triggerRefreshSpy.mockClear();
+
+            const opHeadsWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_opHeadsWatcher');
+            expect(opHeadsWatcher).toBeDefined();
+            if (!opHeadsWatcher) {
+                throw new Error('OpHeads watcher undefined');
+            }
+            const onReconnect = accessPrivate<(() => void) | undefined>(opHeadsWatcher, 'onReconnect');
+            expect(onReconnect).toBeDefined();
+
+            onReconnect?.();
+
+            await vi.waitFor(() => {
+                expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                    forceSnapshot: false,
+                    reason: 'op_heads watcher reconnected',
+                });
+            });
+        });
+
+        it('defers refresh when working copy watcher reconnects during active writes', async () => {
+            host.config.set('fileWatcherMode', 'watch');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('Working Copy Watcher] Started');
+            triggerRefreshSpy.mockClear();
+
+            // Simulate recent write operation
+            setPrivate(changeManager, 'lastExternalOpTime', Date.now());
+
+            const wcWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher');
+            if (!wcWatcher) {
+                throw new Error('Working copy watcher undefined');
+            }
+            const onReconnect = accessPrivate<(() => void) | undefined>(wcWatcher, 'onReconnect');
+
+            onReconnect?.();
+
+            // Should not trigger immediately
+            expect(triggerRefreshSpy).not.toHaveBeenCalled();
+
+            // Wait for deferred refresh to execute after 500ms
+            await vi.waitFor(
+                () => {
+                    expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                        forceSnapshot: false,
+                        reason: 'deferred watcher event',
+                    });
+                },
+                { timeout: 2000, interval: 50 },
+            );
+        });
+
+        it('falls back to polling mode when working copy watcher reports permanent failure', async () => {
+            host.config.set('fileWatcherMode', 'watch');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('Working Copy Watcher] Started');
+
+            const wcWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher');
+            if (!wcWatcher) {
+                throw new Error('Working copy watcher undefined');
+            }
+            const onPermanentFailure = accessPrivate<((err: unknown) => void) | undefined>(
+                wcWatcher,
+                'onPermanentFailure',
+            );
+            expect(onPermanentFailure).toBeDefined();
+
+            onPermanentFailure?.(new Error('inotify watch limit reached'));
+
+            await waitForLog('Falling back to polling mode');
+            expect(accessPrivate<string>(changeManager, '_fileWatcherMode')).toBe('polling');
+            expect(accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher')).toBeUndefined();
+            const poller = accessPrivate<Poller>(changeManager, '_poller');
+            expect(accessPrivate<boolean>(poller, '_isPolling')).toBe(true);
+        });
+
+        it('cleans up op_heads watcher when reporting permanent failure', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('OpHeads Watcher] Started');
+
+            const opHeadsWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_opHeadsWatcher');
+            if (!opHeadsWatcher) {
+                throw new Error('OpHeads watcher undefined');
+            }
+            const onPermanentFailure = accessPrivate<((err: unknown) => void) | undefined>(
+                opHeadsWatcher,
+                'onPermanentFailure',
+            );
+            expect(onPermanentFailure).toBeDefined();
+
+            onPermanentFailure?.(new Error('inotify watch limit reached'));
+
+            await waitForLog('OpHeads watcher permanently failed');
+            expect(accessPrivate<DirectoryWatcher | undefined>(changeManager, '_opHeadsWatcher')).toBeUndefined();
         });
 
         it('switches to watch mode when configured and detects changes', async () => {

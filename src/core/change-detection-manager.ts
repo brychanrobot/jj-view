@@ -6,6 +6,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BackendType } from '@parcel/watcher';
+import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import { DirectoryWatcher } from './directory-watcher';
 import type { HostDisposable, HostEnvironment } from './host/host-environment';
@@ -236,9 +237,30 @@ export class ChangeDetectionManager implements HostDisposable {
                         this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
                     },
                     this.outputChannel,
-                    'OpHeads Watcher',
-                    this.watcherBackend,
-                    this.host,
+                    {
+                        name: 'OpHeads Watcher',
+                        backend: this.watcherBackend,
+                        host: this.host,
+                        onReconnect: () => {
+                            if (this._disposed) {
+                                return;
+                            }
+                            const writes = this.hasActiveOrRecentWrites;
+                            if (writes) {
+                                this._scheduleDeferredRefresh();
+                                return;
+                            }
+                            this.triggerRefresh({ forceSnapshot: false, reason: 'op_heads watcher reconnected' });
+                        },
+                        onPermanentFailure: (err) => {
+                            this.outputChannel.error(
+                                '[ChangeDetectionManager] OpHeads watcher permanently failed',
+                                toError(err),
+                            );
+                            void this._opHeadsWatcher?.stop().catch(() => {});
+                            this._opHeadsWatcher = undefined;
+                        },
+                    },
                 );
                 await this._opHeadsWatcher.start();
                 return; // Success
@@ -319,9 +341,33 @@ export class ChangeDetectionManager implements HostDisposable {
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event' });
             },
             this.outputChannel,
-            'Working Copy Watcher',
-            this.watcherBackend,
-            this.host,
+            {
+                name: 'Working Copy Watcher',
+                backend: this.watcherBackend,
+                host: this.host,
+                onReconnect: () => {
+                    if (this._disposed) {
+                        return;
+                    }
+                    const writes = this.hasActiveOrRecentWrites;
+                    if (writes) {
+                        this._scheduleDeferredRefresh();
+                        return;
+                    }
+                    this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher reconnected' });
+                },
+                onPermanentFailure: (err) => {
+                    this.outputChannel.error(
+                        '[ChangeDetectionManager] Working copy watcher permanently failed',
+                        toError(err),
+                    );
+                    this.outputChannel.info('Falling back to polling mode.');
+                    this._fileWatcherMode = 'polling';
+                    void this._workingCopyWatcher?.stop().catch(() => {});
+                    this._workingCopyWatcher = undefined;
+                    this.updatePollingState();
+                },
+            },
         );
 
         this.outputChannel.info(
@@ -414,7 +460,7 @@ export class ChangeDetectionManager implements HostDisposable {
             this._poller.stop();
 
             if (this._workingCopyWatcher) {
-                await this._workingCopyWatcher.stop();
+                await this._workingCopyWatcher.dispose();
                 this._workingCopyWatcher = undefined;
             }
 
