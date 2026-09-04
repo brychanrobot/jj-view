@@ -1290,6 +1290,59 @@ log = "none()"
         expect(parts.right).toBe('right content\n');
     });
 
+    test('getConflictParts throws when file has no conflict or resolve fails', async () => {
+        await expect(jjService.getConflictParts('nonexistent-conflict.txt')).rejects.toThrow();
+    });
+
+    test('getConflictParts handles conflict where base does not exist', async () => {
+        const fileName = 'add-conflict.txt';
+        await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'left', parents: ['root'], description: 'left', files: { [fileName]: 'left only\n' } },
+            { label: 'right', parents: ['root'], description: 'right', files: { [fileName]: 'right only\n' } },
+            { label: 'merge', parents: ['left', 'right'], description: 'merge', isCurrentWorkingCopy: true },
+        ]);
+
+        const parts = await jjService.getConflictParts(fileName);
+        expect(parts.base).toBe('');
+        expect(parts.left).toBe('left only\n');
+        expect(parts.right).toBe('right only\n');
+    });
+
+    test('getConflictParts handles modify/delete conflict where right side is deleted', async () => {
+        const fileName = 'mod-del-conflict.txt';
+        const ids = await buildGraph(repo, [
+            { label: 'root', description: 'root', files: { [fileName]: 'base content\n' } },
+            { label: 'left', parents: ['root'], description: 'left', files: { [fileName]: 'modified content\n' } },
+        ]);
+        repo.new([ids.root.changeId], 'right');
+        repo.deleteFile(fileName);
+        const rightChangeId = repo.getChangeId('@');
+        repo.new([ids.left.changeId, rightChangeId], 'merge');
+
+        const parts = await jjService.getConflictParts(fileName);
+        expect(parts.base).toBe('base content\n');
+        expect(parts.left).toBe('modified content\n');
+        expect(parts.right).toBe('');
+    });
+
+    test('getConflictParts handles delete/modify conflict where left side is deleted', async () => {
+        const fileName = 'del-mod-conflict.txt';
+        const ids = await buildGraph(repo, [
+            { label: 'root', description: 'root', files: { [fileName]: 'base content\n' } },
+            { label: 'right', parents: ['root'], description: 'right', files: { [fileName]: 'modified content\n' } },
+        ]);
+        repo.new([ids.root.changeId], 'left');
+        repo.deleteFile(fileName);
+        const leftChangeId = repo.getChangeId('@');
+        repo.new([leftChangeId, ids.right.changeId], 'merge');
+
+        const parts = await jjService.getConflictParts(fileName);
+        expect(parts.base).toBe('base content\n');
+        expect(parts.left).toBe('');
+        expect(parts.right).toBe('modified content\n');
+    });
+
     test('getLog returns file changes with statuses', async () => {
         await buildGraph(repo, [
             {

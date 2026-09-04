@@ -18,7 +18,24 @@ left=$2
 right=$3
 output=$4
 
-cp "${base}" "${output}/base"
-cp "${left}" "${output}/left"
-cp "${right}" "${output}/right"
+if [ -z "${output}" ]; then
+    exit 1
+fi
+
+capture_side() {
+    src=$1
+    dest=$2
+    if [ -f "${src}" ]; then
+        cp -- "${src}" "${dest}" || return 1
+    else
+        touch "${dest}" || return 1
+    fi
+}
+
+if capture_side "${base}" "${output}/base" && \
+   capture_side "${left}" "${output}/left" && \
+   capture_side "${right}" "${output}/right"; then
+    touch "${output}/.complete"
+fi
+
 exit 1

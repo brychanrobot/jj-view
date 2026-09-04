@@ -226,6 +226,19 @@ describe('getFsPathFromUri and toFileUri', () => {
         expect(fileUri.scheme).toBe('file');
         expect(fileUri.fsPath).toBeSameFsPath('/workspace/repo/src/file.ts');
     });
+
+    it('extracts target path from path fragment parameter for jj-merge-output URIs', () => {
+        const filePath = '/workspace/repo/src/conflict.txt';
+        const encodedPath = encodeURIComponent(filePath);
+        const mergeUri = Uri.from({
+            scheme: 'jj-merge-output',
+            authority: 'jj-merge',
+            path: '/src/conflict.txt',
+            fragment: `path=${encodedPath}&part=base`,
+        });
+        const fsPath = getFsPathFromUri(mergeUri);
+        expect(fsPath).toBeSameFsPath(filePath);
+    });
 });
 
 describe('getRevisionFromUri', () => {

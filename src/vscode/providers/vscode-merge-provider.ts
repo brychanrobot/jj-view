@@ -18,7 +18,7 @@ export class VsCodeMergeContentProvider implements vscode.TextDocumentContentPro
     constructor(public readonly service: JjMergeService) {
         this._disposables.push(
             this.service.onDidChange((uri) => {
-                this._onDidChange.fire(uri as unknown as vscode.Uri);
+                this._onDidChange.fire(vscode.Uri.parse(uri.toString()));
             }),
         );
     }

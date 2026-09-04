@@ -233,8 +233,8 @@ export class JjService {
             const escapedScriptPath = normalizedScriptPath.replace(/\//g, '\\\\');
             return [
                 `--config=merge-tools.${toolName}.program="cmd"`,
-                `--config=merge-tools.${toolName}.merge-args=["/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
-                `--config=merge-tools.${toolName}.edit-args=["/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
+                `--config=merge-tools.${toolName}.merge-args=["/s", "/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
+                `--config=merge-tools.${toolName}.edit-args=["/s", "/c", "${escapedScriptPath}", ${quotedArgs.join(', ')}]`,
             ];
         } else {
             return [
@@ -577,6 +577,7 @@ export class JjService {
 
             const normalizedScriptPath = this.getScriptPath('conflict-capture');
 
+            let resolveError: unknown;
             try {
                 const toolName = 'vscode-capture';
                 const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
@@ -588,18 +589,43 @@ export class JjService {
 
                 await this.run('resolve', ['--tool', toolName, ...toolConfig, relativePath], {
                     useCachedSnapshot: true,
+                    label: `getConflictParts ${relativePath}`,
                 });
-            } catch {
-                // Expected: jj returns error because our tool exits with 1
+            } catch (err) {
+                resolveError = err;
             }
 
-            const base = await fs.readFile(basePath, 'utf8');
-            const left = await fs.readFile(leftPath, 'utf8');
-            const right = await fs.readFile(rightPath, 'utf8');
+            // Verify that conflict-capture actually ran and wrote the .complete marker
+            const marker = path.join(tempDir, '.complete');
+            const isCompleted = await fs
+                .access(marker)
+                .then(() => true)
+                .catch(() => false);
+            if (!isCompleted) {
+                throw (
+                    resolveError ??
+                    new Error(`Failed to capture conflict parts for ${relativePath}: tool did not complete.`)
+                );
+            }
+
+            const readConflictPart = async (partPath: string): Promise<string> => {
+                try {
+                    return await fs.readFile(partPath, 'utf8');
+                } catch (error: unknown) {
+                    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+                        return '';
+                    }
+                    throw error;
+                }
+            };
+
+            const base = await readConflictPart(basePath);
+            const left = await readConflictPart(leftPath);
+            const right = await readConflictPart(rightPath);
 
             return { base, left, right };
         } finally {
-            await fs.rm(tempDir, { recursive: true }).catch(() => {});
+            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         }
     }
 

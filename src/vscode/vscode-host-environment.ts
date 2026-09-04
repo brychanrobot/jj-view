@@ -220,6 +220,9 @@ export class VsCodeHostNavigation implements HostNavigation {
     async openMergeEditor(resourceUri: Uri): Promise<void> {
         const fsPath = getFsPathFromUri(resourceUri);
         const encodedPath = encodeURIComponent(fsPath);
+        const params = getUriParams(resourceUri);
+        const root = params.get('root') || params.get('repoRoot');
+        const rootParam = root ? `&root=${encodeURIComponent(root)}` : '';
         const relativePath = vscode.workspace.asRelativePath(toFileUri(resourceUri));
         const virtualPath = path.posix.join('/', relativePath);
 
@@ -227,19 +230,19 @@ export class VsCodeHostNavigation implements HostNavigation {
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            fragment: `path=${encodedPath}&part=base`,
+            fragment: `path=${encodedPath}&part=base${rootParam}`,
         });
         const leftUri = resourceUri.with({
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            fragment: `path=${encodedPath}&part=left`,
+            fragment: `path=${encodedPath}&part=left${rootParam}`,
         });
         const rightUri = resourceUri.with({
             scheme: 'jj-merge-output',
             authority: 'jj-merge',
             path: virtualPath,
-            fragment: `path=${encodedPath}&part=right`,
+            fragment: `path=${encodedPath}&part=right${rootParam}`,
         });
         const outputUri = toFileUri(resourceUri);
         const args = {

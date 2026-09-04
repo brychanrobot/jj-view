@@ -22,7 +22,6 @@ import { JjMergeService } from '../core/jj-merge-service';
 import { JjProcessTracker } from '../core/jj-process-tracker';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { JjViewFsService } from '../core/jj-view-fs-service';
-import { getUriParams } from '../core/uri-utils';
 import { resolveJjBinary } from '../utils/binary-utils';
 import { toError } from '../utils/error-utils';
 import { type LoggerChannel, OutputChannel } from '../utils/output-channel';
@@ -321,34 +320,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     );
 
     // Register ContentProvider for virtual merge output documents
+    const onDidChangeMergeEmitter = new vscode.EventEmitter<vscode.Uri>();
+    const mergeProviders = new Map<string, VsCodeMergeContentProvider>();
     context.subscriptions.push(
+        onDidChangeMergeEmitter,
         vscode.workspace.registerTextDocumentContentProvider('jj-merge-output', {
+            onDidChange: onDidChangeMergeEmitter.event,
             provideTextDocumentContent(uri) {
                 const repo = repositoryManager.getRepositoryForUri(uri);
                 if (!repo) {
-                    return '';
+                    throw new Error(`Repository not found for URI: ${uri.toString()}`);
                 }
-                const mergeService = new JjMergeService(repo.jj);
-                const mergeProvider = new VsCodeMergeContentProvider(mergeService);
-                return mergeProvider.provideTextDocumentContent(uri);
+                const repoKey = repo.rootUri.fsPath;
+                let provider = mergeProviders.get(repoKey);
+                if (!provider) {
+                    const mergeService = new JjMergeService(repo.jj);
+                    provider = new VsCodeMergeContentProvider(mergeService);
+                    provider.onDidChange((e) => onDidChangeMergeEmitter.fire(e));
+                    mergeProviders.set(repoKey, provider);
+                }
+                return provider.provideTextDocumentContent(uri);
             },
-        }),
-    );
-
-    // Handle saving of virtual merge output
-    context.subscriptions.push(
-        vscode.workspace.onDidSaveTextDocument(async (doc) => {
-            if (doc.uri.scheme === 'jj-merge-output') {
-                const query = getUriParams(doc.uri);
-                const fsPath = query.get('path');
-                if (fsPath) {
-                    try {
-                        await fs.writeFile(fsPath, doc.getText());
-                    } catch (e) {
-                        vscode.window.showErrorMessage(`Failed to save merge result: ${e}`);
-                    }
-                }
-            }
         }),
     );
 
