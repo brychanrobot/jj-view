@@ -208,7 +208,7 @@ log = "trunk().." # Or any other revset you prefer for the graph view
 
 The `"watch"` mode uses [parcel-watcher](https://github.com/parcel-bundler/watcher) for native, event-driven file change detection instead of periodic polling. This is more efficient for large repos, but may require additional setup depending on your platform.
 
-**Linux — Increasing inotify watch limits**
+#### Linux — Increasing inotify watch limits
 
 The default `inotify` backend on Linux is limited by the system's max watch count. If you hit the limit, increase it:
 
@@ -224,11 +224,68 @@ echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 ```
 
-**Linux & Windows — Using Watchman (recommended)**
+#### Linux & Windows — Using Watchman (recommended)
 
-On non-macOS platforms, we recommend installing [Watchman](https://facebook.github.io/watchman/) for a more robust and scalable file watching backend. When Watchman is installed and available on your `PATH`, parcel-watcher will automatically use it instead of `inotify` (Linux) or the default Windows backend. Watchman handles large repositories more gracefully and avoids inotify watch limit issues entirely.
+On non-macOS platforms, we recommend installing [Watchman](https://facebook.github.io/watchman/) for a more robust and scalable file watching backend. (macOS uses the native `fs-events` backend by default). When Watchman is installed and available on your `PATH`, parcel-watcher will automatically use it instead of `inotify` (Linux) or the default Windows backend. Watchman handles large repositories more gracefully and avoids inotify watch limit issues entirely.
 
 - [Watchman Installation Guide](https://facebook.github.io/watchman/docs/install)
+
+##### Managing Watchman Retention (`idle_reap_age_seconds`)
+
+By default, the Watchman daemon retains idle directory watches for **5 days** (`idle_reap_age_seconds: 432000`) before reaping them. A watch is considered idle only when no active subscriptions or clients are querying it; **open workspaces in VS Code will never be reaped while in use**. However, once you close a workspace or exit VS Code, lingering watches remain registered with the daemon and continue to consume system inotify resources on Linux.
+
+To prevent watches from accumulating when you work across multiple repositories or ephemeral workspaces, we recommend setting `idle_reap_age_seconds` to **1 hour** (`3600` seconds):
+
+- **Per-repository**: Add a `.watchmanconfig` file in your repository root:
+  ```json
+  {
+      "idle_reap_age_seconds": 3600
+  }
+  ```
+
+- **Globally across all repositories**:
+  - **Linux / macOS (System-wide, recommended)** in `/etc/watchman.json`:
+    ```json
+    {
+        "idle_reap_age_seconds": 3600
+    }
+    ```
+  - **Windows (System-wide)** in `%ALLUSERSPROFILE%\watchman.json` (typically `C:\ProgramData\watchman.json`):
+    ```json
+    {
+        "idle_reap_age_seconds": 3600
+    }
+    ```
+  - **Per-user** by pointing `WATCHMAN_CONFIG_FILE` to a custom file (e.g., `~/.config/watchman.json`):
+    - **Bash/Zsh** (`~/.bashrc` / `~/.zshrc`):
+      ```bash
+      export WATCHMAN_CONFIG_FILE="$HOME/.config/watchman.json"
+      ```
+    - **Fish** (`~/.config/fish/conf.d/watchman.fish`):
+      ```fish
+      set -gx WATCHMAN_CONFIG_FILE "$HOME/.config/watchman.json"
+      ```
+    - **systemd user environments** (`~/.config/environment.d/watchman.conf`):
+      ```ini
+      WATCHMAN_CONFIG_FILE=%h/.config/watchman.json
+      ```
+    - **Windows (PowerShell)**:
+      ```powershell
+      [System.Environment]::SetEnvironmentVariable('WATCHMAN_CONFIG_FILE', "$HOME\.config\watchman.json", 'User')
+      ```
+
+> [!NOTE]
+> Changes to global configuration files or `WATCHMAN_CONFIG_FILE` require restarting the daemon to take effect:
+> ```bash
+> watchman shutdown-server
+> ```
+
+##### Useful Watchman Commands
+
+- **List active watches**: `watchman watch-list`
+- **Delete a specific watch**: `watchman watch-del <path>`
+- **Delete all active watches**: `watchman watch-del-all`
+- **Restart the daemon**: `watchman shutdown-server`
 
 ## Requirements
 
