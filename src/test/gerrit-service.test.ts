@@ -427,9 +427,9 @@ describe('GerritService Detection', () => {
         // Verify it's cached
         expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
-        // Track onDidUpdate calls
+        // Track onRequestRefresh calls
         let updateFired = false;
-        const disposable = service.onDidUpdate(() => {
+        const disposable = service.onRequestRefresh(() => {
             updateFired = true;
         });
 
@@ -439,7 +439,7 @@ describe('GerritService Detection', () => {
         // Advance past the polling interval (60 seconds)
         await vi.advanceTimersByTimeAsync(60_000);
 
-        // onDidUpdate should have been fired to notify listeners to re-fetch
+        // onRequestRefresh should have been fired to notify listeners to re-fetch
         expect(updateFired).toBe(true);
         // Verify cache is preserved (not cleared)
         expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
@@ -467,9 +467,9 @@ describe('GerritService Detection', () => {
         // Verify it's cached
         expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
-        // Track onDidUpdate calls
+        // Track onRequestRefresh calls
         let updateFired = false;
-        const disposable = service.onDidUpdate(() => {
+        const disposable = service.onRequestRefresh(() => {
             updateFired = true;
         });
 
@@ -765,9 +765,9 @@ describe('GerritService Detection', () => {
         service = initService();
         await service.awaitReady();
 
-        // Spy on _onDidUpdate.fire to verify refreshes
+        // Spy on _onRequestRefresh.fire to verify refreshes
         let updateCount = 0;
-        const disposable = service.onDidUpdate(() => {
+        const disposable = service.onRequestRefresh(() => {
             updateCount++;
         });
 

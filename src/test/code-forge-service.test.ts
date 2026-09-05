@@ -381,7 +381,9 @@ describe('CodeForgeService Tests', () => {
         expect(service.activeProvider).toBe(mockProvider);
 
         const updateListener = vi.fn();
+        const refreshListener = vi.fn();
         service.onDidUpdate(updateListener);
+        service.onRequestRefresh(refreshListener);
 
         // First dispose
         service.dispose();
@@ -394,10 +396,30 @@ describe('CodeForgeService Tests', () => {
         // Force refresh after dispose does not fire listeners
         service.forceRefresh();
         expect(updateListener).not.toHaveBeenCalled();
+        expect(refreshListener).not.toHaveBeenCalled();
 
         // Second dispose should be safe and idempotent
         expect(() => service.dispose()).not.toThrow();
         expect(deactivateSpy).toHaveBeenCalledTimes(1);
         expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('forceRefresh fires onRequestRefresh when active provider is present', async () => {
+        const mockProvider = new MockProvider('mock-refresh', 'Mock Refresh', true);
+        registry.register({
+            id: 'mock-refresh',
+            create: () => mockProvider,
+        });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        const refreshListener = vi.fn();
+        service.onRequestRefresh(refreshListener);
+
+        service.forceRefresh();
+        expect(refreshListener).toHaveBeenCalledTimes(1);
+
+        service.dispose();
     });
 });
