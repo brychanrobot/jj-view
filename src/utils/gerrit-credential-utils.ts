@@ -33,15 +33,49 @@ function execFilePromise(
     });
 }
 
+const gitRootCache = new Map<string, string | null>();
+const gitRootPromiseCache = new Map<string, Promise<string | null>>();
+
+/**
+ * Clears the in-memory cache of resolved git roots.
+ */
+export function clearGitRootCache(): void {
+    gitRootCache.clear();
+    gitRootPromiseCache.clear();
+}
+
 /**
  * Resolves the backing git directory of a jj repository using `jj git root`.
  */
 export async function resolveGitRoot(repoRoot: string, binaryPath = 'jj'): Promise<string | null> {
-    const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], { cwd: repoRoot, timeout: 10000 });
-    if (err || !stdout) {
-        return null;
+    const normalizedRoot = path.resolve(repoRoot);
+    const cacheKey = `${binaryPath}:${normalizedRoot}`;
+    if (gitRootCache.has(cacheKey)) {
+        return gitRootCache.get(cacheKey) ?? null;
     }
-    return stdout.trim();
+    const pending = gitRootPromiseCache.get(cacheKey);
+    if (pending) {
+        return pending;
+    }
+    const promise = (async () => {
+        try {
+            const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], {
+                cwd: normalizedRoot,
+                timeout: 10000,
+            });
+            if (err || !stdout) {
+                gitRootCache.set(cacheKey, null);
+                return null;
+            }
+            const trimmed = stdout.trim();
+            gitRootCache.set(cacheKey, trimmed);
+            return trimmed;
+        } finally {
+            gitRootPromiseCache.delete(cacheKey);
+        }
+    })();
+    gitRootPromiseCache.set(cacheKey, promise);
+    return promise;
 }
 
 /**
