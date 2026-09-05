@@ -769,6 +769,22 @@ describe('GitLabProvider', () => {
             expect(server.createdMrs.length).toBe(3);
         });
 
+        test('memoizes fetchProjectInfo across calls and resets on clearCache', async () => {
+            const priv = exposePrivate<{
+                fetchProjectInfo(url: string, path: string, token: string | undefined): Promise<unknown>;
+            }>(provider);
+
+            const info1 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
+            const info2 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
+            expect(info1).toEqual(info2);
+            expect(info1).toBe(info2);
+
+            provider.clearCache();
+            const info3 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
+            expect(info3).toEqual(info1);
+            expect(info3).not.toBe(info1);
+        });
+
         test('retargets MR target_branch when intermediate commit is inserted or reordered', async () => {
             server.registerMR('bm-2', {
                 id: 200,
@@ -950,6 +966,42 @@ describe('GitLabProvider', () => {
 
                 const result = await provider.syncStackedChanges(stack);
 
+                expect(result.created.length).toBe(1);
+                expect(result.created[0].head).toBe('success-bm');
+            } finally {
+                global.fetch = origFetch;
+            }
+        });
+
+        test('syncStackedChanges records error and avoids duplicate MR creation when MR query fails', async () => {
+            const stack: StackCommitNode[] = [
+                { commitId: 'c1', changeId: 'ch1', description: 'Commit 1', bookmark: 'query-fail-bm' },
+                { commitId: 'c2', changeId: 'ch2', description: 'Commit 2', bookmark: 'success-bm' },
+            ];
+
+            const origFetch = global.fetch;
+            let postAttemptedForFailBm = false;
+            try {
+                global.fetch = async (input, init) => {
+                    const url = String(input);
+                    if (url.includes('source_branch=query-fail-bm')) {
+                        return new Response('Internal Server Error', {
+                            status: 500,
+                            statusText: 'Internal Server Error',
+                        });
+                    }
+                    if (init?.method === 'POST') {
+                        const body = String(init?.body || '');
+                        if (body.includes('"source_branch":"query-fail-bm"')) {
+                            postAttemptedForFailBm = true;
+                        }
+                    }
+                    return origFetch(input, init);
+                };
+
+                const result = await provider.syncStackedChanges(stack);
+
+                expect(postAttemptedForFailBm).toBe(false);
                 expect(result.created.length).toBe(1);
                 expect(result.created[0].head).toBe('success-bm');
             } finally {

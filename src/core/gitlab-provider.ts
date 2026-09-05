@@ -106,6 +106,8 @@ export class GitLabProvider implements CodeForgeProvider {
     private forkResolutionPromise: Promise<string> | null = null;
     private forkResolutionPromiseHasToken = false;
     private extensionPromptShown = false;
+    private projectInfoCache = new Map<string, GitLabProjectInfo>();
+    private projectInfoPromiseCache = new Map<string, Promise<GitLabProjectInfo | undefined>>();
 
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
@@ -632,26 +634,44 @@ export class GitLabProvider implements CodeForgeProvider {
         path: string,
         token: string | undefined,
     ): Promise<GitLabProjectInfo | undefined> {
-        try {
-            const projectUrl = `${apiBaseUrl}/projects/${encodeURIComponent(path)}`;
-            const response = await fetchWithTimeout(projectUrl, 10000, {
-                headers: this.getHeaders(token),
-            });
-            if (response.ok) {
-                const parsedJson = await response.json();
-                const validation = GitLabProjectInfoSchema.safeParse(parsedJson);
-                if (validation.success) {
-                    return validation.data;
-                }
-                this.outputChannel?.error(
-                    `[GitLabProvider] Failed to validate project info: ${validation.error.message}`,
-                );
-                return undefined;
-            }
-        } catch (e) {
-            this.outputChannel?.error(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
+        const cacheKey = `${apiBaseUrl}:${path}`;
+        const cached = this.projectInfoCache.get(cacheKey);
+        if (cached) {
+            return cached;
         }
-        return undefined;
+        const inFlight = this.projectInfoPromiseCache.get(cacheKey);
+        if (inFlight) {
+            return inFlight;
+        }
+
+        const promise = (async () => {
+            try {
+                const projectUrl = `${apiBaseUrl}/projects/${encodeURIComponent(path)}`;
+                const response = await fetchWithTimeout(projectUrl, 10000, {
+                    headers: this.getHeaders(token),
+                });
+                if (response.ok) {
+                    const parsedJson = await response.json();
+                    const validation = GitLabProjectInfoSchema.safeParse(parsedJson);
+                    if (validation.success) {
+                        this.projectInfoCache.set(cacheKey, validation.data);
+                        return validation.data;
+                    }
+                    this.outputChannel?.error(
+                        `[GitLabProvider] Failed to validate project info: ${validation.error.message}`,
+                    );
+                    return undefined;
+                }
+            } catch (e) {
+                this.outputChannel?.error(`[GitLabProvider] Failed to fetch project details for ${path}: ${e}`);
+            } finally {
+                this.projectInfoPromiseCache.delete(cacheKey);
+            }
+            return undefined;
+        })();
+
+        this.projectInfoPromiseCache.set(cacheKey, promise);
+        return promise;
     }
 
     private parseGitLabMr(mr: GitLabMergeRequest): CodeForgeChangeInfo | undefined {
@@ -732,56 +752,59 @@ export class GitLabProvider implements CodeForgeProvider {
             bookmarkToCommitId.set(stack[i].bookmark, stack[i].commitId);
         }
 
-        for (let i = 0; i < stack.length; i++) {
-            const node = stack[i];
-            try {
-                const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
-                const mrResp = await fetchWithTimeout(mrUrl, 15000, {
-                    headers: this.getHeaders(token),
-                });
-                if (!mrResp.ok) {
-                    continue;
-                }
-
-                const parsed = (await mrResp.json()) as unknown;
-                const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
-                if (!listValidation.success || listValidation.data.length === 0) {
-                    continue;
-                }
-
-                const filteredMrs = this.filterGitLabMrs(listValidation.data, node.bookmark, bookmarkToCommitId);
-                if (filteredMrs.length === 0) {
-                    continue;
-                }
-
-                const existingMr = filteredMrs[0];
-                const baseIndex = existingMr.target_branch ? bookmarkIndexMap.get(existingMr.target_branch) : undefined;
-                if (baseIndex !== undefined && baseIndex > i) {
-                    this.outputChannel?.info?.(
-                        `[GitLabProvider] Preemptively retargeting MR !${existingMr.iid} (${node.bookmark}) from ${existingMr.target_branch} to ${defaultBranch} before push to avoid forge auto-closure`,
-                    );
-                    const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
-                    const updateResp = await fetchWithTimeout(updateUrl, 15000, {
-                        method: 'PUT',
-                        headers: {
-                            ...this.getHeaders(token),
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ target_branch: defaultBranch }),
+        await Promise.all(
+            stack.map(async (node, i) => {
+                try {
+                    const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
+                    const mrResp = await fetchWithTimeout(mrUrl, 15000, {
+                        headers: this.getHeaders(token),
                     });
-                    if (!updateResp.ok) {
-                        this.outputChannel?.warn?.(
-                            `[GitLabProvider] Preemptive retarget of MR !${existingMr.iid} returned ${updateResp.status}: ${updateResp.statusText}`,
-                        );
+                    if (!mrResp.ok) {
+                        return;
                     }
+
+                    const parsed = (await mrResp.json()) as unknown;
+                    const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
+                    if (!listValidation.success || listValidation.data.length === 0) {
+                        return;
+                    }
+
+                    const filteredMrs = this.filterGitLabMrs(listValidation.data, node.bookmark, bookmarkToCommitId);
+                    if (filteredMrs.length === 0) {
+                        return;
+                    }
+
+                    const existingMr = filteredMrs[0];
+                    const baseIndex = existingMr.target_branch
+                        ? bookmarkIndexMap.get(existingMr.target_branch)
+                        : undefined;
+                    if (baseIndex !== undefined && baseIndex > i) {
+                        this.outputChannel?.info?.(
+                            `[GitLabProvider] Preemptively retargeting MR !${existingMr.iid} (${node.bookmark}) from ${existingMr.target_branch} to ${defaultBranch} before push to avoid forge auto-closure`,
+                        );
+                        const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
+                        const updateResp = await fetchWithTimeout(updateUrl, 15000, {
+                            method: 'PUT',
+                            headers: {
+                                ...this.getHeaders(token),
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ target_branch: defaultBranch }),
+                        });
+                        if (!updateResp.ok) {
+                            this.outputChannel?.warn?.(
+                                `[GitLabProvider] Preemptive retarget of MR !${existingMr.iid} returned ${updateResp.status}: ${updateResp.statusText}`,
+                            );
+                        }
+                    }
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.outputChannel?.warn?.(
+                        `[GitLabProvider] Failed during preemptive retarget check for ${node.bookmark}: ${msg}`,
+                    );
                 }
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                this.outputChannel?.warn?.(
-                    `[GitLabProvider] Failed during preemptive retarget check for ${node.bookmark}: ${msg}`,
-                );
-            }
-        }
+            }),
+        );
     }
 
     public async syncStackedChanges(stack: StackCommitNode[]): Promise<StackSyncResult> {
@@ -807,34 +830,57 @@ export class GitLabProvider implements CodeForgeProvider {
             bookmarkToCommitId.set(node.bookmark, node.commitId);
         }
 
+        type MrQueryResult = { mr?: GitLabMergeRequest; error?: string };
+        const queryResults = await Promise.all(
+            stack.map(async (node): Promise<MrQueryResult> => {
+                try {
+                    // Query existing open MR for this bookmark
+                    const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
+                    const mrResp = await fetchWithTimeout(mrUrl, 15000, {
+                        headers: this.getHeaders(token),
+                    });
+
+                    if (!mrResp.ok) {
+                        this.handle403Warning(mrResp);
+                        const msg = `Failed to query merge requests for ${node.bookmark}: ${mrResp.status} ${mrResp.statusText}`;
+                        this.outputChannel?.warn?.(`[GitLabProvider] ${msg}`);
+                        return { error: msg };
+                    }
+
+                    const parsed = (await mrResp.json()) as unknown;
+                    const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
+                    if (listValidation.success && listValidation.data.length > 0) {
+                        const filteredMrs = this.filterGitLabMrs(
+                            listValidation.data,
+                            node.bookmark,
+                            bookmarkToCommitId,
+                        );
+                        if (filteredMrs.length > 0) {
+                            return { mr: filteredMrs[0] };
+                        }
+                    }
+                    return {};
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.outputChannel?.warn?.(`[GitLabProvider] Failed to query MR for ${node.bookmark}: ${msg}`);
+                    return { error: msg };
+                }
+            }),
+        );
+
         for (let i = 0; i < stack.length; i++) {
             const node = stack[i];
             const expectedTarget = i === 0 ? defaultBranch : stack[i - 1].bookmark;
+            const { mr: existingMr, error: queryError } = queryResults[i];
+
+            if (queryError) {
+                this.outputChannel?.warn?.(
+                    `[GitLabProvider] Skipping sync for ${node.bookmark} due to query error: ${queryError}`,
+                );
+                continue;
+            }
 
             try {
-                // Query existing open MR for this bookmark
-                const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
-                const mrResp = await fetchWithTimeout(mrUrl, 15000, {
-                    headers: this.getHeaders(token),
-                });
-
-                if (!mrResp.ok) {
-                    this.handle403Warning(mrResp);
-                    throw new Error(
-                        `Failed to query merge requests for ${node.bookmark}: ${mrResp.status} ${mrResp.statusText}`,
-                    );
-                }
-
-                let existingMr: GitLabMergeRequest | undefined;
-                const parsed = (await mrResp.json()) as unknown;
-                const listValidation = GitLabMergeRequestSchema.array().safeParse(parsed);
-                if (listValidation.success && listValidation.data.length > 0) {
-                    const filteredMrs = this.filterGitLabMrs(listValidation.data, node.bookmark, bookmarkToCommitId);
-                    if (filteredMrs.length > 0) {
-                        existingMr = filteredMrs[0];
-                    }
-                }
-
                 if (existingMr) {
                     if (existingMr.target_branch !== expectedTarget) {
                         const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
@@ -857,13 +903,12 @@ export class GitLabProvider implements CodeForgeProvider {
                             oldBase: existingMr.target_branch ?? '',
                             newBase: expectedTarget,
                         });
-                        continue;
+                    } else {
+                        result.unchanged.push({
+                            changeId: node.changeId,
+                            prNumber: existingMr.iid,
+                        });
                     }
-
-                    result.unchanged.push({
-                        changeId: node.changeId,
-                        prNumber: existingMr.iid,
-                    });
                     continue;
                 }
 
@@ -1067,6 +1112,8 @@ export class GitLabProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.projectInfoCache.clear();
+        this.projectInfoPromiseCache.clear();
         this.resolvedProjectPath = undefined;
         this.allowedProjectIds.clear();
         this.remoteProjectPaths.clear();
