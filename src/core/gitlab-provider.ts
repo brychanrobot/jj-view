@@ -94,6 +94,7 @@ export class GitLabProvider implements CodeForgeProvider {
     public readonly id = 'gitlab';
     public readonly displayName = 'GitLab';
     public readonly changeTerm = 'PR' as const;
+    public readonly priority = 20;
     public readonly isAuthManageable = true;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
