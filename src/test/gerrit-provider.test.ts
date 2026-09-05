@@ -224,6 +224,41 @@ describe('GerritProvider', () => {
         );
     });
 
+    test('fetchBatchFromNetwork maps prefix changeId and change number to results', async () => {
+        setPrivate(provider, 'gerritHost', 'https://my-gerrit-host.com');
+
+        const mockGerritChanges = [
+            {
+                change_id: 'Ida7a9a26e1e29c5429f25219b39053596a6a6964',
+                _number: 7667404,
+                status: 'NEW',
+                submittable: true,
+                current_revision: 'sha-1',
+            },
+        ];
+
+        vi.spyOn(
+            exposePrivate<{ fetchGerrit(url: string): Promise<Response> }>(provider),
+            'fetchGerrit',
+        ).mockResolvedValue(
+            new Response(`)]}'\n${JSON.stringify(mockGerritChanges)}`, {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            }),
+        );
+
+        const fetchBatch = exposePrivate<{
+            fetchBatchFromNetwork(cacheKeys: string[]): Promise<Map<string, CodeForgeChangeInfo>>;
+        }>(provider).fetchBatchFromNetwork.bind(provider);
+
+        // Prefix key (e.g. from JJ change ID)
+        const results = await fetchBatch(['Ida7a9a26e1e29c5429f25219b3905359', '7667404']);
+        expect(results.get('Ida7a9a26e1e29c5429f25219b3905359')).toBeDefined();
+        expect(results.get('Ida7a9a26e1e29c5429f25219b3905359')?.number).toBe(7667404);
+        expect(results.get('7667404')).toBeDefined();
+        expect(results.get('7667404')?.id).toBe('Ida7a9a26e1e29c5429f25219b39053596a6a6964');
+    });
+
     describe('Comments API', () => {
         let server: FakeGerritServer;
 
