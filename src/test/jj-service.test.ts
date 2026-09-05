@@ -1718,6 +1718,32 @@ log = "none()"
 
         expect(hashes.size).toBe(1);
         expect(hashes.get(fileName)).toBe(expectedHash);
+
+        const cachedHashes = await jjService.getGitBlobHashes(commitId, [fileName]);
+        expect(cachedHashes.size).toBe(1);
+        expect(cachedHashes.get(fileName)).toBe(expectedHash);
+    });
+
+    test('getGitBlobHashes negative-caches missing paths and handles unicode filenames', async () => {
+        const unicodeFile = 'café.txt';
+        repo.writeFile(unicodeFile, 'unicode content');
+        repo.describe('unicode test');
+        const commitId = repo.getCommitId('@');
+
+        const expectedHash = cp
+            .execFileSync('git', ['hash-object', path.join(repo.path, unicodeFile)], { cwd: repo.path })
+            .toString()
+            .trim();
+
+        const hashes = await jjService.getGitBlobHashes(commitId, [unicodeFile, 'non-existent.txt']);
+        expect(hashes.size).toBe(1);
+        expect(hashes.get(unicodeFile)).toBe(expectedHash);
+        expect(hashes.has('non-existent.txt')).toBe(false);
+
+        // Repeated query should use cache including negative cache for missing path
+        const cachedHashes = await jjService.getGitBlobHashes(commitId, [unicodeFile, 'non-existent.txt']);
+        expect(cachedHashes.size).toBe(1);
+        expect(cachedHashes.get(unicodeFile)).toBe(expectedHash);
     });
 
     test('getLog detects divergent commits and offsets', async () => {

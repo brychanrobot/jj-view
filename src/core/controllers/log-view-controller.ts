@@ -441,6 +441,7 @@ export class LogViewController implements Disposable {
                     changeId: c.change_id,
                     description: c.description,
                     bookmarks: c.bookmarks.filter((b) => !b.remote).map((b) => b.name),
+                    changes: c.changes,
                 })),
             );
 
