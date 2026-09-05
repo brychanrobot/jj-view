@@ -168,6 +168,62 @@ describe('GerritProvider', () => {
         expect(cachedEntry?.status).toBe('NEW');
     });
 
+    test('fetchStatuses emits granular [timing] logs for batches and overall completion', async () => {
+        setPrivate(provider, 'gerritHost', 'https://my-gerrit-host.com');
+
+        vi.spyOn(
+            exposePrivate<{
+                fetchBatchFromNetwork(
+                    cacheKeys: string[],
+                    batchIndex?: number,
+                    totalBatches?: number,
+                ): Promise<Map<string, CodeForgeChangeInfo>>;
+            }>(provider),
+            'fetchBatchFromNetwork',
+        ).mockResolvedValue(
+            new Map([
+                [
+                    'I12345',
+                    createMock<CodeForgeChangeInfo>({
+                        id: 'I12345',
+                        number: 123,
+                        displayLabel: 'CL/123',
+                        providerName: 'Gerrit',
+                        status: 'NEW',
+                        submittable: true,
+                        url: 'url',
+                        unresolvedComments: 0,
+                        currentRevision: 'sha-1',
+                        files: {},
+                    }),
+                ],
+            ]),
+        );
+
+        const changes: ChangeStatusRequest[] = [
+            {
+                commitId: 'sha-1',
+                changeId: 'I12345',
+                parents: [],
+            },
+        ];
+
+        await provider.fetchStatuses(changes, mockJjService);
+
+        const infoCalls = (mockOutputChannel.info as ReturnType<typeof vi.fn>).mock.calls.map((call: unknown[]) =>
+            String(call[0]),
+        );
+        const timingCalls = infoCalls.filter((msg: string) => msg.includes('[timing] [Gerrit]'));
+        expect(timingCalls).toEqual(
+            expect.arrayContaining([
+                expect.stringMatching(
+                    /^\[timing\] \[Gerrit\] batch 1\/1 content sync verification took \d+ms \(1 hits, 0 checks\)$/,
+                ),
+                expect.stringMatching(/^\[timing\] \[Gerrit\] fetchStatuses took \d+ms \(1 changes in 1 batch\)$/),
+            ]),
+        );
+    });
+
     describe('Comments API', () => {
         let server: FakeGerritServer;
 
