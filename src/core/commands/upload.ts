@@ -51,7 +51,14 @@ async function resolveUploadCommand(
     revision?: string,
     customCommand?: string,
 ): Promise<ResolvedUploadCommand> {
-    const rev = revision || '@';
+    let rev = revision || '@';
+    if (rev === '@') {
+        const currentEntries = await repo.jj.getLog({ revision: '@', omitChanges: true, limit: 1 });
+        const current = currentEntries[0];
+        if (current?.is_empty && (!current.bookmarks || current.bookmarks.length === 0)) {
+            rev = '@-';
+        }
+    }
     const trimmedCommand = customCommand?.trim();
     if (trimmedCommand) {
         const [subcommand, ...commandArgs] = trimmedCommand.split(/\s+/);
