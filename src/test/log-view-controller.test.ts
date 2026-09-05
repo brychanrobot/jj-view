@@ -4,8 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { CodeForgeProvider } from '../core/code-forge-provider';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { LogViewController } from '../core/controllers/log-view-controller';
+import { EventEmitter } from '../core/host/events';
 import { JjContextKey } from '../core/jj-context-keys';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import type { JjLogEntry } from '../core/jj-types';
@@ -18,6 +20,7 @@ describe('LogViewController Domain Unit Tests', () => {
     let testRepo: TestRepo;
     let repositoryManager: JjRepositoryManager;
     let fakeHost: FakeHostEnvironment;
+    let registry: CodeForgeRegistry;
     let controller: LogViewController;
     let postedMessages: unknown[];
 
@@ -27,7 +30,7 @@ describe('LogViewController Domain Unit Tests', () => {
         testRepo = new TestRepo();
         testRepo.init();
 
-        const registry = new CodeForgeRegistry();
+        registry = new CodeForgeRegistry();
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
@@ -180,5 +183,94 @@ describe('LogViewController Domain Unit Tests', () => {
         controller.setSelectedCommits([changeId]);
         controller.setCommits(controller.commits);
         expect(fakeHost.commands.contextKeys.get(JjContextKey.SelectionAllowAbandon)).toBe(true);
+    });
+
+    test('cf.onDidUpdate re-populates commits without re-triggering ensureFreshStatuses', async () => {
+        const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        const updateEmitter = new EventEmitter<void>();
+        const mockProvider = createMock<CodeForgeProvider>({
+            id: 'mock-provider',
+            detect: async () => true,
+            onDidUpdate: updateEmitter.event,
+            getCachedChangeInfo: () => undefined,
+            fetchStatuses: async () => false,
+            clearCache: () => {},
+            activate: () => {},
+            deactivate: () => {},
+        });
+        registry.register({ id: 'mock-provider', create: () => mockProvider });
+        await repo.codeForge.detectActiveProvider(true);
+
+        const dummyCommits: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-1',
+                commit_id: 'test-commit-1',
+                description: 'test commit',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+
+        controller.setCommits(dummyCommits);
+        const ensureFreshSpy = vi.spyOn(repo.codeForge, 'ensureFreshStatuses');
+        const setCommitsSpy = vi.spyOn(controller, 'setCommits');
+
+        // Fire onDidUpdate from provider
+        updateEmitter.fire();
+
+        expect(setCommitsSpy).toHaveBeenCalledWith(dummyCommits);
+        expect(ensureFreshSpy).not.toHaveBeenCalled();
+    });
+
+    test('cf.onRequestRefresh triggers refreshCodeForge and ensureFreshStatuses', async () => {
+        const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        const mockProvider = createMock<CodeForgeProvider>({
+            id: 'mock-provider-2',
+            detect: async () => true,
+            onDidUpdate: new EventEmitter<void>().event,
+            getCachedChangeInfo: () => undefined,
+            fetchStatuses: vi.fn().mockResolvedValue(false),
+            clearCache: () => {},
+            activate: () => {},
+            deactivate: () => {},
+        });
+        registry.register({ id: 'mock-provider-2', create: () => mockProvider });
+        await repo.codeForge.detectActiveProvider(true);
+
+        const dummyCommits: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-2',
+                commit_id: 'test-commit-2',
+                description: 'test commit 2',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+
+        controller.setCommits(dummyCommits);
+        const ensureFreshSpy = vi.spyOn(repo.codeForge, 'ensureFreshStatuses');
+
+        // Trigger force refresh on codeForge service (simulating post-upload backoff timer or poller)
+        repo.codeForge.forceRefresh();
+
+        expect(ensureFreshSpy).toHaveBeenCalled();
     });
 });

@@ -382,7 +382,9 @@ describe('CodeForgeService Tests', () => {
         expect(service.activeProvider).toBe(mockProvider);
 
         const updateListener = vi.fn();
+        const refreshListener = vi.fn();
         service.onDidUpdate(updateListener);
+        service.onRequestRefresh(refreshListener);
 
         // First dispose
         service.dispose();
@@ -395,13 +397,13 @@ describe('CodeForgeService Tests', () => {
         // Force refresh after dispose does not fire listeners
         service.forceRefresh();
         expect(updateListener).not.toHaveBeenCalled();
+        expect(refreshListener).not.toHaveBeenCalled();
 
         // Second dispose should be safe and idempotent
         expect(() => service.dispose()).not.toThrow();
         expect(deactivateSpy).toHaveBeenCalledTimes(1);
         expect(disposeSpy).toHaveBeenCalledTimes(1);
     });
-
     test('unlisted provider without explicit priority has lower precedence than prioritized providers', async () => {
         const unlistedProvider = new MockProvider('custom-forge', 'Custom Forge', true);
         const githubProvider = new MockProvider('github', 'GitHub', true);
@@ -414,6 +416,25 @@ describe('CodeForgeService Tests', () => {
         await service.awaitReady();
 
         expect(service.activeProvider).toBe(githubProvider);
+        service.dispose();
+    });
+
+    test('forceRefresh fires onRequestRefresh when active provider is present', async () => {
+        const mockProvider = new MockProvider('mock-refresh', 'Mock Refresh', true);
+        registry.register({
+            id: 'mock-refresh',
+            create: () => mockProvider,
+        });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        const refreshListener = vi.fn();
+        service.onRequestRefresh(refreshListener);
+
+        service.forceRefresh();
+        expect(refreshListener).toHaveBeenCalledTimes(1);
+
         service.dispose();
     });
 });
