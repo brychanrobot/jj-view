@@ -20,6 +20,7 @@ class MockProvider implements CodeForgeProvider {
     private emitter = new EventEmitter<void>();
     readonly onDidUpdate = this.emitter.event;
     public dispose?: () => void;
+    public priority?: number;
 
     constructor(
         public readonly id = 'mock-provider',
@@ -235,6 +236,36 @@ describe('CodeForgeService Tests', () => {
         service.dispose();
     });
 
+    test('prioritizes github and gitlab before gerrit during detection', async () => {
+        const detectionOrder: string[] = [];
+        const createTrackingProvider = (id: string) => {
+            const p = new MockProvider(id, id, true);
+            const origDetect = p.detect.bind(p);
+            p.detect = async (root, remotes) => {
+                detectionOrder.push(id);
+                return origDetect(root, remotes);
+            };
+            return p;
+        };
+
+        const gerrit = createTrackingProvider('gerrit');
+        const gitlab = createTrackingProvider('gitlab');
+        const github = createTrackingProvider('github');
+
+        // Register in arbitrary order (gerrit first)
+        registry.register({ id: 'gerrit', create: () => gerrit });
+        registry.register({ id: 'gitlab', create: () => gitlab });
+        registry.register({ id: 'github', create: () => github });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        expect(service.activeProvider).toBe(github);
+        expect(detectionOrder[0]).toBe('github');
+
+        service.dispose();
+    });
+
     test('populateCodeForgeInfo correctly computes sync and needsUpload statuses', async () => {
         const provider = new MockProvider();
         registry.register({ id: 'mock-provider', create: () => provider });
@@ -369,5 +400,20 @@ describe('CodeForgeService Tests', () => {
         expect(() => service.dispose()).not.toThrow();
         expect(deactivateSpy).toHaveBeenCalledTimes(1);
         expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('unlisted provider without explicit priority has lower precedence than prioritized providers', async () => {
+        const unlistedProvider = new MockProvider('custom-forge', 'Custom Forge', true);
+        const githubProvider = new MockProvider('github', 'GitHub', true);
+        githubProvider.priority = 10;
+
+        registry.register({ id: 'custom-forge', create: () => unlistedProvider });
+        registry.register({ id: 'github', create: () => githubProvider });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        expect(service.activeProvider).toBe(githubProvider);
+        service.dispose();
     });
 });

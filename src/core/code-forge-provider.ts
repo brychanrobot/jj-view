@@ -25,6 +25,8 @@ export interface CodeForgeProvider {
     readonly displayName: string;
     /** Terminology used for change units (e.g. 'CL' for Gerrit, 'PR' for GitHub) */
     readonly changeTerm: 'CL' | 'PR' | 'Change';
+    /** Optional priority order for auto-detection (lower values detected first) */
+    readonly priority?: number;
 
     /** Fires when change cache statuses or states are updated */
     readonly onDidUpdate: Event<void>;
