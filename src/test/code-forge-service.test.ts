@@ -235,6 +235,36 @@ describe('CodeForgeService Tests', () => {
         service.dispose();
     });
 
+    test('prioritizes github and gitlab before gerrit during detection', async () => {
+        const detectionOrder: string[] = [];
+        const createTrackingProvider = (id: string) => {
+            const p = new MockProvider(id, id, true);
+            const origDetect = p.detect.bind(p);
+            p.detect = async (root, remotes) => {
+                detectionOrder.push(id);
+                return origDetect(root, remotes);
+            };
+            return p;
+        };
+
+        const gerrit = createTrackingProvider('gerrit');
+        const gitlab = createTrackingProvider('gitlab');
+        const github = createTrackingProvider('github');
+
+        // Register in arbitrary order (gerrit first)
+        registry.register({ id: 'gerrit', create: () => gerrit });
+        registry.register({ id: 'gitlab', create: () => gitlab });
+        registry.register({ id: 'github', create: () => github });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        expect(service.activeProvider).toBe(github);
+        expect(detectionOrder[0]).toBe('github');
+
+        service.dispose();
+    });
+
     test('populateCodeForgeInfo correctly computes sync and needsUpload statuses', async () => {
         const provider = new MockProvider();
         registry.register({ id: 'mock-provider', create: () => provider });

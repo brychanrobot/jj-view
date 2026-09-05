@@ -271,6 +271,7 @@ export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
     public readonly displayName = 'GitHub';
     public readonly changeTerm = 'PR' as const;
+    public readonly priority = 10;
     public readonly isAuthManageable = true;
 
     private cache = new Map<string, CodeForgeChangeInfo>();

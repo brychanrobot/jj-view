@@ -112,12 +112,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     context.subscriptions.push(
         codeForgeRegistry.register({
-            id: 'gerrit',
-            create: (outputChannel, host) => new GerritProvider(outputChannel, host),
-        }),
-    );
-    context.subscriptions.push(
-        codeForgeRegistry.register({
             id: 'github',
             create: (outputChannel) => new GitHubProvider(authManager, outputChannel),
         }),
@@ -126,6 +120,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         codeForgeRegistry.register({
             id: 'gitlab',
             create: (outputChannel, host) => new GitLabProvider(authManager, outputChannel, host),
+        }),
+    );
+    context.subscriptions.push(
+        codeForgeRegistry.register({
+            id: 'gerrit',
+            create: (outputChannel, host) => new GerritProvider(outputChannel, host),
         }),
     );
 

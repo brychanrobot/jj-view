@@ -13,6 +13,16 @@ import type { HostDisposable, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
 
+const DEFAULT_PRIORITY_ORDER = ['github', 'gitlab', 'gerrit'];
+
+function getProviderPriority(provider: CodeForgeProvider): number {
+    if (provider.priority !== undefined) {
+        return provider.priority;
+    }
+    const idx = DEFAULT_PRIORITY_ORDER.indexOf(provider.id);
+    return idx === -1 ? DEFAULT_PRIORITY_ORDER.length : idx;
+}
+
 export class CodeForgeService implements Disposable {
     private poller: NodeJS.Timeout | undefined;
     private activeProviderDisposable: Disposable | undefined;
@@ -233,7 +243,11 @@ export class CodeForgeService implements Disposable {
             }
 
             if (!detectedProvider) {
-                for (const provider of this.providers.values()) {
+                const sortedProviders = Array.from(this.providers.values()).sort(
+                    (a, b) => getProviderPriority(a) - getProviderPriority(b),
+                );
+
+                for (const provider of sortedProviders) {
                     if (await provider.detect(repoRoot, remotes)) {
                         detectedProvider = provider;
                         break;
