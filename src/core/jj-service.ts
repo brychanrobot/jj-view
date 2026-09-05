@@ -60,6 +60,27 @@ export interface JjServiceOptions {
     processTracker?: JjProcessTracker;
 }
 
+function unquoteGitPath(rawPath: string): string {
+    if (!rawPath.startsWith('"') || !rawPath.endsWith('"')) {
+        return rawPath;
+    }
+    try {
+        const parsed = JSON.parse(rawPath);
+        if (typeof parsed === 'string') {
+            return parsed;
+        }
+    } catch {
+        // Fallback for Git's C-style octal escape sequences (e.g. \303\251)
+        const unescapedBinary = rawPath
+            .slice(1, -1)
+            .replace(/\\([0-7]{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)))
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\');
+        return Buffer.from(unescapedBinary, 'latin1').toString('utf8');
+    }
+    return rawPath;
+}
+
 export class JjService {
     public binaryPath: string;
     public processTracker?: JjProcessTracker;
@@ -739,6 +760,7 @@ export class JjService {
     }
 
     async clearCache(): Promise<void> {
+        this._gitBlobHashCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -1314,9 +1336,35 @@ export class JjService {
         return this.run('absorb', args, { isMutation: true, label: 'absorb' });
     }
 
+    private _gitBlobHashCache = new Map<string, Map<string, string | null>>();
+
     async getGitBlobHashes(commitId: string, filePaths: string[]): Promise<Map<string, string>> {
         if (filePaths.length === 0) {
             return new Map();
+        }
+
+        let commitCache = this._gitBlobHashCache.get(commitId);
+        if (!commitCache) {
+            commitCache = new Map<string, string | null>();
+            this._gitBlobHashCache.set(commitId, commitCache);
+        }
+
+        const missingPaths: string[] = [];
+        const resultMap = new Map<string, string>();
+
+        for (const filePath of filePaths) {
+            const cachedSha = commitCache.get(filePath);
+            if (cachedSha !== undefined) {
+                if (cachedSha !== null) {
+                    resultMap.set(filePath, cachedSha);
+                }
+            } else {
+                missingPaths.push(filePath);
+            }
+        }
+
+        if (missingPaths.length === 0) {
+            return resultMap;
         }
 
         // We use raw git command because jj doesn't expose ls-tree
@@ -1324,7 +1372,7 @@ export class JjService {
             const timeout = 10000; // 10s safety timeout
             cp.execFile(
                 'git',
-                ['--no-pager', '--no-optional-locks', 'ls-tree', commitId, '--', ...filePaths],
+                ['--no-pager', '--no-optional-locks', 'ls-tree', commitId, '--', ...missingPaths],
                 {
                     cwd: this.workspaceRoot,
                     maxBuffer: 10 * 1024 * 1024,
@@ -1335,18 +1383,18 @@ export class JjService {
                 },
                 (err, stdout) => {
                     if (err) {
-                        // If git fails (e.g. not a git repo, or commit not found in git backing), return empty
+                        // If git fails (e.g. not a git repo, or commit not found in git backing), return partial resultMap
                         // This is expected fallback behavior
                         this.logger.warn(`getGitBlobHashes failed: ${err.message}`);
-                        resolve(new Map());
+                        resolve(resultMap);
                         return;
                     }
 
-                    const resultMap = new Map<string, string>();
                     // Output format: <mode> blob <sha> <tab><path>
                     // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
 
                     const lines = stdout.toString().trim().split('\n');
+                    const foundPaths = new Set<string>();
                     for (const line of lines) {
                         if (!line) {
                             continue;
@@ -1358,13 +1406,21 @@ export class JjService {
                         if (parts.length >= 4 && parts[1] === 'blob') {
                             const sha = parts[2];
                             const pathPart = line.substring(line.indexOf('\t') + 1);
-                            // Remove quotes if present (git ls-tree quotes paths with spaces/unusual chars)
-                            const cleanPath =
-                                pathPart.startsWith('"') && pathPart.endsWith('"') ? JSON.parse(pathPart) : pathPart;
+                            const cleanPath = unquoteGitPath(pathPart);
 
+                            commitCache.set(cleanPath, sha);
                             resultMap.set(cleanPath, sha);
+                            foundPaths.add(cleanPath);
                         }
                     }
+
+                    // Negative cache requested paths absent from ls-tree
+                    for (const path of missingPaths) {
+                        if (!foundPaths.has(path)) {
+                            commitCache.set(path, null);
+                        }
+                    }
+
                     resolve(resultMap);
                 },
             );

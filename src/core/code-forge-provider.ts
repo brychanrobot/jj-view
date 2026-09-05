@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { Event } from './host/events';
-import type { CodeForgeChangeInfo, CommitParent } from './jj-types';
+import type { CodeForgeChangeInfo, CommitParent, JjStatusEntry } from './jj-types';
 
 export interface GitRemote {
     name: string;
@@ -16,6 +16,7 @@ export interface ChangeStatusRequest {
     description?: string;
     bookmarks?: string[];
     parents?: CommitParent[];
+    changes?: JjStatusEntry[];
 }
 
 export interface CodeForgeProvider {
