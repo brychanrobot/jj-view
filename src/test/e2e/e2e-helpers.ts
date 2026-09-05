@@ -13,6 +13,7 @@ export type { ExpectedTreeItem, TestRepo, TreeEntrySpec } from '../test-repo';
 
 import { logPerf } from './perf-logger';
 import {
+    dismissActiveUI,
     type VSCodeContext as FixtureVSCodeContext,
     type VSCodeFixture as FixtureVSCodeFixture,
     isMac as fixtureIsMac,
@@ -856,31 +857,10 @@ export function locateQuickInputItem(page: Page, label: string | RegExp): Locato
 }
 
 /**
- * Dismisses any open QuickInput widget using the closeQuickOpen command or Escape key.
+ * Dismisses any open QuickInput widget or active UI using the Escape key.
  */
-export async function dismissQuickInput(page: Page, vscode?: VSCodeFixture, timeout: number = 2000): Promise<void> {
-    if (vscode) {
-        try {
-            await vscode.executeCommand('workbench.action.closeQuickOpen');
-        } catch {}
-    }
-    const quickInput = locateQuickInputWidget(page).filter({ visible: true });
-    try {
-        await expect(async () => {
-            if (await quickInput.isVisible()) {
-                if (vscode) {
-                    await vscode.executeCommand('workbench.action.closeQuickOpen');
-                } else {
-                    await quickInput
-                        .locator('input.input')
-                        .focus()
-                        .catch(() => {});
-                    await page.keyboard.press('Escape');
-                }
-            }
-            await expect(quickInput).not.toBeVisible({ timeout: 500 });
-        }).toPass({ timeout });
-    } catch {}
+export async function dismissQuickInput(page: Page): Promise<void> {
+    await dismissActiveUI(page);
 }
 
 /**
