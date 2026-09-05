@@ -235,12 +235,12 @@ export class LogViewController implements Disposable {
                 return;
             }
 
+            this.setCommits(commits);
+
             const duration = performance.now() - start;
             this._logger?.info?.(
-                `[LogViewController] jj log took ${duration.toFixed(0)}ms, found ${commits.length} commits`,
+                `[timing] [LogView] refresh took ${duration.toFixed(0)}ms (${commits.length} commits)`,
             );
-
-            this.setCommits(commits);
         } catch (e) {
             this._logger?.error('[LogViewController] Failed to fetch log', toError(e));
             return;
@@ -446,7 +446,9 @@ export class LogViewController implements Disposable {
             );
 
             const duration = performance.now() - start;
-            this._logger?.info?.(`[LogViewController] CodeForge fetch took ${duration.toFixed(0)}ms`);
+            this._logger?.info?.(
+                `[timing] [CodeForge] refresh took ${duration.toFixed(0)}ms (${this._commits.length} commits)`,
+            );
         } catch (e) {
             this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
         }
