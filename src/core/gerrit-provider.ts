@@ -21,7 +21,7 @@ import type {
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
-import type { CodeForgeChangeInfo } from './jj-types';
+import type { CodeForgeChangeInfo, JjStatusEntry } from './jj-types';
 
 export const GerritFileSchema = z.object({
     status: z.string().optional(),
@@ -103,6 +103,7 @@ export class GerritProvider implements CodeForgeProvider {
     public readonly priority = 100;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
+    private contentSyncCache = new Map<string, boolean>();
     private gerritHost: string | undefined;
     private repoRoot: string | undefined;
     private gitRoot: string | null = null;
@@ -302,7 +303,7 @@ export class GerritProvider implements CodeForgeProvider {
     private async processBatch(
         batchCacheKeys: string[],
         batchIndex: number,
-        changesByCacheKey: Map<string, { commitId: string; description?: string }[]>,
+        changesByCacheKey: Map<string, ChangeStatusRequest[]>,
         jj: JjService,
     ): Promise<boolean> {
         let batchChanged = false;
@@ -326,7 +327,7 @@ export class GerritProvider implements CodeForgeProvider {
                 const changesForCacheKey = changesByCacheKey.get(cacheKey) || [];
                 await Promise.all(
                     changesForCacheKey.map((change) =>
-                        this.verifyContentSync(change.commitId, change.description, info, jj),
+                        this.verifyContentSync(change.commitId, change.description, info, jj, change.changes),
                     ),
                 );
                 this.cache.set(cacheKey, info);
@@ -451,6 +452,7 @@ export class GerritProvider implements CodeForgeProvider {
         description: string | undefined,
         info: CodeForgeChangeInfo,
         jj: JjService,
+        changes?: JjStatusEntry[],
     ): Promise<void> {
         if (info.status !== 'NEW' || !info.files) {
             return;
@@ -461,23 +463,34 @@ export class GerritProvider implements CodeForgeProvider {
             return;
         }
 
+        const syncCacheKey = `${commitId}:${info.currentRevision ?? ''}`;
+        if (this.contentSyncCache.has(syncCacheKey)) {
+            const cached = this.contentSyncCache.get(syncCacheKey);
+            if (cached) {
+                info.contentSynced = true;
+            }
+            return;
+        }
+
         if (
             info.remoteDescription &&
             description &&
             stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)
         ) {
+            this.contentSyncCache.set(syncCacheKey, false);
             return;
         }
 
         const gerritFiles = info.files;
         try {
-            const localChanges = await jj.getChanges(commitId);
+            const localChanges = changes ?? (await jj.getChanges(commitId));
             const localPaths = new Set(localChanges.filter((c) => c.status !== 'deleted').map((c) => c.path));
 
             const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
             const gerritPathSet = new Set(gerritPaths);
 
             if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
+                this.contentSyncCache.set(syncCacheKey, false);
                 return;
             }
 
@@ -489,12 +502,14 @@ export class GerritProvider implements CodeForgeProvider {
                     const localSha = localHashes.get(file);
 
                     if (!localSha || localSha !== gerritFile.newSha) {
+                        this.contentSyncCache.set(syncCacheKey, false);
                         return;
                     }
                 }
             }
 
             info.contentSynced = true;
+            this.contentSyncCache.set(syncCacheKey, true);
         } catch (e) {
             this.outputChannel?.error(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
         }
@@ -781,6 +796,7 @@ export class GerritProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.contentSyncCache.clear();
         this.authHeader = undefined;
         this.authChecked = false;
         this.lastAuthTime = 0;

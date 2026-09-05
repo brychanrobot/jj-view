@@ -111,6 +111,59 @@ describe('Gerrit Sync Verification', () => {
         expect(result?.contentSynced).toBe(true);
     });
 
+    test('uses pre-fetched changes from request and memoizes content sync outcome', async () => {
+        repo.writeFile('hello.txt', 'hello world');
+        const desc = 'Change-Id: I1111111111111111111111111111111111111111';
+        repo.describe(desc);
+
+        const commitId = repo.getCommitId('@');
+        const blobHashes = await jjService.getGitBlobHashes(commitId, ['hello.txt']);
+        const realHash = blobHashes.get('hello.txt');
+        if (!realHash) {
+            throw new Error('Failed to get blob hash for hello.txt');
+        }
+
+        mockGerritResponse(
+            'I1111111111111111111111111111111111111111',
+            'remote-sha',
+            {
+                'hello.txt': { status: 'M', new_sha: realHash },
+            },
+            '',
+        );
+
+        service = initService();
+        await service.awaitReady();
+
+        await service.ensureFreshStatuses([
+            {
+                commitId,
+                description: desc,
+                parents: [],
+                changes: [{ path: 'hello.txt', status: 'modified' }],
+            },
+        ]);
+        const result1 = provider.getCachedChangeInfo(undefined, desc);
+        expect(result1?.contentSynced).toBe(true);
+
+        // Verify repeated call uses cached contentSynced state
+        await service.ensureFreshStatuses([
+            {
+                commitId,
+                description: desc,
+                parents: [],
+                changes: [{ path: 'hello.txt', status: 'modified' }],
+            },
+        ]);
+        const result2 = provider.getCachedChangeInfo(undefined, desc);
+        expect(result2?.contentSynced).toBe(true);
+
+        // Verify clearCache clears the content sync cache
+        provider.clearCache();
+        const resultAfterClear = provider.getCachedChangeInfo(undefined, desc);
+        expect(resultAfterClear).toBeUndefined();
+    });
+
     test('does not set synced when blob hashes differ', async () => {
         repo.writeFile('hello.txt', 'hello world');
         const desc = 'Change-Id: I2222222222222222222222222222222222222222';
