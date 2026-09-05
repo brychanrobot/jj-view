@@ -33,22 +33,24 @@ Use this skill when the user wants to cut a new release of the extension. It req
 7.  **Update Changelog:** Update `CHANGELOG.md` by prepending the new version and the drafted release notes.
 8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md` and `package.json`) to the user. **Wait for their approval before proceeding.**
 9.  **Describe Changes:** After user approval, describe the working copy commit using `jj describe -m "chore: bump version to <new_version>"` (or the `jj_describe` MCP tool).
-10. **Encode Notes:** Use the encoding script to encode the release notes for a URL: `pnpm release:encode -- "<release_notes>"`. The script is located at `.agents/scripts/encode-release-notes.ts`.
-11. **Generate Release Link:** Craft a GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>`.
-12. **Final Output:** Present the finalized Release Notes and the one-click Release Link directly to the user.
+10. **Open Release URL:** Run `pnpm release:open` (located at `tooling/open-release-url.ts`) to automatically parse the latest release section from `CHANGELOG.md`, construct the GitHub release creation URL, and launch the browser via `xdg-open` (or `open` on macOS / `start` on Windows). This avoids chat markdown link truncation issues when clicking long query URLs.
+    - Note: To inspect the URL without launching the browser, use `pnpm release:open --dry-run`.
+11. **Generate Release Link:** If needed for the text output, craft the GitHub release link: `https://github.com/brychanrobot/jj-view/releases/new?tag=v<version>&title=v<version>&body=<encoded_notes>` (using `pnpm release:encode -- "<release_notes>"` if encoding separately).
+12. **Final Output:** Present the finalized Release Notes, the release link, and the `pnpm release:open` command shortcut directly to the user.
+    - Instruct the user to push changes via `jj git push` before publishing the release.
+    - Mention that `pnpm release:open` can be executed in the terminal at any time to re-launch the browser with the complete, untruncated release draft.
     - Always provide the finalized release notes in a clean markdown code block as a copy-paste fallback in case URL query parameters are mangled by chat link handlers.
     - Include links to both marketplaces in the release notes output:
         - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jj-view.jj-view)
         - [Open VSX](https://open-vsx.org/extension/jj-view/jj-view)
     - Add a **CI Note**: A clear reminder that CI handles the binary (VSIX) upload automatically after publishing the release.
-    - Instruct the user to push changes via `jj git push` before clicking the link.
 13. **Cleanup:** (Optional) Update `task.md` if one is active, but do NOT create a `walkthrough.md` for the release itself.
 
 ## Edge Cases
 
 - If `pnpm release:encode` fails, ensure the arguments are wrapped in quotes.
-- **URL Encoding & Chat Link Limitations**: Clicking Markdown links in chat UIs can cause external URI parsers to improperly decode or pass special characters like `#` (pound signs appearing as literal `%23`) and `&` (truncating query parameters). Always present the full release notes in a raw code block so the user can easily copy-paste them directly into the release form.
+- **URL Encoding & Chat Link Limitations**: Clicking Markdown links in chat UIs can cause external URI parsers to improperly decode or truncate long query strings. Using `pnpm release:open` bypasses chat link handlers entirely by opening the browser directly via the OS opener. Always provide `pnpm release:open` and the raw release notes in a code block.
 
 ## Completion Criteria
 
-The skill is complete when the release commit is made and the user is provided with the formatted release notes and the GitHub release creation link.
+The skill is complete when the release commit is made and the user is provided with the formatted release notes and the GitHub release creation link (or browser launch via `pnpm release:open`).
