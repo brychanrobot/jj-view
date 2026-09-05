@@ -208,6 +208,10 @@ export class CodeForgeService implements Disposable {
     }
 
     public async detectActiveProvider(force = false): Promise<boolean> {
+        if (this.detectPromise) {
+            return this.detectPromise;
+        }
+
         if (!force && this.activeProviderInstance) {
             return false;
         }
@@ -215,10 +219,6 @@ export class CodeForgeService implements Disposable {
         const now = Date.now();
         if (!force && now - this.lastDetectionTime < 30000) {
             return false;
-        }
-
-        if (this.detectPromise) {
-            return this.detectPromise;
         }
 
         this.lastDetectionTime = now;
@@ -278,6 +278,9 @@ export class CodeForgeService implements Disposable {
 
                 this._onDidActiveProviderChange.fire(detectedProvider);
                 this._onDidUpdate.fire();
+                if (detectedProvider) {
+                    this._onRequestRefresh.fire();
+                }
             }
             return changed;
         } catch (e) {

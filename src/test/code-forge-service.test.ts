@@ -422,4 +422,25 @@ describe('CodeForgeService Tests', () => {
 
         service.dispose();
     });
+
+    test('detectActiveProvider fires onRequestRefresh when provider is newly activated', async () => {
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        const refreshListener = vi.fn();
+        service.onRequestRefresh(refreshListener);
+
+        const mockProvider = new MockProvider('mock-detect', 'Mock Detect', true);
+        registry.register({
+            id: 'mock-detect',
+            create: () => mockProvider,
+        });
+
+        await service.detectActiveProvider(true);
+
+        expect(service.activeProvider).toBe(mockProvider);
+        expect(refreshListener).toHaveBeenCalledTimes(1);
+
+        service.dispose();
+    });
 });

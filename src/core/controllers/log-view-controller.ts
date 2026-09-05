@@ -7,6 +7,7 @@ import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import { canAbsorbCommit } from '../../utils/jj-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
+import type { CodeForgeService } from '../code-forge-service';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
 import type { HostEnvironment } from '../host/host-environment';
 import {
@@ -41,6 +42,7 @@ export class LogViewController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
+    private _codeForgeRefreshPromise: Promise<void> | undefined;
     private readonly _logger?: LoggerChannel;
     private readonly _receiver: WebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     private readonly _refreshQueue: CoalescingQueue;
@@ -422,14 +424,26 @@ export class LogViewController implements Disposable {
         if (this._disposed || this._commits.length === 0) {
             return;
         }
+        if (this._codeForgeRefreshPromise) {
+            return this._codeForgeRefreshPromise;
+        }
         const cf = this._repo?.codeForge;
         if (!cf) {
             return;
         }
 
+        this._codeForgeRefreshPromise = this._executeCodeForgeRefresh(cf).finally(() => {
+            this._codeForgeRefreshPromise = undefined;
+        });
+        return this._codeForgeRefreshPromise;
+    }
+
+    private async _executeCodeForgeRefresh(cf: CodeForgeService): Promise<void> {
         if (!cf.isEnabled) {
-            await cf.detectActiveProvider();
-            return;
+            await cf.detectActiveProvider(true);
+            if (!cf.isEnabled || this._disposed) {
+                return;
+            }
         }
 
         try {
@@ -649,6 +663,7 @@ export class LogViewController implements Disposable {
 
     public dispose(): void {
         this._disposed = true;
+        this._codeForgeRefreshPromise = undefined;
         this._codeForgeDisposable?.dispose();
         for (const d of this._disposables) {
             d.dispose();
