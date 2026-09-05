@@ -96,12 +96,24 @@ export async function resolveStackedUploadCommand(
     repo: JjRepository,
     targetRevision: string,
     customCommand?: string,
+    preResolvedStackCommits?: JjLogEntry[],
 ): Promise<ResolvedStackedUploadCommand> {
     if (repo.codeForge.activeProvider?.id === 'gerrit') {
         throw new Error('Stacked uploads are not supported for Gerrit repositories. Use standard upload instead.');
     }
 
-    const stackCommits = await resolveStackCommits(repo.jj, targetRevision);
+    const matchesTarget = preResolvedStackCommits?.some(
+        (c) =>
+            c.commit_id === targetRevision ||
+            c.change_id === targetRevision ||
+            c.commit_id.startsWith(targetRevision) ||
+            c.change_id.startsWith(targetRevision) ||
+            (targetRevision === '@' && c.is_current_working_copy),
+    );
+    const stackCommits =
+        preResolvedStackCommits && (matchesTarget || targetRevision === '@')
+            ? preResolvedStackCommits
+            : await resolveStackCommits(repo.jj, targetRevision);
     if (stackCommits.length === 0) {
         throw new Error('No mutable commits found in stack to upload.');
     }
@@ -146,7 +158,7 @@ export async function uploadStackCommand(ctx: CommandContext, payload?: UploadPa
 
     let resolved: ResolvedStackedUploadCommand;
     try {
-        resolved = await resolveStackedUploadCommand(repo, revision, customCommand);
+        resolved = await resolveStackedUploadCommand(repo, revision, customCommand, payload?.stackCommits);
         if (!resolved.subcommand) {
             throw new Error('Invalid upload command configuration.');
         }

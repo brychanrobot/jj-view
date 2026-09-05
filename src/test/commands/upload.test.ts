@@ -1043,5 +1043,26 @@ describe('uploadCommand', () => {
                 'Stacked uploads are not supported for Gerrit repositories. Use standard upload instead.',
             );
         });
+
+        test('resolveStackedUploadCommand reuses pre-resolved stack commits', async () => {
+            const dummyCommits: JjLogEntry[] = [
+                createMock<JjLogEntry>({
+                    commit_id: 'commit-1',
+                    change_id: 'change-1',
+                    bookmarks: [{ name: 'bm-1' }],
+                    parents: [],
+                }),
+                createMock<JjLogEntry>({
+                    commit_id: 'commit-2',
+                    change_id: 'change-2',
+                    bookmarks: [{ name: 'bm-2' }],
+                    parents: [{ commit_id: 'commit-1', change_id: 'change-1', is_immutable: false }],
+                }),
+            ];
+
+            const result = await resolveStackedUploadCommand(mockJjRepo, '@', undefined, dummyCommits);
+            expect(result.stackCommits).toBe(dummyCommits);
+            expect(result.commandArgs).toEqual(['push', '-r', 'bm-1', '-r', 'bm-2']);
+        });
     });
 });
