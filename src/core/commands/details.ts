@@ -18,7 +18,9 @@ export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDeta
     const revision = payload?.revision || '@';
 
     try {
-        const [logEntry] = await ui.withProgress('Loading details...', () => jj.getLog({ revision }));
+        const [logEntry] = await ui.withProgress('Loading details...', () =>
+            jj.getLog({ revision, omitChanges: true }),
+        );
         if (!logEntry) {
             throw new Error(`No log entry found for revision: ${revision}`);
         }

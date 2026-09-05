@@ -148,7 +148,7 @@ export class CommitDetailsController implements Disposable {
         }
 
         try {
-            const logsPromise = this.repo.jj.getLog({ revision: this.changeId });
+            const logsPromise = this.repo.jj.getLog({ revision: this.changeId, omitChanges: true });
             const changesPromise = this.repo.jj.getChanges(this.changeId).catch(() => null);
 
             const [logs, rawChanges] = await Promise.all([logsPromise, changesPromise]);
@@ -166,7 +166,7 @@ export class CommitDetailsController implements Disposable {
             }
 
             const log = logs[0];
-            const changes = rawChanges || log.changes || [];
+            const changes = rawChanges || [];
 
             this._logEntry = log;
             this._changes = changes;

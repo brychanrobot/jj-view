@@ -149,20 +149,24 @@ export class ScmModel implements Disposable {
             const minChangeIdLength = this.repo.host.config.get<number>('minChangeIdLength', 1) ?? 1;
             const limit = maxMutableAncestors + 1;
 
-            const bulkLogPromise = this.jj
-                .getLogIds({ revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`, limit })
-                .then((commitIds) => Promise.all(commitIds.map((id) => this.jj.getLog({ revision: id }))));
+            const bulkLogPromise = this.jj.getLog({
+                revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`,
+                limit,
+            });
 
-            const [bulkLogEntries, children, conflictedPaths] = await Promise.all([
+            const [bulkLog, workingCopyEntries, children, conflictedPaths] = await Promise.all([
                 bulkLogPromise,
+                this.jj.getLog({ revision: '@', limit: 1 }),
                 this.jj.getChildren('@'),
                 this.jj.getConflictedFiles(),
             ]);
 
-            const bulkLog = bulkLogEntries.map((entries) => entries[0]).filter(Boolean);
-            const currentEntry = bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
+            const currentEntry = workingCopyEntries[0] || bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
             this._currentEntry = currentEntry;
             const bulkLogMap = new Map<string, JjLogEntry>(bulkLog.map((entry) => [entry.commit_id, entry]));
+            if (currentEntry) {
+                bulkLogMap.set(currentEntry.commit_id, currentEntry);
+            }
 
             this._parentMutable = this.isParentMutable(currentEntry);
             this._hasChild = children.length > 0;
