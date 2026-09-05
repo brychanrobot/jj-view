@@ -49,6 +49,7 @@ export class JjRepository implements Disposable {
         this._refreshQueue = new DebouncingQueue<RefreshPayload>(
             async (options) => {
                 const reason = Array.from(options?.reasons ?? []).join(', ') || 'unknown';
+                const start = performance.now();
 
                 this._isValid = undefined;
                 try {
@@ -57,6 +58,11 @@ export class JjRepository implements Disposable {
                         await this._jj.status();
                     }
                     await this._jj.getRepoRoot(); // Warm the cache
+
+                    const duration = performance.now() - start;
+                    outputChannel.info?.(
+                        `[timing] [Snapshot] refresh took ${duration.toFixed(0)}ms (reason: ${reason})`,
+                    );
 
                     if (!this._disposed) {
                         await this._onDidStatusChange.fire({ reason });
