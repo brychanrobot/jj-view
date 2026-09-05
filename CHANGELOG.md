@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.8.0
+
+### Features
+
+- **Code Forge & Upload**:
+    - Add stacked PR and MR upload support for GitHub and GitLab, automatically creating, chaining, and retargeting PR/MR bases across the commit stack.
+    - Add explicit `JJ View: Upload Stack` command to the command palette and context menus.
+    - Add `jj-view.alwaysUploadStack` setting to automatically upload entire stacks by default.
+    - Auto-detect stacked uploads from the log view cloud upload button when commits in the stack have bookmarks.
+- **Log View**:
+    - Display bookmark pills on a dedicated forge row for tracked commits to improve visual separation from commit descriptions.
+
+### Fixes
+
+- **Merge Editor**:
+    - Fix 3-way merge editor opening blank and prevent working copy files from being overwritten with empty content during conflict resolution by properly mapping merge output URIs to the repository and deduplicating concurrent conflict capture requests.
+- **File Watcher**:
+    - Auto-recover and reconnect `DirectoryWatcher` using exponential backoff when file watching daemons disconnect or sockets drop.
+    - Fall back gracefully to polling mode upon permanent file watcher failure.
+- **Commit Details Editor**:
+    - Resolve infinite loading spinner when reopening commit details tabs by registering webview listeners prior to initial load.
+    - Properly isolate editor controllers across multi-root workspaces.
+- **Code Forge & Gerrit Integration**:
+    - Target the exact patchset of parent comments when replying to or resolving comments in Gerrit to prevent 400 Bad Request errors.
+    - Eliminate redundant network roundtrips during Gerrit comment thread replies and resolutions by passing thread metadata.
+- **Code Forge & Upload**:
+    - Isolate PR/MR synchronization errors from git push failures with user-facing warnings.
+    - Refine upload error propagation and command resolution.
+
+### Chores & Internal
+
+- **Documentation**:
+    - Recommend lower Watchman `idle_reap_age_seconds` and document configuration to prevent watch buildup.
+- **Testing & Tooling**:
+    - Enforce `toBeSameFsPath` in test assertions with a dedicated linter to prevent cross-platform test failures.
+    - Migrate webview test suites to `createMockWebviewClient` and rename log webview integration tests for clarity.
+
 ## 2.7.0
 
 ### Features
