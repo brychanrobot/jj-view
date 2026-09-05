@@ -56,10 +56,13 @@ describe('JjService Unit Tests', () => {
         expect(changes.length).toBe(0);
     });
 
-    test('getGitRoot returns valid path for git-backed repo', async () => {
-        const gitRoot = await jjService.getGitRoot();
-        expect(gitRoot).toBeTruthy();
-        expect(gitRoot).toContain('.git');
+    test('getGitRoot returns valid path for git-backed repo and memoizes result', async () => {
+        const gitRoot1 = await jjService.getGitRoot();
+        expect(gitRoot1).toBeTruthy();
+        expect(gitRoot1).toContain('.git');
+
+        const gitRoot2 = await jjService.getGitRoot();
+        expect(gitRoot2).toBe(gitRoot1);
     });
 
     test('getRepoStorePath returns directory for main repo', async () => {
