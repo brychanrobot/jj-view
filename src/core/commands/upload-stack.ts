@@ -38,14 +38,14 @@ export function toStackCommitNodes(commits: JjLogEntry[]): StackCommitNode[] {
 export async function resolveStackCommits(jj: JjService, targetRevision: string): Promise<JjLogEntry[]> {
     try {
         let target = targetRevision || '@';
-        const currentEntries = await jj.getLog({ revision: '@' });
+        const currentEntries = await jj.getLog({ revision: '@', omitChanges: true });
         const current = currentEntries[0];
         const isTargetWorkingCopy =
             target === '@' || (current && (current.change_id === target || current.commit_id === target));
         if (isTargetWorkingCopy && current?.is_empty && (!current.bookmarks || current.bookmarks.length === 0)) {
             target = '@-';
         }
-        const log = await jj.getLog({ revision: `roots(immutable()..(${target}))::(${target})` });
+        const log = await jj.getLog({ revision: `roots(immutable()..(${target}))::(${target})`, omitChanges: true });
         // getLog returns commits from top (descendant) to bottom (ancestor). Reverse to get topological order [root, ..., target].
         return [...log].reverse();
     } catch (err: unknown) {

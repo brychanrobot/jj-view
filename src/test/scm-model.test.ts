@@ -62,8 +62,13 @@ describe('ScmModel Domain Unit Tests', () => {
 
     test('detects mutable ancestors and builds ancestor entries', async () => {
         await buildGraph(testRepo, [
-            { label: 'c1', description: 'first ancestor commit' },
-            { label: 'c2', parents: ['c1'], description: 'second ancestor commit' },
+            { label: 'c1', description: 'first ancestor commit', files: { 'file1.txt': 'c1 content\n' } },
+            {
+                label: 'c2',
+                parents: ['c1'],
+                description: 'second ancestor commit',
+                files: { 'file2.txt': 'c2 content\n' },
+            },
             { label: 'c3', parents: ['c2'], description: 'working copy' },
         ]);
 
@@ -74,6 +79,8 @@ describe('ScmModel Domain Unit Tests', () => {
         expect(snapshot?.ancestors.length).toBeGreaterThanOrEqual(2);
         expect(snapshot?.ancestors[0].prefix).toBe('@-1');
         expect(snapshot?.ancestors[0].isMutable).toBe(true);
+        expect(snapshot?.ancestors[0].changes.length).toBeGreaterThan(0);
+        expect(snapshot?.ancestors[0].changes.some((c) => c.path.includes('file2.txt'))).toBe(true);
         expect(snapshot?.parentMutable).toBe(true);
     });
 

@@ -18,15 +18,12 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
         await ctx.host.ui.withProgress(`Preparing multi-file diff for ${revision}...`, async (): Promise<void> => {
             const { jj } = ctx.repo;
             // Resolve to concrete change ID so both diff sides use the jj-view content provider
-            const [logEntry] = await jj.getLog({ revision, limit: 1 });
+            const [logEntry] = await jj.getLog({ revision, limit: 1, omitChanges: true });
             const changeId = logEntry?.change_id ?? revision;
             const editable = logEntry ? !logEntry.is_immutable : false;
+            const description = logEntry?.description ?? (await jj.getDescription(changeId));
 
-            const [changes, description] = await Promise.all([
-                jj.getChanges(changeId),
-                jj.getDescription(changeId),
-                jj.getDiffForRevision(revision),
-            ]);
+            const changes = await jj.getChanges(changeId);
 
             if (changes.length === 0) {
                 await ctx.host.ui.showInformation(`No changes found in revision ${changeId}.`);
