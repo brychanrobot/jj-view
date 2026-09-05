@@ -119,6 +119,7 @@ suite('Log Webview Initialization Integration Test', () => {
             jj: testContext.repository.jj,
             codeForge: createMock<CodeForgeService>({
                 onDidUpdate: () => ({ dispose: () => {} }),
+                onRequestRefresh: () => ({ dispose: () => {} }),
                 detectActiveProvider: () => pendingDetection,
             }),
         });
@@ -164,6 +165,7 @@ suite('Log Webview Initialization Integration Test', () => {
             jj: testContext.repository.jj,
             codeForge: createMock<CodeForgeService>({
                 onDidUpdate: () => ({ dispose: () => {} }),
+                onRequestRefresh: () => ({ dispose: () => {} }),
                 detectActiveProvider: () => Promise.reject(rejectingDetectionError),
             }),
         });
