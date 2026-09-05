@@ -201,7 +201,11 @@ export class ScmModel implements Disposable {
         } finally {
             if (!this._disposed) {
                 const duration = performance.now() - start;
-                this.outputChannel.info(`SCM snapshot update took ${duration.toFixed(0)}ms`);
+                const changeCount = this._snapshot?.workingCopyCount ?? 0;
+                const ancestorCount = this._snapshot?.ancestors.length ?? 0;
+                this.outputChannel.info(
+                    `[timing] [SCM] refresh took ${duration.toFixed(0)}ms (${changeCount} changes, ${ancestorCount} ancestors)`,
+                );
                 await this._onDidChangeStatus.fire();
             }
         }

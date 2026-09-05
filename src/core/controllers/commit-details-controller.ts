@@ -147,6 +147,7 @@ export class CommitDetailsController implements Disposable {
             return;
         }
 
+        const start = performance.now();
         try {
             const logsPromise = this.repo.jj.getLog({ revision: this.changeId, omitChanges: true });
             const changesPromise = this.repo.jj.getChanges(this.changeId).catch(() => null);
@@ -186,6 +187,11 @@ export class CommitDetailsController implements Disposable {
             if (state) {
                 this._receiver.sender.update(state);
             }
+
+            const duration = performance.now() - start;
+            this._logger?.info?.(
+                `[timing] [CommitDetails] refresh took ${duration.toFixed(0)}ms (${changes.length} files)`,
+            );
         } catch (err) {
             this._logger?.error(
                 `[CommitDetailsController] Failed to load commit details for ${this.changeId}`,
