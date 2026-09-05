@@ -618,6 +618,13 @@ export class VSCodeWorker {
         // Ensure IPC socket is ready (in case VS Code window was reloaded by a previous test)
         await waitForIpcReady(context.userDataDir, 5000);
 
+        // Dismiss any active UI left by a previous test before mutating settings/workspace
+        const isClean = await dismissActiveUI(context.page);
+        if (!isClean) {
+            context.needsReset = true;
+            throw new Error('Active UI could not be dismissed during context reuse; forcing new launch');
+        }
+
         // 1. Update the settings first (under the new context/notifications config)
         const startSettings = Date.now();
         await this.updateSettings(context, extraSettings, showNotifications);
@@ -974,6 +981,58 @@ export class VSCodeWorker {
     }
 }
 
+/**
+ * Dismisses any active hovers, quick picks, or context menus to guarantee test isolation.
+ * Returns true if clean, or false if active UI could not be dismissed.
+ */
+export async function dismissActiveUI(page: Page | undefined): Promise<boolean> {
+    if (!page || page.isClosed()) {
+        return true;
+    }
+    try {
+        await page.mouse.move(0, 0);
+        const quickInput = page.locator('.quick-input-widget').filter({ visible: true });
+        let iterations = 0;
+        while ((await quickInput.count()) > 0 && iterations < 5) {
+            iterations++;
+            const first = quickInput.first();
+            const input = first.locator('input.input');
+            if (await input.isVisible()) {
+                await input.focus().catch(() => {});
+                const value = await input.inputValue().catch(() => '');
+                if (value.length > 0) {
+                    await input.fill('').catch(() => {});
+                }
+            } else {
+                const list = first.locator('.monaco-list').first();
+                if (await list.isVisible()) {
+                    await list.focus().catch(() => {});
+                }
+            }
+            await page.keyboard.press('Escape');
+            await quickInput
+                .first()
+                .waitFor({ state: 'hidden', timeout: 500 })
+                .catch(() => {});
+        }
+
+        const contextMenu = page.locator('.context-view.monaco-menu-container').filter({ visible: true });
+        let menuIterations = 0;
+        while ((await contextMenu.count()) > 0 && menuIterations < 5) {
+            menuIterations++;
+            await page.keyboard.press('Escape');
+            await contextMenu
+                .first()
+                .waitFor({ state: 'hidden', timeout: 500 })
+                .catch(() => {});
+        }
+
+        return (await quickInput.count()) === 0 && (await contextMenu.count()) === 0;
+    } catch {
+        return false;
+    }
+}
+
 export class VSCodeFixtureImpl implements VSCodeFixture {
     app?: ElectronApplication;
     page?: Page;
@@ -982,6 +1041,17 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
     private openedRepos: string[] = [];
 
     constructor(private readonly worker: VSCodeWorker) {}
+
+    /**
+     * Dismisses any active hovers, quick picks, or context menus to guarantee test isolation.
+     */
+    private async dismissActiveUI(): Promise<boolean> {
+        const isClean = await dismissActiveUI(this.page);
+        if (!isClean) {
+            this.requestReset();
+        }
+        return isClean;
+    }
 
     async openWorkspace(
         repo: { path: string },
@@ -1001,10 +1071,7 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
         // Dismiss any active hovers, quick picks, or context menus from previous tests
         // before we do any operations for the new workspace
         const dismissStart = Date.now();
-        if (this.page) {
-            await this.page.mouse.move(0, 0);
-            await this.page.keyboard.press('Escape');
-        }
+        await this.dismissActiveUI();
         logPerf('openWorkspace: dismiss UI', dismissStart);
 
         if (skipRepoSync) {
@@ -1157,11 +1224,7 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
             }
             logPerf('cleanupAfterTest: close auxiliary windows', start);
 
-            if (this.page && !this.page.isClosed()) {
-                try {
-                    await this.page.keyboard.press('Escape');
-                } catch {}
-            }
+            await this.dismissActiveUI();
 
             const cleanupEvalStart = Date.now();
             try {
@@ -1169,10 +1232,6 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
                 // We fire this off asynchronously because if it prompts, it will block the promise.
                 const evaluatePromise = this.evaluate(async (vscode, api) => {
                     const evalStart = Date.now();
-
-                    try {
-                        await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
-                    } catch {}
 
                     const hasOpenEditors = vscode.window.tabGroups.all.some((group) => group.tabs.length > 0);
                     if (hasOpenEditors) {
