@@ -173,9 +173,12 @@ export class GerritProvider implements CodeForgeProvider {
         if (this.authChecked && now - this.lastAuthTime < AUTH_HEADER_TTL_MS) {
             return this.authHeader;
         }
+        const start = performance.now();
         this.authChecked = true;
         this.lastAuthTime = now;
         this.authHeader = await getGerritAuthHeader(this.gerritHost, this.gitRoot, this.outputChannel);
+        const duration = performance.now() - start;
+        this.outputChannel?.info(`[timing] [Gerrit] auth resolution took ${duration.toFixed(0)}ms`);
         return this.authHeader;
     }
 
@@ -267,6 +270,7 @@ export class GerritProvider implements CodeForgeProvider {
             return false;
         }
 
+        const start = performance.now();
         const cacheKeysToFetch = new Set<string>();
         const changesByCacheKey = new Map<string, (typeof changes)[0][]>();
 
@@ -289,7 +293,7 @@ export class GerritProvider implements CodeForgeProvider {
         const cacheKeyBatches = chunkArray(cacheKeysArray, BATCH_SIZE);
 
         const batchPromises = cacheKeyBatches.map((batchCacheKeys, batchIndex) =>
-            this.processBatch(batchCacheKeys, batchIndex, changesByCacheKey, jj),
+            this.processBatch(batchCacheKeys, batchIndex, cacheKeyBatches.length, changesByCacheKey, jj),
         );
 
         const results = await Promise.all(batchPromises);
@@ -297,12 +301,20 @@ export class GerritProvider implements CodeForgeProvider {
         if (changed) {
             this._onDidUpdate.fire();
         }
+
+        const duration = performance.now() - start;
+        const batchSuffix = cacheKeyBatches.length === 1 ? 'batch' : 'batches';
+        this.outputChannel?.info(
+            `[timing] [Gerrit] fetchStatuses took ${duration.toFixed(0)}ms (${changes.length} changes in ${cacheKeyBatches.length} ${batchSuffix})`,
+        );
+
         return changed;
     }
 
     private async processBatch(
         batchCacheKeys: string[],
         batchIndex: number,
+        totalBatches: number,
         changesByCacheKey: Map<string, ChangeStatusRequest[]>,
         jj: JjService,
     ): Promise<boolean> {
@@ -313,11 +325,15 @@ export class GerritProvider implements CodeForgeProvider {
 
         let fetchedInfoMap: Map<string, CodeForgeChangeInfo>;
         try {
-            fetchedInfoMap = await this.fetchBatchFromNetwork(batchCacheKeys);
+            fetchedInfoMap = await this.fetchBatchFromNetwork(batchCacheKeys, batchIndex, totalBatches);
         } catch (error) {
             this.outputChannel?.error(`[GerritProvider] Failed to fetch batch Gerrit status: ${error}`);
             return false;
         }
+
+        const syncStart = performance.now();
+        let fastHits = 0;
+        let deepChecks = 0;
 
         for (const cacheKey of batchCacheKeys) {
             const info = fetchedInfoMap.get(cacheKey);
@@ -326,9 +342,20 @@ export class GerritProvider implements CodeForgeProvider {
             if (info) {
                 const changesForCacheKey = changesByCacheKey.get(cacheKey) || [];
                 await Promise.all(
-                    changesForCacheKey.map((change) =>
-                        this.verifyContentSync(change.commitId, change.description, info, jj, change.changes),
-                    ),
+                    changesForCacheKey.map(async (change) => {
+                        const result = await this.verifyContentSync(
+                            change.commitId,
+                            change.description,
+                            info,
+                            jj,
+                            change.changes,
+                        );
+                        if (result === 'fast') {
+                            fastHits++;
+                        } else if (result === 'checked') {
+                            deepChecks++;
+                        }
+                    }),
                 );
                 this.cache.set(cacheKey, info);
             } else {
@@ -339,10 +366,20 @@ export class GerritProvider implements CodeForgeProvider {
                 batchChanged = true;
             }
         }
+
+        const syncDuration = performance.now() - syncStart;
+        this.outputChannel?.info(
+            `[timing] [Gerrit] batch ${batchIndex + 1}/${totalBatches} content sync verification took ${syncDuration.toFixed(0)}ms (${fastHits} hits, ${deepChecks} checks)`,
+        );
+
         return batchChanged;
     }
 
-    private async fetchBatchFromNetwork(cacheKeys: string[]): Promise<Map<string, CodeForgeChangeInfo>> {
+    private async fetchBatchFromNetwork(
+        cacheKeys: string[],
+        batchIndex = 0,
+        totalBatches = 1,
+    ): Promise<Map<string, CodeForgeChangeInfo>> {
         const results = new Map<string, CodeForgeChangeInfo>();
         if (!this.gerritHost || cacheKeys.length === 0) {
             return results;
@@ -361,12 +398,17 @@ export class GerritProvider implements CodeForgeProvider {
 
         const urlStr = `${baseUrl}?${params.toString()}`;
         this.outputChannel?.info(`[GerritProvider] GET ${urlStr}`);
+
+        const netStart = performance.now();
         const response = await this.fetchGerrit(urlStr);
         if (!response.ok) {
             throw new Error(`Batch request failed with status: ${response.status}`);
         }
 
         const text = await response.text();
+        const netDuration = performance.now() - netStart;
+
+        const parseStart = performance.now();
         const queryResults = this.parseBatchResponse(text);
 
         for (let i = 0; i < queryResults.length; i++) {
@@ -378,6 +420,12 @@ export class GerritProvider implements CodeForgeProvider {
                 }
             }
         }
+        const parseDuration = performance.now() - parseStart;
+
+        this.outputChannel?.info(
+            `[timing] [Gerrit] batch ${batchIndex + 1}/${totalBatches} HTTP request took ${netDuration.toFixed(0)}ms (parse: ${parseDuration.toFixed(0)}ms, ${cacheKeys.length} changes)`,
+        );
+
         return results;
     }
 
@@ -453,14 +501,14 @@ export class GerritProvider implements CodeForgeProvider {
         info: CodeForgeChangeInfo,
         jj: JjService,
         changes?: JjStatusEntry[],
-    ): Promise<void> {
+    ): Promise<'fast' | 'checked' | 'skipped'> {
         if (info.status !== 'NEW' || !info.files) {
-            return;
+            return 'skipped';
         }
 
         if (info.currentRevision === commitId) {
             info.contentSynced = true;
-            return;
+            return 'fast';
         }
 
         const syncCacheKey = `${commitId}:${info.currentRevision ?? ''}`;
@@ -469,7 +517,7 @@ export class GerritProvider implements CodeForgeProvider {
             if (cached) {
                 info.contentSynced = true;
             }
-            return;
+            return 'fast';
         }
 
         if (
@@ -478,24 +526,37 @@ export class GerritProvider implements CodeForgeProvider {
             stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)
         ) {
             this.contentSyncCache.set(syncCacheKey, false);
-            return;
+            return 'checked';
         }
 
         const gerritFiles = info.files;
+        let getChangesMs = 0;
+        let blobHashesMs = 0;
+        let gerritFileCount = 0;
+        const syncStart = performance.now();
+
         try {
-            const localChanges = changes ?? (await jj.getChanges(commitId));
+            let localChanges = changes;
+            if (!localChanges) {
+                const changesStart = performance.now();
+                localChanges = await jj.getChanges(commitId);
+                getChangesMs = performance.now() - changesStart;
+            }
             const localPaths = new Set(localChanges.filter((c) => c.status !== 'deleted').map((c) => c.path));
 
             const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
+            gerritFileCount = gerritPaths.length;
             const gerritPathSet = new Set(gerritPaths);
 
             if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
                 this.contentSyncCache.set(syncCacheKey, false);
-                return;
+                return 'checked';
             }
 
             if (gerritPaths.length > 0) {
+                const hashesStart = performance.now();
                 const localHashes = await jj.getGitBlobHashes(commitId, gerritPaths);
+                blobHashesMs = performance.now() - hashesStart;
 
                 for (const file of gerritPaths) {
                     const gerritFile = gerritFiles[file];
@@ -503,15 +564,24 @@ export class GerritProvider implements CodeForgeProvider {
 
                     if (!localSha || localSha !== gerritFile.newSha) {
                         this.contentSyncCache.set(syncCacheKey, false);
-                        return;
+                        return 'checked';
                     }
                 }
             }
 
             info.contentSynced = true;
             this.contentSyncCache.set(syncCacheKey, true);
+            return 'checked';
         } catch (e) {
             this.outputChannel?.error(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
+            return 'checked';
+        } finally {
+            const totalMs = performance.now() - syncStart;
+            if (getChangesMs > 0 || blobHashesMs > 0) {
+                this.outputChannel?.info(
+                    `[timing] [Gerrit] local diff/hashes for ${commitId.slice(0, 8)} took ${totalMs.toFixed(0)}ms (${getChangesMs.toFixed(0)}ms diff, ${blobHashesMs.toFixed(0)}ms ls-tree, ${gerritFileCount} files)`,
+                );
+            }
         }
     }
 
