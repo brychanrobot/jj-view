@@ -32,6 +32,9 @@ export class CodeForgeService implements Disposable {
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
 
+    private _onRequestRefresh = new EventEmitter<void>();
+    public readonly onRequestRefresh: Event<void> = this._onRequestRefresh.event;
+
     private _onDidActiveProviderChange = new EventEmitter<CodeForgeProvider | undefined>();
     public readonly onDidActiveProviderChange: Event<CodeForgeProvider | undefined> =
         this._onDidActiveProviderChange.event;
@@ -123,6 +126,7 @@ export class CodeForgeService implements Disposable {
         this.disposables = [];
         this.safeDispose(this._onDidActiveProviderChange, 'active provider change emitter');
         this.safeDispose(this._onDidUpdate, 'update emitter');
+        this.safeDispose(this._onRequestRefresh, 'request refresh emitter');
         this.activeProviderDisposable = undefined;
         this.activeProviderInstance = undefined;
     }
@@ -183,7 +187,7 @@ export class CodeForgeService implements Disposable {
         if (this.activeProviderInstance) {
             this.outputChannel.info(`[CodeForgeService] Force refresh triggered`);
             this.lastRefreshTime = Date.now();
-            this._onDidUpdate.fire();
+            this._onRequestRefresh.fire();
         }
     }
 
@@ -345,9 +349,7 @@ export class CodeForgeService implements Disposable {
                     commit.description,
                     (commit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name),
                 );
-                if (info) {
-                    commit.codeForgeChange = info;
-                }
+                commit.codeForgeChange = info ?? undefined;
             }
         }
 

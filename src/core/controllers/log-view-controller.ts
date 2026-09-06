@@ -171,11 +171,22 @@ export class LogViewController implements Disposable {
         }
 
         const cf = repo.codeForge;
-        this._codeForgeDisposable = cf.onDidUpdate(() => {
+        const updateDisposable = cf.onDidUpdate(() => {
+            if (this._commits.length > 0) {
+                this.setCommits(this._commits);
+            }
+        });
+        const refreshDisposable = cf.onRequestRefresh(() => {
             this.refreshCodeForge().catch((e) => {
-                this._logger?.error('[LogViewController] CodeForge update failed', toError(e));
+                this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
             });
         });
+        this._codeForgeDisposable = {
+            dispose: () => {
+                updateDisposable.dispose();
+                refreshDisposable.dispose();
+            },
+        };
 
         cf.detectActiveProvider(true).catch((e) => {
             this._logger?.error('Code forge detection failed', toError(e));
@@ -424,7 +435,7 @@ export class LogViewController implements Disposable {
         try {
             cf.startPolling();
             const start = performance.now();
-            const hasChanges = await cf.ensureFreshStatuses(
+            await cf.ensureFreshStatuses(
                 this._commits.map((c) => ({
                     commitId: c.commit_id ?? '',
                     changeId: c.change_id,
@@ -435,11 +446,6 @@ export class LogViewController implements Disposable {
 
             const duration = performance.now() - start;
             this._logger?.info?.(`[LogViewController] CodeForge fetch took ${duration.toFixed(0)}ms`);
-
-            if (hasChanges) {
-                this._logger?.info?.('[LogViewController] CodeForge data changed, re-populating commits');
-                this.setCommits(this._commits);
-            }
         } catch (e) {
             this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
         }
