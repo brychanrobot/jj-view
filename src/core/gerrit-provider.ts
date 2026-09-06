@@ -100,6 +100,7 @@ export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
     public readonly displayName = 'Gerrit';
     public readonly changeTerm = 'CL' as const;
+    public readonly priority = 100;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
     private gerritHost: string | undefined;
