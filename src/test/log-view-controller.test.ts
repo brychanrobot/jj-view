@@ -273,4 +273,101 @@ describe('LogViewController Domain Unit Tests', () => {
 
         expect(ensureFreshSpy).toHaveBeenCalled();
     });
+
+    test('refreshCodeForge proceeds to fetch statuses when called before active provider detection completes', async () => {
+        const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        const mockProvider = createMock<CodeForgeProvider>({
+            id: 'mock-provider-startup',
+            detect: async () => true,
+            onDidUpdate: new EventEmitter<void>().event,
+            getCachedChangeInfo: () => undefined,
+            fetchStatuses: vi.fn().mockResolvedValue(false),
+            clearCache: () => {},
+            activate: () => {},
+            deactivate: () => {},
+        });
+        registry.register({ id: 'mock-provider-startup', create: () => mockProvider });
+
+        const dummyCommits: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-startup',
+                commit_id: 'test-commit-startup',
+                description: 'test commit startup',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+
+        controller.setCommits(dummyCommits);
+        expect(repo.codeForge.isEnabled).toBe(false);
+
+        const ensureFreshSpy = vi.spyOn(repo.codeForge, 'ensureFreshStatuses');
+
+        await controller.refreshCodeForge();
+
+        expect(repo.codeForge.isEnabled).toBe(true);
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('refreshCodeForge coalesces concurrent calls into single execution', async () => {
+        const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        let resolveFetch!: (val: boolean) => void;
+        const fetchPromise = new Promise<boolean>((res) => {
+            resolveFetch = res;
+        });
+
+        const mockProvider = createMock<CodeForgeProvider>({
+            id: 'mock-provider-coalesce',
+            detect: async () => true,
+            onDidUpdate: new EventEmitter<void>().event,
+            getCachedChangeInfo: () => undefined,
+            fetchStatuses: vi.fn().mockImplementation(() => fetchPromise),
+            clearCache: () => {},
+            activate: () => {},
+            deactivate: () => {},
+        });
+        registry.register({ id: 'mock-provider-coalesce', create: () => mockProvider });
+        await repo.codeForge.detectActiveProvider(true);
+
+        const dummyCommits: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-coalesce',
+                commit_id: 'test-commit-coalesce',
+                description: 'test commit coalesce',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+
+        controller.setCommits(dummyCommits);
+        const ensureFreshSpy = vi.spyOn(repo.codeForge, 'ensureFreshStatuses');
+
+        const p1 = controller.refreshCodeForge();
+        const p2 = controller.refreshCodeForge();
+
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(1);
+
+        resolveFetch(false);
+        await Promise.all([p1, p2]);
+
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(1);
+    });
 });
