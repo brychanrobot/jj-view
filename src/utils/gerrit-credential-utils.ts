@@ -33,15 +33,36 @@ function execFilePromise(
     });
 }
 
+const gitRootCache = new Map<string, string | null>();
+
+/**
+ * Clears the in-memory cache of resolved git roots.
+ */
+export function clearGitRootCache(): void {
+    gitRootCache.clear();
+}
+
 /**
  * Resolves the backing git directory of a jj repository using `jj git root`.
  */
 export async function resolveGitRoot(repoRoot: string, binaryPath = 'jj'): Promise<string | null> {
-    const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], { cwd: repoRoot, timeout: 10000 });
-    if (err || !stdout) {
+    const normalizedRoot = path.resolve(repoRoot);
+    const cacheKey = `${binaryPath}:${normalizedRoot}`;
+    if (gitRootCache.has(cacheKey)) {
+        return gitRootCache.get(cacheKey) ?? null;
+    }
+    const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], { cwd: normalizedRoot, timeout: 10000 });
+    if (err) {
+        gitRootCache.set(cacheKey, null);
         return null;
     }
-    return stdout.trim();
+    if (!stdout) {
+        gitRootCache.set(cacheKey, null);
+        return null;
+    }
+    const trimmed = stdout.trim();
+    gitRootCache.set(cacheKey, trimmed);
+    return trimmed;
 }
 
 /**

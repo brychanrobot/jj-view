@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
+    clearGitRootCache,
     getGerritAuthHeader,
     getGitCookies,
     getGitCredential,
@@ -23,11 +24,13 @@ describe('Credential Utils', () => {
     let repo: TestRepo | undefined;
 
     beforeEach(async () => {
+        clearGitRootCache();
         repo = undefined;
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-view-cred-test-'));
     });
 
     afterEach(async () => {
+        clearGitRootCache();
         if (repo) {
             repo.dispose();
         }
@@ -48,9 +51,32 @@ describe('Credential Utils', () => {
             expect(gitRoot).toBeSameFsPath(path.join(repo.path, '.git'));
         });
 
-        test('returns null when not in a jj repo', async () => {
-            const result = await resolveGitRoot(tempDir);
-            expect(result).toBeNull();
+        test('caches resolved git root on subsequent calls', async () => {
+            repo = new TestRepo();
+            repo.init();
+
+            const gitRoot1 = await resolveGitRoot(repo.path);
+            const gitRoot2 = await resolveGitRoot(repo.path);
+            expect(gitRoot1).toBe(gitRoot2);
+            expect(gitRoot1).toBeSameFsPath(path.join(repo.path, '.git'));
+        });
+
+        test('clearGitRootCache clears cached results', async () => {
+            repo = new TestRepo();
+            repo.init();
+
+            const gitRoot1 = await resolveGitRoot(repo.path);
+            clearGitRootCache();
+            const gitRoot2 = await resolveGitRoot(repo.path);
+            expect(gitRoot1).toEqual(gitRoot2);
+        });
+
+        test('returns null when not in a jj repo and caches the negative result', async () => {
+            const result1 = await resolveGitRoot(tempDir);
+            expect(result1).toBeNull();
+
+            const result2 = await resolveGitRoot(tempDir);
+            expect(result2).toBeNull();
         });
     });
 

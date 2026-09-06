@@ -136,12 +136,27 @@ export class JjService {
         return path.dirname(path.dirname(storePath));
     }
 
+    private _gitRoot?: string | null;
+    private _gitRootPromise?: Promise<string | null>;
     async getGitRoot(): Promise<string | null> {
-        try {
-            return await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
-        } catch {
-            return null;
+        if (this._gitRoot !== undefined) {
+            return this._gitRoot;
         }
+        if (this._gitRootPromise) {
+            return this._gitRootPromise;
+        }
+        this._gitRootPromise = (async () => {
+            try {
+                this._gitRoot = await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
+                return this._gitRoot;
+            } catch {
+                this._gitRoot = null;
+                return null;
+            } finally {
+                this._gitRootPromise = undefined;
+            }
+        })();
+        return this._gitRootPromise;
     }
 
     get hasActiveWriteOps(): boolean {
