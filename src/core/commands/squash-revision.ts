@@ -48,7 +48,7 @@ export async function squashRevisionIntoParentCommand(
     const revision = payload?.revision || '@';
 
     try {
-        const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
+        const [sourceEntry] = await ctx.repo.jj.getLog({ revision, omitChanges: true });
         if (!sourceEntry) {
             return;
         }
@@ -113,7 +113,7 @@ export async function squashRevisionIntoAncestorCommand(
             return;
         }
 
-        const [sourceEntry] = await ctx.repo.jj.getLog({ revision });
+        const [sourceEntry] = await ctx.repo.jj.getLog({ revision, omitChanges: true });
         await performSquashRevision(ctx, revision, selectedAncestorRev, sourceEntry?.description);
         await ctx.repo.refresh({ reason: 'after squash revision into ancestor' });
     } catch (e: unknown) {
@@ -128,7 +128,7 @@ async function performSquashRevision(
     sourceDescription?: string,
 ) {
     const hasSourceDesc = sourceDescription && sourceDescription.trim().length > 0;
-    const [parentEntry] = await ctx.repo.jj.getLog({ revision: intoRevision });
+    const [parentEntry] = await ctx.repo.jj.getLog({ revision: intoRevision, omitChanges: true });
     if (!parentEntry) {
         throw new Error(`Failed to fetch log for revision ${intoRevision}`);
     }
