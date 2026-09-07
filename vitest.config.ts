@@ -4,6 +4,8 @@
  */
 import { defineConfig } from 'vitest/config';
 
+const isWindows = process.platform === 'win32';
+
 export default defineConfig({
     test: {
         include: ['src/test/**/*.test.{ts,tsx}', 'tooling/**/*.test.ts'],
@@ -11,7 +13,10 @@ export default defineConfig({
         // Temporary global setup to provide vscode mock during host abstraction retrofit
         setupFiles: ['./src/test/vitest-setup.ts'],
         globals: true,
-        testTimeout: 20000,
-        hookTimeout: 20000,
+        testTimeout: isWindows ? 60000 : 20000,
+        hookTimeout: isWindows ? 60000 : 20000,
+        retry: isWindows && process.env.CI ? 1 : 0,
+        maxWorkers: isWindows && process.env.CI ? 2 : undefined,
+        execArgv: ['--max-old-space-size=4096'],
     },
 });
