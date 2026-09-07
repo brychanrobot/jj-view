@@ -139,22 +139,21 @@ export class TestRepo {
     }
 
     configBatch(configs: Record<string, string>) {
-        if (process.platform !== 'win32') {
-            const commands: string[] = [];
+        const commands: string[] = [];
 
-            for (const [key, val] of Object.entries(configs)) {
-                commands.push(`jj --quiet config set --repo ${key} "${val}"`);
-            }
+        for (const [key, val] of Object.entries(configs)) {
+            commands.push(`jj --quiet config set --repo ${key} "${val}"`);
+        }
 
-            if (commands.length > 0) {
-                const cmd = commands.join(' && ');
-                const env = { ...process.env, JJ_CONFIG: '' };
-                cp.execSync(cmd, { cwd: this.path, env, stdio: 'ignore' });
-            }
-        } else {
-            for (const [key, val] of Object.entries(configs)) {
-                this.config(key, val, true);
-            }
+        if (commands.length > 0) {
+            const cmd = commands.join(' && ');
+            const env = { ...process.env, JJ_CONFIG: '' };
+            cp.execSync(cmd, {
+                cwd: this.path,
+                env,
+                stdio: 'ignore',
+                shell: process.platform === 'win32' ? 'cmd.exe' : undefined,
+            });
         }
     }
 
@@ -178,36 +177,12 @@ export class TestRepo {
             env,
         });
 
-        if (process.platform !== 'win32') {
-            const commands = [
-                `jj --quiet config set --repo user.name "Test User"`,
-                `jj --quiet config set --repo user.email "test@example.com"`,
-                `jj --quiet config set --repo signing.backend "none"`,
-                `jj --quiet config set --repo ui.merge-editor "builtin"`,
-            ];
-            cp.execSync(commands.join(' && '), { cwd: this.path, env, stdio: 'ignore' });
-        } else {
-            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'user.name', 'Test User'], {
-                cwd: this.path,
-                env,
-                stdio: 'ignore',
-            });
-            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'user.email', 'test@example.com'], {
-                cwd: this.path,
-                env,
-                stdio: 'ignore',
-            });
-            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'signing.backend', 'none'], {
-                cwd: this.path,
-                env,
-                stdio: 'ignore',
-            });
-            cp.execFileSync(jjBinary, ['--quiet', 'config', 'set', '--repo', 'ui.merge-editor', 'builtin'], {
-                cwd: this.path,
-                env,
-                stdio: 'ignore',
-            });
-        }
+        this.configBatch({
+            'user.name': 'Test User',
+            'user.email': 'test@example.com',
+            'signing.backend': 'none',
+            'ui.merge-editor': 'builtin',
+        });
 
         cp.execFileSync(jjBinary, ['--quiet', 'metaedit', '--update-author'], {
             cwd: this.path,
@@ -362,6 +337,20 @@ export class TestRepo {
 
     getCommitId(revision: string): string {
         return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'commit_id', '--no-graph']);
+    }
+
+    getChangeAndCommitId(revision: string): { changeId: string; commitId: string } {
+        const output = this.exec([
+            'log',
+            '--ignore-working-copy',
+            '-r',
+            revision,
+            '-T',
+            'change_id ++ " " ++ commit_id',
+            '--no-graph',
+        ]);
+        const [changeId = '', commitId = ''] = output.trim().split(/\s+/);
+        return { changeId, commitId };
     }
 
     diff(relativePath: string, revision?: string): string {
@@ -731,8 +720,7 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
         }
 
         // Capture ID
-        const changeId = repo.getChangeId('@');
-        const commitId = repo.getCommitId('@');
+        const { changeId, commitId } = repo.getChangeAndCommitId('@');
         if (commit.label) {
             labelToId[commit.label] = { changeId, commitId };
         }
