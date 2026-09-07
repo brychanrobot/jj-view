@@ -168,6 +168,7 @@ jobs:
               run: |
                   Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
                   Add-MpPreference -ExclusionPath $env:TEMP, $env:GITHUB_WORKSPACE -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe" -ErrorAction SilentlyContinue
 
             - name: Run Unit Tests
               run: pnpm test:unit
@@ -233,6 +234,7 @@ jobs:
               run: |
                   Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
                   Add-MpPreference -ExclusionPath $env:TEMP, $env:GITHUB_WORKSPACE -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe" -ErrorAction SilentlyContinue
 
             - name: Run Integration Tests (Linux)
               if: runner.os == 'Linux'
