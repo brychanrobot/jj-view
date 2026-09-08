@@ -1,0 +1,26 @@
+name: 'Setup jj'
+description: 'Restore cached jj binary or install latest jj via taiki-e/install-action'
+
+inputs:
+    version:
+        description: 'Target jj version tag for cache key'
+        required: false
+        default: 'latest'
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Cache jj binary
+          id: cache-jj
+          uses: actions/cache@v4
+          with:
+              path: |
+                  ~/.cargo/bin/jj
+                  ~/.cargo/bin/jj.exe
+              key: jj-cli-${{ runner.os }}-${{ inputs.version }}
+
+        - name: Install jj (Jujutsu)
+          if: steps.cache-jj.outputs.cache-hit != 'true'
+          uses: taiki-e/install-action@v2
+          with:
+              tool: jj-cli

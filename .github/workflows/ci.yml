@@ -17,11 +17,21 @@ concurrency:
 jobs:
     prepare:
         runs-on: ubuntu-latest
+        outputs:
+            jj_version: ${{ steps.jj_version.outputs.version }}
         steps:
             - name: Checkout
               uses: actions/checkout@v7
               with:
                   fetch-depth: 0
+
+            - name: Get Latest jj Version
+              id: jj_version
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  TAG=$(gh release view -R jj-vcs/jj --json tagName -q .tagName 2>/dev/null || echo "latest")
+                  echo "version=${TAG#v}" >> $GITHUB_OUTPUT
 
             - name: Install pnpm
               uses: pnpm/action-setup@v6
@@ -34,15 +44,17 @@ jobs:
                   node-version: 22
                   cache: 'pnpm'
 
+            # Go is required by tests (e.g., src/test/utils/binary-utils.test.ts) to compile test binaries on the fly
             - name: Install Go
               uses: actions/setup-go@v6
               with:
                   go-version: '1.21'
+                  cache: false
 
-            - name: Install jj (Jujutsu)
-              uses: taiki-e/install-action@v2
+            - name: Setup jj (Jujutsu)
+              uses: ./.github/actions/setup-jj
               with:
-                  tool: jj-cli
+                  version: ${{ steps.jj_version.outputs.version }}
 
             - name: Verify Environment
               run: |
@@ -136,15 +148,17 @@ jobs:
                   node-version: 22
                   cache: 'pnpm'
 
+            # Go is required by tests (e.g., src/test/utils/binary-utils.test.ts) to compile test binaries on the fly
             - name: Install Go
               uses: actions/setup-go@v6
               with:
                   go-version: '1.21'
+                  cache: false
 
-            - name: Install jj (Jujutsu)
-              uses: taiki-e/install-action@v2
+            - name: Setup jj (Jujutsu)
+              uses: ./.github/actions/setup-jj
               with:
-                  tool: jj-cli
+                  version: ${{ needs.prepare.outputs.jj_version }}
 
             - name: Verify Environment
               run: |
@@ -202,15 +216,17 @@ jobs:
                   node-version: 22
                   cache: 'pnpm'
 
+            # Go is required by tests (e.g., src/test/utils/binary-utils.test.ts) to compile test binaries on the fly
             - name: Install Go
               uses: actions/setup-go@v6
               with:
                   go-version: '1.21'
+                  cache: false
 
-            - name: Install jj (Jujutsu)
-              uses: taiki-e/install-action@v2
+            - name: Setup jj (Jujutsu)
+              uses: ./.github/actions/setup-jj
               with:
-                  tool: jj-cli
+                  version: ${{ needs.prepare.outputs.jj_version }}
 
             - name: Verify Environment
               run: |
@@ -264,15 +280,17 @@ jobs:
                   node-version: 22
                   cache: 'pnpm'
 
+            # Go is required by tests (e.g., src/test/utils/binary-utils.test.ts) to compile test binaries on the fly
             - name: Install Go
               uses: actions/setup-go@v6
               with:
                   go-version: '1.21'
+                  cache: false
 
-            - name: Install jj (Jujutsu)
-              uses: taiki-e/install-action@v2
+            - name: Setup jj (Jujutsu)
+              uses: ./.github/actions/setup-jj
               with:
-                  tool: jj-cli
+                  version: ${{ needs.prepare.outputs.jj_version }}
 
             - name: Verify Environment
               run: |
