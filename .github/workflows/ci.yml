@@ -137,6 +137,17 @@ jobs:
                   "TEMP=D:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
                   "TMP=D:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+            - name: Optimize Windows Runner (Defender & OS Tuning)
+              if: runner.os == 'Windows'
+              shell: powershell
+              run: |
+                  Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionPath "D:\", $env:TEMP, $env:TMP, $env:GITHUB_WORKSPACE, "$HOME\.cargo\bin" -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe", "pnpm.exe" -ErrorAction SilentlyContinue
+                  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" -Name "DisablePCA" -Value 1 -Force -ErrorAction SilentlyContinue
+                  fsutil behavior set disablelastaccess 1 | Out-Null
+                  fsutil 8dot3name set 1 | Out-Null
+
             - name: Install pnpm
               uses: pnpm/action-setup@v6
               with:
@@ -175,14 +186,6 @@ jobs:
               with:
                   name: build-outputs
                   path: .
-
-            - name: Optimize Windows Runner (Disable Defender)
-              if: runner.os == 'Windows'
-              shell: powershell
-              run: |
-                  Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-                  Add-MpPreference -ExclusionPath $env:TEMP, $env:GITHUB_WORKSPACE -ErrorAction SilentlyContinue
-                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe" -ErrorAction SilentlyContinue
 
             - name: Run Unit Tests
               run: pnpm test:unit
@@ -205,6 +208,17 @@ jobs:
                   "TEMP=D:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
                   "TMP=D:\Temp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+            - name: Optimize Windows Runner (Defender & OS Tuning)
+              if: runner.os == 'Windows'
+              shell: powershell
+              run: |
+                  Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionPath "D:\", $env:TEMP, $env:TMP, $env:GITHUB_WORKSPACE, "$HOME\.cargo\bin" -ErrorAction SilentlyContinue
+                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe", "pnpm.exe" -ErrorAction SilentlyContinue
+                  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" -Name "DisablePCA" -Value 1 -Force -ErrorAction SilentlyContinue
+                  fsutil behavior set disablelastaccess 1 | Out-Null
+                  fsutil 8dot3name set 1 | Out-Null
+
             - name: Install pnpm
               uses: pnpm/action-setup@v6
               with:
@@ -243,14 +257,6 @@ jobs:
               with:
                   name: build-outputs
                   path: .
-
-            - name: Optimize Windows Runner (Disable Defender)
-              if: runner.os == 'Windows'
-              shell: powershell
-              run: |
-                  Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-                  Add-MpPreference -ExclusionPath $env:TEMP, $env:GITHUB_WORKSPACE -ErrorAction SilentlyContinue
-                  Add-MpPreference -ExclusionProcess "node.exe", "jj.exe", "git.exe" -ErrorAction SilentlyContinue
 
             - name: Run Integration Tests (Linux)
               if: runner.os == 'Linux'
