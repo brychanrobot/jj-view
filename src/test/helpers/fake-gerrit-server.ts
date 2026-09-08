@@ -149,6 +149,20 @@ export class FakeGerritServer {
         this.lastHeaders = undefined;
     }
 
+    public reset() {
+        this.changes.clear();
+        this.comments.clear();
+        this.drafts.clear();
+        this.requests = [];
+        this.lastHeaders = undefined;
+        this.failWithStatus = undefined;
+        this.failResponseBody = undefined;
+        this.failDraftsWithStatus = undefined;
+        this.failDraftsResponseBody = undefined;
+        this.emptyDraftResponseBody = false;
+        this.nextChangeNumber = 1000;
+    }
+
     public async start(): Promise<string> {
         this.server = http.createServer((req, res) => {
             const urlStr = req.url || '';

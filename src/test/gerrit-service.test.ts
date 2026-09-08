@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { CodeForgeService } from '../core/code-forge-service';
 import { GerritProvider } from '../core/gerrit-provider';
@@ -18,6 +18,8 @@ import { accessPrivate, exposePrivate } from './test-utils';
 
 describe('GerritService Detection', () => {
     let host: FakeHostEnvironment;
+    let sharedRepo: TestRepo;
+    let sharedJjService: JjService;
     let repo: TestRepo;
     let service: CodeForgeService;
     let registry: CodeForgeRegistry;
@@ -25,31 +27,53 @@ describe('GerritService Detection', () => {
     let jjService: JjService;
     let fakeGerritServer: FakeGerritServer;
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        fakeGerritServer = new FakeGerritServer();
+        await fakeGerritServer.start();
+        sharedRepo = new TestRepo();
+        sharedRepo.init();
+        sharedJjService = new JjService(sharedRepo.path, NO_OP_LOGGER);
+    });
+
+    afterAll(async () => {
+        if (fakeGerritServer) {
+            await fakeGerritServer.stop();
+        }
+        if (sharedRepo) {
+            sharedRepo.dispose();
+        }
+    });
+
+    beforeEach(() => {
         host = new FakeHostEnvironment();
-        repo = new TestRepo();
-        repo.init();
+        fakeGerritServer.reset();
+        repo = sharedRepo;
+        jjService = sharedJjService;
 
         // Default: allow host probing to succeed in tests
         vi.spyOn(
             exposePrivate<{ probeGerritHost(h: string): Promise<boolean> }>(GerritProvider.prototype),
             'probeGerritHost',
         ).mockResolvedValue(true);
-
-        jjService = new JjService(repo.path, NO_OP_LOGGER);
-        fakeGerritServer = new FakeGerritServer();
-        await fakeGerritServer.start();
     });
 
-    afterEach(async () => {
+    afterEach(() => {
         if (service) {
             service.dispose();
         }
-        if (fakeGerritServer) {
-            await fakeGerritServer.stop();
+        if (repo !== sharedRepo) {
+            repo.dispose();
         }
         vi.clearAllMocks();
     });
+
+    function createIsolatedRepo(): TestRepo {
+        const isolatedRepo = new TestRepo();
+        isolatedRepo.init();
+        repo = isolatedRepo;
+        jjService = new JjService(isolatedRepo.path, NO_OP_LOGGER);
+        return isolatedRepo;
+    }
 
     function initService(): CodeForgeService {
         registry = new CodeForgeRegistry();
@@ -78,6 +102,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Detects from .gitreview file (secondary priority)', async () => {
+        createIsolatedRepo();
         const gitreviewPath = path.join(repo.path, '.gitreview');
         await fs.promises.writeFile(gitreviewPath, '[gerrit]\nhost=gitreview-host.com\n');
 
@@ -88,6 +113,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Detects from googlesource.com remote', async () => {
+        createIsolatedRepo();
         repo.addRemote('origin', 'https://chromium.googlesource.com/chromium/src.git');
 
         service = initService();
@@ -98,6 +124,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Detects from remote with existing -review.googlesource.com', async () => {
+        createIsolatedRepo();
         repo.addRemote('origin', 'https://chromium-review.googlesource.com/chromium/src');
 
         service = initService();
@@ -107,6 +134,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Detects from remote with /gerrit/ path', async () => {
+        createIsolatedRepo();
         repo.addRemote('origin', 'https://git.eclipse.org/gerrit/p/platform.git');
 
         service = initService();
@@ -117,6 +145,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Handles ssh remote format', async () => {
+        createIsolatedRepo();
         repo.addRemote('origin', 'ssh://user@gerrit.googlesource.com:29418/repo');
 
         service = initService();
@@ -127,6 +156,7 @@ describe('GerritService Detection', () => {
     });
 
     test('Detects from sso:// remote', async () => {
+        createIsolatedRepo();
         repo.addRemote('origin', 'sso://chromium/chromium/src.git');
 
         service = initService();
@@ -136,6 +166,7 @@ describe('GerritService Detection', () => {
     });
 
     test('detect clears cache on gerritHost change, but preserves it if unchanged', async () => {
+        createIsolatedRepo();
         service = initService();
         await service.awaitReady();
 
@@ -407,8 +438,6 @@ describe('GerritService Detection', () => {
     });
 
     test('startPolling preserves cache and fires onDidUpdate', async () => {
-        vi.useFakeTimers();
-
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -427,6 +456,8 @@ describe('GerritService Detection', () => {
         // Verify it's cached
         expect(provider.getCachedChangeInfo(undefined, `Change-Id: ${cacheKey}`)).toBeDefined();
 
+        vi.useFakeTimers();
+
         // Track onRequestRefresh calls
         let updateFired = false;
         const disposable = service.onRequestRefresh(() => {
@@ -437,7 +468,7 @@ describe('GerritService Detection', () => {
         service.startPolling();
 
         // Advance past the polling interval (60 seconds)
-        await vi.advanceTimersByTimeAsync(60_000);
+        vi.advanceTimersByTime(60_000);
 
         // onRequestRefresh should have been fired to notify listeners to re-fetch
         expect(updateFired).toBe(true);
@@ -518,6 +549,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects extra local files as not synced', async () => {
+        createIsolatedRepo();
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -559,6 +591,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses detects description mismatch as not synced', async () => {
+        createIsolatedRepo();
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -596,6 +629,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses accepts matching description regardless of whitespace', async () => {
+        createIsolatedRepo();
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -633,6 +667,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Change-Id footer differences', async () => {
+        createIsolatedRepo();
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
@@ -669,6 +704,7 @@ describe('GerritService Detection', () => {
     });
 
     test('ensureFreshStatuses ignores Link trailer footer differences during sync', async () => {
+        createIsolatedRepo();
         host.config.set('gerrit.host', fakeGerritServer.url);
         service = initService();
         await service.awaitReady();
