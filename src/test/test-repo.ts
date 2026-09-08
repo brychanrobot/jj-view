@@ -8,6 +8,59 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
 
+function findBinaryInPath(name: string): string | undefined {
+    const pathEnv = process.env.PATH ?? '';
+    const delimiter = path.delimiter;
+    const dirs = pathEnv.split(delimiter);
+    const extensions =
+        process.platform === 'win32'
+            ? process.env.PATHEXT
+                ? process.env.PATHEXT.split(';')
+                : ['.exe', '.cmd', '.bat']
+            : [''];
+
+    for (const dir of dirs) {
+        if (!dir) {
+            continue;
+        }
+        for (const ext of extensions) {
+            const candidate = path.join(
+                dir,
+                ext && !name.toLowerCase().endsWith(ext.toLowerCase()) ? `${name}${ext}` : name,
+            );
+            try {
+                if (fs.existsSync(candidate)) {
+                    const stat = fs.statSync(candidate);
+                    if (stat.isFile()) {
+                        return candidate;
+                    }
+                }
+            } catch {
+                // Ignore errors from inaccessible or invalid directories
+            }
+        }
+    }
+    return undefined;
+}
+
+let resolvedJjBinary: string | undefined;
+
+function getJjBinary(): string {
+    if (!resolvedJjBinary) {
+        resolvedJjBinary = findBinaryInPath('jj') ?? 'jj';
+    }
+    return resolvedJjBinary;
+}
+
+let resolvedGitBinary: string | undefined;
+
+function getGitBinary(): string {
+    if (!resolvedGitBinary) {
+        resolvedGitBinary = findBinaryInPath('git') ?? 'git';
+    }
+    return resolvedGitBinary;
+}
+
 const tempDirs = new Set<string>();
 const testXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-xdg-'));
 tempDirs.add(testXdgConfigHome);
@@ -76,13 +129,14 @@ export class TestRepo {
     // and prevent arbitrary command execution in tests.
     private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
         const env = { ...process.env, JJ_CONFIG: '' };
-        const jjBinary = 'jj';
+        const jjBinary = getJjBinary();
         try {
             const output = cp.execFileSync(jjBinary, ['--quiet', ...args], {
                 cwd: this.path,
                 encoding: 'utf-8',
                 env,
                 stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
+                windowsHide: true,
             });
             return options.trim !== false ? output.trim() : output;
         } catch (e: unknown) {
@@ -115,6 +169,7 @@ export class TestRepo {
                         encoding: 'utf-8',
                         env,
                         stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
+                        windowsHide: true,
                     });
                     return options.trim !== false ? output.trim() : output;
                 } catch {
@@ -140,9 +195,10 @@ export class TestRepo {
 
     configBatch(configs: Record<string, string>) {
         const commands: string[] = [];
+        const jjBinary = getJjBinary();
 
         for (const [key, val] of Object.entries(configs)) {
-            commands.push(`jj --quiet config set --repo ${key} "${val}"`);
+            commands.push(`"${jjBinary}" --quiet config set --repo ${key} "${val}"`);
         }
 
         if (commands.length > 0) {
@@ -153,6 +209,7 @@ export class TestRepo {
                 env,
                 stdio: 'ignore',
                 shell: process.platform === 'win32' ? 'cmd.exe' : undefined,
+                windowsHide: true,
             });
         }
     }
@@ -170,11 +227,12 @@ export class TestRepo {
 
     init() {
         const env = { ...process.env, JJ_CONFIG: '' };
-        const jjBinary = 'jj';
+        const jjBinary = getJjBinary();
         cp.execFileSync(jjBinary, ['--quiet', 'git', 'init'], {
             cwd: this.path,
             encoding: 'utf-8',
             env,
+            windowsHide: true,
         });
 
         this.configBatch({
@@ -188,6 +246,7 @@ export class TestRepo {
             cwd: this.path,
             encoding: 'utf-8',
             env,
+            windowsHide: true,
         });
     }
 
@@ -472,10 +531,12 @@ export class TestRepo {
     }
 
     hasGitRef(ref: string): boolean {
+        const gitBinary = getGitBinary();
         try {
-            cp.execFileSync('git', ['show-ref', '--verify', ref], {
+            cp.execFileSync(gitBinary, ['show-ref', '--verify', ref], {
                 cwd: this.path,
                 stdio: 'ignore',
+                windowsHide: true,
             });
             return true;
         } catch {
@@ -484,18 +545,22 @@ export class TestRepo {
     }
 
     getGitRefSha(ref: string): string {
-        const output = cp.execFileSync('git', ['rev-parse', ref], {
+        const gitBinary = getGitBinary();
+        const output = cp.execFileSync(gitBinary, ['rev-parse', ref], {
             cwd: this.path,
             encoding: 'utf-8',
+            windowsHide: true,
         });
         return output.trim();
     }
 
     listGitRefs(prefix?: string): string[] {
+        const gitBinary = getGitBinary();
         try {
-            const output = cp.execFileSync('git', ['show-ref'], {
+            const output = cp.execFileSync(gitBinary, ['show-ref'], {
                 cwd: this.path,
                 encoding: 'utf-8',
+                windowsHide: true,
             });
             const refs = output
                 .split('\n')
