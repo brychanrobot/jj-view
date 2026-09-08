@@ -12,7 +12,7 @@ runs:
     steps:
         - name: Cache jj binary
           id: cache-jj
-          uses: actions/cache@v4
+          uses: actions/cache@v6
           with:
               path: |
                   ~/.cargo/bin/jj
