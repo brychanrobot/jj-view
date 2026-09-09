@@ -14,17 +14,13 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Install pnpm
+            - name: Install pnpm & Node.js
               uses: pnpm/setup@v2
               with:
                   version: 11
+                  runtime: node@22
                   cache: true
                   install: false
-
-            - name: Install Node.js
-              uses: actions/setup-node@v7
-              with:
-                  node-version: 22
 
             - name: Setup jj (Jujutsu)
               uses: ./.github/actions/setup-jj

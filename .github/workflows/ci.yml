@@ -33,17 +33,20 @@ jobs:
                   TAG=$(gh release view -R jj-vcs/jj --json tagName -q .tagName 2>/dev/null || echo "latest")
                   echo "version=${TAG#v}" >> $GITHUB_OUTPUT
 
-            - name: Install pnpm
+            - name: Install pnpm & Node.js
               uses: pnpm/setup@v2
               with:
                   version: 11
+                  runtime: node@22
                   cache: true
                   install: false
 
-            - name: Install Node.js
-              uses: actions/setup-node@v7
+            - name: Cache Custom Icons
+              id: cache-icons
+              uses: actions/cache@v6
               with:
-                  node-version: 22
+                  path: media/custom-icons
+                  key: custom-icons-${{ runner.os }}-${{ hashFiles('media/custom-icons-src/**') }}
 
             - name: Setup jj (Jujutsu)
               uses: ./.github/actions/setup-jj
@@ -108,7 +111,8 @@ jobs:
                       dist/
                       out/
                       jj-view.vsix
-                      src/webview/themes.generated.ts
+                      media/custom-icons/
+                      src/core/webview/themes.generated.ts
                       media/themes.generated.css
                   retention-days: 1
 
@@ -142,17 +146,13 @@ jobs:
                   fsutil behavior set disablelastaccess 1 | Out-Null
                   fsutil 8dot3name set 1 | Out-Null
 
-            - name: Install pnpm
+            - name: Install pnpm & Node.js
               uses: pnpm/setup@v2
               with:
                   version: 11
+                  runtime: node@22
                   cache: true
                   install: false
-
-            - name: Install Node.js
-              uses: actions/setup-node@v7
-              with:
-                  node-version: 22
 
             # Go is required by tests (e.g., src/test/utils/binary-utils.test.ts) to compile test binaries on the fly
             - name: Setup Go
@@ -173,14 +173,14 @@ jobs:
                   which jj
                   git config --global init.defaultBranch main
 
-            - name: Install Dependencies
-              run: pnpm install --frozen-lockfile
-
             - name: Download Build Artifacts
               uses: actions/download-artifact@v8
               with:
                   name: build-outputs
                   path: .
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile --config.ignore-scripts=true
 
             - name: Run Unit Tests
               run: pnpm test:unit
@@ -215,17 +215,13 @@ jobs:
                   fsutil behavior set disablelastaccess 1 | Out-Null
                   fsutil 8dot3name set 1 | Out-Null
 
-            - name: Install pnpm
+            - name: Install pnpm & Node.js
               uses: pnpm/setup@v2
               with:
                   version: 11
+                  runtime: node@22
                   cache: true
                   install: false
-
-            - name: Install Node.js
-              uses: actions/setup-node@v7
-              with:
-                  node-version: 22
 
             - name: Setup jj (Jujutsu)
               uses: ./.github/actions/setup-jj
@@ -238,14 +234,14 @@ jobs:
                   which jj
                   git config --global init.defaultBranch main
 
-            - name: Install Dependencies
-              run: pnpm install --frozen-lockfile
-
             - name: Download Build Artifacts
               uses: actions/download-artifact@v8
               with:
                   name: build-outputs
                   path: .
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile --config.ignore-scripts=true
 
             - name: Run Integration Tests (Linux)
               if: runner.os == 'Linux'
@@ -264,17 +260,13 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
 
-            - name: Install pnpm
+            - name: Install pnpm & Node.js
               uses: pnpm/setup@v2
               with:
                   version: 11
+                  runtime: node@22
                   cache: true
                   install: false
-
-            - name: Install Node.js
-              uses: actions/setup-node@v7
-              with:
-                  node-version: 22
 
             - name: Setup jj (Jujutsu)
               uses: ./.github/actions/setup-jj
@@ -287,14 +279,14 @@ jobs:
                   which jj
                   git config --global init.defaultBranch main
 
-            - name: Install Dependencies
-              run: pnpm install --frozen-lockfile
-
             - name: Download Build Artifacts
               uses: actions/download-artifact@v8
               with:
                   name: build-outputs
                   path: .
+
+            - name: Install Dependencies
+              run: pnpm install --frozen-lockfile --config.ignore-scripts=true
 
             - name: Install Playwright system dependencies
               run: pnpm playwright install-deps chromium
