@@ -5,5 +5,5 @@ allowBuilds:
   "@parcel/watcher": true
   esbuild: true
   keytar: true
-  ttf2woff2: true
+  ttf2woff2: false
   "@vscode/vsce-sign": true

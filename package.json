@@ -1221,7 +1221,7 @@
         "prepare": "pnpm build:themes && pnpm build:icons",
         "vscode:prepublish": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js --production",
         "build": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js",
-        "build:icons": "svgtofont -s media/custom-icons-src -o media/custom-icons",
+        "build:icons": "node tooling/build-icons.ts",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
         "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
