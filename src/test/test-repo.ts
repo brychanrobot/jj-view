@@ -7,57 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
-
-function getExecutableExtensions(): string[] {
-    if (process.platform !== 'win32') {
-        return [''];
-    }
-    if (process.env.PATHEXT) {
-        return process.env.PATHEXT.split(';');
-    }
-    return ['.exe', '.cmd', '.bat'];
-}
-
-function isExecutableFile(candidate: string): boolean {
-    try {
-        const stat = fs.statSync(candidate);
-        if (!stat.isFile()) {
-            return false;
-        }
-        if (process.platform !== 'win32') {
-            fs.accessSync(candidate, fs.constants.X_OK);
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function findBinaryInPath(name: string): string | undefined {
-    const pathEnv = process.env.PATH;
-    if (!pathEnv) {
-        return undefined;
-    }
-
-    const extensions = getExecutableExtensions();
-    const dirs = pathEnv.split(path.delimiter);
-
-    for (const dir of dirs) {
-        if (!dir) {
-            continue;
-        }
-
-        for (const ext of extensions) {
-            const fileName = ext && !name.toLowerCase().endsWith(ext.toLowerCase()) ? `${name}${ext}` : name;
-            const candidate = path.join(dir, fileName);
-            if (isExecutableFile(candidate)) {
-                return candidate;
-            }
-        }
-    }
-
-    return undefined;
-}
+import which from 'which';
 
 function memoize<T>(fn: () => T): () => T {
     let cached: T | undefined;
@@ -116,9 +66,9 @@ process.once('SIGTERM', () => {
 });
 
 export class TestRepo {
-    static readonly getJjBinary = memoize((): string => findBinaryInPath('jj') ?? 'jj');
+    static readonly getJjBinary = memoize((): string => which.sync('jj'));
 
-    static readonly getGitBinary = memoize((): string => findBinaryInPath('git') ?? 'git');
+    static readonly getGitBinary = memoize((): string => which.sync('git'));
 
     public readonly path: string;
 

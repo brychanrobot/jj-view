@@ -81,6 +81,9 @@ importers:
       '@types/vscode':
         specifier: ^1.104.0
         version: 1.107.0
+      '@types/which':
+        specifier: ^3.0.4
+        version: 3.0.4
       '@vscode/test-cli':
         specifier: ^0.0.15
         version: 0.0.15
@@ -126,6 +129,9 @@ importers:
       vitest:
         specifier: ^4.0.16
         version: 4.0.16(@types/node@22.19.3)(jiti@2.6.1)(yaml@2.8.2)
+      which:
+        specifier: ^7.0.0
+        version: 7.0.0
 
 packages:
 
@@ -936,6 +942,9 @@ packages:
 
   '@types/vscode@1.107.0':
     resolution: {integrity: sha512-XS8YE1jlyTIowP64+HoN30OlC1H9xqSlq1eoLZUgFEC8oUTO6euYZxti1xRiLSfZocs4qytTzR6xCBYtioQTCg==}
+
+  '@types/which@3.0.4':
+    resolution: {integrity: sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w==}
 
   '@typespec/ts-http-runtime@0.3.2':
     resolution: {integrity: sha512-IlqQ/Gv22xUC1r/WQm4StLkYQmaaTsXAhUVsNE0+xiyf0yRFiH5++q78U3bw6bLKDCTmh0uqKB9eG9+Bt75Dkg==}
@@ -2057,6 +2066,10 @@ packages:
   isexe@3.1.5:
     resolution: {integrity: sha512-6B3tLtFqtQS4ekarvLVMZ+X+VlvQekbe4taUkf/rhVO3d/h0M2rfARm/pXLcPEsjjMsFgrFgSrhQIxcSVrBz8w==}
     engines: {node: '>=18'}
+
+  isexe@4.0.0:
+    resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
+    engines: {node: '>=20'}
 
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
@@ -3345,6 +3358,11 @@ packages:
     engines: {node: ^18.17.0 || >=20.5.0}
     hasBin: true
 
+  which@7.0.0:
+    resolution: {integrity: sha512-RancgH2dmbLdHl6LRhEqvklWMgl/Hdnun0Y90KhBOLkMefg8Qa7/Zel8Sm+8HEcP6DEjzsWzpkuBQEZok58isA==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+    hasBin: true
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -4143,6 +4161,8 @@ snapshots:
   '@types/trusted-types@2.0.7': {}
 
   '@types/vscode@1.107.0': {}
+
+  '@types/which@3.0.4': {}
 
   '@typespec/ts-http-runtime@0.3.2(supports-color@8.1.1)':
     dependencies:
@@ -5414,6 +5434,8 @@ snapshots:
   isexe@2.0.0: {}
 
   isexe@3.1.5: {}
+
+  isexe@4.0.0: {}
 
   istanbul-lib-coverage@3.2.2: {}
 
@@ -6881,6 +6903,10 @@ snapshots:
   which@5.0.0:
     dependencies:
       isexe: 3.1.5
+
+  which@7.0.0:
+    dependencies:
+      isexe: 4.0.0
 
   why-is-node-running@2.3.0:
     dependencies:
