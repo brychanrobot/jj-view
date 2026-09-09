@@ -8,57 +8,67 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
 
+function getExecutableExtensions(): string[] {
+    if (process.platform !== 'win32') {
+        return [''];
+    }
+    if (process.env.PATHEXT) {
+        return process.env.PATHEXT.split(';');
+    }
+    return ['.exe', '.cmd', '.bat'];
+}
+
+function isExecutableFile(candidate: string): boolean {
+    try {
+        const stat = fs.statSync(candidate);
+        if (!stat.isFile()) {
+            return false;
+        }
+        if (process.platform !== 'win32') {
+            fs.accessSync(candidate, fs.constants.X_OK);
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function findBinaryInPath(name: string): string | undefined {
-    const pathEnv = process.env.PATH ?? '';
-    const delimiter = path.delimiter;
-    const dirs = pathEnv.split(delimiter);
-    const extensions =
-        process.platform === 'win32'
-            ? process.env.PATHEXT
-                ? process.env.PATHEXT.split(';')
-                : ['.exe', '.cmd', '.bat']
-            : [''];
+    const pathEnv = process.env.PATH;
+    if (!pathEnv) {
+        return undefined;
+    }
+
+    const extensions = getExecutableExtensions();
+    const dirs = pathEnv.split(path.delimiter);
 
     for (const dir of dirs) {
         if (!dir) {
             continue;
         }
+
         for (const ext of extensions) {
-            const candidate = path.join(
-                dir,
-                ext && !name.toLowerCase().endsWith(ext.toLowerCase()) ? `${name}${ext}` : name,
-            );
-            try {
-                if (fs.existsSync(candidate)) {
-                    const stat = fs.statSync(candidate);
-                    if (stat.isFile()) {
-                        return candidate;
-                    }
-                }
-            } catch {
-                // Ignore errors from inaccessible or invalid directories
+            const fileName = ext && !name.toLowerCase().endsWith(ext.toLowerCase()) ? `${name}${ext}` : name;
+            const candidate = path.join(dir, fileName);
+            if (isExecutableFile(candidate)) {
+                return candidate;
             }
         }
     }
+
     return undefined;
 }
 
-let resolvedJjBinary: string | undefined;
-
-function getJjBinary(): string {
-    if (!resolvedJjBinary) {
-        resolvedJjBinary = findBinaryInPath('jj') ?? 'jj';
-    }
-    return resolvedJjBinary;
-}
-
-let resolvedGitBinary: string | undefined;
-
-function getGitBinary(): string {
-    if (!resolvedGitBinary) {
-        resolvedGitBinary = findBinaryInPath('git') ?? 'git';
-    }
-    return resolvedGitBinary;
+function memoize<T>(fn: () => T): () => T {
+    let cached: T | undefined;
+    let computed = false;
+    return () => {
+        if (!computed) {
+            cached = fn();
+            computed = true;
+        }
+        return cached as T;
+    };
 }
 
 const tempDirs = new Set<string>();
@@ -106,6 +116,10 @@ process.once('SIGTERM', () => {
 });
 
 export class TestRepo {
+    static readonly getJjBinary = memoize((): string => findBinaryInPath('jj') ?? 'jj');
+
+    static readonly getGitBinary = memoize((): string => findBinaryInPath('git') ?? 'git');
+
     public readonly path: string;
 
     constructor(tmpDir?: string) {
@@ -127,31 +141,19 @@ export class TestRepo {
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
-    private exec(args: string[], options: { trim?: boolean; suppressStderr?: boolean } = {}) {
+    private exec(args: string[], options: { trim?: boolean } = {}): { stdout: string; stderr: string } {
         const env = { ...process.env, JJ_CONFIG: '' };
-        const jjBinary = getJjBinary();
-        try {
-            const output = cp.execFileSync(jjBinary, ['--quiet', ...args], {
-                cwd: this.path,
-                encoding: 'utf-8',
-                env,
-                stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
-                windowsHide: true,
-            });
-            return options.trim !== false ? output.trim() : output;
-        } catch (e: unknown) {
-            const err = e as {
-                stdout?: Buffer;
-                stderr?: Buffer;
-                code?: string;
-                status?: number;
-                path?: string;
-                message?: string;
-            };
-            const stderr = err.stderr?.toString() || '';
+        const jjBinary = TestRepo.getJjBinary();
+        const res = cp.spawnSync(jjBinary, args, {
+            cwd: this.path,
+            encoding: 'utf-8',
+            env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
 
-            // Handle "Command not found" specifically
-            if (err.code === 'ENOENT') {
+        if (res.error) {
+            if ('code' in res.error && res.error.code === 'ENOENT') {
                 const pathEnv = process.env.PATH || 'undefined';
                 throw new Error(
                     `Could not find '${jjBinary}' binary in PATH.\n` +
@@ -159,58 +161,43 @@ export class TestRepo {
                         `Check if jj is installed and available in the environment.`,
                 );
             }
+            throw res.error;
+        }
 
-            // If the working copy is stale, try again with --ignore-working-copy
-            // if we haven't already tried it.
-            if (stderr.toLowerCase().includes('working copy is stale') && !args.includes('--ignore-working-copy')) {
-                try {
-                    const output = cp.execFileSync(jjBinary, ['--quiet', '--ignore-working-copy', ...args], {
-                        cwd: this.path,
-                        encoding: 'utf-8',
-                        env,
-                        stdio: options.suppressStderr ? ['ignore', 'pipe', 'ignore'] : undefined,
-                        windowsHide: true,
-                    });
-                    return options.trim !== false ? output.trim() : output;
-                } catch {
-                    // Fall through to original error if retry also fails
-                }
-            }
+        const stderr = res.stderr || '';
 
-            // Re-throw with stdout/stderr for easier debugging
-            const stdout = err.stdout?.toString() || 'undefined';
+        // If the working copy is stale, try again with --ignore-working-copy
+        // if we haven't already tried it.
+        if (
+            res.status !== 0 &&
+            stderr.toLowerCase().includes('working copy is stale') &&
+            !args.includes('--ignore-working-copy')
+        ) {
+            return this.exec(['--ignore-working-copy', ...args], options);
+        }
+
+        if (res.status !== 0) {
+            const stdout = res.stdout || 'undefined';
             throw new Error(
                 `Command failed: jj ${args.join(' ')}\n` +
-                    `Status: ${err.status}\n` +
+                    `Status: ${res.status}\n` +
                     `Stdout: ${stdout}\n` +
-                    `Stderr: ${stderr}\n` +
-                    `Raw Error: ${err.message}`,
+                    `Stderr: ${stderr}`,
             );
         }
+
+        const stdout = options.trim !== false ? (res.stdout || '').trim() : res.stdout || '';
+        const finalStderr = options.trim !== false ? stderr.trim() : stderr;
+        return { stdout, stderr: finalStderr };
     }
 
-    config(name: string, value: string, suppressStderr?: boolean) {
-        this.exec(['config', 'set', '--repo', name, value], { suppressStderr });
+    config(name: string, value: string) {
+        this.exec(['config', 'set', '--repo', name, value]);
     }
 
     configBatch(configs: Record<string, string>) {
-        const commands: string[] = [];
-        const jjBinary = getJjBinary();
-
         for (const [key, val] of Object.entries(configs)) {
-            commands.push(`"${jjBinary}" --quiet config set --repo ${key} "${val}"`);
-        }
-
-        if (commands.length > 0) {
-            const cmd = commands.join(' && ');
-            const env = { ...process.env, JJ_CONFIG: '' };
-            cp.execSync(cmd, {
-                cwd: this.path,
-                env,
-                stdio: 'ignore',
-                shell: process.platform === 'win32' ? 'cmd.exe' : undefined,
-                windowsHide: true,
-            });
+            this.config(key, val);
         }
     }
 
@@ -226,14 +213,7 @@ export class TestRepo {
     }
 
     init() {
-        const env = { ...process.env, JJ_CONFIG: '' };
-        const jjBinary = getJjBinary();
-        cp.execFileSync(jjBinary, ['--quiet', 'git', 'init'], {
-            cwd: this.path,
-            encoding: 'utf-8',
-            env,
-            windowsHide: true,
-        });
+        this.exec(['git', 'init']);
 
         this.configBatch({
             'user.name': 'Test User',
@@ -242,23 +222,23 @@ export class TestRepo {
             'ui.merge-editor': 'builtin',
         });
 
-        cp.execFileSync(jjBinary, ['--quiet', 'metaedit', '--update-author'], {
-            cwd: this.path,
-            encoding: 'utf-8',
-            env,
-            windowsHide: true,
-        });
+        this.exec(['metaedit', '--update-author']);
     }
 
-    new(parents?: string[], message?: string) {
-        const args = ['new'];
+    new(parents?: string[], message?: string): { changeId: string; commitId: string } {
+        const args = ['--color=never', 'new'];
         if (parents && parents.length > 0) {
             args.push(...parents);
         }
-        if (message) {
+        if (message !== undefined) {
             args.push('-m', message);
         }
-        this.exec(args);
+        const { stderr } = this.exec(args);
+        const match = stderr.match(/Working copy\s+\(@\)\s+now at:\s+([a-z0-9]+)\s+([a-z0-9]+)/i);
+        if (match) {
+            return { changeId: match[1], commitId: match[2] };
+        }
+        return this.getChangeAndCommitId('@');
     }
 
     snapshot() {
@@ -274,7 +254,7 @@ export class TestRepo {
     }
 
     getDescription(revision: string): string {
-        return this.exec(['log', '-r', revision, '-T', 'description', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'description', '--no-graph']).stdout;
     }
 
     edit(revision: string) {
@@ -282,11 +262,11 @@ export class TestRepo {
     }
 
     getWorkingCopyId(): string {
-        return this.exec(['log', '--ignore-working-copy', '-r', '@', '-T', 'change_id', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', '@', '-T', 'change_id', '--no-graph']).stdout;
     }
 
     getDiffSummary(revision: string = '@'): string {
-        return this.exec(['diff', '-r', revision, '--summary']);
+        return this.exec(['diff', '-r', revision, '--summary']).stdout;
     }
 
     getDiff(revision: string = '@', options: { git?: boolean } = {}): string {
@@ -294,7 +274,7 @@ export class TestRepo {
         if (options.git) {
             args.push('--git');
         }
-        return this.exec(args);
+        return this.exec(args).stdout;
     }
 
     untrack(path: string | string[]): void {
@@ -303,7 +283,7 @@ export class TestRepo {
     }
 
     getFiles(revision: string = '@'): string[] {
-        const output = this.exec(['file', 'list', '-r', revision]);
+        const output = this.exec(['file', 'list', '--ignore-working-copy', '-r', revision]).stdout;
         return output
             .split('\n')
             .map((f) => f.trim())
@@ -311,15 +291,15 @@ export class TestRepo {
     }
 
     bookmark(name: string, revision: string) {
-        this.exec(['bookmark', 'create', name, '-r', revision]);
+        this.exec(['bookmark', 'create', '--ignore-working-copy', name, '-r', revision]);
     }
 
     bookmarkMove(name: string, revision: string) {
-        this.exec(['bookmark', 'set', name, '-r', revision]);
+        this.exec(['bookmark', 'set', '--ignore-working-copy', name, '-r', revision]);
     }
 
     tag(name: string, revision: string) {
-        this.exec(['tag', 'set', name, '-r', revision]);
+        this.exec(['tag', 'set', '--ignore-working-copy', name, '-r', revision]);
     }
 
     abandon(revision: string) {
@@ -387,15 +367,16 @@ export class TestRepo {
     }
 
     getFileContent(revision: string, relativePath: string): string {
-        return this.exec(['file', 'show', '-r', revision, relativePath], { trim: false });
+        return this.exec(['file', 'show', '--ignore-working-copy', '-r', revision, relativePath], { trim: false })
+            .stdout;
     }
 
     getChangeId(revision: string): string {
-        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'change_id', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'change_id', '--no-graph']).stdout;
     }
 
     getCommitId(revision: string): string {
-        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'commit_id', '--no-graph']);
+        return this.exec(['log', '--ignore-working-copy', '-r', revision, '-T', 'commit_id', '--no-graph']).stdout;
     }
 
     getChangeAndCommitId(revision: string): { changeId: string; commitId: string } {
@@ -407,9 +388,45 @@ export class TestRepo {
             '-T',
             'change_id ++ " " ++ commit_id',
             '--no-graph',
-        ]);
+        ]).stdout;
         const [changeId = '', commitId = ''] = output.trim().split(/\s+/);
         return { changeId, commitId };
+    }
+
+    getChangeAndCommitIds(): Map<string, string> {
+        const output = this.exec([
+            'log',
+            '--ignore-working-copy',
+            '-r',
+            'all()',
+            '-T',
+            'change_id ++ " " ++ commit_id ++ "\n"',
+            '--no-graph',
+        ]).stdout;
+        const map = new Map<string, string>();
+        for (const line of output.split('\n')) {
+            const [changeId, commitId] = line.trim().split(/\s+/);
+            if (changeId && commitId) {
+                map.set(changeId, commitId);
+            }
+        }
+        return map;
+    }
+
+    batchMetadata(ops: { type: 'bookmark' | 'tag'; name: string; revision: string }[], workingCopyChangeId?: string) {
+        if (ops.length === 0 && !workingCopyChangeId) {
+            return;
+        }
+        for (const op of ops) {
+            if (op.type === 'bookmark') {
+                this.exec(['bookmark', 'create', '--ignore-working-copy', op.name, '-r', op.revision]);
+            } else if (op.type === 'tag') {
+                this.exec(['tag', 'set', '--ignore-working-copy', op.name, '-r', op.revision]);
+            }
+        }
+        if (workingCopyChangeId) {
+            this.exec(['edit', workingCopyChangeId]);
+        }
     }
 
     diff(relativePath: string, revision?: string): string {
@@ -418,17 +435,18 @@ export class TestRepo {
             args.push('-r', revision);
         }
         args.push(relativePath);
-        return this.exec(args);
+        return this.exec(args).stdout;
     }
     getParents(revision: string): string[] {
         const output = this.exec([
             'log',
+            '--ignore-working-copy',
             '-r',
             revision,
             '-T',
             "parents.map(|p| p.change_id()).join(' ')",
             '--no-graph',
-        ]);
+        ]).stdout;
         if (!output) {
             return [];
         }
@@ -436,7 +454,15 @@ export class TestRepo {
     }
 
     getChildren(revision: string): string[] {
-        const output = this.exec(['log', '-r', `children(${revision})`, '-T', 'change_id ++ "\\n"', '--no-graph']);
+        const output = this.exec([
+            'log',
+            '--ignore-working-copy',
+            '-r',
+            `children(${revision})`,
+            '-T',
+            'change_id ++ "\\n"',
+            '--no-graph',
+        ]).stdout;
         if (!output) {
             return [];
         }
@@ -452,7 +478,15 @@ export class TestRepo {
     }
 
     getBookmarks(revision: string): string[] {
-        const output = this.exec(['log', '-r', revision, '-T', "bookmarks.map(|b| b.name()).join(' ')", '--no-graph']);
+        const output = this.exec([
+            'log',
+            '--ignore-working-copy',
+            '-r',
+            revision,
+            '-T',
+            "bookmarks.map(|b| b.name()).join(' ')",
+            '--no-graph',
+        ]).stdout;
         if (!output) {
             return [];
         }
@@ -460,7 +494,7 @@ export class TestRepo {
     }
 
     listFiles(revision: string): string[] {
-        const output = this.exec(['file', 'list', '-r', revision]);
+        const output = this.exec(['file', 'list', '--ignore-working-copy', '-r', revision]).stdout;
         if (!output) {
             return [];
         }
@@ -468,11 +502,11 @@ export class TestRepo {
     }
 
     log(): string {
-        return this.exec(['log', '--ignore-working-copy']);
+        return this.exec(['log', '--ignore-working-copy']).stdout;
     }
 
     getLogOutput(template: string): string {
-        return this.exec(['log', '--ignore-working-copy', '-T', template, '--color', 'never']);
+        return this.exec(['log', '--ignore-working-copy', '-T', template, '--color', 'never']).stdout;
     }
 
     getLog(revision: string, template: string): string {
@@ -486,7 +520,7 @@ export class TestRepo {
             '--no-graph',
             '--color',
             'never',
-        ]);
+        ]).stdout;
     }
 
     isImmutable(revision: string): boolean {
@@ -500,7 +534,7 @@ export class TestRepo {
             '--no-graph',
             '--color',
             'never',
-        ]);
+        ]).stdout;
         return output.trim() === 'true';
     }
 
@@ -527,11 +561,11 @@ export class TestRepo {
     }
 
     listWorkspaces(): string {
-        return this.exec(['workspace', 'list']);
+        return this.exec(['workspace', 'list']).stdout;
     }
 
     hasGitRef(ref: string): boolean {
-        const gitBinary = getGitBinary();
+        const gitBinary = TestRepo.getGitBinary();
         try {
             cp.execFileSync(gitBinary, ['show-ref', '--verify', ref], {
                 cwd: this.path,
@@ -545,7 +579,7 @@ export class TestRepo {
     }
 
     getGitRefSha(ref: string): string {
-        const gitBinary = getGitBinary();
+        const gitBinary = TestRepo.getGitBinary();
         const output = cp.execFileSync(gitBinary, ['rev-parse', ref], {
             cwd: this.path,
             encoding: 'utf-8',
@@ -555,7 +589,7 @@ export class TestRepo {
     }
 
     listGitRefs(prefix?: string): string[] {
-        const gitBinary = getGitBinary();
+        const gitBinary = TestRepo.getGitBinary();
         try {
             const output = cp.execFileSync(gitBinary, ['show-ref'], {
                 cwd: this.path,
@@ -576,11 +610,11 @@ export class TestRepo {
     }
 
     getCurrentOperationId(): string {
-        return this.exec(['op', 'log', '-T', 'id', '--limit', '1', '--no-graph']);
+        return this.exec(['op', 'log', '-T', 'id', '--limit', '1', '--no-graph']).stdout;
     }
 
     getOperationsSince(opId: string): { id: string; description: string }[] {
-        const output = this.exec(['op', 'log', '--no-graph', '-T', 'id ++ " " ++ description ++ "\\n"']);
+        const output = this.exec(['op', 'log', '--no-graph', '-T', 'id ++ " " ++ description ++ "\\n"']).stdout;
         const lines = output
             .split('\n')
             .map((l) => l.trim())
@@ -762,8 +796,14 @@ export interface CommitId {
 }
 
 export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): Promise<Record<string, CommitId>> {
+    if (commits.length === 0) {
+        return {};
+    }
+
     const labelToId: Record<string, CommitId> = {};
-    const metadataOps: { type: 'bookmark' | 'tag'; name: string; changeId: string }[] = [];
+    const metadataOps: { type: 'bookmark' | 'tag'; name: string; revision: string }[] = [];
+    let workingCopyChangeId: string | undefined;
+    let anyFilesWritten = false;
 
     // Helper to resolve parents
     const resolveParents = (parents?: string[]): string[] => {
@@ -777,57 +817,62 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
         const parents = resolveParents(commit.parents);
         const description = commit.description !== undefined ? commit.description : commit.label;
 
-        repo.new(parents, description);
+        const { changeId, commitId } = repo.new(parents, description);
 
-        // Apply file changes
-        if (commit.files) {
-            await repo.writeFiles(commit.files);
-        }
-
-        // Capture ID
-        const { changeId, commitId } = repo.getChangeAndCommitId('@');
         if (commit.label) {
             labelToId[commit.label] = { changeId, commitId };
         }
 
-        // Collect bookmarks for later application
+        // Apply file changes directly to the working directory without intermediate snapshots
+        if (commit.files && Object.keys(commit.files).length > 0) {
+            anyFilesWritten = true;
+            for (const [filePath, content] of Object.entries(commit.files)) {
+                const fullPath = path.join(repo.path, filePath);
+                fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                fs.writeFileSync(fullPath, content);
+            }
+        }
+
+        // Collect bookmarks for later batched application
         if (commit.bookmarks) {
             for (const bookmark of commit.bookmarks) {
-                metadataOps.push({ type: 'bookmark', name: bookmark, changeId });
+                metadataOps.push({ type: 'bookmark', name: bookmark, revision: changeId });
             }
         }
 
-        // Collect tags for later application
+        // Collect tags for later batched application
         if (commit.tags) {
             for (const tag of commit.tags) {
-                metadataOps.push({ type: 'tag', name: tag, changeId });
+                metadataOps.push({ type: 'tag', name: tag, revision: changeId });
+            }
+        }
+
+        if (commit.isCurrentWorkingCopy) {
+            workingCopyChangeId = changeId;
+        }
+    }
+
+    if (anyFilesWritten) {
+        repo.snapshot();
+    }
+
+    // Batch all metadata operations (bookmarks, tags, edit) in a single shell invocation
+    if (metadataOps.length > 0 || workingCopyChangeId) {
+        repo.batchMetadata(metadataOps, workingCopyChangeId);
+    }
+
+    // Resolve full 32-character change IDs and final commit IDs in a single log call
+    const allIds = repo.getChangeAndCommitIds();
+    for (const entry of Object.values(labelToId)) {
+        for (const [fullChangeId, fullCommitId] of allIds.entries()) {
+            if (fullChangeId.startsWith(entry.changeId)) {
+                entry.changeId = fullChangeId;
+                entry.commitId = fullCommitId;
+                break;
             }
         }
     }
 
-    // Apply metadata (tags and bookmarks) to specific IDs.
-    // This is done after the initial graph construction loop so that
-    // metadata operations (which might make commits immutable) don't
-    // affect the working copy commit (@) during construction.
-    for (const op of metadataOps) {
-        if (op.type === 'bookmark') {
-            repo.bookmark(op.name, op.changeId);
-        } else if (op.type === 'tag') {
-            repo.tag(op.name, op.changeId);
-        }
-    }
-
-    // Handle isCurrentWorkingCopy
-    for (const commit of commits) {
-        if (commit.isCurrentWorkingCopy && commit.label) {
-            const entry = labelToId[commit.label];
-            if (entry) {
-                repo.edit(entry.changeId);
-            }
-        }
-    }
-
-    // Return map
     return labelToId;
 }
 
