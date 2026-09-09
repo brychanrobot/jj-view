@@ -1262,6 +1262,7 @@
         "@types/react-dom": "^19.2.3",
         "@types/sinon": "^21.0.0",
         "@types/vscode": "^1.104.0",
+        "@types/which": "^3.0.4",
         "@vscode/test-cli": "^0.0.15",
         "@vscode/test-electron": "^3.1.0",
         "@vscode/vsce": "^3.9.1",
@@ -1276,7 +1277,8 @@
         "sinon": "^21.0.1",
         "svgtofont": "^6.5.1",
         "typescript": "^5.9.3",
-        "vitest": "^4.0.16"
+        "vitest": "^4.0.16",
+        "which": "^7.0.0"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.3.1",
