@@ -16,4 +16,14 @@ import { vi } from 'vitest';
 import { createVscodeMock } from './vscode-mock';
 import './vitest-utils';
 
+import { recordCommandTrace } from './perf-trace';
+
 vi.mock('vscode', () => createVscodeMock());
+
+declare global {
+    var __JJ_VIEW_COMMAND_HOOK__: ((command: string, args: string[], durationMs: number) => void) | undefined;
+}
+
+globalThis.__JJ_VIEW_COMMAND_HOOK__ = (command, args, durationMs) => {
+    recordCommandTrace('JjService', [command, ...args], durationMs);
+};

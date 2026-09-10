@@ -52,6 +52,10 @@ const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 const IS_WINDOWS = process.platform === 'win32';
 const NO_OP_EDITOR = IS_WINDOWS ? 'cmd.exe /c exit 0' : 'true';
 
+declare global {
+    var __JJ_VIEW_COMMAND_HOOK__: ((command: string, args: string[], durationMs: number) => void) | undefined;
+}
+
 export type JjServiceConfigProvider<S = never> = <T>(key: string, defaultValue?: T, scope?: S) => T | undefined;
 
 export interface JjServiceOptions {
@@ -378,6 +382,9 @@ export class JjService {
                         return;
                     }
                     const duration = performance.now() - start;
+                    if (globalThis.__JJ_VIEW_COMMAND_HOOK__) {
+                        globalThis.__JJ_VIEW_COMMAND_HOOK__(command, args, duration);
+                    }
                     const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
                     this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${prefix}${fullCommandStr}`);
 
