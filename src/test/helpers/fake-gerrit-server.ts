@@ -165,6 +165,7 @@ export class FakeGerritServer {
 
     public async start(): Promise<string> {
         this.server = http.createServer((req, res) => {
+            res.setHeader('Connection', 'close');
             const urlStr = req.url || '';
             this.requests.push(urlStr);
             this.lastHeaders = req.headers;
@@ -386,6 +387,7 @@ export class FakeGerritServer {
     public async stop(): Promise<void> {
         return new Promise((resolve) => {
             if (this.server) {
+                this.server.closeAllConnections?.();
                 this.server.close(() => resolve());
             } else {
                 resolve();

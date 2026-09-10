@@ -271,6 +271,7 @@ describe('Credential Utils', () => {
                 expect(header).toEqual({ name: 'Authorization', value: 'Bearer fake_gce_token_789' });
             } finally {
                 process.env.GCE_METADATA_HOST = originalGceHost;
+                server.closeAllConnections?.();
                 server.close();
             }
         });
