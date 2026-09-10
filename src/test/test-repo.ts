@@ -8,6 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
 import which from 'which';
+import { recordCommandTrace } from './perf-trace';
 
 function memoize<T>(fn: () => T): () => T {
     let cached: T | undefined;
@@ -94,6 +95,7 @@ export class TestRepo {
     private exec(args: string[], options: { trim?: boolean } = {}): { stdout: string; stderr: string } {
         const env = { ...process.env, JJ_CONFIG: '' };
         const jjBinary = TestRepo.getJjBinary();
+        const start = performance.now();
         const res = cp.spawnSync(jjBinary, args, {
             cwd: this.path,
             encoding: 'utf-8',
@@ -101,6 +103,8 @@ export class TestRepo {
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
         });
+        const durationMs = performance.now() - start;
+        recordCommandTrace('TestRepo', args, durationMs);
 
         if (res.error) {
             if ('code' in res.error && res.error.code === 'ENOENT') {
