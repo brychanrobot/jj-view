@@ -101,6 +101,33 @@ export class TestRepo {
 
     static readonly getGitBinary = memoize((): string => which.sync('git'));
 
+    private static readonly getTemplateRepoDir = memoize((): string => {
+        const rawPath = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-template-'));
+        const dir = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
+        tempDirs.add(dir);
+
+        const env = { ...process.env, JJ_CONFIG: '' };
+        const jjBinary = TestRepo.getJjBinary();
+        const start = process.hrtime.bigint();
+        const res = cp.spawnSync(jjBinary, ['--config-file', defaultTestConfigFile, 'git', 'init'], {
+            cwd: dir,
+            encoding: 'utf-8',
+            env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
+        const durationMs = Math.max(0, Number(process.hrtime.bigint() - start) / 1_000_000);
+        recordCommandTrace('TestRepo', ['template-git-init'], durationMs);
+
+        if (res.error || res.status !== 0) {
+            throw new Error(
+                `Failed to initialize template repository: ${res.error?.message || res.stderr || res.status}`,
+            );
+        }
+
+        return dir;
+    });
+
     public readonly path: string;
     private configId?: string;
 
@@ -254,7 +281,12 @@ export class TestRepo {
     }
 
     init() {
-        this.exec(['--config-file', defaultTestConfigFile, 'git', 'init']);
+        const template = TestRepo.getTemplateRepoDir();
+        const copyStart = process.hrtime.bigint();
+        fs.cpSync(template, this.path, { recursive: true });
+        const copyDuration = Math.max(0, Number(process.hrtime.bigint() - copyStart) / 1_000_000);
+        recordCommandTrace('TestRepo', ['template-repo-copy'], copyDuration);
+
         const { configPath } = this.ensureRepoConfig();
         if (!fs.existsSync(configPath)) {
             fs.copyFileSync(defaultTestConfigFile, configPath);
