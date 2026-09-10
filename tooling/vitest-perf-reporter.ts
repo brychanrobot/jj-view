@@ -173,9 +173,16 @@ export class VitestPerfReporter implements Reporter {
         let testRepoDurationMs = 0;
         let jjServiceCalls = 0;
         let jjServiceDurationMs = 0;
+        let asyncGcCalls = 0;
+        let asyncGcDurationMs = 0;
 
         for (const r of records) {
             const durationMs = Math.max(0, r.durationMs);
+            if (r.command === 'repo-config-gc') {
+                asyncGcCalls += 1;
+                asyncGcDurationMs += durationMs;
+                continue;
+            }
             totalDurationMs += durationMs;
             if (r.caller === 'TestRepo') {
                 testRepoCalls += 1;
@@ -187,7 +194,7 @@ export class VitestPerfReporter implements Reporter {
         }
 
         console.log('\n--- CLI Subprocess Overhead ---');
-        console.log(`Total Invocations:     ${totalCalls.toLocaleString()}`);
+        console.log(`Total Invocations:     ${(totalCalls - asyncGcCalls).toLocaleString()}`);
         console.log(
             `  - TestRepo:          ${testRepoCalls.toLocaleString()} (${(testRepoDurationMs / 1000).toFixed(2)}s)`,
         );
@@ -195,6 +202,11 @@ export class VitestPerfReporter implements Reporter {
             `  - JjService:         ${jjServiceCalls.toLocaleString()} (${(jjServiceDurationMs / 1000).toFixed(2)}s)`,
         );
         console.log(`Total CLI CPU/Wait:    ${(totalDurationMs / 1000).toFixed(2)}s`);
+        if (asyncGcCalls > 0) {
+            console.log(
+                `  - Async Repo GC:     ${asyncGcCalls.toLocaleString()} calls (${(asyncGcDurationMs / 1000).toFixed(2)}s non-blocking background)`,
+            );
+        }
 
         console.log('\nCommand Breakdown (ranked by total time spent):');
         console.log('-'.repeat(80));
@@ -214,7 +226,12 @@ export class VitestPerfReporter implements Reporter {
         console.log('-'.repeat(80));
 
         for (const stat of commandStats) {
-            const pct = totalDurationMs > 0 ? `${((stat.totalMs / totalDurationMs) * 100).toFixed(1)}%` : '0.0%';
+            const isAsync = stat.command === 'repo-config-gc';
+            const pct = isAsync
+                ? ' async'
+                : totalDurationMs > 0
+                  ? `${((stat.totalMs / totalDurationMs) * 100).toFixed(1)}%`
+                  : '0.0%';
             const avg = (stat.totalMs / stat.count).toFixed(1);
             const minMax = `${Math.round(stat.minMs)} / ${Math.round(stat.maxMs)}`;
             const timeStr =

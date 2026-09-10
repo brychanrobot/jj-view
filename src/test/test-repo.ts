@@ -2,7 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { Buffer } from 'node:buffer';
 import * as cp from 'node:child_process';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -23,29 +25,60 @@ function memoize<T>(fn: () => T): () => T {
 }
 
 const tempDirs = new Set<string>();
-const testXdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-xdg-'));
-tempDirs.add(testXdgConfigHome);
-process.env.XDG_CONFIG_HOME = testXdgConfigHome;
-
-function writeDefaultConfig(xdgDir: string) {
-    const configDir = path.join(xdgDir, 'jj');
-    fs.mkdirSync(configDir, { recursive: true });
+const defaultTestConfigFile = path.join(os.tmpdir(), `jj-view-default-config-${process.pid}.toml`);
+try {
     fs.writeFileSync(
-        path.join(configDir, 'config.toml'),
-        `[user]
-name = "Test User"
-email = "test@example.com"
-
-[signing]
-backend = "none"
-
-[ui]
-merge-editor = "builtin"
+        defaultTestConfigFile,
+        `user.name = "Test User"
+user.email = "test@example.com"
+signing.backend = "none"
+ui.merge-editor = "builtin"
 `,
+        'utf-8',
     );
+    tempDirs.add(defaultTestConfigFile);
+} catch {}
+
+function getUserJjDir(): string {
+    if (process.platform === 'win32') {
+        const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+        return path.join(appData, 'jj');
+    }
+    const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+    return path.join(configHome, 'jj');
 }
 
-writeDefaultConfig(testXdgConfigHome);
+function createMetadataBinpb(repoPath: string): Buffer {
+    const strBuf = Buffer.from(repoPath, 'utf-8');
+    const len = strBuf.length;
+    const varintBuf: number[] = [];
+    let v = len;
+    while (v > 0x7f) {
+        varintBuf.push((v & 0x7f) | 0x80);
+        v >>>= 7;
+    }
+    varintBuf.push(v);
+    return Buffer.concat([Buffer.from([0x0a]), Buffer.from(varintBuf), strBuf]);
+}
+
+function formatTomlValue(val: string): string {
+    const trimmed = val.trim();
+    if (trimmed === '') {
+        return '""';
+    }
+    if (
+        trimmed === 'true' ||
+        trimmed === 'false' ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(trimmed)
+    ) {
+        return trimmed;
+    }
+    return JSON.stringify(val);
+}
 
 function cleanup() {
     for (const dir of tempDirs) {
@@ -72,6 +105,36 @@ export class TestRepo {
     static readonly getGitBinary = memoize((): string => which.sync('git'));
 
     public readonly path: string;
+    private configId?: string;
+
+    private ensureRepoConfig(): { configId: string; repoConfigDir: string; configPath: string } {
+        const start = process.hrtime.bigint();
+        if (!this.configId) {
+            const configIdFile = path.join(this.path, '.jj', 'repo', 'config-id');
+            if (fs.existsSync(configIdFile)) {
+                this.configId = fs.readFileSync(configIdFile, 'utf-8').trim();
+            } else {
+                this.configId = crypto.randomBytes(10).toString('hex');
+                fs.mkdirSync(path.dirname(configIdFile), { recursive: true });
+                fs.writeFileSync(configIdFile, this.configId, 'utf-8');
+            }
+        }
+        const userJjDir = getUserJjDir();
+        const repoConfigDir = path.join(userJjDir, 'repos', this.configId);
+        const configPath = path.join(repoConfigDir, 'config.toml');
+        const metadataPath = path.join(repoConfigDir, 'metadata.binpb');
+        if (!fs.existsSync(repoConfigDir)) {
+            fs.mkdirSync(repoConfigDir, { recursive: true });
+        }
+        if (!fs.existsSync(metadataPath)) {
+            const fullRepoPath = path.resolve(this.path, '.jj', 'repo');
+            fs.writeFileSync(metadataPath, createMetadataBinpb(fullRepoPath));
+        }
+        tempDirs.add(repoConfigDir);
+        const duration = Math.max(0, Number(process.hrtime.bigint() - start) / 1_000_000);
+        recordCommandTrace('TestRepo', ['repo-config-write'], duration);
+        return { configId: this.configId, repoConfigDir, configPath };
+    }
 
     constructor(tmpDir?: string) {
         const rawPath = tmpDir || fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-'));
@@ -83,10 +146,38 @@ export class TestRepo {
     }
 
     dispose() {
-        try {
-            fs.rmSync(this.path, { recursive: true, force: true });
-        } catch {}
-        tempDirs.delete(this.path);
+        if (!this.configId) {
+            const configIdFile = path.join(this.path, '.jj', 'repo', 'config-id');
+            if (fs.existsSync(configIdFile)) {
+                try {
+                    this.configId = fs.readFileSync(configIdFile, 'utf-8').trim();
+                } catch {}
+            }
+        }
+
+        const repoPath = this.path;
+        fs.promises
+            .rm(repoPath, { recursive: true, force: true })
+            .catch(() => {})
+            .finally(() => {
+                tempDirs.delete(repoPath);
+            });
+
+        if (this.configId) {
+            const userJjDir = getUserJjDir();
+            const repoConfigDir = path.join(userJjDir, 'repos', this.configId);
+            const gcStart = process.hrtime.bigint();
+            fs.promises
+                .rm(repoConfigDir, { recursive: true, force: true })
+                .then(() => {
+                    const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
+                    recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
+                })
+                .catch(() => {})
+                .finally(() => {
+                    tempDirs.delete(repoConfigDir);
+                });
+        }
     }
 
     // POLICY: This method is intentionally private. Do not expose it publicly.
@@ -95,7 +186,7 @@ export class TestRepo {
     private exec(args: string[], options: { trim?: boolean } = {}): { stdout: string; stderr: string } {
         const env = { ...process.env, JJ_CONFIG: '' };
         const jjBinary = TestRepo.getJjBinary();
-        const start = performance.now();
+        const start = process.hrtime.bigint();
         const res = cp.spawnSync(jjBinary, args, {
             cwd: this.path,
             encoding: 'utf-8',
@@ -103,7 +194,7 @@ export class TestRepo {
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
         });
-        const durationMs = performance.now() - start;
+        const durationMs = Math.max(0, Number(process.hrtime.bigint() - start) / 1_000_000);
         recordCommandTrace('TestRepo', args, durationMs);
 
         if (res.error) {
@@ -146,13 +237,17 @@ export class TestRepo {
     }
 
     config(name: string, value: string) {
-        this.exec(['config', 'set', '--repo', name, value]);
+        const { configPath } = this.ensureRepoConfig();
+        fs.appendFileSync(configPath, `${name} = ${formatTomlValue(value)}\n`, 'utf-8');
     }
 
     configBatch(configs: Record<string, string>) {
+        const { configPath } = this.ensureRepoConfig();
+        let content = '';
         for (const [key, val] of Object.entries(configs)) {
-            this.config(key, val);
+            content += `${key} = ${formatTomlValue(val)}\n`;
         }
+        fs.appendFileSync(configPath, content, 'utf-8');
     }
 
     metaedit(options: { updateAuthor?: boolean; revision?: string } = {}) {
@@ -167,16 +262,15 @@ export class TestRepo {
     }
 
     init() {
-        this.exec(['git', 'init']);
-
-        this.configBatch({
-            'user.name': 'Test User',
-            'user.email': 'test@example.com',
-            'signing.backend': 'none',
-            'ui.merge-editor': 'builtin',
-        });
-
-        this.exec(['metaedit', '--update-author']);
+        this.exec(['--config-file', defaultTestConfigFile, 'git', 'init']);
+        const { configPath } = this.ensureRepoConfig();
+        if (!fs.existsSync(configPath)) {
+            fs.copyFileSync(defaultTestConfigFile, configPath);
+        } else {
+            const existing = fs.readFileSync(configPath, 'utf-8');
+            const defaultContent = fs.readFileSync(defaultTestConfigFile, 'utf-8');
+            fs.writeFileSync(configPath, `${defaultContent}\n${existing}`, 'utf-8');
+        }
     }
 
     new(parents?: string[], message?: string): { changeId: string; commitId: string } {
