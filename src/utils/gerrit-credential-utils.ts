@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as cp from 'node:child_process';
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import which from 'which';
 import { fetchWithTimeout } from './fetch-utils';
 import type { LoggerChannel } from './output-channel';
 
@@ -25,6 +27,9 @@ function execFilePromise(
             resolve({ err, stdout: outStr });
         });
         if (child.stdin) {
+            child.stdin.on('error', () => {
+                // Ignore EPIPE errors if child process terminates before consuming all stdin
+            });
             if (input) {
                 child.stdin.write(input);
             }
@@ -89,6 +94,145 @@ export function matchCookieDomain(host: string, cookieDomain: string): boolean {
         return h === domainWithoutDot || h.endsWith(cd);
     }
     return h === cd;
+}
+
+export interface ParsedGerritHost {
+    protocol: string;
+    hostname: string;
+    port?: string;
+}
+
+/**
+ * Parses a Gerrit host string or URL into protocol, hostname, and optional port.
+ */
+export function parseGerritHost(gerritHost: string): ParsedGerritHost {
+    const trimmed = gerritHost.trim();
+    if (trimmed.includes('://')) {
+        try {
+            const url = new URL(trimmed);
+            return {
+                protocol: url.protocol.replace(/:$/, ''),
+                hostname: url.hostname,
+                port: url.port || undefined,
+            };
+        } catch {
+            // Fall through if URL parsing fails
+        }
+    }
+
+    try {
+        const url = new URL(`https://${trimmed}`);
+        return {
+            protocol: 'https',
+            hostname: url.hostname,
+            port: url.port || undefined,
+        };
+    } catch {
+        return {
+            protocol: 'https',
+            hostname: trimmed,
+        };
+    }
+}
+
+/**
+ * Checks if a host belongs to Google infrastructure (googlesource.com, google.com, googleplex.com).
+ */
+export function isGoogleHost(hostname: string): boolean {
+    const h = hostname.toLowerCase().replace(/\.+$/, '');
+    return (
+        h === 'google.com' ||
+        h.endsWith('.google.com') ||
+        h === 'googlesource.com' ||
+        h.endsWith('.googlesource.com') ||
+        h === 'googleplex.com' ||
+        h.endsWith('.googleplex.com')
+    );
+}
+
+/**
+ * Checks if a host is a local loopback address (e.g. localhost, 127.0.0.1, ::1).
+ */
+export function isLoopbackHost(hostname: string): boolean {
+    const raw = hostname.toLowerCase().trim();
+    const h = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+    if (h === 'localhost' || h === 'localhost.localdomain' || h.endsWith('.localhost')) {
+        return true;
+    }
+    if (h === '::1' || h === '0.0.0.0') {
+        return true;
+    }
+    return /^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(h);
+}
+
+let cachedIsLinuxGce: boolean | undefined;
+
+/**
+ * Clears the cached GCE environment detection result (for testing).
+ */
+export function clearGceEnvironmentCache(): void {
+    cachedIsLinuxGce = undefined;
+}
+
+/**
+ * Checks if the current execution environment is running on Google Compute Engine (GCE).
+ */
+export function isGceEnvironment(): boolean {
+    if (
+        process.env.GCE_METADATA_HOST ||
+        process.env.GCE_METADATA_IP ||
+        process.env.CLOUD_WORKSTATIONS ||
+        process.env.GOOGLE_CLOUD_WORKSTATIONS ||
+        process.env.K_SERVICE ||
+        process.env.BUILDER_OUTPUT
+    ) {
+        return true;
+    }
+    if (process.platform !== 'linux') {
+        return false;
+    }
+    if (cachedIsLinuxGce !== undefined) {
+        return cachedIsLinuxGce;
+    }
+    const dmiPaths = [
+        '/sys/class/dmi/id/product_name',
+        '/sys/class/dmi/id/sys_vendor',
+        '/sys/class/dmi/id/bios_vendor',
+    ];
+    for (const dmiPath of dmiPaths) {
+        try {
+            if (fsSync.readFileSync(dmiPath, 'utf8').includes('Google')) {
+                cachedIsLinuxGce = true;
+                return true;
+            }
+        } catch {
+            // Ignore missing or unreadable DMI paths
+        }
+    }
+    cachedIsLinuxGce = false;
+    return false;
+}
+
+/**
+ * Checks whether the repository's local git configuration explicitly defines a credential.helper.
+ */
+async function hasLocalCredentialHelper(gitDir: string): Promise<boolean> {
+    try {
+        let actualDir = gitDir;
+        const stat = await fs.stat(gitDir);
+        if (stat.isFile()) {
+            const content = await fs.readFile(gitDir, 'utf8');
+            const match = content.match(/^gitdir:\s*(.+)$/m);
+            if (match) {
+                actualDir = path.resolve(path.dirname(gitDir), match[1].trim());
+            }
+        }
+        const configPath = path.join(actualDir, 'config');
+        const content = await fs.readFile(configPath, 'utf8');
+        return /\[credential(?:\s+[^\]]+)?\][^[]*helper\s*=/s.test(content);
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -286,17 +430,13 @@ export async function getSsoAuth(
     host: string,
     outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | null> {
-    const checkCmd = process.platform === 'win32' ? 'where' : 'which';
-    outputChannel?.debug(`[GerritAuth] Checking if git-remote-sso helper exists using ${checkCmd}...`);
-    const { err: checkErr, stdout: checkStdout } = await execFilePromise(checkCmd, ['git-remote-sso'], {
-        shell: process.platform === 'win32',
-    });
-    if (checkErr || !checkStdout) {
+    outputChannel?.debug('[GerritAuth] Checking if git-remote-sso helper exists in PATH...');
+    const ssoBin = which.sync('git-remote-sso', { nothrow: true });
+    if (!ssoBin) {
         outputChannel?.debug('[GerritAuth] git-remote-sso helper not found in PATH');
         return null;
     }
 
-    const ssoBin = checkStdout.trim().split(/\r?\n/)[0];
     outputChannel?.debug(`[GerritAuth] Found git-remote-sso helper: ${ssoBin}. Printing config...`);
     const { err: ssoErr, stdout: ssoStdout } = await execFilePromise(
         ssoBin,
@@ -346,7 +486,11 @@ export async function getSsoAuth(
  */
 export async function getGceAuth(outputChannel?: LoggerChannel): Promise<{ name: string; value: string } | null> {
     try {
-        const metadataHost = process.env.GCE_METADATA_HOST || 'http://metadata.google.internal';
+        let metadataHost = process.env.GCE_METADATA_HOST;
+        if (!metadataHost) {
+            const ip = process.env.GCE_METADATA_IP || '169.254.169.254';
+            metadataHost = ip.startsWith('http://') || ip.startsWith('https://') ? ip : `http://${ip}`;
+        }
         outputChannel?.debug(`[GerritAuth] Probing GCE Metadata server at ${metadataHost}...`);
         const probeResponse = await fetchWithTimeout(metadataHost, 2000, {
             headers: { 'Metadata-Flavor': 'Google' },
@@ -389,15 +533,33 @@ export async function getGceAuth(outputChannel?: LoggerChannel): Promise<{ name:
 export async function getGitCredential(
     gitDir: string | null,
     host: string,
+    protocol = 'https',
+    port?: string,
     outputChannel?: LoggerChannel,
 ): Promise<{ username?: string; password?: string } | null> {
+    if (isLoopbackHost(host)) {
+        const hasLocalHelper = gitDir ? await hasLocalCredentialHelper(gitDir) : false;
+        if (!hasLocalHelper) {
+            outputChannel?.debug(
+                `[GerritAuth] Skipping git credential helper for loopback host ${host} without local repo helper`,
+            );
+            return null;
+        }
+    }
+
     const args = gitDir ? [`--git-dir=${gitDir}`, 'credential', 'fill'] : ['credential', 'fill'];
     const options = {
         cwd: os.homedir(),
         timeout: 15000,
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     };
-    const input = `protocol=https\nhost=${host}\n\n`;
+    const formattedHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+    const hostWithPort = port && !host.includes(`:${port}`) ? `${formattedHost}:${port}` : host;
+    let input = `protocol=${protocol}\nhost=${hostWithPort}\n`;
+    if (port) {
+        input += `port=${port}\n`;
+    }
+    input += '\n';
 
     outputChannel?.debug(`[GerritAuth] Running git credential helper with args: ${args.join(' ')}`);
     const { err, stdout } = await execFilePromise('git', args, options, input);
@@ -437,37 +599,42 @@ export async function getGerritAuthHeader(
     gitDir: string | null,
     outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | undefined> {
-    let hostname = gerritHost;
-    try {
-        hostname = new URL(gerritHost).hostname;
-    } catch {
-        // Fallback to raw host string if it's not a valid URL
+    const { hostname, protocol, port } = parseGerritHost(gerritHost);
+
+    outputChannel?.debug(
+        `[GerritAuth] Getting auth header for ${hostname} (protocol=${protocol}, port=${port ?? 'default'}, gitDir=${gitDir})`,
+    );
+
+    const googleHost = isGoogleHost(hostname);
+
+    // 1. LUCI Context (only for Google hosts or when explicitly configured)
+    if (googleHost && process.env.LUCI_CONTEXT) {
+        outputChannel?.debug('[GerritAuth] Checking LUCI Context...');
+        const luciToken = await getLuciToken(outputChannel);
+        if (luciToken) {
+            outputChannel?.debug('[GerritAuth] Successfully authenticated using LUCI Context token');
+            return { name: 'Authorization', value: `Bearer ${luciToken}` };
+        }
     }
 
-    outputChannel?.debug(`[GerritAuth] Getting auth header for ${hostname} (gitDir=${gitDir})`);
-
-    // 1. LUCI Context
-    outputChannel?.debug('[GerritAuth] Checking LUCI Context...');
-    const luciToken = await getLuciToken(outputChannel);
-    if (luciToken) {
-        outputChannel?.debug('[GerritAuth] Successfully authenticated using LUCI Context token');
-        return { name: 'Authorization', value: `Bearer ${luciToken}` };
+    // 2. Google SSO (only for Google hosts)
+    if (googleHost) {
+        outputChannel?.debug('[GerritAuth] Checking Google SSO helper...');
+        const ssoAuth = await getSsoAuth(hostname, outputChannel);
+        if (ssoAuth) {
+            outputChannel?.debug('[GerritAuth] Successfully authenticated using Google SSO helper');
+            return ssoAuth;
+        }
     }
 
-    // 2. Google SSO
-    outputChannel?.debug('[GerritAuth] Checking Google SSO helper...');
-    const ssoAuth = await getSsoAuth(hostname, outputChannel);
-    if (ssoAuth) {
-        outputChannel?.debug('[GerritAuth] Successfully authenticated using Google SSO helper');
-        return ssoAuth;
-    }
-
-    // 3. GCE Metadata
-    outputChannel?.debug('[GerritAuth] Checking GCE Metadata...');
-    const gceAuth = await getGceAuth(outputChannel);
-    if (gceAuth) {
-        outputChannel?.debug('[GerritAuth] Successfully authenticated using GCE Metadata');
-        return gceAuth;
+    // 3. GCE Metadata (only if in GCE environment and host is Google, or explicit GCE_METADATA_HOST)
+    if ((googleHost || Boolean(process.env.GCE_METADATA_HOST)) && isGceEnvironment()) {
+        outputChannel?.debug('[GerritAuth] Checking GCE Metadata...');
+        const gceAuth = await getGceAuth(outputChannel);
+        if (gceAuth) {
+            outputChannel?.debug('[GerritAuth] Successfully authenticated using GCE Metadata');
+            return gceAuth;
+        }
     }
 
     // 4. Git Cookies (parsed as Basic/Bearer matching gerrit_util.py)
@@ -484,7 +651,7 @@ export async function getGerritAuthHeader(
 
     // 5. Git Credential Helper (parsed as Basic/Bearer matching gerrit_util.py)
     outputChannel?.debug('[GerritAuth] Checking Git Credential Helper...');
-    const credential = await getGitCredential(gitDir, hostname, outputChannel);
+    const credential = await getGitCredential(gitDir, hostname, protocol, port, outputChannel);
     if (credential?.password) {
         outputChannel?.debug('[GerritAuth] Successfully retrieved credentials from Git Credential Helper');
         const { username, password } = credential;
