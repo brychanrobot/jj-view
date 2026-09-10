@@ -14,7 +14,10 @@ import {
     getGerritAuthHeader,
     getGitCookies,
     getGitCredential,
+    isGoogleHost,
+    isLoopbackHost,
     matchCookieDomain,
+    parseGerritHost,
     resolveGitRoot,
 } from '../utils/gerrit-credential-utils';
 import { TestRepo } from './test-repo';
@@ -190,7 +193,7 @@ describe('Credential Utils', () => {
             process.env.LUCI_CONTEXT = '{"some":"context"}';
 
             try {
-                const header = await getGerritAuthHeader('https://gerrit.example.com', null);
+                const header = await getGerritAuthHeader('https://chromium-review.googlesource.com', null);
                 expect(header).toEqual({ name: 'Authorization', value: 'Bearer fake_luci_token_123' });
             } finally {
                 process.env.PATH = originalPath;
@@ -233,10 +236,36 @@ describe('Credential Utils', () => {
             process.env.PATH = `${tempDir}${path.delimiter}${originalPath}`;
 
             try {
-                const header = await getGerritAuthHeader('https://gerrit.example.com', null);
+                const header = await getGerritAuthHeader('https://chromium-review.googlesource.com', null);
                 expect(header).toEqual({ name: 'Authorization', value: 'Basic c3NvX3VzZXI6c3NvX3Bhc3M=' });
             } finally {
                 process.env.PATH = originalPath;
+            }
+        });
+
+        test('skips LUCI and Google SSO helper for non-Google hosts', async () => {
+            const isWindows = process.platform === 'win32';
+            const scriptName = isWindows ? 'git-remote-sso.cmd' : 'git-remote-sso';
+            const scriptPath = path.join(tempDir, scriptName);
+
+            if (isWindows) {
+                await fs.writeFile(scriptPath, '@echo off\r\nexit /b 0\r\n');
+            } else {
+                await fs.writeFile(scriptPath, '#!/bin/sh\nexit 0\n');
+                await fs.chmod(scriptPath, 0o755);
+            }
+
+            const originalPath = process.env.PATH;
+            const originalLuciContext = process.env.LUCI_CONTEXT;
+            process.env.PATH = `${tempDir}${path.delimiter}${originalPath}`;
+            process.env.LUCI_CONTEXT = '{"some":"context"}';
+
+            try {
+                const header = await getGerritAuthHeader('https://gerrit.example.com', null);
+                expect(header).toBeUndefined();
+            } finally {
+                process.env.PATH = originalPath;
+                process.env.LUCI_CONTEXT = originalLuciContext;
             }
         });
 
@@ -331,6 +360,78 @@ describe('Credential Utils', () => {
 
             const header = await getGerritAuthHeader('https://gerrit.example.com', gitDir);
             expect(header).toBeUndefined();
+        });
+    });
+
+    describe('parseGerritHost', () => {
+        test('parses https and http URLs with ports', () => {
+            expect(parseGerritHost('https://chromium-review.googlesource.com')).toEqual({
+                protocol: 'https',
+                hostname: 'chromium-review.googlesource.com',
+                port: undefined,
+            });
+            expect(parseGerritHost('http://127.0.0.1:8080/')).toEqual({
+                protocol: 'http',
+                hostname: '127.0.0.1',
+                port: '8080',
+            });
+            expect(parseGerritHost('http://localhost:3000')).toEqual({
+                protocol: 'http',
+                hostname: 'localhost',
+                port: '3000',
+            });
+            expect(parseGerritHost('gerrit.example.com')).toEqual({
+                protocol: 'https',
+                hostname: 'gerrit.example.com',
+                port: undefined,
+            });
+        });
+    });
+
+    describe('isGoogleHost and isLoopbackHost', () => {
+        test('identifies Google hosts correctly', () => {
+            expect(isGoogleHost('chromium-review.googlesource.com')).toBe(true);
+            expect(isGoogleHost('android-review.googlesource.com')).toBe(true);
+            expect(isGoogleHost('googlesource.com')).toBe(true);
+            expect(isGoogleHost('gerrit.google.com')).toBe(true);
+            expect(isGoogleHost('foo.googleplex.com')).toBe(true);
+            expect(isGoogleHost('gerrit.example.com')).toBe(false);
+            expect(isGoogleHost('notgooglesource.com')).toBe(false);
+            expect(isGoogleHost('127.0.0.1')).toBe(false);
+        });
+
+        test('identifies loopback hosts correctly', () => {
+            expect(isLoopbackHost('localhost')).toBe(true);
+            expect(isLoopbackHost('127.0.0.1')).toBe(true);
+            expect(isLoopbackHost('127.0.1.1')).toBe(true);
+            expect(isLoopbackHost('::1')).toBe(true);
+            expect(isLoopbackHost('[::1]')).toBe(true);
+            expect(isLoopbackHost('test.local')).toBe(true);
+            expect(isLoopbackHost('gerrit.example.com')).toBe(false);
+        });
+    });
+
+    describe('loopback and protocol handling in getGitCredential', () => {
+        test('skips credential helper for loopback host without local helper', async () => {
+            const gitDir = path.join(tempDir, 'git-repo-loopback-nohelper.git');
+            cp.execSync(`git init --bare "${gitDir}"`);
+
+            const creds = await getGitCredential(gitDir, '127.0.0.1');
+            expect(creds).toBeNull();
+
+            const credsNullGitDir = await getGitCredential(null, 'localhost');
+            expect(credsNullGitDir).toBeNull();
+        });
+
+        test('invokes credential helper for loopback host when local helper is configured', async () => {
+            const gitDir = path.join(tempDir, 'git-repo-loopback-helper.git');
+            cp.execSync(`git init --bare "${gitDir}"`);
+            cp.execSync(
+                `git --git-dir="${gitDir}" config credential.helper "!f() { echo username=localuser; echo password=localpass; }; f"`,
+            );
+
+            const creds = await getGitCredential(gitDir, '127.0.0.1', 'http', '8080');
+            expect(creds).toEqual({ username: 'localuser', password: 'localpass' });
         });
     });
 });
