@@ -19,22 +19,47 @@ import type { WebviewTransport } from './types';
 
 const BRIDGE_KEY = Symbol('JJ_VIEW_BRIDGE');
 
+let moduleBridge: WebviewTransport | undefined;
+
+function createSnapshotTransport(raw: WebviewTransport): WebviewTransport {
+    return {
+        postMessage: (message: unknown) => {
+            raw.postMessage($state.snapshot(message));
+        },
+        onMessage: (handler) => raw.onMessage(handler),
+        dispose: () => raw.dispose?.(),
+    };
+}
+
 export function initBridge(transport?: WebviewTransport): WebviewTransport {
-    const active = transport ?? getWebviewTransport();
-    setContext(BRIDGE_KEY, active);
+    const active = createSnapshotTransport(transport ?? getWebviewTransport());
+    moduleBridge = active;
+    try {
+        setContext(BRIDGE_KEY, active);
+    } catch {
+        // Called outside component initialization (e.g. in webview index.ts)
+    }
     return active;
 }
 
 export function useBridge(): WebviewTransport {
-    return getContext<WebviewTransport>(BRIDGE_KEY) ?? getWebviewTransport();
+    try {
+        const ctx = getContext<WebviewTransport>(BRIDGE_KEY);
+        if (ctx) {
+            return ctx;
+        }
+    } catch {
+        // Called outside component initialization
+    }
+    return moduleBridge ?? createSnapshotTransport(getWebviewTransport());
 }
 
 export function useMessageListener<T = unknown>(handler: (message: T) => void): void {
     const bridge = useBridge();
+    const unsubscribe = bridge.onMessage((msg) => {
+        handler(msg as T);
+    });
     $effect(() => {
-        const unsubscribe = bridge.onMessage((msg) => {
-            handler(msg as T);
-        });
         return () => {
             unsubscribe();
         };
@@ -62,19 +87,19 @@ export function useRpcReceiver<
 ): void {
     const bridge = useBridge();
 
+    const receiver = createWebviewRpcReceiver<TMessage, TOutbound, K>(schema, handlers, {
+        ...options,
+        onError: (err, raw) => options?.onError?.(err, raw),
+        messenger: {
+            postMessage: (m) => bridge.postMessage(m),
+        },
+    });
+
+    const unsubscribe = bridge.onMessage(async (msg) => {
+        await receiver.dispatch(msg);
+    });
+
     $effect(() => {
-        const receiver = createWebviewRpcReceiver<TMessage, TOutbound, K>(schema, handlers, {
-            ...options,
-            onError: (err, raw) => options?.onError?.(err, raw),
-            messenger: {
-                postMessage: (m) => bridge.postMessage(m),
-            },
-        });
-
-        const unsubscribe = bridge.onMessage(async (msg) => {
-            await receiver.dispatch(msg);
-        });
-
         return () => {
             unsubscribe();
             receiver.dispose();

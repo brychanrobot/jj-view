@@ -2,9 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { renderToStaticMarkup } from 'react-dom/server';
+import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
-import { type CommitDragData, CommitDragPreview } from '../core/webview/log/components/CommitDragPreview';
+import type { CommitDragData } from '../core/webview/log/components/CommitDragPreview';
+import CommitDragPreview from '../core/webview/log/components/CommitDragPreview.svelte';
 import { SQUASH_INTO_MODIFIER } from '../core/webview/log/utils/drag-modifiers';
 
 describe('CommitDragPreview Component', () => {
@@ -15,7 +16,8 @@ describe('CommitDragPreview Component', () => {
             description: 'feat: new feature',
         };
 
-        const html = renderToStaticMarkup(<CommitDragPreview commit={commit} minChangeIdLength={4} />);
+        const result = render(CommitDragPreview, { props: { commit, minChangeIdLength: 4 } });
+        const html = result.body;
 
         expect(html).toContain('feat: new feature');
         expect(html).toContain('kk');
@@ -29,7 +31,8 @@ describe('CommitDragPreview Component', () => {
             change_id_shortest: 'y',
         };
 
-        const html = renderToStaticMarkup(<CommitDragPreview commit={commit} minChangeIdLength={1} />);
+        const result = render(CommitDragPreview, { props: { commit, minChangeIdLength: 1 } });
+        const html = result.body;
 
         expect(html).toContain('(no description)');
         expect(html).toContain('y');
@@ -42,9 +45,10 @@ describe('CommitDragPreview Component', () => {
             description: 'squash me',
         };
 
-        const html = renderToStaticMarkup(
-            <CommitDragPreview commit={commit} activeModifier={SQUASH_INTO_MODIFIER} minChangeIdLength={3} />,
-        );
+        const result = render(CommitDragPreview, {
+            props: { commit, activeModifier: SQUASH_INTO_MODIFIER, minChangeIdLength: 3 },
+        });
+        const html = result.body;
 
         expect(html).toContain('Squash Into');
         expect(html).toContain('Squash source commit into target');

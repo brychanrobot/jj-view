@@ -64,8 +64,8 @@ async function main() {
 
     const webviewCtx = await esbuild.context({
         entryPoints: {
-            index: 'src/core/webview/log/index.tsx',
-            'commit-details': 'src/core/webview/commit-details/index.tsx',
+            index: 'src/core/webview/log/index.ts',
+            'commit-details': 'src/core/webview/commit-details/index.ts',
             'process-monitor': 'src/core/webview/process-monitor/index.ts',
         },
         bundle: true,
