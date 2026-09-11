@@ -4,6 +4,7 @@
  */
 
 const esbuild = require('esbuild');
+const sveltePlugin = require('esbuild-svelte');
 const { execSync, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -78,7 +79,15 @@ async function main() {
         define: {
             'process.env.NODE_ENV': production ? '"production"' : '"development"',
         },
-        plugins: [esbuildProblemMatcherPlugin],
+        plugins: [
+            sveltePlugin({
+                compilerOptions: {
+                    dev: !production,
+                    css: 'injected',
+                },
+            }),
+            esbuildProblemMatcherPlugin,
+        ],
         banner: {
             js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
         },
