@@ -66,7 +66,7 @@ async function main() {
         entryPoints: {
             index: 'src/core/webview/log/index.tsx',
             'commit-details': 'src/core/webview/commit-details/index.tsx',
-            'process-monitor': 'src/core/webview/process-monitor/index.tsx',
+            'process-monitor': 'src/core/webview/process-monitor/index.ts',
         },
         bundle: true,
         format: 'iife',
