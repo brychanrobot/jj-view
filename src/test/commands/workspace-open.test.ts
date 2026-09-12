@@ -94,7 +94,7 @@ describe('workspace open commands', () => {
     });
 
     test('reports an error when workspace names cannot be resolved', async () => {
-        repo.dispose();
+        await repo.dispose();
 
         await workspaceOpenInCurrentWindowCommand(ctx, {});
 
