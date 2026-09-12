@@ -991,6 +991,16 @@ export async function dismissActiveUI(page: Page | undefined): Promise<boolean> 
     }
     try {
         await page.mouse.move(0, 0);
+
+        // Clear focus from any active iframe/webview to allow top-level keybinding to work.
+        // Blurring activeElement directly doesn't work if focus is trapped inside a webview iframe
+        // within VS Code's shadow DOM. Focusing a top-level tab steals focus back to the main window.
+        await page
+            .getByRole('tab', { name: /Explorer/i })
+            .first()
+            .focus()
+            .catch(() => {});
+
         const quickInput = page.locator('.quick-input-widget').filter({ visible: true });
         let iterations = 0;
         while ((await quickInput.count()) > 0 && iterations < 5) {
@@ -1012,7 +1022,7 @@ export async function dismissActiveUI(page: Page | undefined): Promise<boolean> 
             await page.keyboard.press('Escape');
             await quickInput
                 .first()
-                .waitFor({ state: 'hidden', timeout: 500 })
+                .waitFor({ state: 'hidden', timeout: 1500 })
                 .catch(() => {});
         }
 
@@ -1023,7 +1033,7 @@ export async function dismissActiveUI(page: Page | undefined): Promise<boolean> 
             await page.keyboard.press('Escape');
             await contextMenu
                 .first()
-                .waitFor({ state: 'hidden', timeout: 500 })
+                .waitFor({ state: 'hidden', timeout: 1500 })
                 .catch(() => {});
         }
 
@@ -1071,7 +1081,15 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
         // Dismiss any active hovers, quick picks, or context menus from previous tests
         // before we do any operations for the new workspace
         const dismissStart = Date.now();
-        await this.dismissActiveUI();
+        const isClean = await this.dismissActiveUI();
+        if (!isClean) {
+            this.requestReset();
+            this.activeContext = await this.worker.getContext(repo, extraSettings, extraEnv, showNotifications);
+            this.app = this.activeContext.app;
+            this.page = this.activeContext.page;
+            this.userDataDir = this.activeContext.userDataDir;
+            await this.dismissActiveUI();
+        }
         logPerf('openWorkspace: dismiss UI', dismissStart);
 
         if (skipRepoSync) {

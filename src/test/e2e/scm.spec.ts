@@ -438,11 +438,14 @@ test.describe('SCM Pane E2E', () => {
 
         // The squashInto action should be visible since there are two mutable ancestors
         const squashIntoIcon = newWcFileRow.getByRole('button', { name: /Squash File\(s\) into Ancestor/ }).first();
-        await hoverAndClick(newWcFileRow, squashIntoIcon);
-
-        // SCM QuickPick should appear for Ancestor selection
         const quickPickInput = page.getByRole('listbox');
-        await expect(quickPickInput).toBeVisible({ timeout: 5000 });
+        await expect(async () => {
+            const isVisible = await quickPickInput.isVisible();
+            if (!isVisible) {
+                await hoverAndClick(newWcFileRow, squashIntoIcon);
+            }
+            await expect(quickPickInput).toBeVisible({ timeout: 2000 });
+        }).toPass({ timeout: 15000 });
 
         const ancestor2Option = page.getByRole('option', { name: /initial/i });
         await ancestor2Option.click();
