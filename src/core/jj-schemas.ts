@@ -51,6 +51,8 @@ export const JjFileChangeSchema = z.object({
     status: z.enum(['modified', 'added', 'renamed', 'copied', 'deleted']),
     /** Whether the file is currently conflicted. */
     conflicted: z.boolean().optional(),
+    /** The number of conflicting sides (e.g. 2 for standard conflict, 3+ for multi-way merge). */
+    conflictSides: z.number().optional(),
 });
 export type JjFileChange = z.infer<typeof JjFileChangeSchema>;
 
@@ -73,9 +75,16 @@ export const DiffStatEntrySchema = z.object({
 });
 export type DiffStatEntry = z.infer<typeof DiffStatEntrySchema>;
 
+export const ConflictedFileEntrySchema = z.object({
+    path: NormalizedPathSchema,
+    conflictSides: z.number().optional(),
+});
+export type ConflictedFileEntry = z.infer<typeof ConflictedFileEntrySchema>;
+
 export const ChangesAndStatsOutputSchema = z.object({
     changes: z.array(JjFileChangeSchema).default([]),
     stats: z.array(DiffStatEntrySchema).default([]),
+    conflicts: z.array(ConflictedFileEntrySchema).default([]),
 });
 export type ChangesAndStatsOutput = z.infer<typeof ChangesAndStatsOutputSchema>;
 

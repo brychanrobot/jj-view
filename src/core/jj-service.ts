@@ -14,6 +14,7 @@ import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import {
     ChangesAndStatsOutputSchema,
+    type ConflictedFileEntry,
     type DiffStatEntry,
     JjBookmarkSchema,
     type JjFileChange,
@@ -1175,6 +1176,14 @@ export class JjService {
                     deletions: { type: 'raw', expr: 'item.lines_removed()' },
                 },
             },
+            conflicts: {
+                type: 'array',
+                expr: 'self.conflicted_files()',
+                itemSchema: {
+                    path: { type: 'json', expr: 'item.path().display()' },
+                    conflictSides: { type: 'raw', expr: 'item.conflict_side_count()' },
+                },
+            },
         });
 
         const output = await this.run('log', ['-r', revision, '--no-graph', '-T', combinedTemplate], {
@@ -1192,17 +1201,37 @@ export class JjService {
             );
         }
 
-        const { changes, stats } = entries[0];
+        const { changes, stats, conflicts } = entries[0];
         const statsMap = new Map<string, DiffStatEntry>(stats.map((s) => [s.path, s]));
+        const conflictMap = new Map<string, ConflictedFileEntry>(conflicts.map((c) => [c.path, c]));
 
-        return changes.map((c) => {
+        const results: JjFileChangeWithStats[] = changes.map((c) => {
             const stat = statsMap.get(c.path);
+            const conflict = conflictMap.get(c.path);
+            if (conflict) {
+                conflictMap.delete(c.path);
+            }
             return {
                 ...c,
+                conflicted: c.conflicted || conflict !== undefined,
+                conflictSides: c.conflictSides ?? conflict?.conflictSides,
                 additions: stat?.additions ?? 0,
                 deletions: stat?.deletions ?? 0,
             };
         });
+
+        for (const [path, conflict] of conflictMap) {
+            results.push({
+                path,
+                status: 'modified',
+                conflicted: true,
+                conflictSides: conflict.conflictSides,
+                additions: 0,
+                deletions: 0,
+            });
+        }
+
+        return results;
     }
 
     private async _doGetChangesBetween(fromRevision: string, toRevision: string): Promise<JjFileChange[]> {

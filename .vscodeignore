@@ -16,6 +16,7 @@ vsc-extension-quickstart.md
 tooling/**
 playwright-report/**
 test-results/**
+test-artifacts/**
 
 # Dev config and tools
 .jj/**

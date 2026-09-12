@@ -331,7 +331,10 @@ function getFileIcon(status: string): string {
     }
 }
 
-function getFileColor(status: string): string {
+function getFileColor(status: string, conflicted?: boolean): string {
+    if (conflicted) {
+        return 'var(--vscode-gitDecoration-conflictingResourceForeground, #e51400)';
+    }
     switch (status) {
         case 'added':
         case 'copied':
@@ -549,6 +552,7 @@ function getFileColor(status: string): string {
                 {:else}
                     {#each files as file (file.path)}
                         {@const { dir, name } = splitFilePath(file.path)}
+                        {@const conflictLabel = file.conflictSides ? `${file.conflictSides}-way conflict` : 'Conflicted file'}
                         <button
                             type="button"
                             class="file-row"
@@ -562,14 +566,22 @@ function getFileColor(status: string): string {
                         >
                             <span
                                 class="codicon codicon-{getFileIcon(file.status)} file-icon"
-                                style:color={getFileColor(file.status)}
+                                style:color={getFileColor(file.status, file.conflicted)}
                             ></span>
                             <span class="file-path-container" title={file.path}>
                                 {#if dir}
                                     <span class="file-dir">{dir}</span>
                                 {/if}
-                                <span class="file-name">{name}</span>
+                                <span class="file-name" style:color={file.conflicted ? 'var(--vscode-gitDecoration-conflictingResourceForeground, #e51400)' : undefined}>{name}</span>
                             </span>
+                            {#if file.conflicted}
+                                <span
+                                    class="codicon codicon-warning conflict-icon"
+                                    role="img"
+                                    title={conflictLabel}
+                                    aria-label={conflictLabel}
+                                ></span>
+                            {/if}
                             <span class="file-meta-group">
                                 {#if file.additions !== undefined || file.deletions !== undefined}
                                     <span class="file-diff-stats">
@@ -581,7 +593,13 @@ function getFileColor(status: string): string {
                                         {/if}
                                     </span>
                                 {/if}
-                                <span class="file-status-badge status-{file.status}">{file.status}</span>
+                                {#if file.conflicted}
+                                    <span class="file-status-badge status-conflicted" title={conflictLabel}>
+                                        {file.conflictSides ? `${file.conflictSides}-way conflict` : 'conflicted'}
+                                    </span>
+                                {:else}
+                                    <span class="file-status-badge status-{file.status}">{file.status}</span>
+                                {/if}
                                 <span class="diff-hover-icon codicon codicon-git-compare" title="Open diff"></span>
                             </span>
                         </button>
@@ -1070,11 +1088,17 @@ function getFileColor(status: string): string {
 
     .file-icon {
         font-size: 15px;
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         flex-shrink: 0;
     }
 
     .file-path-container {
-        flex: 1;
+        flex: 0 1 auto;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1090,6 +1114,18 @@ function getFileColor(status: string): string {
     .file-name {
         color: var(--vscode-foreground);
         font-weight: 500;
+    }
+
+    .conflict-icon {
+        color: var(--vscode-gitDecoration-conflictingResourceForeground, #e51400);
+        font-size: 14px;
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-left: 6px;
     }
 
     .file-meta-group {
@@ -1116,6 +1152,11 @@ function getFileColor(status: string): string {
         padding: 1px 6px;
         border-radius: 10px;
         line-height: normal;
+    }
+
+    .file-status-badge.status-conflicted {
+        color: var(--vscode-gitDecoration-conflictingResourceForeground, #e51400);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground, #e51400) 12%, transparent);
     }
 
     .file-status-badge.status-added,
