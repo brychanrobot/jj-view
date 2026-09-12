@@ -36,24 +36,32 @@ let displayStrings = $derived(person ? getPersonDisplayStrings(person) : null);
     .person-info {
         display: flex;
         align-items: center;
-        font-size: 13px;
+        font-size: 12px;
+        line-height: 1.5;
+        gap: 2px;
+        flex-wrap: wrap;
     }
 
     .label {
         color: var(--vscode-descriptionForeground);
-        margin-right: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-right: 4px;
         flex-shrink: 0;
     }
 
     .name {
         color: var(--vscode-foreground);
-        margin-right: 6px;
+        font-weight: 600;
+        margin-right: 4px;
         flex-shrink: 0;
     }
 
     .email {
         color: var(--vscode-descriptionForeground);
-        opacity: 0.7;
+        opacity: 0.75;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -67,12 +75,13 @@ let displayStrings = $derived(person ? getPersonDisplayStrings(person) : null);
 
     .dot-separator {
         color: var(--vscode-descriptionForeground);
-        margin: 0 6px;
+        opacity: 0.4;
+        margin: 0 4px;
         flex-shrink: 0;
     }
 
     .time {
-        color: var(--vscode-foreground);
+        color: var(--vscode-descriptionForeground);
         white-space: nowrap;
         flex-shrink: 0;
     }
