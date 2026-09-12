@@ -325,6 +325,8 @@ test.describe('GitHub Integration E2E', () => {
         }).toPass({ timeout: 15000 });
 
         await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(quickPick).not.toBeVisible();
     });
 
     test('Detects PR from fork targeting mainline repo', async ({ vscode }) => {
