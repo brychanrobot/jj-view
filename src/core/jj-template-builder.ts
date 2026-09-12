@@ -88,6 +88,11 @@ export function buildDiffFileSchema(varName: 'item' | 'self'): Record<string, Jj
             expr: `if(${varName}.status() == "removed", "\\"deleted\\"", json(${varName}.status()))`,
         },
         conflicted: { type: 'raw', expr: `${varName}.target().conflict()` },
+        conflictSides: {
+            type: 'optionalField',
+            where: `${varName}.target().conflict()`,
+            valueExpr: `${varName}.target().conflict_side_count()`,
+        },
     };
 }
 

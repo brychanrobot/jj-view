@@ -114,6 +114,31 @@ test.describe('Commit Details E2E', () => {
             await expect(details.locator('text=Changed Files (2)')).toBeVisible();
         });
 
+        test('Marks the conflicted file in the file list with conflict sides and warning icon', async () => {
+            const conflictedRow = await waitForLogCommitRow(page, 'conflicted commit');
+            await conflictedRow.click();
+
+            const shortId = nodes['conflicted-commit'].changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            const details = await getDetailsWebview(page);
+            const conflictedFileRow = details.locator('.file-row', { hasText: 'f.txt' });
+            await expect(conflictedFileRow).toHaveCount(1);
+            await expect(conflictedFileRow).toBeVisible();
+
+            // Verify the warning icon with tooltip inside the specific file row
+            const conflictIcon = conflictedFileRow.locator('.conflict-icon');
+            await expect(conflictIcon).toBeVisible();
+            await expect(conflictIcon).toHaveAttribute('title', '2-way conflict');
+
+            // Verify the conflicted status badge inside the specific file row
+            const conflictBadge = conflictedFileRow.locator('.file-status-badge.status-conflicted');
+            await expect(conflictBadge).toBeVisible();
+            await expect(conflictBadge).toHaveText('2-way conflict');
+        });
+
         test('Save description via button', async () => {
             const featureRow = await waitForLogCommitRow(page, 'add feature');
 

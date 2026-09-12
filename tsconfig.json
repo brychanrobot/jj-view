@@ -23,6 +23,7 @@
         "scripts",
         "tooling",
         "playwright-report",
-        "test-results"
+        "test-results",
+        "test-artifacts"
     ]
 }

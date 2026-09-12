@@ -141,6 +141,7 @@ describe('JjService Diff Tests', () => {
                 path: 'conflict.txt',
                 status: 'modified',
                 conflicted: true,
+                conflictSides: 2,
             },
         ]);
     });

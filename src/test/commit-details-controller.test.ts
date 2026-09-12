@@ -210,6 +210,15 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         const state = conflictController.getState();
         expect(state).toBeDefined();
         expect(state?.isConflict).toBe(true);
+        expect(state?.files).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'file.txt',
+                    conflicted: true,
+                    conflictSides: 2,
+                }),
+            ]),
+        );
 
         const updates = conflictClient.receivedMessages.filter((m) => m.type === 'update');
         expect(updates.length).toBeGreaterThanOrEqual(1);
@@ -217,6 +226,13 @@ describe('CommitDetailsController Domain Unit Tests', () => {
             type: 'update',
             payload: expect.objectContaining({
                 isConflict: true,
+                files: expect.arrayContaining([
+                    expect.objectContaining({
+                        path: 'file.txt',
+                        conflicted: true,
+                        conflictSides: 2,
+                    }),
+                ]),
             }),
         });
 
