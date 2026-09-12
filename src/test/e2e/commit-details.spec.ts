@@ -596,6 +596,38 @@ test.describe('Commit Details E2E', () => {
                 await expect(tabLocator).not.toHaveClass(/dirty/);
             }).toPass({ timeout: 5000 });
         });
+
+        test('Surplus-lending layout: viewport does not scroll and sections adapt', async () => {
+            const featureRow = await waitForLogCommitRow(page, 'add feature');
+            await featureRow.click();
+
+            const shortId = nodes.feature.changeId.substring(0, 3);
+            await expect(page.getByRole('tab', { name: new RegExp(`^Commit: ${shortId}`) })).toBeVisible({
+                timeout: 15000,
+            });
+
+            const details = await getDetailsWebview(page);
+            const container = details.locator('.commit-details-container');
+            await expect(container).toBeVisible();
+
+            // Verify container fits within viewport without overflow
+            const scrollInfo = await details.evaluate(() => {
+                return {
+                    docScrollHeight: document.documentElement.scrollHeight,
+                    docClientHeight: document.documentElement.clientHeight,
+                    bodyScrollHeight: document.body.scrollHeight,
+                    bodyClientHeight: document.body.clientHeight,
+                };
+            });
+            expect(scrollInfo.docScrollHeight).toBeLessThanOrEqual(scrollInfo.docClientHeight);
+            expect(scrollInfo.bodyScrollHeight).toBeLessThanOrEqual(scrollInfo.bodyClientHeight);
+
+            // Verify textarea has no sash resize handle
+            await expect(details.locator('.sash-corner')).toHaveCount(0);
+
+            // Verify PersonInfo has no icons
+            await expect(details.locator('.person-icon')).toHaveCount(0);
+        });
     });
 
     test.describe('Format on Save', () => {

@@ -65,6 +65,98 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 let textareaRef = $state<HTMLTextAreaElement | null>(null);
 let backdropRef = $state<HTMLDivElement | null>(null);
 
+let containerHeight = $state(0);
+let topSectionHeight = $state(0);
+let editorHeaderHeight = $state(0);
+let backdropTextHeight = $state(0);
+let filesHeaderHeight = $state(0);
+let filesContentHeight = $state(0);
+
+const SECTION_GAP = 16;
+const CONTAINER_PADDING_Y = 36;
+const MIN_EDITOR_WRAPPER = 96;
+const MIN_FILES_LIST = 36;
+
+const editorWrapperNeeded = $derived(Math.max(MIN_EDITOR_WRAPPER, (backdropTextHeight || 0) + 28));
+const filesListNeeded = $derived(Math.max(MIN_FILES_LIST, (filesContentHeight || 0) + 4));
+
+const editorSectionNeeded = $derived(editorWrapperNeeded + (editorHeaderHeight || 26) + 8);
+const filesSectionNeeded = $derived(filesListNeeded + (filesHeaderHeight || 26) + 8);
+
+const availableContentHeight = $derived(
+    Math.max(
+        MIN_EDITOR_WRAPPER + MIN_FILES_LIST + 70,
+        containerHeight - topSectionHeight - CONTAINER_PADDING_Y - SECTION_GAP * 2,
+    ),
+);
+
+const layoutAllocation = $derived.by(() => {
+    const avail = availableContentHeight;
+    const half = avail / 2;
+    const edNeeded = editorSectionNeeded;
+    const flNeeded = filesSectionNeeded;
+
+    if (edNeeded + flNeeded <= avail) {
+        return {
+            editorHeight: edNeeded,
+            filesHeight: flNeeded,
+        };
+    }
+
+    if (edNeeded <= half) {
+        return {
+            editorHeight: edNeeded,
+            filesHeight: avail - edNeeded,
+        };
+    }
+
+    if (flNeeded <= half) {
+        return {
+            editorHeight: avail - flNeeded,
+            filesHeight: flNeeded,
+        };
+    }
+
+    return {
+        editorHeight: half,
+        filesHeight: half,
+    };
+});
+
+let copiedId = $state<'change' | 'commit' | null>(null);
+let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function copyToClipboard(text: string, id: 'change' | 'commit') {
+    if (navigator.clipboard) {
+        navigator.clipboard
+            .writeText(text)
+            .then(() => {
+                copiedId = id;
+                if (copyTimeout) {
+                    clearTimeout(copyTimeout);
+                }
+                copyTimeout = setTimeout(() => {
+                    copiedId = null;
+                }, 1500);
+            })
+            .catch(() => {});
+    }
+}
+
+function splitFilePath(filePath: string): { dir: string; name: string } {
+    const lastSlash = filePath.lastIndexOf('/');
+    if (lastSlash === -1) {
+        return { dir: '', name: filePath };
+    }
+    return {
+        dir: filePath.slice(0, lastSlash + 1),
+        name: filePath.slice(lastSlash + 1),
+    };
+}
+
+const totalAdditions = $derived(files.reduce((acc, f) => acc + (f.additions || 0), 0));
+const totalDeletions = $derived(files.reduce((acc, f) => acc + (f.deletions || 0), 0));
+
 const isDirty = $derived(draftDescription !== description);
 
 $effect(() => {
@@ -81,6 +173,9 @@ $effect(() => {
     return () => {
         if (saveTimeout) {
             clearTimeout(saveTimeout);
+        }
+        if (copyTimeout) {
+            clearTimeout(copyTimeout);
         }
     };
 });
@@ -176,9 +271,15 @@ const isTitleOver = $derived(title.length > titleWidthRuler);
 const isBodyOver = $derived(bodyLines.some((l) => l.length > bodyWidthRuler));
 
 const titleRulerColor = $derived(
-    isTitleOver ? 'var(--vscode-errorForeground)' : 'var(--vscode-editorRuler-foreground)',
+    isTitleOver
+        ? 'var(--vscode-errorForeground)'
+        : 'var(--vscode-editorRuler-foreground, color-mix(in srgb, var(--vscode-editor-foreground, #cccccc), transparent 75%))',
 );
-const bodyRulerColor = $derived(isBodyOver ? 'var(--vscode-errorForeground)' : 'var(--vscode-editorRuler-foreground)');
+const bodyRulerColor = $derived(
+    isBodyOver
+        ? 'var(--vscode-errorForeground)'
+        : 'var(--vscode-editorRuler-foreground, color-mix(in srgb, var(--vscode-editor-foreground, #cccccc), transparent 75%))',
+);
 
 function escapeHtml(str: string): string {
     return str
@@ -247,9 +348,9 @@ function getFileColor(status: string): string {
 }
 </script>
 
-<div class="commit-details-container">
-    <!-- Header -->
-    <div class="header-section">
+<div class="commit-details-container" bind:clientHeight={containerHeight}>
+    <!-- Top Section (Status Badges + Metadata) -->
+    <div class="top-section" bind:clientHeight={topSectionHeight}>
         <div class="pills-row">
             {#if isImmutable}
                 <BasePill
@@ -283,52 +384,64 @@ function getFileColor(status: string): string {
             {/each}
         </div>
 
-        <div class="ids-section">
-            <div class="id-row">
-                <span class="id-label">Change:</span>
-                <span class="id-value" title={changeId}>
-                    {formatDisplayChangeId(changeId, changeId, minChangeIdLength)}
-                </span>
-                <button
-                    type="button"
-                    class="copy-button"
-                    onclick={() => navigator.clipboard.writeText(changeId)}
-                    title="Copy Change ID"
-                >
-                    <span class="codicon codicon-copy"></span>
-                </button>
-            </div>
-            <div class="id-row">
-                <span class="id-label">Commit:</span>
-                <span class="id-value" title={commitId}>
-                    {commitId.substring(0, 12)}
-                </span>
-                <button
-                    type="button"
-                    class="copy-button"
-                    onclick={() => navigator.clipboard.writeText(commitId)}
-                    title="Copy Commit ID"
-                >
-                    <span class="codicon codicon-copy"></span>
-                </button>
+        <div class="metadata-section">
+            <div class="id-chips-row">
+                <div class="id-row">
+                    <span class="id-label">Change:</span>
+                    <span class="id-value" title={changeId}>
+                        {formatDisplayChangeId(changeId, changeId, minChangeIdLength)}
+                    </span>
+                    <button
+                        type="button"
+                        class="copy-button"
+                        onclick={() => copyToClipboard(changeId, 'change')}
+                        title="Copy Change ID"
+                    >
+                        <span class="codicon {copiedId === 'change' ? 'codicon-check copied-icon' : 'codicon-copy'}"></span>
+                    </button>
+                </div>
+                <div class="id-row">
+                    <span class="id-label">Commit:</span>
+                    <span class="id-value" title={commitId}>
+                        {commitId.substring(0, 12)}
+                    </span>
+                    <button
+                        type="button"
+                        class="copy-button"
+                        onclick={() => copyToClipboard(commitId, 'commit')}
+                        title="Copy Commit ID"
+                    >
+                        <span class="codicon {copiedId === 'commit' ? 'codicon-check copied-icon' : 'codicon-copy'}"></span>
+                    </button>
+                </div>
             </div>
 
-            <PersonInfo person={author} label="Author" />
-            <PersonInfo person={committer} label="Committer" />
+            {#if author || committer}
+                <div class="people-rows">
+                    <PersonInfo person={author} label="Author" />
+                    <PersonInfo person={committer} label="Committer" />
+                </div>
+            {/if}
         </div>
     </div>
 
-    <!-- Description Editor -->
-    <div class="editor-section">
-        <div class="editor-header">
-            <div class="editor-label-group">
-                <label for="commit-message" class="editor-label">
+    <!-- Description Editor Section -->
+    <div
+        class="section editor-section"
+        style:height={containerHeight > 0 ? `${layoutAllocation.editorHeight}px` : undefined}
+    >
+        <div class="section-header" bind:clientHeight={editorHeaderHeight}>
+            <div class="section-title-group">
+                <label for="commit-message" class="section-title">
                     Message
                 </label>
+                <span class="ruler-indicator" title="Configured rulers for title / body width">
+                    {titleWidthRuler}/{bodyWidthRuler} ch
+                </span>
                 <a
                     href="command:workbench.action.openSettings?%5B%22jj-view.commit%22%5D"
                     title="Configure width rulers"
-                    class="settings-link"
+                    class="settings-icon-btn"
                 >
                     <span class="codicon codicon-settings-gear"></span>
                 </a>
@@ -339,7 +452,7 @@ function getFileColor(status: string): string {
                         type="button"
                         onclick={handleFormat}
                         title={`Format body to ${bodyWidthRuler} characters`}
-                        class="format-button"
+                        class="secondary-button"
                     >
                         <span class="codicon codicon-word-wrap"></span>
                         Format Body
@@ -349,30 +462,38 @@ function getFileColor(status: string): string {
                         title={`Save Changes (${saveShortcutHint})`}
                         onclick={handleSave}
                         disabled={isSaving || !isDirty}
-                        class="save-button"
+                        class="primary-button"
                         class:btn-dirty={isDirty && !isSaving}
-                    ><span class="codicon {isDirty ? 'codicon-save' : 'codicon-check'}"></span>{isSaving
+                    >{isSaving
                         ? 'Saving...'
                         : isDirty
                           ? `Save Changes (${saveShortcutHint})`
                           : 'Saved'}</button>
+                {:else}
+                    <span class="read-only-chip">
+                        <span class="codicon codicon-lock"></span>
+                        Read-only
+                    </span>
                 {/if}
             </div>
         </div>
-        <div class="editor-wrapper">
+        <div
+            class="editor-wrapper"
+            class:is-immutable={isImmutable}
+        >
             <div bind:this={backdropRef} class="editor-backdrop">
                 <div class="backdrop-content">
                     <div
                         class="ruler title-ruler"
-                        style:left={`calc(10px + ${titleWidthRuler}ch)`}
+                        style:left={`calc(12px + ${titleWidthRuler}ch)`}
                         style:background-color={titleRulerColor}
                     ></div>
                     <div
                         class="ruler body-ruler"
-                        style:left={`calc(10px + ${bodyWidthRuler}ch)`}
+                        style:left={`calc(12px + ${bodyWidthRuler}ch)`}
                         style:background-color={bodyRulerColor}
                     ></div>
-                    <div class="backdrop-text">{@html highlightedHtml}</div>
+                    <div class="backdrop-text" bind:clientHeight={backdropTextHeight}>{@html highlightedHtml}</div>
                 </div>
             </div>
             <textarea
@@ -388,92 +509,155 @@ function getFileColor(status: string): string {
         </div>
     </div>
 
-    <!-- Changed Files -->
-    <div class="files-section">
-        <div class="files-header">
-            <div class="files-title-group">
-                <h3 class="files-title">
+    <!-- Changed Files Section -->
+    <div
+        class="section files-section"
+        style:height={containerHeight > 0 ? `${layoutAllocation.filesHeight}px` : undefined}
+    >
+        <div class="section-header files-header" bind:clientHeight={filesHeaderHeight}>
+            <div class="section-title-group">
+                <h3 class="section-title">
                     Changed Files ({files.length})
                 </h3>
-                <span class="diff-stats">
-                    <span class="stat-added">
-                        +{files.reduce((acc, f) => acc + (f.additions || 0), 0)}
-                    </span>
-                    <span class="stat-divider">/</span>
-                    <span class="stat-deleted">
-                        -{files.reduce((acc, f) => acc + (f.deletions || 0), 0)}
-                    </span>
-                </span>
+                {#if totalAdditions > 0 || totalDeletions > 0}
+                    <div class="diff-summary-badges">
+                        {#if totalAdditions > 0}
+                            <span class="stat-pill stat-added">+{totalAdditions}</span>
+                        {/if}
+                        {#if totalDeletions > 0}
+                            <span class="stat-pill stat-deleted">-{totalDeletions}</span>
+                        {/if}
+                    </div>
+                {/if}
             </div>
             <button
                 type="button"
                 onclick={onOpenMultiDiff}
-                class="multi-diff-button"
+                class="secondary-button"
             >
                 <span class="codicon codicon-diff"></span>
                 Multi-file Diff
             </button>
         </div>
         <div class="files-list">
-            {#if files.length === 0}
-                <div class="no-files-message">
-                    No changed files.
-                </div>
-            {:else}
-                {#each files as file (file.path)}
-                    <button
-                        type="button"
-                        class="file-row"
-                        onclick={() => onOpenDiff($state.snapshot(file), isImmutable)}
-                        onkeydown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                onOpenDiff($state.snapshot(file), isImmutable);
-                            }
-                        }}
-                    >
-                        <span
-                            class="codicon codicon-{getFileIcon(file.status)} file-icon"
-                            style:color={getFileColor(file.status)}
-                        ></span>
-                        <span class="file-path" title={file.path}>
-                            {file.path}
-                        </span>
-                        <span class="file-status-group">
-                            {#if file.additions !== undefined || file.deletions !== undefined}
-                                <span class="file-diff-stats">
-                                    <span class="stat-added">+{file.additions || 0}</span>
-                                    <span class="stat-divider">/</span>
-                                    <span class="stat-deleted">-{file.deletions || 0}</span>
-                                </span>
-                            {/if}
-                            <span class="file-status-label">{file.status}</span>
-                        </span>
-                    </button>
-                {/each}
-            {/if}
+            <div class="files-items" bind:clientHeight={filesContentHeight}>
+                {#if files.length === 0}
+                    <div class="no-files-message">
+                        <span class="codicon codicon-check-all"></span>
+                        No changed files.
+                    </div>
+                {:else}
+                    {#each files as file (file.path)}
+                        {@const { dir, name } = splitFilePath(file.path)}
+                        <button
+                            type="button"
+                            class="file-row"
+                            onclick={() => onOpenDiff($state.snapshot(file), isImmutable)}
+                            onkeydown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    onOpenDiff($state.snapshot(file), isImmutable);
+                                }
+                            }}
+                        >
+                            <span
+                                class="codicon codicon-{getFileIcon(file.status)} file-icon"
+                                style:color={getFileColor(file.status)}
+                            ></span>
+                            <span class="file-path-container" title={file.path}>
+                                {#if dir}
+                                    <span class="file-dir">{dir}</span>
+                                {/if}
+                                <span class="file-name">{name}</span>
+                            </span>
+                            <span class="file-meta-group">
+                                {#if file.additions !== undefined || file.deletions !== undefined}
+                                    <span class="file-diff-stats">
+                                        {#if (file.additions ?? 0) > 0}
+                                            <span class="stat-added">+{file.additions}</span>
+                                        {/if}
+                                        {#if (file.deletions ?? 0) > 0}
+                                            <span class="stat-deleted">-{file.deletions}</span>
+                                        {/if}
+                                    </span>
+                                {/if}
+                                <span class="file-status-badge status-{file.status}">{file.status}</span>
+                                <span class="diff-hover-icon codicon codicon-git-compare" title="Open diff"></span>
+                            </span>
+                        </button>
+                    {/each}
+                {/if}
+            </div>
         </div>
     </div>
 </div>
 
 <style>
+    :global(html, body) {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    :global(#root) {
+        height: 100%;
+    }
+
     .commit-details-container {
         display: flex;
         flex-direction: column;
+        gap: 16px;
         height: 100vh;
-        padding: 20px;
+        max-height: 100vh;
+        padding: 16px 20px 20px;
         box-sizing: border-box;
         background-color: var(--vscode-editor-background);
         color: var(--vscode-editor-foreground);
-        font-family: var(--vscode-editor-font-family);
+        font-family: var(--vscode-font-family);
+        overflow: hidden;
     }
 
-    .header-section {
-        margin-bottom: 12px;
+    .top-section {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        flex-shrink: 0;
     }
 
+    /* Sections */
+    .section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        min-height: 26px;
+    }
+
+    .section-title-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .section-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--vscode-descriptionForeground);
+        margin: 0;
+    }
+
+    /* Top Pills Row */
     .pills-row {
-        margin: 0 0 10px 0;
+        margin: 0;
         display: flex;
         gap: 6px;
         flex-wrap: wrap;
@@ -483,157 +667,209 @@ function getFileColor(status: string): string {
     }
 
     :global(.badge-immutable) {
-        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-untrackedResourceForeground), transparent 50%) !important;
-        background-color: color-mix(in srgb, var(--vscode-gitDecoration-untrackedResourceForeground), transparent 90%) !important;
+        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-untrackedResourceForeground), transparent 40%) !important;
+        background-color: color-mix(in srgb, var(--vscode-gitDecoration-untrackedResourceForeground), transparent 88%) !important;
         color: var(--vscode-gitDecoration-untrackedResourceForeground) !important;
         text-transform: uppercase;
-        font-weight: bold;
+        font-weight: 700;
     }
 
     :global(.badge-empty) {
-        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-ignoredResourceForeground), transparent 50%) !important;
-        background-color: color-mix(in srgb, var(--vscode-gitDecoration-ignoredResourceForeground), transparent 90%) !important;
+        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-ignoredResourceForeground), transparent 40%) !important;
+        background-color: color-mix(in srgb, var(--vscode-gitDecoration-ignoredResourceForeground), transparent 88%) !important;
         color: var(--vscode-gitDecoration-ignoredResourceForeground) !important;
         text-transform: uppercase;
-        font-weight: bold;
+        font-weight: 700;
     }
 
     :global(.badge-conflicted) {
-        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground), transparent 50%) !important;
-        background-color: color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground), transparent 90%) !important;
+        border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground), transparent 40%) !important;
+        background-color: color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground), transparent 88%) !important;
         color: var(--vscode-gitDecoration-conflictingResourceForeground) !important;
         text-transform: uppercase;
-        font-weight: bold;
+        font-weight: 700;
     }
 
-    .ids-section {
+    /* Metadata Section */
+    .metadata-section {
         display: flex;
         flex-direction: column;
+        gap: 8px;
+    }
+
+    .id-chips-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
         gap: 8px;
     }
 
     .id-row {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
+        background: color-mix(in srgb, var(--vscode-editor-background), var(--vscode-foreground) 3.5%);
+        border: 1px solid color-mix(in srgb, var(--vscode-editor-foreground), transparent 86%);
+        border-radius: 6px;
+        padding: 3px 6px 3px 8px;
+        font-size: 12px;
+        transition: border-color 0.15s, background-color 0.15s;
+    }
+
+    .id-row:hover {
+        border-color: color-mix(in srgb, var(--vscode-editor-foreground), transparent 72%);
     }
 
     .id-label {
-        font-size: 13px;
+        font-size: 11px;
+        font-weight: 600;
         color: var(--vscode-descriptionForeground);
     }
 
     .id-value {
-        font-size: 13px;
+        font-family: var(--vscode-editor-font-family), monospace;
+        font-size: 12px;
         color: var(--vscode-foreground);
-        font-family: monospace;
     }
 
     .copy-button {
-        background: none;
+        background: transparent;
         border: none;
-        padding: 2px;
+        color: var(--vscode-descriptionForeground);
         cursor: pointer;
-        color: var(--vscode-icon-foreground);
-        display: flex;
+        padding: 2px 4px;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 18px;
-        height: 18px;
+        border-radius: 4px;
+        transition: background-color 0.15s, color 0.15s;
+    }
+
+    .copy-button:hover {
+        background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+        color: var(--vscode-foreground);
     }
 
     .copy-button .codicon {
-        font-size: 14px;
+        font-size: 12px;
     }
 
+    :global(.copied-icon) {
+        color: var(--vscode-gitDecoration-addedResourceForeground, #23d18b) !important;
+    }
+
+    .people-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    /* Message Editor Section */
     .editor-section {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        margin-bottom: 20px;
-        flex: 1;
     }
 
-    .editor-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-    }
-
-    .editor-label-group {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .editor-label {
-        font-weight: bold;
-    }
-
-    .settings-link {
+    .ruler-indicator {
         font-size: 11px;
-        color: var(--vscode-textLink-foreground);
-        text-decoration: none;
+        color: var(--vscode-descriptionForeground);
+        background: color-mix(in srgb, var(--vscode-editor-foreground), transparent 92%);
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-family: var(--vscode-editor-font-family), monospace;
+    }
+
+    .settings-icon-btn {
+        color: var(--vscode-descriptionForeground);
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 4px;
-        width: 14px;
-        height: 14px;
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        text-decoration: none;
+        transition: background-color 0.15s, color 0.15s;
+    }
+
+    .settings-icon-btn:hover {
+        background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+        color: var(--vscode-foreground);
+    }
+
+    .settings-icon-btn .codicon {
+        font-size: 14px;
     }
 
     .editor-actions {
         display: flex;
+        align-items: center;
         gap: 8px;
     }
 
-    .format-button {
-        background: none;
-        border: none;
-        padding: 2px 4px;
-        cursor: pointer;
-        color: var(--vscode-textLink-foreground);
-        display: flex;
-        align-items: center;
-        font-size: 12px;
-        gap: 4px;
-    }
-
-    .save-button {
-        padding: 2px 8px;
-        color: var(--vscode-button-foreground);
-        background-color: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background));
-        border: 1px solid transparent;
-        cursor: default;
-        opacity: 0.6;
-        display: flex;
-        align-items: center;
-        font-size: 12px;
-        gap: 4px;
-        border-radius: 2px;
-        transition: background-color 0.2s, color 0.2s;
-    }
-
-    .save-button.btn-dirty {
-        cursor: pointer;
-        opacity: 1;
+    /* Buttons */
+    .primary-button {
         background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: 1px solid var(--vscode-button-border, transparent);
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        line-height: normal;
+        transition: background-color 0.15s, opacity 0.15s;
     }
 
-    .save-button:disabled {
-        opacity: 0.7;
+    .primary-button:hover:not(:disabled) {
+        background-color: var(--vscode-button-hoverBackground);
+    }
+
+    .primary-button:disabled {
+        opacity: 0.6;
         cursor: default;
     }
 
-    .save-button.btn-dirty:not(:disabled) {
-        opacity: 1;
-        cursor: pointer;
+    .primary-button.btn-dirty:not(:disabled) {
+        box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
     }
 
-    .btn-dirty :global(.codicon-save) {
-        animation: jiggle-icon 2s infinite ease-in-out;
-        display: inline-block;
-        transform-origin: center;
+    .primary-button.btn-dirty :global(.codicon-save) {
+        animation: jiggle-icon 3s ease-in-out infinite;
+    }
+
+    .secondary-button {
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: 1px solid var(--vscode-button-border, transparent);
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        line-height: normal;
+        transition: background-color 0.15s;
+    }
+
+    .secondary-button:hover {
+        background-color: var(--vscode-button-secondaryHoverBackground);
+    }
+
+    .read-only-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        background: color-mix(in srgb, var(--vscode-editor-foreground), transparent 92%);
+        padding: 2px 8px;
+        border-radius: 10px;
     }
 
     @keyframes jiggle-icon {
@@ -645,17 +881,30 @@ function getFileColor(status: string): string {
         98% { transform: rotate(0deg); }
     }
 
+    /* Editor Wrapper */
     .editor-wrapper {
         position: relative;
         flex: 1;
+        min-height: 0;
         display: flex;
         background-color: var(--vscode-input-background);
-        border: 1px solid var(--vscode-input-border);
+        border: 1px solid var(--vscode-input-border, color-mix(in srgb, var(--vscode-editor-foreground), transparent 82%));
+        border-radius: 8px;
         font-family: var(--vscode-editor-font-family), monospace;
-        font-size: var(--vscode-editor-font-size);
+        font-size: var(--vscode-editor-font-size, 13px);
         line-height: 1.5em;
-        min-height: 150px;
         overflow: hidden;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .editor-wrapper:focus-within {
+        border-color: var(--vscode-focusBorder, #007fd4);
+        box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
+    }
+
+    .editor-wrapper.is-immutable {
+        opacity: 0.9;
+        background-color: color-mix(in srgb, var(--vscode-input-background), transparent 20%);
     }
 
     .editor-backdrop {
@@ -673,7 +922,7 @@ function getFileColor(status: string): string {
         position: relative;
         min-width: 100%;
         min-height: 100%;
-        padding: 10px;
+        padding: 12px;
         box-sizing: border-box;
         color: var(--vscode-input-foreground);
     }
@@ -686,14 +935,14 @@ function getFileColor(status: string): string {
     }
 
     .title-ruler {
-        top: 10px;
+        top: 12px;
         bottom: auto;
         height: 1.5em;
     }
 
     .body-ruler {
-        top: calc(10px + 1.5em);
-        bottom: 10px;
+        top: calc(12px + 1.5em);
+        bottom: 12px;
     }
 
     .backdrop-text {
@@ -718,13 +967,14 @@ function getFileColor(status: string): string {
 
     .commit-textarea {
         flex: 1;
+        height: 100%;
         margin: 0;
         box-sizing: border-box;
         background-color: transparent;
         color: transparent;
         caret-color: var(--vscode-input-foreground);
         border: none;
-        padding: 10px;
+        padding: 12px;
         resize: none;
         outline: none;
         font-family: inherit;
@@ -733,8 +983,14 @@ function getFileColor(status: string): string {
         z-index: 2;
         white-space: pre;
         overflow-wrap: normal;
+        overflow-y: auto;
         overflow-x: auto;
         tab-size: 4;
+    }
+
+    .commit-textarea::-webkit-resizer {
+        display: none !important;
+        background: transparent !important;
     }
 
     .commit-textarea::selection {
@@ -742,117 +998,169 @@ function getFileColor(status: string): string {
         background-color: var(--vscode-editor-selectionBackground) !important;
     }
 
+    /* Changed Files Section */
     .files-section {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        flex: 1;
-        max-height: 40%;
     }
 
-    .files-header {
-        display: flex;
-        justify-content: space-between;
+    .diff-summary-badges {
+        display: inline-flex;
         align-items: center;
+        gap: 4px;
+        font-family: var(--vscode-editor-font-family), monospace;
     }
 
-    .files-title-group {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .files-title {
-        font-weight: bold;
-        margin: 0;
-        font-size: inherit;
-    }
-
-    .diff-stats {
+    .stat-pill {
+        padding: 1px 6px;
+        border-radius: 10px;
         font-size: 11px;
-        font-family: monospace;
+        font-weight: 700;
+        line-height: normal;
     }
 
     .stat-added {
-        color: var(--vscode-gitDecoration-addedResourceForeground);
-    }
-
-    .stat-divider {
-        margin: 0 4px;
-        opacity: 0.5;
+        color: var(--vscode-gitDecoration-addedResourceForeground, #23d18b);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #23d18b) 14%, transparent);
     }
 
     .stat-deleted {
-        color: var(--vscode-gitDecoration-deletedResourceForeground);
-    }
-
-    .multi-diff-button {
-        padding: 2px 8px;
-        color: var(--vscode-button-foreground);
-        background-color: var(--vscode-button-secondaryBackground);
-        border: none;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        font-size: 12px;
-        gap: 4px;
-        border-radius: 2px;
+        color: var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c) 14%, transparent);
     }
 
     .files-list {
         flex: 1;
-        border: 1px solid var(--vscode-widget-border);
+        min-height: 0;
         overflow-y: auto;
     }
 
-    .no-files-message {
-        padding: 10px;
-        color: var(--vscode-descriptionForeground);
-        font-style: italic;
+    .files-items {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
     }
 
     .file-row {
         display: flex;
         align-items: center;
+        gap: 8px;
         padding: 6px 10px;
-        font-size: 13px;
-        cursor: pointer;
-        border-bottom: 1px solid var(--vscode-tree-tableOddRowsBackground);
-        width: 100%;
-        background: none;
+        background: transparent;
         border: none;
-        color: inherit;
+        border-radius: 6px;
+        cursor: pointer;
         text-align: left;
+        width: 100%;
+        color: inherit;
+        font-family: inherit;
+        font-size: 13px;
+        transition: background-color 0.12s ease;
     }
 
     .file-row:hover {
         background-color: var(--vscode-list-hoverBackground);
     }
 
-    .file-icon {
-        margin-right: 8px;
+    .file-row:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        background-color: var(--vscode-list-focusBackground, var(--vscode-list-hoverBackground));
     }
 
-    .file-path {
-        white-space: nowrap;
+    .file-icon {
+        font-size: 15px;
+        flex-shrink: 0;
+    }
+
+    .file-path-container {
+        flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
+        display: flex;
+        align-items: baseline;
     }
 
-    .file-status-group {
-        margin-left: auto;
-        font-size: 11px;
-        display: flex;
-        gap: 8px;
+    .file-dir {
         color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+    }
+
+    .file-name {
+        color: var(--vscode-foreground);
+        font-weight: 500;
+    }
+
+    .file-meta-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex-shrink: 0;
     }
 
     .file-diff-stats {
-        font-family: monospace;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-family: var(--vscode-editor-font-family), monospace;
     }
 
-    .file-status-label {
-        min-width: 60px;
-        text-align: right;
+    .file-status-badge {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 1px 6px;
+        border-radius: 10px;
+        line-height: normal;
+    }
+
+    .file-status-badge.status-added,
+    .file-status-badge.status-copied {
+        color: var(--vscode-gitDecoration-addedResourceForeground, #23d18b);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #23d18b) 12%, transparent);
+    }
+
+    .file-status-badge.status-modified {
+        color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d) 12%, transparent);
+    }
+
+    .file-status-badge.status-deleted {
+        color: var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c) 12%, transparent);
+    }
+
+    .file-status-badge.status-renamed {
+        color: var(--vscode-gitDecoration-renamedResourceForeground, #73c991);
+        background: color-mix(in srgb, var(--vscode-gitDecoration-renamedResourceForeground, #73c991) 12%, transparent);
+    }
+
+    .diff-hover-icon {
+        opacity: 0;
+        font-size: 14px;
+        color: var(--vscode-descriptionForeground);
+        transition: opacity 0.15s, color 0.15s;
+    }
+
+    .file-row:hover .diff-hover-icon {
+        opacity: 0.85;
+    }
+
+    .diff-hover-icon:hover {
+        color: var(--vscode-foreground);
+    }
+
+    .no-files-message {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+        padding: 12px 10px;
+        font-style: italic;
     }
 </style>
