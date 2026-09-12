@@ -145,7 +145,7 @@ export class TestRepo {
         tempDirs.add(this.path);
     }
 
-    dispose() {
+    async dispose(): Promise<void> {
         if (!this.configId) {
             const configIdFile = path.join(this.path, '.jj', 'repo', 'config-id');
             if (fs.existsSync(configIdFile)) {
@@ -156,12 +156,15 @@ export class TestRepo {
         }
 
         const repoPath = this.path;
-        fs.promises
-            .rm(repoPath, { recursive: true, force: true })
-            .catch(() => {})
-            .finally(() => {
-                tempDirs.delete(repoPath);
+        try {
+            await fs.promises.rm(repoPath, {
+                recursive: true,
+                force: true,
+                maxRetries: 5,
+                retryDelay: 50,
             });
+        } catch {}
+        tempDirs.delete(repoPath);
 
         if (this.configId) {
             const userJjDir = getUserJjDir();
@@ -924,8 +927,12 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
     return labelToId;
 }
 
-export class ScopedTestRepo extends TestRepo implements Disposable {
+export class ScopedTestRepo extends TestRepo implements Disposable, AsyncDisposable {
     [Symbol.dispose]() {
-        this.dispose();
+        this.dispose().catch(() => {});
+    }
+
+    async [Symbol.asyncDispose]() {
+        await this.dispose();
     }
 }
