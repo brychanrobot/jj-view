@@ -4,6 +4,8 @@
  */
 
 import { expect } from '@playwright/test';
+import { getPersonDisplayStrings } from '../../core/webview/common/utils/person-utils';
+import { toUnicodeBold, toUnicodeMonospace } from '../../core/webview/log/utils/commit-tooltip';
 import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import {
     clickLogAction,
@@ -485,5 +487,48 @@ test.describe('JJ Log Pane E2E', () => {
 
         // Verify selection is cleared
         await expect(featureRow).toHaveAttribute('data-selected', 'false');
+    });
+
+    test('Commit description title tooltip displays relative timestamps and details', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'initial', description: 'initial setup', files: { 'file.txt': 'base' } },
+            {
+                label: 'feature',
+                parents: ['initial'],
+                description: 'feature commit\n\nExtended details about the feature.',
+                files: { 'file2.txt': 'mod' },
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const featureRow = await waitForLogCommitRow(page, { changeId: nodes.feature.changeId });
+        const featureDesc = featureRow.locator('.commit-desc');
+
+        // Check that the title attribute exactly matches the expected format
+        const title = await featureDesc.getAttribute('title');
+        const shortest = repo.getLog(nodes.feature.commitId, 'change_id.shortest()');
+        const timestamp = repo.getLog(nodes.feature.commitId, 'author.timestamp()');
+        const { relTime, fullTime } = getPersonDisplayStrings({ name: '', email: '', timestamp });
+        const truncatedChangeId = nodes.feature.changeId.slice(0, 10);
+        const boldShortest = toUnicodeBold(shortest);
+        const restChangeId = toUnicodeMonospace(truncatedChangeId.slice(shortest.length));
+        const monospaceCommitId = toUnicodeMonospace(nodes.feature.commitId.slice(0, 10));
+
+        const expectedTitle = [
+            `ᴄʜᴀɴɢᴇ: ${boldShortest}${restChangeId}`,
+            `ᴄᴏᴍᴍɪᴛ: ${monospaceCommitId}`,
+            'sᴛᴀᴛᴜs: @ (working copy)',
+            `ᴅᴀᴛᴇ: ${relTime} (${fullTime})`,
+            '────────────────────────────────────────',
+            'feature commit',
+            '',
+            'Extended details about the feature.',
+        ].join('\n');
+
+        expect(title).toBe(expectedTitle);
     });
 });
