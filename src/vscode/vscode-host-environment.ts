@@ -27,6 +27,7 @@ import type {
 } from '../core/host/host-environment';
 import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../core/uri-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
+import type { LoggerChannel } from '../utils/output-channel';
 import { getJjViewConfig } from './config-utils';
 
 export class VsCodeHostUi implements HostUi {
@@ -278,11 +279,22 @@ export class VsCodeHostNavigation implements HostNavigation {
             title,
         });
 
-        await this.closeOtherCommitDetailsTabs(uri, repoRoot.fsPath);
+        let targetViewColumn = vscode.ViewColumn.Active;
+        for (const tabGroup of vscode.window.tabGroups?.all ?? []) {
+            const hasCommitDetails = tabGroup.tabs.some(
+                (tab) =>
+                    tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'jj-view.commitDetailsEditor',
+            );
+            if (hasCommitDetails) {
+                targetViewColumn = tabGroup.viewColumn;
+                break;
+            }
+        }
 
         await vscode.commands.executeCommand('vscode.openWith', uri, 'jj-view.commitDetailsEditor', {
             preview: true,
-            viewColumn: vscode.ViewColumn.Active,
+            preserveFocus: true,
+            viewColumn: targetViewColumn,
         });
     }
 
@@ -301,28 +313,6 @@ export class VsCodeHostNavigation implements HostNavigation {
                 return predicate(repoRootUri);
             } catch {
                 return predicate(undefined);
-            }
-        });
-    }
-
-    private async closeOtherCommitDetailsTabs(
-        currentUri: Uri,
-        workspaceRoot: string | undefined,
-        viewType: string = 'jj-view.commitDetailsEditor',
-    ): Promise<void> {
-        await closeMatchingTabs((tab) => {
-            if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
-                return false;
-            }
-            if (tab.input.uri.toString() === currentUri.toString()) {
-                return false;
-            }
-            try {
-                const query = getUriParams(tab.input.uri);
-                const tabRepoRoot = query.get('repoRoot');
-                return !tabRepoRoot || tabRepoRoot === workspaceRoot;
-            } catch {
-                return true;
             }
         });
     }
@@ -687,6 +677,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
 
     constructor(options: {
         context: vscode.ExtensionContext;
+        logger?: LoggerChannel;
     }) {
         this.ui = new VsCodeHostUi();
         this.nav = new VsCodeHostNavigation();

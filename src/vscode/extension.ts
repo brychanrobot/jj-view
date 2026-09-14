@@ -37,6 +37,7 @@ import { VsCodeViewFsProvider } from './providers/vscode-view-fs-provider';
 import { registerVSCodeCommands } from './register-commands';
 import { registerProcessMonitorCommands } from './register-process-monitor-commands';
 import { VsCodeHostEnvironment } from './vscode-host-environment';
+import { prewarmWebviewCssCache } from './vscode-webview-html';
 
 export interface Api {
     repositoryManager: JjRepositoryManager;
@@ -48,14 +49,16 @@ export interface Api {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<Api> {
-    const hostEnvironment = new VsCodeHostEnvironment({ context });
-    context.subscriptions.push(hostEnvironment);
-
     const folders = vscode.workspace.workspaceFolders || [];
     const workspaceRoot = folders.length > 0 ? folders[0].uri.fsPath : '';
     const realOutputChannel = vscode.window.createOutputChannel('JJ View', { log: true });
     const outputChannel = new OutputChannel(realOutputChannel);
     context.subscriptions.push(realOutputChannel);
+
+    const hostEnvironment = new VsCodeHostEnvironment({ context, logger: outputChannel });
+    context.subscriptions.push(hostEnvironment);
+
+    prewarmWebviewCssCache(context.extensionUri);
 
     // Get preferred binary path configuration
     const preferredPath = hostEnvironment.config.get<string>('binaryPath');

@@ -241,6 +241,12 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 public modified: unknown,
             ) {}
         },
+        TabInputCustom: class MockTabInputCustom {
+            constructor(
+                public uri: unknown,
+                public viewType: string,
+            ) {}
+        },
         env: {
             openExternal: vi.fn(),
             clipboard: {
@@ -294,6 +300,8 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
                 warn: vi.fn(),
                 error: vi.fn(),
             })),
+            registerCustomEditorProvider: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+            registerWebviewViewProvider: vi.fn().mockReturnValue({ dispose: vi.fn() }),
             tabGroups: {
                 all: [],
                 activeTabGroup: { activeTab: undefined },

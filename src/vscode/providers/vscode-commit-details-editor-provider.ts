@@ -3,11 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { render } from 'svelte/server';
 import * as vscode from 'vscode';
 import { CommitDetailsController } from '../../core/controllers/commit-details-controller';
+import type { JjRepository } from '../../core/jj-repository';
 import type { JjRepositoryManager } from '../../core/jj-repository-manager';
 import { createJjResourceState } from '../../core/scm-resource-state';
 import { parseCommitDetailsUri, type Uri } from '../../core/uri-utils';
+import CommitDetailsApp from '../../core/webview/commit-details/CommitDetailsApp.svelte';
 import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { getWebviewHtml } from '../vscode-webview-html';
 
@@ -24,6 +27,8 @@ export class JjCommitDocument implements vscode.CustomDocument {
 
     dispose(): void {}
 }
+
+export type SsrRenderer = typeof render;
 
 export class VsCodeCommitDetailsEditorProvider
     implements vscode.CustomEditorProvider<JjCommitDocument>, vscode.Disposable
@@ -44,6 +49,7 @@ export class VsCodeCommitDetailsEditorProvider
         private readonly _extensionUri: Uri,
         private readonly _repositoryManager: JjRepositoryManager,
         private readonly _context: vscode.ExtensionContext,
+        private readonly _renderer: SsrRenderer = render,
     ) {}
 
     private _getControllerKey(changeId: string, repoRoot?: Uri): string {
@@ -57,7 +63,12 @@ export class VsCodeCommitDetailsEditorProvider
     }
 
     public async refresh(): Promise<void> {
+        const clearedRepos = new Set<JjRepository>();
         for (const controller of this._controllers.values()) {
+            if (controller.repo && !clearedRepos.has(controller.repo)) {
+                clearedRepos.add(controller.repo);
+                await controller.repo.jj.clearCache();
+            }
             await controller.load();
         }
     }
@@ -66,10 +77,16 @@ export class VsCodeCommitDetailsEditorProvider
         document: JjCommitDocument,
         _cancellation: vscode.CancellationToken,
     ): Promise<void> {
-        const key = this._getControllerKey(document.changeId, document.repoRoot);
+        const repo = document.repoRoot
+            ? this._repositoryManager.getRepositoryForUri(document.repoRoot)
+            : this._repositoryManager.focusedRepository;
+        const key = this._getControllerKey(document.changeId, document.repoRoot ?? repo?.rootUri);
         const controller = this._controllers.get(key) ?? this._controllers.get(document.changeId);
         if (controller) {
-            await controller.save();
+            const success = await controller.save();
+            if (!success) {
+                throw new Error(`Failed to save commit details for ${document.changeId}`);
+            }
         }
     }
 
@@ -82,9 +99,18 @@ export class VsCodeCommitDetailsEditorProvider
     }
 
     public async revertCustomDocument(
-        _document: JjCommitDocument,
+        document: JjCommitDocument,
         _cancellation: vscode.CancellationToken,
-    ): Promise<void> {}
+    ): Promise<void> {
+        const repo = document.repoRoot
+            ? this._repositoryManager.getRepositoryForUri(document.repoRoot)
+            : this._repositoryManager.focusedRepository;
+        const key = this._getControllerKey(document.changeId, document.repoRoot ?? repo?.rootUri);
+        const controller = this._controllers.get(key) ?? this._controllers.get(document.changeId);
+        if (controller) {
+            controller.revert();
+        }
+    }
 
     public backupCustomDocument(
         document: JjCommitDocument,
@@ -124,6 +150,7 @@ export class VsCodeCommitDetailsEditorProvider
 
         const host = new VsCodeHostEnvironment({
             context: this._context,
+            logger: this._repositoryManager.outputChannel,
         });
 
         const controllerKey = this._getControllerKey(document.changeId, document.repoRoot ?? repo.rootUri);
@@ -160,7 +187,9 @@ export class VsCodeCommitDetailsEditorProvider
             newController.onDidClose(() => {
                 this._controllers.delete(controllerKey);
                 this._onDidClosePanel.fire(document.changeId);
-                newController.dispose();
+                queueMicrotask(() => {
+                    newController.dispose();
+                });
             });
         }
 
@@ -181,26 +210,58 @@ export class VsCodeCommitDetailsEditorProvider
             }
         });
         const messengerDisposable = controller.addMessenger(panel.webview);
+        const closeDisposable = controller.onDidClose(() => {
+            panel.dispose();
+        });
 
-        const panelDisposables: vscode.Disposable[] = [messageDisposable, messengerDisposable];
+        const panelDisposables: vscode.Disposable[] = [messageDisposable, messengerDisposable, closeDisposable];
         panel.onDidDispose(() => {
             for (const d of panelDisposables) {
                 d.dispose();
             }
         });
 
-        const log = await controller.load();
-        if (!log && !controller.isDisposed) {
-            panel.dispose();
-            return;
+        const initialData = await controller.getInitialPayload();
+
+        let initialHtml: string | undefined;
+        if (initialData) {
+            try {
+                const rendered = this._renderer(CommitDetailsApp, {
+                    props: { initialCommit: initialData },
+                });
+                initialHtml = rendered.body;
+            } catch (err) {
+                this._repositoryManager.outputChannel.warn(
+                    `[VsCodeCommitDetailsEditorProvider] SSR failed for ${document.changeId}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+                );
+            }
         }
 
-        panel.webview.html = getWebviewHtml({
+        const html = getWebviewHtml({
             webview: panel.webview,
             extensionUri: this._extensionUri,
             scriptPath: ['dist', 'webview', 'commit-details.js'],
             title: 'Commit Details',
+            initialData,
+            initialHtml,
         });
+
+        panel.webview.html = html;
+
+        void controller
+            .load()
+            .then((log) => {
+                if (!log) {
+                    panel.dispose();
+                }
+            })
+            .catch((err) => {
+                this._repositoryManager.outputChannel.error(
+                    `[VsCodeCommitDetailsEditorProvider] Error loading commit ${document.changeId}:`,
+                    err instanceof Error ? err : new Error(String(err)),
+                );
+                panel.dispose();
+            });
     }
 
     public dispose(): void {

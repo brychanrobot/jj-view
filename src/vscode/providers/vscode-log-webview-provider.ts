@@ -32,6 +32,7 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
 
         const host = new VsCodeHostEnvironment({
             context,
+            logger: outputChannel,
         });
 
         this.controller = new LogViewController(initialRepo, host, {

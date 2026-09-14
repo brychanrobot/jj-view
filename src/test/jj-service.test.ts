@@ -29,6 +29,60 @@ describe('JjService Unit Tests', () => {
         expect(log.commit_id).toBeTruthy();
     });
 
+    test('getLog caches entries on omitChanges and returns defensively cloned copies', async () => {
+        repo.describe('test cache commit', '@');
+        const [original] = await jjService.getLog({ revision: '@', omitChanges: true });
+        expect(original.description.trim()).toBe('test cache commit');
+
+        // Look up via change_id
+        const cachedByChangeId = await jjService.getLogEntry(original.change_id);
+        expect(cachedByChangeId).toBeDefined();
+        expect(cachedByChangeId?.change_id).toBe(original.change_id);
+        expect(cachedByChangeId?.commit_id).toBe(original.commit_id);
+
+        // Look up via commit_id
+        const cachedByCommitId = await jjService.getLogEntry(original.commit_id);
+        expect(cachedByCommitId).toBeDefined();
+        expect(cachedByCommitId?.change_id).toBe(original.change_id);
+
+        // Verify defensive cloning: modifying returned entry does not mutate cached value
+        if (cachedByChangeId) {
+            cachedByChangeId.description = 'corrupted in memory';
+        }
+        const fresh = await jjService.getLogEntry(original.change_id);
+        expect(fresh?.description.trim()).toBe('test cache commit');
+    });
+
+    test('clearCache invalidates log entry cache and allows fresh retrieval', async () => {
+        repo.describe('before clear', '@');
+        const [initial] = await jjService.getLog({ revision: '@', omitChanges: true });
+        expect(initial.description.trim()).toBe('before clear');
+
+        // Mutate externally in Jujutsu
+        repo.describe('after clear', '@');
+
+        // Without clearCache, looking up initial.change_id returns stale cached entry
+        const stale = await jjService.getLogEntry(initial.change_id);
+        expect(stale?.description.trim()).toBe('before clear');
+
+        // With clearCache, fresh entry is fetched from repository
+        await jjService.clearCache();
+        const updated = await jjService.getLogEntry(initial.change_id);
+        expect(updated?.description.trim()).toBe('after clear');
+    });
+
+    test('runMutation automatically invalidates log entry cache', async () => {
+        repo.describe('initial desc', '@');
+        const [initial] = await jjService.getLog({ revision: '@', omitChanges: true });
+        expect(initial.description.trim()).toBe('initial desc');
+
+        // Describe via jjService (which runs as a mutation)
+        await jjService.describe('mutated via jjService', '@');
+
+        const updated = await jjService.getLogEntry(initial.change_id);
+        expect(updated?.description.trim()).toBe('mutated via jjService');
+    });
+
     test('getWorkingCopyChanges detects added file', async () => {
         repo.writeFile('new-file.txt', 'content');
 

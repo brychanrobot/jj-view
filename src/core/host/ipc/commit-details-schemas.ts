@@ -68,6 +68,7 @@ export const CommitDetailsPayloadSchema = z.object({
     minChangeIdLength: z.number().optional(),
     theme: z.string().optional(),
     formatDescriptionOnSave: z.boolean().optional(),
+    isLoadingFiles: z.boolean().optional(),
 });
 export type CommitDetailsPayload = z.infer<typeof CommitDetailsPayloadSchema>;
 

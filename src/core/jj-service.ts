@@ -94,6 +94,9 @@ export class JjService {
     private _lastWriteTime = 0;
     private _operationTimeouts = new Map<number, NodeJS.Timeout>();
     private _nextOpId = 0;
+    private static readonly MAX_LOG_ENTRY_CACHE_KEYS = 4000;
+    private _cacheEpoch = 0;
+    private readonly _logEntryCache = new Map<string, JjLogEntry>();
     private _diffCache = new AsyncCache<string, { tempDir: string; expires: number }>({
         onEvict: (entry) => fs.rm(entry.tempDir, { recursive: true, force: true }).catch(() => {}),
     });
@@ -478,8 +481,43 @@ export class JjService {
         });
     }
 
+    private _setCachedLogEntry(key: string, entry: JjLogEntry): void {
+        if (this._logEntryCache.has(key)) {
+            this._logEntryCache.delete(key);
+        } else if (this._logEntryCache.size >= JjService.MAX_LOG_ENTRY_CACHE_KEYS) {
+            const oldestKey = this._logEntryCache.keys().next().value;
+            if (oldestKey !== undefined) {
+                this._logEntryCache.delete(oldestKey);
+            }
+        }
+        this._logEntryCache.set(key, entry);
+    }
+
+    private _cloneLogEntry(entry: JjLogEntry): JjLogEntry {
+        return {
+            ...entry,
+            author: { ...entry.author },
+            committer: { ...entry.committer },
+            parents: entry.parents.map((p) => ({ ...p })),
+            bookmarks: entry.bookmarks.map((b) => ({ ...b })),
+            tags: entry.tags ? [...entry.tags] : undefined,
+            working_copies: entry.working_copies ? [...entry.working_copies] : undefined,
+            nearest_visible_ancestors: entry.nearest_visible_ancestors
+                ? [...entry.nearest_visible_ancestors]
+                : undefined,
+            changes: entry.changes ? entry.changes.map((c) => ({ ...c })) : undefined,
+        };
+    }
+
     async getLog(options: JjLogOptions = {}): Promise<JjLogEntry[]> {
         const { revision, limit, omitChanges, includeNearestVisibleAncestors } = options;
+
+        if (revision && omitChanges && !includeNearestVisibleAncestors && (!limit || limit === 1)) {
+            const cached = this._logEntryCache.get(revision);
+            if (cached) {
+                return [this._cloneLogEntry(cached)];
+            }
+        }
 
         let schema = LOG_ENTRY_SCHEMA;
         if (omitChanges) {
@@ -496,6 +534,7 @@ export class JjService {
             args.push('-n', limit.toString());
         }
 
+        const epoch = this._cacheEpoch;
         const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
         const entries = this._parseJsonLines(output, JjLogEntrySchema, 'getLog');
 
@@ -504,7 +543,19 @@ export class JjService {
             await this._resolveNearestVisibleAncestors(entries, visibleIds, revision);
         }
 
+        if (omitChanges && this._cacheEpoch === epoch) {
+            for (const entry of entries) {
+                this._setCachedLogEntry(entry.change_id, entry);
+                this._setCachedLogEntry(entry.commit_id, entry);
+            }
+        }
+
         return entries;
+    }
+
+    async getLogEntry(revision: string): Promise<JjLogEntry | undefined> {
+        const entries = await this.getLog({ revision, limit: 1, omitChanges: true });
+        return entries[0];
     }
 
     private async _resolveNearestVisibleAncestors(
@@ -768,6 +819,8 @@ export class JjService {
     }
 
     async clearCache(): Promise<void> {
+        this._cacheEpoch++;
+        this._logEntryCache.clear();
         this._gitRoot = undefined;
         this._gitRootPromise = undefined;
         this._gitBlobHashCache.clear();

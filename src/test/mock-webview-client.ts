@@ -98,6 +98,9 @@ export function createMockWebviewClient<
 
     const panel = createMock<vscode.WebviewPanel>({
         webview,
+        get visible() {
+            return isVisible;
+        },
         onDidDispose: (listener: () => void) => {
             disposeListener = listener;
             return {
