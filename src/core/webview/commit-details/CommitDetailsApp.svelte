@@ -7,13 +7,46 @@ import {
     type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
     type CommitDetailsPayload,
+    CommitDetailsPayloadSchema,
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
 } from '../../host/ipc/commit-details-schemas';
 import { useRpcReceiver, useRpcSender } from '../transport/bridge.svelte';
 import CommitDetails from './CommitDetails.svelte';
 
-let detailsCommit = $state<CommitDetailsPayload | null>(null);
+interface Props {
+    initialCommit?: CommitDetailsPayload;
+}
+
+let { initialCommit }: Props = $props();
+
+function getInitialCommit(): CommitDetailsPayload | null {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+    const scriptEl = document.getElementById('__INITIAL_STATE__');
+    if (!scriptEl?.textContent) {
+        return null;
+    }
+    try {
+        const raw: unknown = JSON.parse(scriptEl.textContent);
+        const parsed = CommitDetailsPayloadSchema.safeParse(raw);
+        if (parsed.success) {
+            return parsed.data;
+        }
+    } catch {
+        // Fallback to null on parse failure
+    }
+    return null;
+}
+
+let detailsCommit = $state<CommitDetailsPayload | null>(initialCommit ?? getInitialCommit());
+
+$effect(() => {
+    if (initialCommit) {
+        detailsCommit = initialCommit;
+    }
+});
 const sender = useRpcSender<CommitDetailsToHostMessage>(CommitDetailsToHostMessageSchema);
 
 useRpcReceiver<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMessageSchema, {
@@ -44,6 +77,7 @@ $effect(() => {
         commitId={detailsCommit.commitId || ''}
         description={detailsCommit.description || ''}
         files={detailsCommit.files || []}
+        isLoadingFiles={detailsCommit.isLoadingFiles ?? false}
         isImmutable={detailsCommit.isImmutable || false}
         isEmpty={detailsCommit.isEmpty}
         isConflict={detailsCommit.isConflict}

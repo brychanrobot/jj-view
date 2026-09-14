@@ -19,6 +19,7 @@ interface Props {
     commitId: string;
     description: string;
     files: JjStatusEntry[];
+    isLoadingFiles?: boolean;
     isImmutable: boolean;
     isEmpty?: boolean;
     isConflict?: boolean;
@@ -40,6 +41,7 @@ let {
     commitId,
     description,
     files,
+    isLoadingFiles = false,
     isImmutable,
     isEmpty = false,
     isConflict = false,
@@ -58,6 +60,7 @@ let {
 
 let draftDescription = $state(description);
 let prevDescription = $state(description);
+let prevChangeId = $state(changeId);
 let isSaving = $state(false);
 let isApplyingExtensionEdit = false;
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -74,10 +77,13 @@ let filesContentHeight = $state(0);
 
 const SECTION_GAP = 16;
 const CONTAINER_PADDING_Y = 36;
-const MIN_EDITOR_WRAPPER = 96;
+const MIN_EDITOR_WRAPPER = 112;
 const MIN_FILES_LIST = 36;
+const SCROLLBAR_CLEARANCE = 16;
 
-const editorWrapperNeeded = $derived(Math.max(MIN_EDITOR_WRAPPER, (backdropTextHeight || 0) + 28));
+const editorWrapperNeeded = $derived(
+    Math.max(MIN_EDITOR_WRAPPER, (backdropTextHeight || 0) + 28 + SCROLLBAR_CLEARANCE),
+);
 const filesListNeeded = $derived(Math.max(MIN_FILES_LIST, (filesContentHeight || 0) + 4));
 
 const editorSectionNeeded = $derived(editorWrapperNeeded + (editorHeaderHeight || 26) + 8);
@@ -161,9 +167,11 @@ const isDirty = $derived(draftDescription !== description);
 
 $effect(() => {
     const current = description;
+    const currentChangeId = changeId;
     untrack(() => {
-        if (draftDescription === prevDescription || draftDescription === current) {
+        if (prevChangeId !== currentChangeId || draftDescription === prevDescription || draftDescription === current) {
             draftDescription = current;
+            prevChangeId = currentChangeId;
         }
         prevDescription = current;
     });
@@ -254,7 +262,10 @@ function handleScroll() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-    const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const isMac =
+        typeof navigator !== 'undefined' &&
+        ((typeof navigator.platform === 'string' && navigator.platform.toUpperCase().includes('MAC')) ||
+            (typeof navigator.userAgent === 'string' && /Macintosh|Mac OS X/i.test(navigator.userAgent)));
     const hasModifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     if (hasModifier && e.key === 's') {
         e.preventDefault();
@@ -312,7 +323,10 @@ const highlightedHtml = $derived.by(() => {
     return html;
 });
 
-const isMacPlatform = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const isMacPlatform =
+    typeof navigator !== 'undefined' &&
+    ((typeof navigator.platform === 'string' && navigator.platform.toUpperCase().includes('MAC')) ||
+        (typeof navigator.userAgent === 'string' && /Macintosh|Mac OS X/i.test(navigator.userAgent)));
 const saveShortcutHint = isMacPlatform ? '⌘S' : 'Ctrl+S';
 
 function getFileIcon(status: string): string {
@@ -520,7 +534,7 @@ function getFileColor(status: string, conflicted?: boolean): string {
         <div class="section-header files-header" bind:clientHeight={filesHeaderHeight}>
             <div class="section-title-group">
                 <h3 class="section-title">
-                    Changed Files ({files.length})
+                    Changed Files {isLoadingFiles && files.length === 0 ? '' : `(${files.length})`}
                 </h3>
                 {#if totalAdditions > 0 || totalDeletions > 0}
                     <div class="diff-summary-badges">
@@ -544,7 +558,12 @@ function getFileColor(status: string, conflicted?: boolean): string {
         </div>
         <div class="files-list">
             <div class="files-items" bind:clientHeight={filesContentHeight}>
-                {#if files.length === 0}
+                {#if isLoadingFiles && files.length === 0}
+                    <div class="no-files-message">
+                        <span class="codicon codicon-loading codicon-modifier-spin"></span>
+                        Loading changed files...
+                    </div>
+                {:else if files.length === 0}
                     <div class="no-files-message">
                         <span class="codicon codicon-check-all"></span>
                         No changed files.
@@ -615,7 +634,6 @@ function getFileColor(status: string, conflicted?: boolean): string {
         height: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden;
     }
 
     :global(#root) {
@@ -626,14 +644,14 @@ function getFileColor(status: string, conflicted?: boolean): string {
         display: flex;
         flex-direction: column;
         gap: 16px;
-        height: 100vh;
-        max-height: 100vh;
+        height: 100%;
+        min-height: 100%;
         padding: 16px 20px 20px;
         box-sizing: border-box;
         background-color: var(--vscode-editor-background);
         color: var(--vscode-editor-foreground);
         font-family: var(--vscode-font-family);
-        overflow: hidden;
+        overflow-y: auto;
     }
 
     .top-section {

@@ -55,6 +55,9 @@ export function useBridge(): WebviewTransport {
 }
 
 export function useMessageListener<T = unknown>(handler: (message: T) => void): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
     const bridge = useBridge();
     const unsubscribe = bridge.onMessage((msg) => {
         handler(msg as T);
@@ -85,6 +88,9 @@ export function useRpcReceiver<
     handlers: RpcReceiverHandlers<TMessage, K>,
     options?: WebviewRpcReceiverOptions<TOutbound, K>,
 ): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
     const bridge = useBridge();
 
     const receiver = createWebviewRpcReceiver<TMessage, TOutbound, K>(schema, handlers, {

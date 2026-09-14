@@ -59,7 +59,15 @@ async function main() {
         outfile: 'dist/extension.js',
         external: ['vscode'],
         logLevel: 'silent',
-        plugins: [esbuildProblemMatcherPlugin],
+        plugins: [
+            sveltePlugin({
+                compilerOptions: {
+                    dev: false,
+                    generate: 'server',
+                },
+            }),
+            esbuildProblemMatcherPlugin,
+        ],
     });
 
     const webviewCtx = await esbuild.context({
@@ -83,7 +91,7 @@ async function main() {
             sveltePlugin({
                 compilerOptions: {
                     dev: !production,
-                    css: 'injected',
+                    css: 'external',
                 },
             }),
             esbuildProblemMatcherPlugin,

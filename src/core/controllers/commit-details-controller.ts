@@ -38,6 +38,8 @@ export class CommitDetailsController implements Disposable {
 
     private _logEntry?: JjLogEntry;
     private _changes?: readonly JjStatusEntry[];
+    private _isLoadingFiles = false;
+    private _loadId = 0;
     private _draftDescription?: string;
     private _persistedDescription?: string;
 
@@ -85,6 +87,54 @@ export class CommitDetailsController implements Disposable {
         return this._persistedDescription;
     }
 
+    public async getInitialPayload(): Promise<CommitDetailsPayload | undefined> {
+        if (!this.repo || this._disposed) {
+            return undefined;
+        }
+        if (this._logEntry) {
+            return this.getState();
+        }
+        try {
+            const logs = await this.repo.jj.getLog({ revision: this.changeId, omitChanges: true });
+            if (this._disposed || logs.length === 0) {
+                return undefined;
+            }
+            const log = logs[0];
+            this._logEntry = log;
+            const previousPersisted = this._persistedDescription;
+            const freshPersisted = (log.description || '').trim();
+            const wasDirty = this._draftDescription !== undefined && this._draftDescription !== previousPersisted;
+            this._persistedDescription = freshPersisted;
+            if (!wasDirty) {
+                this._draftDescription = freshPersisted;
+                this._lastPushedText = freshPersisted;
+            }
+            this._isLoadingFiles = true;
+            return this.getState();
+        } catch (err) {
+            this._logger?.debug?.(
+                `[CommitDetailsController] Failed to get initial payload for ${this.changeId}: ${String(err)}`,
+            );
+            return undefined;
+        }
+    }
+
+    public revert(): void {
+        this.flushDebounce();
+        this._draftDescription = this._persistedDescription;
+        this._lastPushedText = this._persistedDescription ?? '';
+        this._lastPushedSelection = { start: 0, end: 0 };
+        const state = this.getState();
+        if (state) {
+            this._receiver.sender.update(state);
+            this._receiver.sender.updateDescription({
+                description: this._draftDescription ?? '',
+                selectionStart: 0,
+                selectionEnd: 0,
+            });
+        }
+    }
+
     public getState(): CommitDetailsPayload | undefined {
         if (!this._logEntry) {
             return undefined;
@@ -106,6 +156,7 @@ export class CommitDetailsController implements Disposable {
             titleWidthRuler: this._host.config.get<number | undefined>('commit.titleWidthRuler'),
             bodyWidthRuler: this._host.config.get<number | undefined>('commit.bodyWidthRuler'),
             formatDescriptionOnSave: this._host.config.get<boolean>('commit.formatDescriptionOnSave', false),
+            isLoadingFiles: this._isLoadingFiles,
         };
     }
 
@@ -148,44 +199,74 @@ export class CommitDetailsController implements Disposable {
         }
 
         const start = performance.now();
+        const currentLoadId = ++this._loadId;
+        this._isLoadingFiles = true;
+
+        let logs: JjLogEntry[];
         try {
-            const logsPromise = this.repo.jj.getLog({ revision: this.changeId, omitChanges: true });
-            const changesPromise = this.repo.jj.getChanges(this.changeId).catch(() => null);
+            logs = await this.repo.jj.getLog({ revision: this.changeId, omitChanges: true });
+        } catch (err) {
+            if (this._disposed || currentLoadId !== this._loadId) {
+                return;
+            }
+            this._logEntry = undefined;
+            this._changes = undefined;
+            this._isLoadingFiles = false;
+            this._logger?.info?.(
+                `[CommitDetailsController] Commit ${this.changeId} not found or failed to load: ${toError(err).message}`,
+            );
+            this._onDidClose.fire(this.changeId);
+            return;
+        }
 
-            const [logs, rawChanges] = await Promise.all([logsPromise, changesPromise]);
+        if (this._disposed || currentLoadId !== this._loadId) {
+            return;
+        }
 
-            if (this._disposed) {
+        if (logs.length === 0) {
+            this._logEntry = undefined;
+            this._changes = undefined;
+            this._isLoadingFiles = false;
+            this._logger?.info?.(`[CommitDetailsController] Commit ${this.changeId} not found/deleted`);
+            this._onDidClose.fire(this.changeId);
+            return;
+        }
+
+        const log = logs[0];
+        this._logEntry = log;
+        const previousPersisted = this._persistedDescription;
+        const freshPersisted = (log.description || '').trim();
+        const wasDirty = this._draftDescription !== undefined && this._draftDescription !== previousPersisted;
+        this._persistedDescription = freshPersisted;
+
+        if (!wasDirty) {
+            this._draftDescription = freshPersisted;
+            this._lastPushedText = freshPersisted;
+        }
+
+        this._onDidUpdate.fire(log);
+
+        // Emit initial state with metadata immediately
+        const initialState = this.getState();
+        if (initialState) {
+            this._receiver.sender.update(initialState);
+        }
+
+        try {
+            // Step 2: Stream file changes once diff computation completes
+            const rawChanges = await this.repo.jj.getChanges(this.changeId).catch(() => null);
+
+            if (this._disposed || currentLoadId !== this._loadId) {
                 return;
             }
 
-            if (logs.length === 0) {
-                this._logEntry = undefined;
-                this._changes = undefined;
-                this._logger?.info?.(`[CommitDetailsController] Commit ${this.changeId} not found/deleted`);
-                this._onDidClose.fire(this.changeId);
-                return;
-            }
-
-            const log = logs[0];
             const changes = rawChanges || [];
-
-            this._logEntry = log;
             this._changes = changes;
-            const previousPersisted = this._persistedDescription;
-            const freshPersisted = (log.description || '').trim();
-            const wasDirty = this._draftDescription !== undefined && this._draftDescription !== previousPersisted;
-            this._persistedDescription = freshPersisted;
+            this._isLoadingFiles = false;
 
-            if (!wasDirty) {
-                this._draftDescription = freshPersisted;
-                this._lastPushedText = freshPersisted;
-            }
-
-            this._onDidUpdate.fire(log);
-
-            const state = this.getState();
-            if (state) {
-                this._receiver.sender.update(state);
+            const finalState = this.getState();
+            if (finalState) {
+                this._receiver.sender.update(finalState);
             }
 
             const duration = performance.now() - start;
@@ -193,10 +274,8 @@ export class CommitDetailsController implements Disposable {
                 `[timing] [CommitDetails] refresh took ${duration.toFixed(0)}ms (${changes.length} files)`,
             );
         } catch (err) {
-            this._logger?.error(
-                `[CommitDetailsController] Failed to load commit details for ${this.changeId}`,
-                toError(err),
-            );
+            this._isLoadingFiles = false;
+            this._logger?.error(`[CommitDetailsController] Failed to load changes for ${this.changeId}`, toError(err));
         }
     }
 
@@ -271,7 +350,7 @@ export class CommitDetailsController implements Disposable {
     }
 
     public async save(finalDescription?: string): Promise<boolean> {
-        if (this._disposed) {
+        if (this._disposed || !this._logEntry) {
             return false;
         }
         this.flushDebounce();
@@ -289,6 +368,7 @@ export class CommitDetailsController implements Disposable {
                 if (typeof res === 'string') {
                     savedDescription = res;
                 } else if (res === false) {
+                    this._receiver.sender.saveFailed();
                     return false;
                 } else if (this.repo) {
                     await this.repo.jj.describe(descriptionToSave, this.changeId);

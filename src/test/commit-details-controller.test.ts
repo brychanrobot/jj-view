@@ -221,11 +221,19 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         );
 
         const updates = conflictClient.receivedMessages.filter((m) => m.type === 'update');
-        expect(updates.length).toBeGreaterThanOrEqual(1);
+        expect(updates.length).toBeGreaterThanOrEqual(2);
         expect(updates[0]).toEqual({
             type: 'update',
             payload: expect.objectContaining({
                 isConflict: true,
+                isLoadingFiles: true,
+            }),
+        });
+        expect(updates[updates.length - 1]).toEqual({
+            type: 'update',
+            payload: expect.objectContaining({
+                isConflict: true,
+                isLoadingFiles: false,
                 files: expect.arrayContaining([
                     expect.objectContaining({
                         path: 'file.txt',
@@ -269,5 +277,127 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         expect(divergentController.getState()?.changeId).toBe(divergentEntry.change_id);
 
         divergentController.dispose();
+    });
+
+    test('two-stage loading emits metadata immediately from cache before diff stats complete', async () => {
+        testRepo.writeFile('big-file.txt', 'a'.repeat(1000));
+        testRepo.describe('fast metadata commit');
+        const changeId = testRepo.getChangeId('@');
+
+        const repo = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repo) {
+            throw new Error('repo not found');
+        }
+
+        // 1. Simulate LogView fetching the log slice (which populates _logEntryCache in JjService)
+        await repo.jj.getLog({ omitChanges: true, includeNearestVisibleAncestors: true });
+
+        // 2. Open commit details with controller
+        const detailsController = new CommitDetailsController(changeId, repo, fakeHost);
+        const detailsClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        detailsController.addMessenger(detailsClient.webview);
+
+        const loadPromise = detailsController.load();
+
+        // 3. Wait for load to complete
+        await loadPromise;
+
+        const updates = detailsClient.receivedMessages.filter((m) => m.type === 'update');
+        expect(updates.length).toBe(2);
+
+        // First update: metadata available immediately, files loading
+        expect(updates[0]).toEqual({
+            type: 'update',
+            payload: expect.objectContaining({
+                changeId,
+                description: 'fast metadata commit',
+                isLoadingFiles: true,
+                files: [],
+            }),
+        });
+
+        // Second update: diff calculation finished, files populated
+        expect(updates[1]).toEqual({
+            type: 'update',
+            payload: expect.objectContaining({
+                changeId,
+                description: 'fast metadata commit',
+                isLoadingFiles: false,
+                files: expect.arrayContaining([
+                    expect.objectContaining({
+                        path: 'big-file.txt',
+                        status: 'added',
+                    }),
+                ]),
+            }),
+        });
+
+        detailsClient.dispose();
+        detailsController.dispose();
+    });
+
+    test('getInitialPayload preserves active dirty drafts and returns initial state', async () => {
+        testRepo.writeFile('initial.txt', 'initial');
+        testRepo.describe('persisted description');
+        const commitId = testRepo.getChangeId('@');
+
+        const repo = repositoryManager.repositories[0];
+        if (!repo) {
+            throw new Error('Expected repository to be registered');
+        }
+
+        const detailsController = new CommitDetailsController(commitId, repo, fakeHost);
+        detailsController.updateDraft('unsaved dirty description');
+
+        const payload = await detailsController.getInitialPayload();
+        expect(payload).toBeDefined();
+        expect(payload?.changeId).toBe(commitId);
+        expect(detailsController.draftDescription).toBe('unsaved dirty description');
+        expect(payload?.isLoadingFiles).toBe(true);
+
+        detailsController.dispose();
+    });
+
+    test('revert dispatches both update and updateDescription messages to reset webview state', async () => {
+        testRepo.writeFile('initial.txt', 'initial');
+        testRepo.describe('persisted description');
+        const commitId = testRepo.getChangeId('@');
+
+        const repo = repositoryManager.repositories[0];
+        if (!repo) {
+            throw new Error('Expected repository to be registered');
+        }
+
+        const detailsController = new CommitDetailsController(commitId, repo, fakeHost);
+        const detailsClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        detailsController.addMessenger(detailsClient.webview);
+
+        await detailsController.load();
+        detailsController.updateDraft('unsaved user edits');
+        expect(detailsController.draftDescription).toBe('unsaved user edits');
+
+        detailsController.revert();
+        expect(detailsController.draftDescription).toBe('persisted description');
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        const updateDescMessage = detailsClient.receivedMessages.find((m) => m.type === 'updateDescription');
+        expect(updateDescMessage).toEqual({
+            type: 'updateDescription',
+            payload: {
+                description: 'persisted description',
+                selectionStart: 0,
+                selectionEnd: 0,
+            },
+        });
+
+        detailsClient.dispose();
+        detailsController.dispose();
     });
 });
