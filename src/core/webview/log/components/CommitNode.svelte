@@ -8,6 +8,7 @@ import type { JjBookmark, JjLogEntry } from '../../../jj-types';
 import { BookmarkPill, IconButton, TagPill, WorkspacePill } from '../../common/components';
 import type { DragManager } from '../drag-manager.svelte';
 import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
+import { formatCommitTooltip } from '../utils/commit-tooltip';
 import { computeCommitActions } from '../utils/commit-utils';
 import DraggableBookmark from './DraggableBookmark.svelte';
 
@@ -92,7 +93,6 @@ const outline = $derived.by(() => {
 const textOpacity = $derived(isDraggingThis ? 0.5 : 1);
 const fontStyle = $derived(isImmutable ? 'italic' : 'normal');
 
-const MAX_TOOLTIP_LENGTH = 500;
 const descriptionFull = $derived.by(() => {
     let desc = commit.description.trim() || '(no description)';
     if (isEmpty) {
@@ -101,9 +101,7 @@ const descriptionFull = $derived.by(() => {
     return desc;
 });
 const descriptionFirstLine = $derived(descriptionFull.split('\n')[0]);
-const descriptionTooltip = $derived(
-    descriptionFull.length <= MAX_TOOLTIP_LENGTH ? descriptionFull : `${descriptionFull.slice(0, MAX_TOOLTIP_LENGTH)}…`,
-);
+const commitTooltip = $derived(formatCommitTooltip(commit));
 
 // Change ID parts
 const [idPart, offsetPart] = $derived(commit.change_id.split('/'));
@@ -281,7 +279,7 @@ const hasActiveBookmarkAlready = $derived(
         <div class="desc-row">
             <span
                 class="commit-desc"
-                title={descriptionTooltip}
+                title={commitTooltip}
                 style:font-weight={isCurrentWorkingCopy ? 'bold' : 'normal'}
                 style:color={isImmutable
                     ? 'var(--vscode-descriptionForeground)'
