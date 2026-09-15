@@ -174,7 +174,6 @@ export class FakeHostNavigation implements HostNavigation {
         isDivergent?: boolean;
         changeIdOffset?: number;
     }[] = [];
-    public closedCommitDetailsPredicates: ((repoRoot?: Uri) => boolean)[] = [];
     public filesOpened: Uri[] = [];
     public foldersOpened: { folderUri: Uri; forceNewWindow?: boolean }[] = [];
     public externalUrisOpened: Uri[] = [];
@@ -203,10 +202,6 @@ export class FakeHostNavigation implements HostNavigation {
         changeIdOffset?: number,
     ): Promise<void> {
         this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset });
-    }
-
-    async closeCommitDetailsTabs(predicate: (repoRoot?: Uri) => boolean): Promise<void> {
-        this.closedCommitDetailsPredicates.push(predicate);
     }
 
     async openFile(uri: Uri): Promise<void> {

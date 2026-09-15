@@ -65,7 +65,6 @@ export interface HostNavigation {
         isDivergent?: boolean,
         changeIdOffset?: number,
     ): Promise<void>;
-    closeCommitDetailsTabs?(predicate: (repoRoot?: Uri) => boolean): Promise<void>;
     openFile(uri: Uri): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
     openExternal(target: Uri): Promise<void>;
