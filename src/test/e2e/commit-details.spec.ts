@@ -129,7 +129,7 @@ test.describe('Commit Details E2E', () => {
             await expect(conflictedFileRow).toBeVisible();
 
             // Verify the warning icon with tooltip inside the specific file row
-            const conflictIcon = conflictedFileRow.locator('.conflict-icon');
+            const conflictIcon = conflictedFileRow.locator('.file-icon.codicon-warning');
             await expect(conflictIcon).toBeVisible();
             await expect(conflictIcon).toHaveAttribute('title', '2-way conflict');
 
