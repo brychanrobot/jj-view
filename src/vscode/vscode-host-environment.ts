@@ -25,7 +25,7 @@ import type {
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
 } from '../core/host/host-environment';
-import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, Uri } from '../core/uri-utils';
+import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, type Uri } from '../core/uri-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import { getJjViewConfig } from './config-utils';
@@ -298,25 +298,6 @@ export class VsCodeHostNavigation implements HostNavigation {
         });
     }
 
-    async closeCommitDetailsTabs(
-        predicate: (repoRoot?: Uri) => boolean,
-        viewType: string = 'jj-view.commitDetailsEditor',
-    ): Promise<void> {
-        await closeMatchingTabs((tab) => {
-            if (!(tab.input instanceof vscode.TabInputCustom) || tab.input.viewType !== viewType) {
-                return false;
-            }
-            try {
-                const query = getUriParams(tab.input.uri);
-                const repoRootPath = query.get('repoRoot');
-                const repoRootUri = repoRootPath ? Uri.file(repoRootPath) : undefined;
-                return predicate(repoRootUri);
-            } catch {
-                return predicate(undefined);
-            }
-        });
-    }
-
     async openFile(uri: Uri): Promise<void> {
         await vscode.commands.executeCommand('vscode.open', uri);
     }
@@ -345,20 +326,6 @@ export class VsCodeHostNavigation implements HostNavigation {
 
     async closeTab(uri: Uri): Promise<void> {
         await closeTabsForUri(uri);
-    }
-}
-
-export async function closeMatchingTabs(predicate: (tab: vscode.Tab) => boolean): Promise<void> {
-    const tabsToClose: vscode.Tab[] = [];
-    for (const tabGroup of vscode.window.tabGroups.all) {
-        for (const tab of tabGroup.tabs) {
-            if (predicate(tab)) {
-                tabsToClose.push(tab);
-            }
-        }
-    }
-    if (tabsToClose.length > 0) {
-        await vscode.window.tabGroups.close(tabsToClose);
     }
 }
 

@@ -34,7 +34,6 @@ export interface LogViewControllerOptions {
     messenger?: WebviewPostMessageLike;
     logger?: LoggerChannel;
     onSelectionChange?: (commitIds: string[]) => void;
-    closeCommitDetailsTabs?: (predicate: (repoRoot?: Uri) => boolean) => Promise<void> | void;
 }
 
 export class LogViewController implements Disposable {
@@ -633,23 +632,7 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.contextMenu', msg);
                 },
                 selectionChange: async (msg) => {
-                    const count = msg.commitIds.length;
                     const hasImmutable = Boolean(msg.hasImmutableSelection);
-
-                    if (count !== 1) {
-                        const closeTabs =
-                            this._options?.closeCommitDetailsTabs ??
-                            this._host.nav.closeCommitDetailsTabs?.bind(this._host.nav);
-                        if (closeTabs) {
-                            await closeTabs((repoRoot) => {
-                                if (!this._repo) {
-                                    return true;
-                                }
-                                return !repoRoot || repoRoot.fsPath === this._repo.rootUri.fsPath;
-                            });
-                        }
-                    }
-
                     this.setSelectedCommits(msg.commitIds, hasImmutable);
                     this._options?.onSelectionChange?.(msg.commitIds);
                 },
