@@ -74,6 +74,9 @@ $effect(() => {
 {:else}
     <CommitDetails
         changeId={detailsCommit.changeId || ''}
+        changeIdShortest={detailsCommit.changeIdShortest}
+        isDivergent={detailsCommit.isDivergent}
+        changeIdOffset={detailsCommit.changeIdOffset}
         commitId={detailsCommit.commitId || ''}
         description={detailsCommit.description || ''}
         files={detailsCommit.files || []}

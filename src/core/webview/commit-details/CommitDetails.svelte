@@ -5,7 +5,6 @@
 <script lang="ts">
 import { tick, untrack } from 'svelte';
 import { formatCommitDescription } from '../../../utils/format-utils';
-import { formatDisplayChangeId } from '../../../utils/jj-utils';
 import {
     type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
@@ -16,6 +15,9 @@ import { useRpcReceiver } from '../transport/bridge.svelte';
 
 interface Props {
     changeId: string;
+    changeIdShortest?: string;
+    isDivergent?: boolean;
+    changeIdOffset?: number;
     commitId: string;
     description: string;
     files: JjStatusEntry[];
@@ -38,6 +40,9 @@ interface Props {
 
 let {
     changeId,
+    changeIdShortest,
+    isDivergent = false,
+    changeIdOffset,
     commitId,
     description,
     files,
@@ -57,6 +62,13 @@ let {
     onOpenMultiDiff,
     onDescriptionChange,
 }: Props = $props();
+
+const [idPart, offsetPart] = $derived(changeId.split('/'));
+const shortId = $derived(changeIdShortest);
+const hasShortId = $derived(Boolean(shortId && idPart.startsWith(shortId)));
+const displayOffset = $derived(
+    offsetPart || (isDivergent && changeIdOffset !== undefined ? String(changeIdOffset) : undefined),
+);
 
 let draftDescription = $state(description);
 let prevDescription = $state(description);
@@ -405,9 +417,14 @@ function getFileColor(status: string, conflicted?: boolean): string {
             <div class="id-chips-row">
                 <div class="id-row">
                     <span class="id-label">Change:</span>
-                    <span class="id-value" title={changeId}>
-                        {formatDisplayChangeId(changeId, changeId, minChangeIdLength)}
-                    </span>
+                    <span
+                        class="id-value"
+                        class:immutable={isImmutable}
+                        style:color={isImmutable
+                            ? 'var(--vscode-descriptionForeground)'
+                            : 'var(--vscode-gitDecoration-addedResourceForeground)'}
+                        title={changeId}
+                    >{#if hasShortId && shortId}<span class="change-id-prefix">{shortId}</span>{#if idPart.length > shortId.length}<span class="change-id-rest">{idPart.substring(shortId.length)}</span>{/if}{:else}{idPart}{/if}{#if displayOffset}<span class="change-id-offset">/{displayOffset}</span>{/if}</span>
                     <button
                         type="button"
                         class="copy-button"
@@ -766,6 +783,20 @@ function getFileColor(status: string, conflicted?: boolean): string {
         font-family: var(--vscode-editor-font-family), monospace;
         font-size: 12px;
         color: var(--vscode-foreground);
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .change-id-prefix {
+        font-weight: bold;
+    }
+
+    .change-id-rest {
+        opacity: 0.6;
+    }
+
+    .change-id-offset {
+        color: var(--vscode-charts-purple);
     }
 
     .copy-button {

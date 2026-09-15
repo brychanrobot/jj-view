@@ -121,4 +121,52 @@ describe('CommitDetailsApp SSR Rendering', () => {
         expect(html).not.toContain('<script>alert("xss")</script>');
         expect(html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
     });
+
+    it('highlights shortest change ID prefix and renders remainder of full change ID', () => {
+        const initialCommit: CommitDetailsPayload = {
+            changeId: 'krsyowswxmxnqznrtlpuyutskyzrpunp',
+            changeIdShortest: 'krsy',
+            commitId: 'abcdef1234567890abcdef1234567890abcdef12',
+            description: 'feat: test shortest highlighting',
+            files: [],
+            isLoadingFiles: false,
+            isImmutable: false,
+            isEmpty: false,
+            isConflict: false,
+            minChangeIdLength: 8,
+        };
+
+        const result = render(CommitDetailsApp, { props: { initialCommit } });
+        const html = result.body;
+
+        expect(html).toContain('change-id-prefix');
+        expect(html).toContain('krsy');
+        expect(html).toContain('change-id-rest');
+        expect(html).toContain('owswxmxnqznrtlpuyutskyzrpunp');
+    });
+
+    it('renders divergent change ID offset properly in commit details', () => {
+        const initialCommit: CommitDetailsPayload = {
+            changeId: 'krsyowswxmxnqznrtlpuyutskyzrpunp/2',
+            changeIdShortest: 'krsy',
+            isDivergent: true,
+            changeIdOffset: 2,
+            commitId: 'abcdef1234567890abcdef1234567890abcdef12',
+            description: 'feat: test divergent offset',
+            files: [],
+            isLoadingFiles: false,
+            isImmutable: false,
+            isEmpty: false,
+            isConflict: false,
+            minChangeIdLength: 4,
+        };
+
+        const result = render(CommitDetailsApp, { props: { initialCommit } });
+        const html = result.body;
+
+        expect(html).toContain('change-id-prefix');
+        expect(html).toContain('krsy');
+        expect(html).toContain('change-id-offset');
+        expect(html).toContain('/2');
+    });
 });

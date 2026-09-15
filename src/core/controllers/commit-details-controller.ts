@@ -141,6 +141,9 @@ export class CommitDetailsController implements Disposable {
         }
         return {
             changeId: this.changeId,
+            changeIdShortest: this._logEntry.change_id_shortest,
+            isDivergent: this._logEntry.is_divergent,
+            changeIdOffset: this._logEntry.change_id_offset,
             commitId: this._logEntry.commit_id,
             description: (this._persistedDescription ?? this._logEntry.description ?? '').trim(),
             files: this._changes ? [...this._changes] : [],

@@ -41,6 +41,9 @@ export type CommitDetailsToHostMessage = z.infer<typeof CommitDetailsToHostMessa
 
 export const CommitDetailsPayloadSchema = z.object({
     changeId: z.string().optional(),
+    changeIdShortest: z.string().optional(),
+    isDivergent: z.boolean().optional(),
+    changeIdOffset: z.number().optional(),
     commitId: z.string().optional(),
     description: z.string().optional(),
     files: z.array(JjStatusEntrySchema).optional(),
