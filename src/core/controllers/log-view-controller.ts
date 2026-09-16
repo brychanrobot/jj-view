@@ -48,6 +48,7 @@ export class LogViewController implements Disposable {
 
     private _commits: readonly JjLogEntry[] = [];
     private _selectedCommitIds: readonly string[] = [];
+    private _highlightedCommitId: string | undefined = undefined;
     private _hiddenActions: readonly ToggleableCommitAction[] = [];
     private _theme: string;
     private _graphLabelAlignment: string;
@@ -114,6 +115,10 @@ export class LogViewController implements Disposable {
         return this._selectedCommitIds;
     }
 
+    public get highlightedCommitId(): string | undefined {
+        return this._highlightedCommitId;
+    }
+
     public get hiddenActions(): readonly ToggleableCommitAction[] {
         return this._hiddenActions;
     }
@@ -150,6 +155,7 @@ export class LogViewController implements Disposable {
         }
         this._repo = repo;
         this._selectedCommitIds = [];
+        this._highlightedCommitId = undefined;
         this._updateSelectionContextKeys(this._selectedCommitIds);
         this.bindRepo(repo);
         this.refresh('repoChanged');
@@ -310,6 +316,20 @@ export class LogViewController implements Disposable {
         this._onDidChangeSelection.fire(this._selectedCommitIds);
 
         this._receiver.sender.setSelection({ ids: [...commitIds] });
+    }
+
+    public setHighlightedCommit(changeId: string | undefined): void {
+        if (this._highlightedCommitId === changeId) {
+            return;
+        }
+
+        this._highlightedCommitId = changeId;
+
+        if (this._disposed) {
+            return;
+        }
+
+        this._receiver.sender.setHighlight({ changeId });
     }
 
     public setHiddenActions(hiddenActions: readonly string[]): void {

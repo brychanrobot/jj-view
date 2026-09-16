@@ -37,6 +37,8 @@ export async function compareFileWithRevisionCommand(
                 placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
                 emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+                repoRoot: ctx.repo.rootUri,
+                nav: ctx.host.nav,
             });
         }
 

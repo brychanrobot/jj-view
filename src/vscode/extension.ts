@@ -36,7 +36,7 @@ import { VsCodeScmProvider } from './providers/vscode-scm-provider';
 import { VsCodeViewFsProvider } from './providers/vscode-view-fs-provider';
 import { registerVSCodeCommands } from './register-commands';
 import { registerProcessMonitorCommands } from './register-process-monitor-commands';
-import { VsCodeHostEnvironment } from './vscode-host-environment';
+import { VsCodeHostEnvironment, VsCodeHostNavigation } from './vscode-host-environment';
 import { prewarmWebviewCssCache } from './vscode-webview-html';
 
 export interface Api {
@@ -415,6 +415,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         logWebviewProvider,
         vscode.window.registerWebviewViewProvider(VsCodeLogWebviewProvider.viewType, logWebviewProvider),
     );
+
+    if (hostEnvironment.nav instanceof VsCodeHostNavigation) {
+        hostEnvironment.nav.setHighlightDelegate((repoRoot, changeId) => {
+            if (logWebviewProvider.repository?.rootUri.toString() === repoRoot.toString()) {
+                logWebviewProvider.controller.setHighlightedCommit(changeId);
+            }
+        });
+    }
 
     const processMonitorProvider = new VsCodeProcessMonitorProvider(context.extensionUri, processTracker, context);
     context.subscriptions.push(

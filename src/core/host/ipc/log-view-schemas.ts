@@ -154,5 +154,9 @@ export const LogViewHostToWebviewMessageSchema = z.discriminatedUnion('type', [
         type: z.literal('setSelection'),
         payload: z.object({ ids: z.array(z.string()) }),
     }),
+    z.object({
+        type: z.literal('setHighlight'),
+        payload: z.object({ changeId: z.string().optional() }),
+    }),
 ]);
 export type LogViewHostToWebviewMessage = z.infer<typeof LogViewHostToWebviewMessageSchema>;

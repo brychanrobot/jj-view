@@ -17,6 +17,8 @@ export async function abandonCommand(ctx: CommandContext, payload?: AbandonPaylo
         const input = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select revision to abandon',
             revisionQuery: RevisionQuery.mutable(),
+            repoRoot: ctx.repo.rootUri,
+            nav: ctx.host.nav,
         });
         if (input) {
             revisions = [input];

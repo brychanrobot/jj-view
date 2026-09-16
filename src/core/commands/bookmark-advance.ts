@@ -20,6 +20,8 @@ export async function advanceBookmarkCommand(
         revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select target revision to advance bookmarks to',
             revisionQuery: RevisionQuery.mutableAncestorsIncluding('@'),
+            repoRoot: ctx.repo.rootUri,
+            nav: ctx.host.nav,
         });
     }
 

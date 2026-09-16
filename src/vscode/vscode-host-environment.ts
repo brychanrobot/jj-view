@@ -48,6 +48,8 @@ export class VsCodeHostUi implements HostUi {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly T[]) => void;
+            onDidChangeValue?: (value: string) => void;
         },
     ): Promise<T | undefined> {
         const quickPick = vscode.window.createQuickPick<T & vscode.QuickPickItem>();
@@ -67,23 +69,53 @@ export class VsCodeHostUi implements HostUi {
         quickPick.ignoreFocusOut = true;
 
         return new Promise<T | undefined>((resolve) => {
-            quickPick.onDidAccept(() => {
-                const selected = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
-                if (selected) {
-                    resolve(selected);
-                } else if (options?.acceptCustomValue && quickPick.value.trim().length > 0) {
-                    const custom = quickPick.value.trim();
-                    const customItem = Object.assign({} as T, { label: custom, value: custom, detail: custom });
-                    resolve(customItem);
-                } else {
-                    resolve(undefined);
+            const disposables: vscode.Disposable[] = [];
+            let isResolved = false;
+            const complete = (value: T | undefined) => {
+                if (isResolved) {
+                    return;
+                }
+                isResolved = true;
+                for (const d of disposables) {
+                    d.dispose();
                 }
                 quickPick.dispose();
-            });
-            quickPick.onDidHide(() => {
-                resolve(undefined);
-                quickPick.dispose();
-            });
+                resolve(value);
+            };
+
+            if (options?.onDidChangeActive) {
+                disposables.push(
+                    quickPick.onDidChangeActive((activeItems) => {
+                        options.onDidChangeActive?.(activeItems);
+                    }),
+                );
+            }
+
+            if (options?.onDidChangeValue) {
+                disposables.push(
+                    quickPick.onDidChangeValue((value) => {
+                        options.onDidChangeValue?.(value);
+                    }),
+                );
+            }
+
+            disposables.push(
+                quickPick.onDidAccept(() => {
+                    const selected = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
+                    if (selected) {
+                        complete(selected);
+                    } else if (options?.acceptCustomValue && quickPick.value.trim().length > 0) {
+                        const custom = quickPick.value.trim();
+                        const customItem = Object.assign({} as T, { label: custom, value: custom, detail: custom });
+                        complete(customItem);
+                    } else {
+                        complete(undefined);
+                    }
+                }),
+                quickPick.onDidHide(() => {
+                    complete(undefined);
+                }),
+            );
             quickPick.show();
         });
     }
@@ -326,6 +358,16 @@ export class VsCodeHostNavigation implements HostNavigation {
 
     async closeTab(uri: Uri): Promise<void> {
         await closeTabsForUri(uri);
+    }
+
+    private _highlightDelegate?: (repoRoot: Uri, changeId: string | undefined) => void;
+
+    public setHighlightDelegate(delegate?: (repoRoot: Uri, changeId: string | undefined) => void): void {
+        this._highlightDelegate = delegate;
+    }
+
+    highlightCommit(repoRoot: Uri, changeId: string | undefined): void {
+        this._highlightDelegate?.(repoRoot, changeId);
     }
 }
 

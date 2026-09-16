@@ -21,6 +21,8 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
         const rev1 = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select first revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
+            repoRoot: ctx.repo.rootUri,
+            nav: ctx.host.nav,
         });
         if (rev1) {
             revisions.push(rev1);
@@ -28,6 +30,8 @@ export async function newMergeChangeCommand(ctx: CommandContext, payload?: NewMe
         const rev2 = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
             placeHolder: 'Select second revision for merge (optional)',
             revisionQuery: RevisionQuery.visible(),
+            repoRoot: ctx.repo.rootUri,
+            nav: ctx.host.nav,
         });
         if (rev2) {
             revisions.push(rev2);

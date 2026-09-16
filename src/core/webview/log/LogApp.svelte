@@ -17,6 +17,7 @@ import { useRpcReceiver, useRpcSender } from '../transport/bridge.svelte';
 import CommitDragPreview from './components/CommitDragPreview.svelte';
 import CommitGraph from './components/CommitGraph.svelte';
 import { DragManager } from './drag-manager.svelte';
+import { findMatchingCommit } from './utils/commit-utils';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
 let commits = $state<JjLogEntry[]>([]);
@@ -25,7 +26,21 @@ let theme = $state('default');
 let graphLabelAlignment = $state('aligned');
 let loading = $state(true);
 let selectedCommitIds = $state<Set<string>>(new Set());
+let rawHighlightQuery = $state<string | undefined>(undefined);
+const highlightedCommit = $derived(findMatchingCommit(commits, rawHighlightQuery));
+const highlightedCommitId = $derived(highlightedCommit?.change_id);
 let hiddenActions = $state<Set<CommitAction>>(new Set());
+
+function scrollToCommit(changeId: string) {
+    if (typeof document === 'undefined') {
+        return;
+    }
+    const escaped = CSS.escape(changeId);
+    const element = document.querySelector<HTMLElement>(`.commit-row[data-change-id="${escaped}"]`);
+    if (element) {
+        element.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    }
+}
 
 const sender = useRpcSender<LogViewToHostMessage>(LogViewToHostMessageSchema);
 
@@ -146,6 +161,15 @@ useRpcReceiver<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
             hasImmutableSelection: hasImmutable,
         });
     },
+    setHighlight: ({ changeId }) => {
+        rawHighlightQuery = changeId;
+    },
+});
+
+$effect(() => {
+    if (highlightedCommitId) {
+        scrollToCommit(highlightedCommitId);
+    }
 });
 
 $effect(() => {
@@ -265,6 +289,7 @@ function handleGraphAction(action: string, payload: ActionPayload) {
                 {commits}
                 onAction={handleGraphAction}
                 {selectedCommitIds}
+                {highlightedCommitId}
                 {minChangeIdLength}
                 {graphLabelAlignment}
                 {theme}
