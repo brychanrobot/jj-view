@@ -7,8 +7,16 @@ on:
         tags:
             - 'v*'
     pull_request:
+        # Workaround: GitHub's native stacked PR preview has an asynchronous race condition
+        # where PRs in a stack can evaluate workflow triggers before the stack object is registered,
+        # causing intermediate PRs targeting non-main parent branches to miss CI if restricted to 'main'.
+        # Additionally, concurrent branch updates in a stack can cause race conditions in check dispatch.
+        # Track these upstream GitHub issues to know when this workaround can be removed:
+        # - https://github.com/github/gh-stack/issues/425 (Mid-stack PRs miss stack-aware triggers)
+        # - https://github.com/github/gh-stack/issues/466 (Concurrent pushes and duplicate/cancelled CI runs)
+        # Running on all target branches ensures intermediate PRs in a stack always run CI checks.
         branches:
-            - main
+            - '*'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
