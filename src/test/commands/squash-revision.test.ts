@@ -92,12 +92,23 @@ describe('squashRevisionIntoParentCommand', () => {
         expect(parents).toContain(p1ChangeId);
 
         ctx.host.ui.setNextQuickPickResponse({
-            detail: p1CommitId,
             label: 'Parent 1',
             value: p1CommitId,
         });
 
         await squashRevisionIntoParentCommand(ctx, {});
+
+        expect(ctx.host.ui.quickPickCalls[0].options?.matchOnDescription).toBe(true);
+        expect(ctx.host.ui.quickPickCalls[0].items).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    label: ids.p1.changeId.substring(0, 8),
+                    description: ids.p1.commitId.substring(0, 8),
+                    value: ids.p1.commitId,
+                    changeId: ids.p1.changeId,
+                }),
+            ]),
+        );
 
         const p1Content = repo.getFileContent(p1ChangeId, fileName);
         expect(p1Content).toBe('child modified');
@@ -145,7 +156,6 @@ describe('squashRevisionIntoParentCommand', () => {
         const p2CommitId = ids.p2.commitId;
 
         ctx.host.ui.setNextQuickPickResponse({
-            detail: p2CommitId,
             label: 'Parent 2',
             value: p2CommitId,
         });
@@ -216,7 +226,6 @@ describe('squashRevisionIntoParentCommand', () => {
         ]);
 
         ctx.host.ui.setNextQuickPickResponse({
-            detail: ids.p1.commitId,
             label: 'Parent 1',
             value: ids.p1.commitId,
         });
@@ -240,7 +249,6 @@ describe('squashRevisionIntoParentCommand', () => {
         ]);
 
         ctx.host.ui.setNextQuickPickResponse({
-            detail: ids.p2.commitId,
             label: 'Parent 2',
             value: ids.p2.commitId,
         });
@@ -279,10 +287,10 @@ describe('squashRevisionIntoParentCommand', () => {
 
         // Verify that prompt only presented mutable ancestors (p), not immutable base or source child
         const quickPick = ctx.host.ui.quickPickCalls[0];
-        const details = quickPick.items.map((i) => i.detail);
-        expect(details).toContain(ids.p.changeId);
-        expect(details).not.toContain(ids.base.changeId);
-        expect(details).not.toContain(ids.child.changeId);
+        const values = quickPick.items.map((i) => i.value);
+        expect(values).toContain(ids.p.changeId);
+        expect(values).not.toContain(ids.base.changeId);
+        expect(values).not.toContain(ids.child.changeId);
     });
 
     test('completeSquashRevisionCommand completes squash and closes editor', async () => {

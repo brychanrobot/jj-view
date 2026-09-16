@@ -59,7 +59,7 @@ export async function squashRevisionIntoParentCommand(
             if (sourceEntry.parents && sourceEntry.parents.length > 1) {
                 const items = sourceEntry.parents.map((p) => ({
                     label: p.change_id.substring(0, 8),
-                    detail: p.commit_id,
+                    description: p.commit_id.substring(0, 8),
                     value: p.commit_id,
                     changeId: p.change_id,
                 }));
@@ -75,6 +75,7 @@ export async function squashRevisionIntoParentCommand(
                 try {
                     selected = await ctx.host.ui.showQuickPick(items, {
                         placeHolder: 'Select which parent to squash into',
+                        matchOnDescription: true,
                         onDidChangeActive: tracker.onDidChangeActive,
                         onDidChangeValue: tracker.onDidChangeValue,
                     });
@@ -82,7 +83,7 @@ export async function squashRevisionIntoParentCommand(
                     tracker.cleanup();
                 }
 
-                const chosen = selected?.detail || selected?.value;
+                const chosen = selected?.value;
                 if (!chosen) {
                     return;
                 }
@@ -101,6 +102,10 @@ export async function squashRevisionIntoParentCommand(
                 }
                 targetParent = sourceEntry.parents[0].commit_id;
             }
+        }
+
+        if (!targetParent) {
+            return;
         }
 
         await performSquashRevision(ctx, revision, targetParent, sourceEntry.description);

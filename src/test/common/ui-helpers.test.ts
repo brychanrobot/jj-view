@@ -81,7 +81,7 @@ describe('ui-helpers', () => {
             ui = new FakeHostUi();
         });
 
-        it('returns selected revision detail from quick pick', async () => {
+        it('returns selected revision value from quick pick', async () => {
             const ids = await buildGraph(repo, [
                 { label: 'v1', files: { 'file1.txt': 'v1\n' } },
                 { label: 'v2', parents: ['v1'], files: { 'file1.txt': 'v2\n' } },
@@ -89,7 +89,7 @@ describe('ui-helpers', () => {
 
             ui.showQuickPick = vi.fn().mockResolvedValue({
                 label: 'v2',
-                detail: ids.v2.changeId,
+                value: ids.v2.changeId,
             });
 
             const result = await promptForRevision(ui, jj, { revisionQuery: 'all()' });
@@ -98,7 +98,7 @@ describe('ui-helpers', () => {
             expect(ui.showQuickPick).toHaveBeenCalledWith(
                 expect.arrayContaining([
                     expect.objectContaining({
-                        detail: ids.v2.changeId,
+                        value: ids.v2.changeId,
                     }),
                 ]),
                 expect.objectContaining({ placeHolder: 'Select target revision' }),
@@ -140,7 +140,7 @@ describe('ui-helpers', () => {
 
             ui.showQuickPick = vi.fn().mockResolvedValue({
                 label: 'p1',
-                detail: ids.p1.changeId,
+                value: ids.p1.changeId,
             });
 
             const result = await promptForRevision(ui, jj, {
@@ -158,12 +158,12 @@ describe('ui-helpers', () => {
             ]);
             repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.root.commitId}")`);
 
-            let quickPickItems: { label: string; detail?: string }[] = [];
+            let quickPickItems: { label: string; value?: unknown }[] = [];
             ui.showQuickPick = vi.fn().mockImplementation((items) => {
                 quickPickItems = items;
                 return Promise.resolve({
                     label: 'p1',
-                    detail: ids.p1.changeId,
+                    value: ids.p1.changeId,
                 });
             });
 
@@ -173,10 +173,10 @@ describe('ui-helpers', () => {
 
             expect(result).toBe(ids.p1.changeId);
             // Should contain mutable parent p1, but NOT the working copy c1 (@) or root commit
-            const details = quickPickItems.map((item) => item.detail);
-            expect(details).toContain(ids.p1.changeId);
-            expect(details).not.toContain(ids.c1.changeId);
-            expect(details).not.toContain(ids.root.changeId);
+            const values = quickPickItems.map((item) => item.value);
+            expect(values).toContain(ids.p1.changeId);
+            expect(values).not.toContain(ids.c1.changeId);
+            expect(values).not.toContain(ids.root.changeId);
         });
 
         it('restricts prompt to mutable ancestors including target when using mutableAncestorsIncluding', async () => {
@@ -187,12 +187,12 @@ describe('ui-helpers', () => {
             ]);
             repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.root.commitId}")`);
 
-            let quickPickItems: { label: string; detail?: string }[] = [];
+            let quickPickItems: { label: string; value?: unknown }[] = [];
             ui.showQuickPick = vi.fn().mockImplementation((items) => {
                 quickPickItems = items;
                 return Promise.resolve({
                     label: 'c1',
-                    detail: ids.c1.changeId,
+                    value: ids.c1.changeId,
                 });
             });
 
@@ -201,10 +201,10 @@ describe('ui-helpers', () => {
             });
 
             expect(result).toBe(ids.c1.changeId);
-            const details = quickPickItems.map((item) => item.detail);
-            expect(details).toContain(ids.c1.changeId);
-            expect(details).toContain(ids.p1.changeId);
-            expect(details).not.toContain(ids.root.changeId);
+            const values = quickPickItems.map((item) => item.value);
+            expect(values).toContain(ids.c1.changeId);
+            expect(values).toContain(ids.p1.changeId);
+            expect(values).not.toContain(ids.root.changeId);
         });
 
         it('highlights active revision during navigation and clears highlight when finished', async () => {

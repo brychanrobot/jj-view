@@ -87,9 +87,7 @@ export class FakeHostUi implements HostUi {
     }
 
     setNextRevisionPromptResponse(revision: string | undefined): void {
-        this.quickPickResponses.push(
-            revision !== undefined ? { detail: revision, value: revision, label: revision } : undefined,
-        );
+        this.quickPickResponses.push(revision !== undefined ? { value: revision, label: revision } : undefined);
     }
 
     setNextSelectOrCreateResponse(choice: string | undefined): void {

@@ -136,7 +136,6 @@ export async function promptForRevision(
             return {
                 label: `${shortId}${bookmarkStr}`,
                 description: shortDesc,
-                detail: entry.change_id,
                 value: entry.change_id,
             };
         });
@@ -154,7 +153,6 @@ export async function promptForRevision(
             const selected = await ui.showQuickPick(items, {
                 placeHolder,
                 matchOnDescription: true,
-                matchOnDetail: true,
                 acceptCustomValue: true,
                 onDidChangeActive: tracker.onDidChangeActive,
                 onDidChangeValue: tracker.onDidChangeValue,
@@ -164,8 +162,8 @@ export async function promptForRevision(
                 return undefined;
             }
 
-            const item = selected as { customValue?: string; detail?: string; value?: unknown; label?: string };
-            return item.customValue ?? item.detail ?? (item.value !== undefined ? String(item.value) : item.label);
+            const item = selected as { customValue?: string; value?: unknown; label?: string };
+            return item.customValue ?? (item.value !== undefined ? String(item.value) : item.label);
         } finally {
             tracker.cleanup();
         }

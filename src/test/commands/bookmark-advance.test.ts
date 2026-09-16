@@ -65,9 +65,9 @@ describe('advanceBookmarkCommand', () => {
 
         // Verify that prompt only presented mutable ancestors including @, not immutable base
         const quickPick = ctx.host.ui.quickPickCalls[0];
-        const details = quickPick.items.map((i) => i.detail);
-        expect(details).toContain(ids.child.changeId);
-        expect(details).toContain(ids.parent.changeId);
-        expect(details).not.toContain(ids.base.changeId);
+        const values = quickPick.items.map((i) => i.value);
+        expect(values).toContain(ids.child.changeId);
+        expect(values).toContain(ids.parent.changeId);
+        expect(values).not.toContain(ids.base.changeId);
     });
 });
