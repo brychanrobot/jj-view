@@ -70,3 +70,103 @@ export function computeCommitActions(
 
     return { visibleActions, vscodeContext };
 }
+
+/**
+ * Searches a list of log entries for a commit matching the given query string.
+ * Supports exact or prefix matches on change IDs (with or without divergent offset),
+ * commit IDs (SHAs), bookmark names, tags, and working copy references ('@' and '@-').
+ */
+export function findMatchingCommit(commits: readonly JjLogEntry[], query: string | undefined): JjLogEntry | undefined {
+    if (!query) {
+        return undefined;
+    }
+    const q = query.trim().toLowerCase();
+    if (q.length === 0) {
+        return undefined;
+    }
+
+    // 1. Exact match on change_id (or base change_id without /offset)
+    const exactChange = commits.find((c) => {
+        const baseId = c.change_id.toLowerCase().split('/')[0];
+        return c.change_id.toLowerCase() === q || baseId === q;
+    });
+    if (exactChange) {
+        return exactChange;
+    }
+
+    // 2. Exact match on commit_id (SHA)
+    const exactCommit = commits.find((c) => c.commit_id.toLowerCase() === q);
+    if (exactCommit) {
+        return exactCommit;
+    }
+
+    // 3. Exact match on bookmark name or remote bookmark
+    const exactBookmark = commits.find((c) =>
+        c.bookmarks?.some(
+            (b) => b.name.toLowerCase() === q || (b.remote && `${b.name}@${b.remote}`.toLowerCase() === q),
+        ),
+    );
+    if (exactBookmark) {
+        return exactBookmark;
+    }
+
+    // 4. Exact match on tag
+    const exactTag = commits.find((c) => c.tags?.some((t) => t.toLowerCase() === q));
+    if (exactTag) {
+        return exactTag;
+    }
+
+    // 5. Working copy @
+    if (q === '@') {
+        const wc = commits.find((c) => c.is_current_working_copy);
+        if (wc) {
+            return wc;
+        }
+    }
+
+    // 6. Working copy parent @-
+    if (q === '@-') {
+        const wc = commits.find((c) => c.is_current_working_copy);
+        if (wc?.parents && wc.parents.length > 0) {
+            const parentCommitId = wc.parents[0].commit_id;
+            const parent = commits.find((c) => c.commit_id === parentCommitId);
+            if (parent) {
+                return parent;
+            }
+        }
+    }
+
+    // 7. Prefix match on change_id (e.g. typing "kkm" or "qut")
+    const prefixChange = commits.find((c) => {
+        const baseId = c.change_id.toLowerCase().split('/')[0];
+        return c.change_id.toLowerCase().startsWith(q) || baseId.startsWith(q);
+    });
+    if (prefixChange) {
+        return prefixChange;
+    }
+
+    // 8. Prefix match on commit_id (SHA)
+    const prefixCommit = commits.find((c) => c.commit_id.toLowerCase().startsWith(q));
+    if (prefixCommit) {
+        return prefixCommit;
+    }
+
+    // 9. Prefix match on bookmark name or remote bookmark
+    const prefixBookmark = commits.find((c) =>
+        c.bookmarks?.some(
+            (b) =>
+                b.name.toLowerCase().startsWith(q) || (b.remote && `${b.name}@${b.remote}`.toLowerCase().startsWith(q)),
+        ),
+    );
+    if (prefixBookmark) {
+        return prefixBookmark;
+    }
+
+    // 10. Prefix match on tag
+    const prefixTag = commits.find((c) => c.tags?.some((t) => t.toLowerCase().startsWith(q)));
+    if (prefixTag) {
+        return prefixTag;
+    }
+
+    return undefined;
+}

@@ -25,6 +25,7 @@ interface Props {
     commits: JjLogEntry[];
     onAction: (action: string, payload: ActionPayload) => void;
     selectedCommitIds?: Set<string>;
+    highlightedCommitId?: string;
     minChangeIdLength: number;
     graphLabelAlignment?: string;
     theme?: string;
@@ -36,6 +37,7 @@ let {
     commits,
     onAction,
     selectedCommitIds = new Set(),
+    highlightedCommitId,
     minChangeIdLength,
     graphLabelAlignment = 'aligned',
     theme = 'default',
@@ -112,6 +114,7 @@ const graphAreaWidth = $derived(computeGraphAreaWidth(layout.width, LANE_WIDTH, 
         rowOffsets={rowOffsetsData.rowOffsets}
         rows={displayRows}
         selectedNodes={selectedCommitIds}
+        highlightedNodeId={highlightedCommitId}
     />
 
     <!-- Commit List (Text) -->
@@ -132,6 +135,7 @@ const graphAreaWidth = $derived(computeGraphAreaWidth(layout.width, LANE_WIDTH, 
                 </div>
             {:else}
                 {@const isSelected = selectedCommitIds.has(row.change_id)}
+                {@const isHighlighted = row.change_id === highlightedCommitId}
                 {@const height = row.codeForgeChange ? ROW_HEIGHT_EXPANDED : ROW_HEIGHT_NORMAL}
                 {@const paddingLeft = compactPaddingMap?.get(i) ?? graphAreaWidth}
                 <div
@@ -153,6 +157,7 @@ const graphAreaWidth = $derived(computeGraphAreaWidth(layout.width, LANE_WIDTH, 
                         }
                         {onAction}
                         {isSelected}
+                        {isHighlighted}
                         selectionCount={selectedCommitIds.size}
                         hasImmutableSelection={hasImmutable}
                         idDisplayLength={maxShortestIdLength}

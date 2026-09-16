@@ -12,17 +12,101 @@ import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjService } from '../jj-service';
 import { getUriParams, Uri } from '../uri-utils';
-import type { HostEnvironment, HostUi } from './host-environment';
+import type { HostEnvironment, HostNavigation, HostUi } from './host-environment';
 
 export interface PromptRevisionOptions {
     placeHolder?: string;
     revisionQuery?: string;
     emptyPrompt?: string;
+    repoRoot?: Uri;
+    nav?: HostNavigation;
+    onActiveRevisionChange?: (revision: string | undefined) => void;
+}
+
+export interface QuickPickHighlightOptions {
+    repoRoot?: Uri;
+    nav?: HostNavigation;
+    onActiveRevisionChange?: (revision: string | undefined) => void;
+    getItemRevision?: (item: { label: string; value?: unknown; changeId?: string; detail?: string }) => string;
+}
+
+export function createQuickPickHighlightTracker<
+    T extends { label: string; value?: unknown; changeId?: string; detail?: string },
+>(options?: QuickPickHighlightOptions) {
+    const notifyHighlight = (rev: string | undefined) => {
+        if (options?.repoRoot && options?.nav?.highlightCommit) {
+            options.nav.highlightCommit(options.repoRoot, rev);
+        }
+        options?.onActiveRevisionChange?.(rev);
+    };
+
+    let currentActiveItems: readonly T[] = [];
+    let currentValue = '';
+    let lastNotifiedRev: string | undefined;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const cancelFallbackTimer = () => {
+        if (fallbackTimer !== undefined) {
+            clearTimeout(fallbackTimer);
+            fallbackTimer = undefined;
+        }
+    };
+
+    const emitHighlight = (targetRev: string | undefined) => {
+        if (targetRev !== lastNotifiedRev) {
+            lastNotifiedRev = targetRev;
+            notifyHighlight(targetRev);
+        }
+    };
+
+    const scheduleFallback = () => {
+        cancelFallbackTimer();
+        fallbackTimer = setTimeout(() => {
+            fallbackTimer = undefined;
+            if (currentActiveItems.length === 0) {
+                const trimmed = currentValue.trim();
+                emitHighlight(trimmed.length > 0 ? trimmed : undefined);
+            }
+        }, 50);
+    };
+
+    const onDidChangeActive = (activeItems: readonly T[]) => {
+        currentActiveItems = activeItems;
+        if (currentActiveItems.length > 0) {
+            cancelFallbackTimer();
+            const active = currentActiveItems[0];
+            const rev = options?.getItemRevision
+                ? options.getItemRevision(active)
+                : (active.changeId ??
+                  (active.value !== undefined ? String(active.value) : (active.detail ?? active.label)));
+            emitHighlight(rev);
+        } else {
+            scheduleFallback();
+        }
+    };
+
+    const onDidChangeValue = (value: string) => {
+        currentValue = value;
+        if (currentActiveItems.length === 0) {
+            scheduleFallback();
+        }
+    };
+
+    const cleanup = () => {
+        cancelFallbackTimer();
+        notifyHighlight(undefined);
+    };
+
+    return {
+        onDidChangeActive,
+        onDidChangeValue,
+        cleanup,
+    };
 }
 
 /**
- * Prompts the user to select a revision from the repository, falling back to an input box
- * if no revisions match or if an error occurs.
+ * Prompts user for a revision with autocomplete from jj log.
+ * Falls back to text input if log fails or produces no entries.
  */
 export async function promptForRevision(
     ui: HostUi,
@@ -30,20 +114,18 @@ export async function promptForRevision(
     options?: PromptRevisionOptions,
 ): Promise<string | undefined> {
     const placeHolder = options?.placeHolder ?? 'Select target revision';
-    const revisionQuery = options?.revisionQuery ?? 'all()';
     const emptyPrompt = options?.emptyPrompt ?? 'Enter revision';
-    const limit = 200;
 
     try {
-        const ancestors = await jj.getLog({
-            revision: revisionQuery,
-            limit,
+        const query = options?.revisionQuery ?? 'visible()';
+        const entries = await jj.getLog({
+            revision: query,
             omitChanges: true,
         });
 
-        const items = ancestors.map((entry) => {
-            const shortId = entry.change_id_shortest || entry.change_id.substring(0, 8);
-            const desc = entry.description?.trim() || '(no description)';
+        const items = entries.map((entry) => {
+            const shortId = entry.change_id.substring(0, 8);
+            const desc = entry.description || '(no description set)';
             const shortDesc = desc.split('\n')[0].substring(0, 50);
 
             let bookmarkStr = '';
@@ -66,19 +148,27 @@ export async function promptForRevision(
             });
         }
 
-        const selected = await ui.showQuickPick(items, {
-            placeHolder,
-            matchOnDescription: true,
-            matchOnDetail: true,
-            acceptCustomValue: true,
-        });
+        const tracker = createQuickPickHighlightTracker<(typeof items)[number]>(options);
 
-        if (!selected) {
-            return undefined;
+        try {
+            const selected = await ui.showQuickPick(items, {
+                placeHolder,
+                matchOnDescription: true,
+                matchOnDetail: true,
+                acceptCustomValue: true,
+                onDidChangeActive: tracker.onDidChangeActive,
+                onDidChangeValue: tracker.onDidChangeValue,
+            });
+
+            if (!selected) {
+                return undefined;
+            }
+
+            const item = selected as { customValue?: string; detail?: string; value?: unknown; label?: string };
+            return item.customValue ?? item.detail ?? (item.value !== undefined ? String(item.value) : item.label);
+        } finally {
+            tracker.cleanup();
         }
-
-        const item = selected as { customValue?: string; detail?: string; value?: unknown; label?: string };
-        return item.customValue ?? item.detail ?? (item.value !== undefined ? String(item.value) : item.label);
     } catch {
         return await ui.showInputBox({
             prompt: emptyPrompt,

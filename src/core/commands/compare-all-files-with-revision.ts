@@ -23,6 +23,8 @@ export async function compareAllFilesWithRevisionCommand(
             revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select an ancestor to compare with all files',
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
+                repoRoot: ctx.repo.rootUri,
+                nav: ctx.host.nav,
             });
         }
 

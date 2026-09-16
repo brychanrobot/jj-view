@@ -15,7 +15,6 @@ body {
 }
 
 .commit-row {
-    transition: background-color 0.1s;
     /* Ensure content sits above but doesn't block graph unless necessary */
 }
 

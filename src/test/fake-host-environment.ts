@@ -43,6 +43,8 @@ export class FakeHostUi implements HostUi {
     public errorMessages: string[] = [];
     public progressTitles: string[] = [];
     public statusBarMessages: { message: string; timeoutMs?: number }[] = [];
+    public activeQuickPickItems?: readonly { label: string; value?: unknown }[];
+    public quickPickInputValue?: string;
     public quickPickCalls: {
         items: { label: string; detail?: string; description?: string; value?: unknown }[];
         options?: {
@@ -51,6 +53,8 @@ export class FakeHostUi implements HostUi {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly unknown[]) => void;
+            onDidChangeValue?: (value: string) => void;
         };
     }[] = [];
 
@@ -111,9 +115,28 @@ export class FakeHostUi implements HostUi {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly T[]) => void;
+            onDidChangeValue?: (value: string) => void;
         },
     ): Promise<T | undefined> {
-        this.quickPickCalls.push({ items, options });
+        this.quickPickCalls.push({
+            items,
+            options: options as {
+                placeHolder?: string;
+                title?: string;
+                matchOnDescription?: boolean;
+                matchOnDetail?: boolean;
+                acceptCustomValue?: boolean;
+                onDidChangeActive?: (items: readonly unknown[]) => void;
+                onDidChangeValue?: (value: string) => void;
+            },
+        });
+        if (options?.onDidChangeActive && this.activeQuickPickItems) {
+            options.onDidChangeActive(this.activeQuickPickItems as readonly T[]);
+        }
+        if (options?.onDidChangeValue && this.quickPickInputValue !== undefined) {
+            options.onDidChangeValue(this.quickPickInputValue);
+        }
         return this.quickPickResponses.shift() as T | undefined;
     }
 
@@ -230,6 +253,12 @@ export class FakeHostNavigation implements HostNavigation {
 
     async closeTab(uri: Uri): Promise<void> {
         this.closedTabs.push(uri);
+    }
+
+    public highlightedCommits: { repoRoot: Uri; changeId: string | undefined }[] = [];
+
+    highlightCommit(repoRoot: Uri, changeId: string | undefined): void {
+        this.highlightedCommits.push({ repoRoot, changeId });
     }
 }
 

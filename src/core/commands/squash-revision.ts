@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
 import type { CommandContext } from '../host/command-context';
-import { promptForRevision, showJjError } from '../host/ui-helpers';
+import { createQuickPickHighlightTracker, promptForRevision, showJjError } from '../host/ui-helpers';
 import { Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -61,11 +61,26 @@ export async function squashRevisionIntoParentCommand(
                     label: p.change_id.substring(0, 8),
                     detail: p.commit_id,
                     value: p.commit_id,
+                    changeId: p.change_id,
                 }));
 
-                const selected = await ctx.host.ui.showQuickPick(items, {
-                    placeHolder: 'Select which parent to squash into',
+                const tracker = createQuickPickHighlightTracker({
+                    repoRoot: ctx.repo.rootUri,
+                    nav: ctx.host.nav,
+                    getItemRevision: (item) => item.changeId ?? String(item.value ?? item.label),
                 });
+
+                let selected: (typeof items)[number] | undefined;
+
+                try {
+                    selected = await ctx.host.ui.showQuickPick(items, {
+                        placeHolder: 'Select which parent to squash into',
+                        onDidChangeActive: tracker.onDidChangeActive,
+                        onDidChangeValue: tracker.onDidChangeValue,
+                    });
+                } finally {
+                    tracker.cleanup();
+                }
 
                 const chosen = selected?.detail || selected?.value;
                 if (!chosen) {
@@ -107,6 +122,8 @@ export async function squashRevisionIntoAncestorCommand(
             selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: 'Select which ancestor to squash into',
                 revisionQuery: RevisionQuery.mutableAncestorsExcluding(revision),
+                repoRoot: ctx.repo.rootUri,
+                nav: ctx.host.nav,
             });
         }
         if (!selectedAncestorRev) {

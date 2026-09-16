@@ -31,6 +31,8 @@ export interface HostUi {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly T[]) => void;
+            onDidChangeValue?: (value: string) => void;
         },
     ): Promise<T | undefined>;
     showMultiQuickPick<T extends { label: string; value?: unknown }>(
@@ -72,6 +74,7 @@ export interface HostNavigation {
     openSettings(settingId?: string): Promise<void>;
     focusScmInput?(): Promise<void>;
     closeTab(uri: Uri): Promise<void>;
+    highlightCommit?(repoRoot: Uri, changeId: string | undefined): void;
 }
 
 export interface TextSelectionRange {

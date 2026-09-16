@@ -206,6 +206,171 @@ describe('ui-helpers', () => {
             expect(details).toContain(ids.p1.changeId);
             expect(details).not.toContain(ids.root.changeId);
         });
+
+        it('highlights active revision during navigation and clears highlight when finished', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'p1', files: { 'file1.txt': 'p1\n' } },
+                { label: 'c1', parents: ['p1'], files: { 'file2.txt': 'c1\n' } },
+            ]);
+
+            const highlighted: { repoRoot: Uri; changeId: string | undefined }[] = [];
+            const nav = {
+                openDiff: vi.fn(),
+                openMultiDiff: vi.fn(),
+                openMergeEditor: vi.fn(),
+                openCommitDetails: vi.fn(),
+                openFile: vi.fn(),
+                openFolder: vi.fn(),
+                openExternal: vi.fn(),
+                copyToClipboard: vi.fn(),
+                openSettings: vi.fn(),
+                closeTab: vi.fn(),
+                highlightCommit: (repoRoot: Uri, changeId: string | undefined) => {
+                    highlighted.push({ repoRoot, changeId });
+                },
+            };
+
+            const repoRoot = Uri.file(repo.path);
+
+            ui.showQuickPick = vi.fn().mockImplementation(async (items, options) => {
+                // Simulate navigating between items
+                options?.onDidChangeActive?.([items[0]]);
+                options?.onDidChangeActive?.([items[1]]);
+                return items[1];
+            });
+
+            const result = await promptForRevision(ui, jj, {
+                revisionQuery: 'all()',
+                repoRoot,
+                nav,
+            });
+
+            expect(result).toBe(ids.p1.changeId);
+            expect(highlighted).toEqual([
+                { repoRoot, changeId: ids.c1.changeId },
+                { repoRoot, changeId: ids.p1.changeId },
+                { repoRoot, changeId: undefined },
+            ]);
+        });
+
+        it('clears highlight even when quick pick is cancelled', async () => {
+            await buildGraph(repo, [{ label: 'p1', files: { 'file1.txt': 'p1\n' } }]);
+
+            const highlighted: { repoRoot: Uri; changeId: string | undefined }[] = [];
+            const nav = {
+                openDiff: vi.fn(),
+                openMultiDiff: vi.fn(),
+                openMergeEditor: vi.fn(),
+                openCommitDetails: vi.fn(),
+                openFile: vi.fn(),
+                openFolder: vi.fn(),
+                openExternal: vi.fn(),
+                copyToClipboard: vi.fn(),
+                openSettings: vi.fn(),
+                closeTab: vi.fn(),
+                highlightCommit: (repoRoot: Uri, changeId: string | undefined) => {
+                    highlighted.push({ repoRoot, changeId });
+                },
+            };
+
+            const repoRoot = Uri.file(repo.path);
+
+            ui.showQuickPick = vi.fn().mockImplementation(async (items, options) => {
+                options?.onDidChangeActive?.([items[0]]);
+                return undefined;
+            });
+
+            const result = await promptForRevision(ui, jj, {
+                revisionQuery: 'all()',
+                repoRoot,
+                nav,
+            });
+
+            expect(result).toBeUndefined();
+            expect(highlighted.at(-1)).toEqual({ repoRoot, changeId: undefined });
+        });
+
+        it('invokes onActiveRevisionChange during navigation and on finish', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'p1', files: { 'file1.txt': 'p1\n' } },
+                { label: 'c1', parents: ['p1'], files: { 'file2.txt': 'c1\n' } },
+            ]);
+
+            const activeEvents: (string | undefined)[] = [];
+
+            ui.showQuickPick = vi.fn().mockImplementation(async (items, options) => {
+                options?.onDidChangeActive?.([items[0]]);
+                options?.onDidChangeActive?.([items[1]]);
+                return items[0];
+            });
+
+            await promptForRevision(ui, jj, {
+                revisionQuery: 'all()',
+                onActiveRevisionChange: (rev) => {
+                    activeEvents.push(rev);
+                },
+            });
+
+            expect(activeEvents).toEqual([ids.c1.changeId, ids.p1.changeId, undefined]);
+        });
+
+        it('highlights arbitrary revision typed by user via onDidChangeValue only when active items are empty', async () => {
+            const ids = await buildGraph(repo, [{ label: 'p1', files: { 'file1.txt': 'p1\n' } }]);
+
+            const highlighted: { repoRoot: Uri; changeId: string | undefined }[] = [];
+            const nav = {
+                openDiff: vi.fn(),
+                openMultiDiff: vi.fn(),
+                openMergeEditor: vi.fn(),
+                openCommitDetails: vi.fn(),
+                openFile: vi.fn(),
+                openFolder: vi.fn(),
+                openExternal: vi.fn(),
+                copyToClipboard: vi.fn(),
+                openSettings: vi.fn(),
+                closeTab: vi.fn(),
+                highlightCommit: (repoRoot: Uri, changeId: string | undefined) => {
+                    highlighted.push({ repoRoot, changeId });
+                },
+            };
+
+            const repoRoot = Uri.file(repo.path);
+
+            ui.showQuickPick = vi.fn().mockImplementation(async (items, options) => {
+                // 1. Initially active item
+                options?.onDidChangeActive?.([items[0]]);
+                // 2. User types text that matches an item -> active item should still be prioritized with zero intermediate flash
+                options?.onDidChangeValue?.('p1');
+                options?.onDidChangeActive?.([items[0]]);
+                // 3. User types text that matches NO items -> active items becomes empty -> arbitrary match on typed value after debounce
+                options?.onDidChangeActive?.([]);
+                options?.onDidChangeValue?.('arbitrary-rev');
+                await new Promise((resolve) => setTimeout(resolve, 60));
+                // 4. User clears text or matches again
+                options?.onDidChangeActive?.([items[0]]);
+                options?.onDidChangeValue?.('');
+                return { customValue: 'arbitrary-rev' };
+            });
+
+            const result = await promptForRevision(ui, jj, {
+                revisionQuery: 'all()',
+                repoRoot,
+                nav,
+            });
+
+            expect(result).toBe('arbitrary-rev');
+            // Check sequence of highlights:
+            // 1. items[0] change_id (initial)
+            // 2. 'arbitrary-rev' (after fallback debounce)
+            // 3. items[0] change_id (when match restored)
+            // 4. undefined (from finally)
+            expect(highlighted.map((h) => h.changeId)).toEqual([
+                ids.p1.changeId,
+                'arbitrary-rev',
+                ids.p1.changeId,
+                undefined,
+            ]);
+        });
     });
 
     describe('showJjError', () => {

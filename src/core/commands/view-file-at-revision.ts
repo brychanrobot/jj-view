@@ -36,6 +36,8 @@ export async function viewFileAtRevisionCommand(
             revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
                 placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
                 revisionQuery: RevisionQuery.visible(),
+                repoRoot: ctx.repo.rootUri,
+                nav: ctx.host.nav,
             });
         }
 

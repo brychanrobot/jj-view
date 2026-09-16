@@ -24,9 +24,20 @@ interface Props {
     rowOffsets: number[];
     rows: GraphRow[];
     selectedNodes?: Set<string>;
+    highlightedNodeId?: string;
 }
 
-let { nodes, edges, terminations = [], width, height, rowOffsets, rows, selectedNodes = new Set() }: Props = $props();
+let {
+    nodes,
+    edges,
+    terminations = [],
+    width,
+    height,
+    rowOffsets,
+    rows,
+    selectedNodes = new Set(),
+    highlightedNodeId,
+}: Props = $props();
 
 const W = LANE_WIDTH;
 const CX = LANE_CENTER_X;
@@ -214,6 +225,7 @@ const svgHeight = $derived(height + BOTTOM_PADDING);
         {@const cx = getPixelX(node.x)}
         {@const cy = getLayoutRowPixelY({ type: 'node', x: node.x, y: node.y })}
         {@const isSelected = selectedNodes.has(node.changeId)}
+        {@const isHighlighted = highlightedNodeId !== undefined && node.changeId === highlightedNodeId}
         <g data-commit-id={node.commitId}>
             {#if isSelected}
                 <circle
@@ -224,6 +236,17 @@ const svgHeight = $derived(height + BOTTOM_PADDING);
                     stroke="var(--vscode-list-activeSelectionForeground)"
                     stroke-width="2"
                     style:opacity="0.6"
+                />
+            {:else if isHighlighted}
+                <circle
+                    {cx}
+                    {cy}
+                    r="9"
+                    fill="none"
+                    stroke="var(--vscode-list-activeSelectionForeground)"
+                    stroke-width="2"
+                    stroke-dasharray="2 2"
+                    style:opacity="0.8"
                 />
             {/if}
 

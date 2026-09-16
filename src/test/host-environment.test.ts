@@ -108,6 +108,24 @@ describe('FakeHostEnvironment', () => {
                     changeIdOffset: 0,
                 },
             ]);
+            nav.highlightCommit(rootUri, 'change123');
+            expect(nav.highlightedCommits).toEqual([
+                {
+                    repoRoot: rootUri,
+                    changeId: 'change123',
+                },
+            ]);
+            nav.highlightCommit(rootUri, undefined);
+            expect(nav.highlightedCommits).toEqual([
+                {
+                    repoRoot: rootUri,
+                    changeId: 'change123',
+                },
+                {
+                    repoRoot: rootUri,
+                    changeId: undefined,
+                },
+            ]);
         });
     });
 

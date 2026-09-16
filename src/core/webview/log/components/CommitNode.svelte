@@ -17,6 +17,7 @@ interface Props {
     onClick: (modifiers: { multiSelect: boolean }) => void;
     onAction: (action: string, payload: ActionPayload) => void;
     isSelected?: boolean;
+    isHighlighted?: boolean;
     selectionCount: number;
     hasImmutableSelection: boolean;
     idDisplayLength: number;
@@ -29,6 +30,7 @@ let {
     onClick,
     onAction,
     isSelected = false,
+    isHighlighted = false,
     selectionCount,
     hasImmutableSelection,
     idDisplayLength,
@@ -63,7 +65,7 @@ const backgroundColor = $derived.by(() => {
         }
         return 'var(--vscode-list-inactiveSelectionBackground)';
     }
-    if (isHovered || isOver) {
+    if (isHovered || isOver || isHighlighted) {
         if (isConflict) {
             return 'color-mix(in srgb, transparent, var(--vscode-charts-red) 20%)';
         }
@@ -129,6 +131,7 @@ const hasActiveBookmarkAlready = $derived(
     tabindex="0"
     data-change-id={commit.change_id}
     data-selected={isSelected}
+    data-highlighted={isHighlighted}
     data-hovered={isHovered}
     data-vscode-context={JSON.stringify(vscodeContext)}
     style:background-color={backgroundColor}
