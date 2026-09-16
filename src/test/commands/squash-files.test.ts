@@ -110,11 +110,11 @@ describe('squash-files commands', () => {
 
             // Verify that prompt only presented mutable ancestors, not immutable base or source child
             const quickPick = ctx.host.ui.quickPickCalls[0];
-            const details = quickPick.items.map((i) => i.detail);
-            expect(details).toContain(ids.grandparent.changeId);
-            expect(details).toContain(ids.parent.changeId);
-            expect(details).not.toContain(ids.base.changeId);
-            expect(details).not.toContain(ids.child.changeId);
+            const values = quickPick.items.map((i) => i.value);
+            expect(values).toContain(ids.grandparent.changeId);
+            expect(values).toContain(ids.parent.changeId);
+            expect(values).not.toContain(ids.base.changeId);
+            expect(values).not.toContain(ids.child.changeId);
         });
     });
 
