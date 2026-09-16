@@ -508,27 +508,33 @@ test.describe('JJ Log Pane E2E', () => {
         const featureRow = await waitForLogCommitRow(page, { changeId: nodes.feature.changeId });
         const featureDesc = featureRow.locator('.commit-desc');
 
-        // Check that the title attribute exactly matches the expected format
-        const title = await featureDesc.getAttribute('title');
+        // Verify the title tooltip format. Use a regex pattern for relative time to prevent
+        // race conditions where the webview and test runner evaluate Date.now() on different
+        // second boundaries (e.g. "just now" vs "1 second ago").
         const shortest = repo.getLog(nodes.feature.commitId, 'change_id.shortest()');
         const timestamp = repo.getLog(nodes.feature.commitId, 'author.timestamp()');
-        const { relTime, fullTime } = getPersonDisplayStrings({ name: '', email: '', timestamp });
+        const { fullTime } = getPersonDisplayStrings({ name: '', email: '', timestamp });
         const truncatedChangeId = nodes.feature.changeId.slice(0, 10);
         const boldShortest = toUnicodeBold(shortest);
         const restChangeId = toUnicodeMonospace(truncatedChangeId.slice(shortest.length));
         const monospaceCommitId = toUnicodeMonospace(nodes.feature.commitId.slice(0, 10));
 
-        const expectedTitle = [
-            `ᴄʜᴀɴɢᴇ: ${boldShortest}${restChangeId}`,
-            `ᴄᴏᴍᴍɪᴛ: ${monospaceCommitId}`,
-            'sᴛᴀᴛᴜs: @ (working copy)',
-            `ᴅᴀᴛᴇ: ${relTime} (${fullTime})`,
-            '────────────────────────────────────────',
-            'feature commit',
-            '',
-            'Extended details about the feature.',
-        ].join('\n');
+        const escapedFullTime = fullTime.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+        const expectedPattern = new RegExp(
+            `^` +
+                [
+                    `ᴄʜᴀɴɢᴇ: ${boldShortest}${restChangeId}`,
+                    `ᴄᴏᴍᴍɪᴛ: ${monospaceCommitId}`,
+                    'sᴛᴀᴛᴜs: @ \\(working copy\\)',
+                    `ᴅᴀᴛᴇ: (?:just now|\\d+ (?:second|minute|hour|day|week|month|year)s? ago) \\(${escapedFullTime}\\)`,
+                    '────────────────────────────────────────',
+                    'feature commit',
+                    '',
+                    'Extended details about the feature\\.',
+                ].join('\\n') +
+                `$`,
+        );
 
-        expect(title).toBe(expectedTitle);
+        await expect(featureDesc).toHaveAttribute('title', expectedPattern);
     });
 });
