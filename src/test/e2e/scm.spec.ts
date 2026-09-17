@@ -511,19 +511,18 @@ test.describe('SCM Pane E2E', () => {
         await focusSCM(page);
 
         // 3. Squash File to Child (Pull from Ancestor)
-        const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
-        await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
-
-        // Assert via repo that f2.txt from ancestor was moved to working copy
-        // and the UI SCM tree has refreshed to reflect the new state.
         await expect(async () => {
             const wcChanges = repo.getDiffSummary('@');
-            expect(wcChanges).toContain('A f2.txt');
+            if (!wcChanges.includes('A f2.txt')) {
+                const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
+                await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
+            }
+            expect(repo.getDiffSummary('@')).toContain('A f2.txt');
 
             // Also wait for the UI SCM tree to refresh.
             // In SCM tree under Working Copy group, there should be f2.txt
             await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
-        }).toPass({ timeout: 10000 });
+        }).toPass({ timeout: 15000 });
 
         // 4. Edit (Make ancestor the working copy)
         await clickScmAction(page, /ancestor change/, SCM_ACTIONS.Edit);

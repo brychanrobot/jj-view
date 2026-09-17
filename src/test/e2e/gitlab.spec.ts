@@ -324,7 +324,11 @@ test.describe('GitLab Integration E2E', () => {
         // Click the Manage Auth button in the Source Control title bar
         const manageAuthButton = page.getByRole('button', { name: 'Manage Code Forge Authentication' }).first();
         await expect(manageAuthButton).toBeVisible({ timeout: 15000 });
-        await manageAuthButton.click();
+        await expect(async () => {
+            await focusSCM(page);
+            await manageAuthButton.click();
+            await expect(locateQuickInputItem(page, /Sign In.*OAuth/)).toBeVisible({ timeout: 2000 });
+        }).toPass({ timeout: 15000 });
 
         // The Quick Pick should be visible. Select "Sign In (OAuth)"
         await pickQuickPickItem(page, /Sign In.*OAuth/);

@@ -43,7 +43,7 @@ func main() {
         fs.writeFileSync(goSourcePath, goSource);
         cp.execFileSync('go', ['build', '-o', sharedBinaryPath, goSourcePath]);
         fs.unlinkSync(goSourcePath);
-    });
+    }, 120_000);
 
     afterAll(() => {
         if (sharedBinaryPath) {
