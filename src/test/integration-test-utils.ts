@@ -123,6 +123,8 @@ export async function createTestRepositoryContext(
         throw new Error(`SCM provider not found for registered repository: ${finalRepo.rootUri.fsPath}`);
     }
 
+    repositoryManager.setFocusedRepository(finalRepo);
+
     const testContext: TestRepositoryContext = {
         codeForgeRegistry: repositoryManager.codeForgeRegistry,
         repository: finalRepo,

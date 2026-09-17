@@ -370,4 +370,85 @@ describe('LogViewController Domain Unit Tests', () => {
 
         expect(ensureFreshSpy).toHaveBeenCalledTimes(1);
     });
+
+    test('refreshCodeForge executes additional iteration when setCommits arrives during in-flight fetch', async () => {
+        const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+        expect(repo).toBeDefined();
+        if (!repo) {
+            return;
+        }
+
+        let resolveFetch1!: (val: boolean) => void;
+        let resolveFetch2!: (val: boolean) => void;
+        let fetchCount = 0;
+        const mockProvider = createMock<CodeForgeProvider>({
+            id: 'mock-provider-rerun',
+            detect: async () => true,
+            onDidUpdate: new EventEmitter<void>().event,
+            getCachedChangeInfo: () => undefined,
+            fetchStatuses: vi.fn().mockImplementation(() => {
+                fetchCount++;
+                if (fetchCount === 1) {
+                    return new Promise<boolean>((res) => {
+                        resolveFetch1 = res;
+                    });
+                }
+                return new Promise<boolean>((res) => {
+                    resolveFetch2 = res;
+                });
+            }),
+            clearCache: () => {},
+            activate: () => {},
+            deactivate: () => {},
+        });
+        registry.register({ id: 'mock-provider-rerun', create: () => mockProvider });
+        await repo.codeForge.detectActiveProvider(true);
+
+        const dummyCommits1: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-rerun-1',
+                commit_id: 'test-commit-rerun-1',
+                description: 'test commit rerun 1',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+
+        controller.setCommits(dummyCommits1);
+        const ensureFreshSpy = vi.spyOn(repo.codeForge, 'ensureFreshStatuses');
+
+        const refreshPromise = controller.refreshCodeForge();
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(1);
+
+        // Update commits while the first fetch is in flight
+        const dummyCommits2: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'test-change-rerun-2',
+                commit_id: 'test-commit-rerun-2',
+                description: 'test commit rerun 2',
+                is_immutable: false,
+                is_empty: false,
+                conflict: false,
+                bookmarks: [],
+                tags: [],
+                parents: [],
+            }),
+        ];
+        controller.setCommits(dummyCommits2);
+
+        // Complete the first fetch; the loop should detect version change and run pass 2
+        resolveFetch1(false);
+
+        // Allow microtasks to run and start pass 2
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(2);
+
+        resolveFetch2(false);
+        await refreshPromise;
+        expect(ensureFreshSpy).toHaveBeenCalledTimes(2);
+    });
 });
