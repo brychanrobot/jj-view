@@ -19,6 +19,8 @@ export class AsyncCache<K = string, V = unknown> {
     private readonly _onEvict?: (value: V) => Promise<void> | void;
     private readonly _clone?: (value: V) => V;
 
+    private _epoch = 0;
+
     constructor(options: AsyncCacheOptions<V> = {}) {
         this._defaultTtlMs = options.ttlMs ?? 5 * 60_000;
         this._onEvict = options.onEvict;
@@ -37,17 +39,24 @@ export class AsyncCache<K = string, V = unknown> {
             return this._clone ? this._clone(cached.value) : cached.value;
         }
 
-        const promise = (async () => {
+        const currentEpoch = this._epoch;
+        let promise: Promise<V> | undefined;
+        promise = (async () => {
             if (cached && this._onEvict) {
                 this._cache.delete(key);
                 await this._onEvict(cached.value);
             }
 
             const value = await fetcher();
-            this._cache.set(key, {
-                value,
-                expires: Date.now() + (ttlMs ?? this._defaultTtlMs),
-            });
+
+            if (this._promises.get(key) === promise && this._epoch === currentEpoch) {
+                this._cache.set(key, {
+                    value,
+                    expires: Date.now() + (ttlMs ?? this._defaultTtlMs),
+                });
+            } else if (this._onEvict) {
+                await this._onEvict(value);
+            }
             return value;
         })();
 
@@ -56,11 +65,14 @@ export class AsyncCache<K = string, V = unknown> {
             const val = await promise;
             return this._clone ? this._clone(val) : val;
         } finally {
-            this._promises.delete(key);
+            if (this._promises.get(key) === promise) {
+                this._promises.delete(key);
+            }
         }
     }
 
     async clear(): Promise<void> {
+        this._epoch++;
         this._promises.clear();
         const entries = Array.from(this._cache.values());
         this._cache.clear();

@@ -174,17 +174,26 @@ export class JjService {
         if (this._gitRootPromise) {
             return this._gitRootPromise;
         }
-        this._gitRootPromise = (async () => {
+        let promise: Promise<string | null> | undefined;
+        promise = (async () => {
             try {
-                this._gitRoot = await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
-                return this._gitRoot;
+                const root = await this.run('git', ['root'], { useCachedSnapshot: true, label: 'getGitRoot' });
+                if (this._gitRootPromise === promise) {
+                    this._gitRoot = root;
+                }
+                return root;
             } catch {
-                this._gitRoot = null;
+                if (this._gitRootPromise === promise) {
+                    this._gitRoot = null;
+                }
                 return null;
             } finally {
-                this._gitRootPromise = undefined;
+                if (this._gitRootPromise === promise) {
+                    this._gitRootPromise = undefined;
+                }
             }
         })();
+        this._gitRootPromise = promise;
         return this._gitRootPromise;
     }
 
@@ -545,7 +554,6 @@ export class JjService {
 
         if (omitChanges && this._cacheEpoch === epoch) {
             for (const entry of entries) {
-                this._setCachedLogEntry(entry.change_id, entry);
                 this._setCachedLogEntry(entry.commit_id, entry);
             }
         }
@@ -820,6 +828,7 @@ export class JjService {
 
     async clearCache(): Promise<void> {
         this._cacheEpoch++;
+        this._repoRoot = undefined;
         this._logEntryCache.clear();
         this._gitRoot = undefined;
         this._gitRootPromise = undefined;
@@ -831,7 +840,10 @@ export class JjService {
      * Check if a revision is immutable.
      */
     async isImmutable(revision: string): Promise<boolean> {
-        const stdout = await this.run('log', ['-r', revision, '-T', 'immutable', '--no-graph']);
+        const stdout = await this.run('log', ['-r', revision, '-T', 'immutable', '--no-graph'], {
+            useCachedSnapshot: true,
+            label: 'isImmutable',
+        });
         return stdout.trim() === 'true';
     }
 
@@ -1006,7 +1018,10 @@ export class JjService {
 
     async getGitRemotes(): Promise<{ name: string; url: string }[]> {
         try {
-            const output = await this.run('git', ['remote', 'list'], { label: 'getGitRemotes' });
+            const output = await this.run('git', ['remote', 'list'], {
+                useCachedSnapshot: true,
+                label: 'getGitRemotes',
+            });
             return output
                 .split('\n')
                 .map((line) => line.trim())
@@ -1145,7 +1160,7 @@ export class JjService {
         if (conflictStyle === 'git') {
             args.push('--config=ui.conflict-marker-style=git');
         }
-        return this.run('file', args, { trim: false, label: 'getFileContent' });
+        return this.run('file', args, { trim: false, useCachedSnapshot: true, label: 'getFileContent' });
     }
 
     async resolve(revision: string): Promise<void> {

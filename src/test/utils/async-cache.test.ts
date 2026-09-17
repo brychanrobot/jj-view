@@ -86,4 +86,34 @@ describe('AsyncCache Unit Tests', () => {
         const hit = await cache.getOrFetch('key', async () => ({ count: 1 }));
         expect(hit.count).toBe(1); // Cached value was preserved
     });
+
+    test('evicts and does not cache in-flight fetches if clear is called while fetching', async () => {
+        const onEvict = vi.fn();
+        const cache = new AsyncCache<string, { id: number }>({ onEvict });
+
+        let resolveFetch: (value: { id: number }) => void = () => {};
+        const fetcher = vi.fn().mockImplementation(
+            () =>
+                new Promise<{ id: number }>((resolve) => {
+                    resolveFetch = resolve;
+                }),
+        );
+
+        const inFlight = cache.getOrFetch('key1', fetcher);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        // Clear cache while fetch is in-flight
+        await cache.clear();
+
+        // Now resolve the in-flight fetch
+        resolveFetch({ id: 42 });
+        const res = await inFlight;
+        expect(res).toEqual({ id: 42 });
+
+        // onEvict should have been called for the orphaned resolved value
+        expect(onEvict).toHaveBeenCalledWith({ id: 42 });
+
+        // Cache must not contain the stale resolved value
+        expect(cache.has('key1')).toBe(false);
+    });
 });
