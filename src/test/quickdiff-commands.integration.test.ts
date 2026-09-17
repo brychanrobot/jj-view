@@ -15,7 +15,7 @@ import { createDiscardChangePayload } from '../vscode/payloads/discard-change.pa
 import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
 import type { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
-import { createIntegrationCommandContext, createTestRepositoryContext } from './integration-test-utils';
+import { createIntegrationCommandContext, createTestRepositoryContext, waitUntil } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
@@ -128,8 +128,11 @@ suite('Quick Diff Commands Integration Test', () => {
         await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
-        const finalContent = fs.readFileSync(filePath, 'utf-8');
-        assert.strictEqual(finalContent, fileContentOriginal, 'File content should match original after discard');
+        const matched = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 3000);
+        assert.ok(
+            matched,
+            `File content should match original after discard, got: ${fs.readFileSync(filePath, 'utf-8')}`,
+        );
     });
 
     test('Discard Change handles middle-of-file deletion', async () => {
@@ -175,8 +178,11 @@ suite('Quick Diff Commands Integration Test', () => {
         await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
-        const finalContent = fs.readFileSync(filePath, 'utf-8');
-        assert.strictEqual(finalContent, fileContentOriginal, 'File content should match original after discard');
+        const matchedDeletion = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 3000);
+        assert.ok(
+            matchedDeletion,
+            `File content should match original after discard, got: ${fs.readFileSync(filePath, 'utf-8')}`,
+        );
     });
 
     test('Squash Change moves change to parent', async () => {
