@@ -48,12 +48,16 @@ export class JjRepository implements Disposable {
 
         this._refreshQueue = new DebouncingQueue<RefreshPayload>(
             async (options) => {
-                const reason = Array.from(options?.reasons ?? []).join(', ') || 'unknown';
+                const reasonsSet = options?.reasons ?? new Set<string>();
+                const reason = Array.from(reasonsSet).join(', ') || 'unknown';
                 const start = performance.now();
 
                 this._isValid = undefined;
                 try {
                     await this._jj.clearCache();
+                    if (Array.from(reasonsSet).some((r) => r.includes('manual') || r.includes('refresh'))) {
+                        this._codeForge.clearCache();
+                    }
                     if (options?.forceSnapshot) {
                         await this._jj.status();
                     }

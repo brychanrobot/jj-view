@@ -44,7 +44,10 @@ export class ChangeDetectionManager implements HostDisposable {
         );
     }
 
-    private _scheduleDeferredRefresh() {
+    private _pendingForceSnapshot = false;
+
+    private _scheduleDeferredRefresh(forceSnapshot = false) {
+        this._pendingForceSnapshot = this._pendingForceSnapshot || forceSnapshot;
         if (this._deferredRefreshTimeout) {
             return;
         }
@@ -58,7 +61,9 @@ export class ChangeDetectionManager implements HostDisposable {
                 this._scheduleDeferredRefresh();
             } else {
                 this.lastExternalOpTime = Date.now();
-                this.triggerRefresh({ forceSnapshot: false, reason: 'deferred watcher event' });
+                const force = this._pendingForceSnapshot;
+                this._pendingForceSnapshot = false;
+                this.triggerRefresh({ forceSnapshot: force, reason: 'deferred watcher event' });
             }
         }, 500);
     }
@@ -335,7 +340,7 @@ export class ChangeDetectionManager implements HostDisposable {
             () => {
                 const writes = this.hasActiveOrRecentWrites;
                 if (writes) {
-                    this._scheduleDeferredRefresh();
+                    this._scheduleDeferredRefresh(true);
                     return;
                 }
                 this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event' });
@@ -351,7 +356,7 @@ export class ChangeDetectionManager implements HostDisposable {
                     }
                     const writes = this.hasActiveOrRecentWrites;
                     if (writes) {
-                        this._scheduleDeferredRefresh();
+                        this._scheduleDeferredRefresh(true);
                         return;
                     }
                     this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher reconnected' });

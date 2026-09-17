@@ -245,7 +245,7 @@ describe('ChangeDetectionManager', () => {
             await vi.waitFor(
                 () => {
                     expect(triggerRefreshSpy).toHaveBeenCalledWith({
-                        forceSnapshot: false,
+                        forceSnapshot: true,
                         reason: 'deferred watcher event',
                     });
                 },
@@ -534,6 +534,34 @@ describe('ChangeDetectionManager', () => {
                     expect(found, 'Expected file watcher event for visible.txt').toBe(true);
                 },
                 { timeout: 10000, interval: 100 },
+            );
+        });
+
+        it('latches forceSnapshot across multiple deferred refresh schedules', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await changeManager.awaitWatchersReady();
+            triggerRefreshSpy.mockClear();
+
+            // Simulate active writes
+            setPrivate(changeManager, 'lastExternalOpTime', Date.now());
+
+            const scheduleDeferred = accessPrivate<(force?: boolean) => void>(
+                changeManager,
+                '_scheduleDeferredRefresh',
+            );
+            // First schedule with forceSnapshot = true
+            scheduleDeferred.call(changeManager, true);
+            // Second schedule during same timer with forceSnapshot = false (e.g. from op_heads)
+            scheduleDeferred.call(changeManager, false);
+
+            await vi.waitFor(
+                () => {
+                    expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                        forceSnapshot: true,
+                        reason: 'deferred watcher event',
+                    });
+                },
+                { timeout: 2000, interval: 50 },
             );
         });
     });
