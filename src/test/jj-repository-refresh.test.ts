@@ -118,4 +118,19 @@ describe('JjRepository.refresh error handling', () => {
         // In JjRepository, listeners are cleaned up and events are no longer fired after dispose
         expect(statusListener).not.toHaveBeenCalled();
     });
+
+    test('refresh() with manual reason clears code forge cache', async () => {
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel(),
+            host,
+        );
+
+        const clearForgeSpy = vi.spyOn(jjRepo.codeForge, 'clearCache');
+        await jjRepo.refresh({ reason: 'manual' });
+
+        expect(clearForgeSpy).toHaveBeenCalledTimes(1);
+    });
 });
