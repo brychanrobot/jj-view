@@ -17,6 +17,7 @@ vi.mock('vscode', async () => {
 import type { CodeForgeComment, CodeForgeCommentThread, CodeForgeProvider } from '../core/code-forge-provider';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { CommentsManager, type CommentThread } from '../core/comments-manager';
+import { EventEmitter } from '../core/host/events';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { VsCodeCommentsProvider } from '../vscode/providers/vscode-comments-provider';
@@ -28,7 +29,8 @@ class MockCommentsProvider implements CodeForgeProvider {
     readonly id = 'mock-provider';
     readonly displayName = 'Mock';
     readonly changeTerm = 'PR';
-    readonly onDidUpdate = new vscode.EventEmitter<void>().event;
+    public readonly onDidUpdateEmitter = new EventEmitter<void>();
+    readonly onDidUpdate = this.onDidUpdateEmitter.event;
 
     public lastRequestedChangeId?: string;
     public commentThreadsWaiter?: CallbackWaiter<string>;
@@ -732,5 +734,11 @@ describe('CommentsManager Tests', () => {
 
         expect(fakeHost.ui.progressTitles).toContain('Sending reply...');
         expect(threads[0].comments).toHaveLength(1);
+    });
+
+    test('pulls comments automatically when codeForge fires onDidUpdate', async () => {
+        const pullSpy = vi.spyOn(commentsManager, 'pullCommentsAutomatically');
+        provider.onDidUpdateEmitter.fire();
+        expect(pullSpy).toHaveBeenCalled();
     });
 });

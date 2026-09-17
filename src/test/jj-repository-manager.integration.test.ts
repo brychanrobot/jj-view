@@ -522,6 +522,8 @@ suite('JjRepositoryManager Integration Test', () => {
         assert.ok(roots.includes(mainRepo.path), 'Should discover mainRepo');
         assert.ok(roots.includes(sub1), 'Should discover sub1');
         assert.ok(roots.includes(sub2), 'Should discover sub2');
+
+        await manager.clear();
     });
 
     test('scan discovers immediate sub-repositories only when autoRepositoryDetection=subFolders using real findFiles', async () => {
@@ -560,6 +562,8 @@ suite('JjRepositoryManager Integration Test', () => {
         assert.ok(roots.includes(mainRepo.path), 'Should discover mainRepo');
         assert.ok(roots.includes(sub1), 'Should discover sub1');
         assert.ok(!roots.includes(sub2), 'Should NOT discover sub2');
+
+        await manager.clear();
     });
 
     test('maybeRegisterRepositoryContainingUri resolves concurrent calls for the same path to the same repository', async () => {

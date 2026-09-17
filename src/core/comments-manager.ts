@@ -86,15 +86,15 @@ export class CommentsManager implements Disposable {
 
         // Listen for status changes (e.g. checkouts, commits)
         this.repoDisposables.push(
-            repo.onDidStatusChange(async () => {
-                await this.pullCommentsAutomatically().catch(() => {});
+            repo.onDidStatusChange(() => {
+                this.pullCommentsAutomatically().catch(() => {});
             }),
         );
 
         // Listen for remote updates from CodeForgeService
         this.repoDisposables.push(
-            repo.codeForge.onDidUpdate(async () => {
-                await this.refreshActiveChangeComments().catch(() => {});
+            repo.codeForge.onDidUpdate(() => {
+                this.pullCommentsAutomatically().catch(() => {});
             }),
         );
     }

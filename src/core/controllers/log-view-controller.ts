@@ -259,6 +259,9 @@ export class LogViewController implements Disposable {
     }
 
     public setCommits(commits: readonly JjLogEntry[]): void {
+        if (commits !== this._commits) {
+            this._codeForgeFetchVersion++;
+        }
         const enrichedCommits = [...commits];
         const cf = this._repo?.codeForge;
         if (cf?.isEnabled) {
@@ -439,6 +442,8 @@ export class LogViewController implements Disposable {
         this._receiver.sender.update(this.getState());
     }
 
+    private _codeForgeFetchVersion = 0;
+
     public async refreshCodeForge(): Promise<void> {
         if (this._disposed || this._commits.length === 0) {
             return;
@@ -451,7 +456,16 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._codeForgeRefreshPromise = this._executeCodeForgeRefresh(cf).finally(() => {
+        this._codeForgeRefreshPromise = (async () => {
+            let lastRunVersion = -1;
+            let iterations = 0;
+            const maxIterations = 3;
+            while (!this._disposed && iterations < maxIterations && lastRunVersion !== this._codeForgeFetchVersion) {
+                iterations++;
+                lastRunVersion = this._codeForgeFetchVersion;
+                await this._executeCodeForgeRefresh(cf);
+            }
+        })().finally(() => {
             this._codeForgeRefreshPromise = undefined;
         });
         return this._codeForgeRefreshPromise;
@@ -592,7 +606,6 @@ export class LogViewController implements Disposable {
                 resolve: async (msg) => {
                     await this.executeJjMutation('Resolving conflict...', 'Failed to resolve conflict', async (jj) => {
                         await jj.resolve(msg.path);
-                        await this._host.commands.executeCommand('jj-view.refresh');
                     });
                 },
                 moveBookmark: async (msg) => {

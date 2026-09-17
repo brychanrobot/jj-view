@@ -452,17 +452,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             );
 
             const decorationProvider = vscode.window.registerFileDecorationProvider(scmProvider.decorationProvider);
-            const repoStatusSub = repo.onDidStatusChange(async (event) => {
+            const repoStatusSub = repo.onDidStatusChange((event) => {
                 if (repositoryManager.focusedRepository?.rootUri.fsPath === repo.rootUri.fsPath) {
-                    // Update context keys for focused repo
-                    await hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, scmProvider.parentMutable);
-                    await hostEnvironment.commands.setContextKey(JjContextKey.HasChild, scmProvider.hasChild);
-
                     // Refresh webview and commit details panel in parallel
-                    await Promise.all([
+                    Promise.all([
                         logWebviewProvider.controller.refresh(event.reason),
                         commitDetailsProvider.refresh(),
-                    ]);
+                    ]).catch((err) => {
+                        outputChannel.error('[Extension] Failed to refresh views on status change', toError(err));
+                    });
                 }
             });
 
@@ -501,6 +499,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             if (repo) {
                 logWebviewProvider.updateRepository(repo).catch((err) => {
                     outputChannel.error('[Extension] Failed to update webview repository', toError(err));
+                });
+                commitDetailsProvider.refresh().catch((err) => {
+                    outputChannel.error('[Extension] Failed to refresh commit details for focused repo', toError(err));
                 });
                 const scm = scmProviders.get(repo.rootUri.fsPath);
                 if (scm) {
