@@ -19,6 +19,7 @@ import {
     openScmMerge,
     pickQuickPickItem,
     SCM_ACTIONS,
+    save,
     selectLine,
     setScmDescription,
     test,
@@ -984,5 +985,63 @@ test.describe('SCM Pane E2E', () => {
             const log = repo.log();
             expect(log).not.toContain(commits.target.changeId);
         }).toPass({ timeout: 10000 });
+    });
+
+    test('Working copy diff editor reflects edits made in plain file editor tab', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+
+        try {
+            const fileName = 'diff-refresh-plain-file.txt';
+            await buildGraph(repo, [
+                {
+                    label: 'initial',
+                    description: 'initial commit',
+                    files: { [fileName]: 'line 1\nline 2\n' },
+                },
+                {
+                    label: 'wc',
+                    parents: ['initial'],
+                    isCurrentWorkingCopy: true,
+                    files: { [fileName]: 'line 1\nline 2 modified\n' },
+                },
+            ]);
+
+            const { page } = await vscode.openWorkspace(repo);
+
+            await focusSCM(page);
+
+            // 1. Open diff editor from SCM for the working copy file
+            await openScmDiff(page, fileName, /Working Copy/);
+
+            // Verify the modified text is currently in the diff editor's right side
+            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+            await expect(rightEditor).toContainText('line 2 modified');
+
+            // 2. Open the plain file in an editor tab beside the diff editor
+            await vscode.openFileInEditor(path.resolve(repo.path, fileName), {
+                viewColumn: 2,
+                preview: false,
+            });
+            const plainEditor = page.locator('.editor-group-container.active .monaco-editor');
+            await expect(plainEditor).toBeVisible();
+
+            // 3. Edit the plain file
+            await plainEditor.click();
+            await selectLine(page, plainEditor, 'line 2 modified');
+            await page.keyboard.press('End');
+            await page.keyboard.type(' with extra edits');
+            await save(page);
+
+            // 4. Switch back to the diff editor tab
+            const diffTab = page.getByRole('tab', { name: /diff-refresh-plain-file\.txt/ }).first();
+            await expect(diffTab).toBeVisible();
+            await diffTab.click();
+
+            // 5. Assert the right-hand side of the diff editor immediately reflects the updated plain file content
+            await expect(rightEditor).toContainText('line 2 modified with extra edits', { timeout: 10000 });
+        } finally {
+            await repo.dispose();
+        }
     });
 });

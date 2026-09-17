@@ -49,10 +49,10 @@ describe('uploadCommand', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
-        repo.dispose();
+    afterEach(async () => {
+        await repo.dispose();
         for (const r of remoteRepos) {
-            r.dispose();
+            await r.dispose();
         }
         remoteRepos = [];
         vi.clearAllMocks();

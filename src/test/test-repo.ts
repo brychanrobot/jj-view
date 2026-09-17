@@ -170,16 +170,12 @@ export class TestRepo {
             const userJjDir = getUserJjDir();
             const repoConfigDir = path.join(userJjDir, 'repos', this.configId);
             const gcStart = process.hrtime.bigint();
-            fs.promises
-                .rm(repoConfigDir, { recursive: true, force: true })
-                .then(() => {
-                    const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
-                    recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
-                })
-                .catch(() => {})
-                .finally(() => {
-                    tempDirs.delete(repoConfigDir);
-                });
+            try {
+                await fs.promises.rm(repoConfigDir, { recursive: true, force: true });
+                const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
+                recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
+            } catch {}
+            tempDirs.delete(repoConfigDir);
         }
     }
 

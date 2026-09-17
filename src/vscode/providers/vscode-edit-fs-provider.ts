@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { type JjEditFsService, parseEditUri } from '../../core/jj-edit-fs-service';
 import type { JjRepository } from '../../core/jj-repository';
-import type { Uri } from '../../core/uri-utils';
+import { Uri } from '../../core/uri-utils';
 import { getErrorMessage } from '../../utils/error-utils';
 
 export { parseEditUri };
@@ -39,16 +39,20 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
         this.service.onDidWrite = handler;
     }
 
-    watch(): vscode.Disposable {
-        return new vscode.Disposable(() => {});
+    watch(
+        uri: vscode.Uri,
+        _options?: { readonly recursive: boolean; readonly excludes: readonly string[] },
+    ): vscode.Disposable {
+        const disposable = this.service.watch(Uri.parse(uri.toString()));
+        return new vscode.Disposable(() => disposable.dispose());
     }
 
     invalidateCache(): void {
         this.service.invalidateCache();
     }
 
-    async stat(uri: Uri): Promise<vscode.FileStat> {
-        const s = this.service.stat(uri);
+    stat(uri: vscode.Uri): vscode.FileStat {
+        const s = this.service.stat(Uri.parse(uri.toString()));
         return {
             type: vscode.FileType.File,
             ctime: s.ctime,
@@ -57,17 +61,21 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
         };
     }
 
-    async readFile(uri: Uri): Promise<Uint8Array> {
+    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         try {
-            return await this.service.readFile(uri);
+            return await this.service.readFile(Uri.parse(uri.toString()));
         } catch (e: unknown) {
             throw vscode.FileSystemError.Unavailable(getErrorMessage(e));
         }
     }
 
-    async writeFile(uri: Uri, content: Uint8Array): Promise<void> {
+    async writeFile(
+        uri: vscode.Uri,
+        content: Uint8Array,
+        _options?: { readonly create: boolean; readonly overwrite: boolean },
+    ): Promise<void> {
         try {
-            await this.service.writeFile(uri, content);
+            await this.service.writeFile(Uri.parse(uri.toString()), content);
         } catch (e: unknown) {
             throw vscode.FileSystemError.Unavailable(getErrorMessage(e));
         }
@@ -95,5 +103,6 @@ export class VsCodeEditFsProvider implements vscode.FileSystemProvider, vscode.D
         for (const d of this._disposables) {
             d.dispose();
         }
+        this._disposables.length = 0;
     }
 }

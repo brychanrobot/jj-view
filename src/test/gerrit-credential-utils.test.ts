@@ -37,7 +37,7 @@ describe('Credential Utils', () => {
     afterEach(async () => {
         clearGitRootCache();
         if (repo) {
-            repo.dispose();
+            await repo.dispose();
         }
         try {
             await fs.rm(tempDir, { recursive: true, force: true });

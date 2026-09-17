@@ -111,7 +111,10 @@ export interface VSCodeFixture {
     ): Promise<void>;
 
     openFolder(folderPath: string): Promise<void>;
-    openFileInEditor(absolutePath: string): Promise<void>;
+    openFileInEditor(
+        absolutePath: string,
+        options?: { viewColumn?: number; preview?: boolean; preserveFocus?: boolean },
+    ): Promise<void>;
     getOutputChannelLogs(channelName?: string): Promise<string>;
 }
 
@@ -1476,30 +1479,40 @@ export class VSCodeFixtureImpl implements VSCodeFixture {
         }, folderPath);
     }
 
-    async openFileInEditor(absolutePath: string): Promise<void> {
-        await this.evaluate(async (vscode, _api, filePath) => {
-            if (typeof filePath !== 'string') {
-                throw new Error('filePath must be a string');
-            }
-            let uri: vscodeType.Uri;
-            if (filePath.startsWith('/') || filePath.includes(':\\') || filePath.includes(':/')) {
-                uri = vscode.Uri.file(filePath);
-            } else {
-                const files = await vscode.workspace.findFiles(`**/${filePath}`);
-                if (files.length > 0) {
-                    uri = files[0];
+    async openFileInEditor(
+        absolutePath: string,
+        options?: { viewColumn?: number; preview?: boolean; preserveFocus?: boolean },
+    ): Promise<void> {
+        await this.evaluate(
+            async (vscode, _api, filePath, showOptions) => {
+                if (typeof filePath !== 'string') {
+                    throw new Error('filePath must be a string');
+                }
+                let uri: vscodeType.Uri;
+                if (filePath.startsWith('/') || filePath.includes(':\\') || filePath.includes(':/')) {
+                    uri = vscode.Uri.file(filePath);
                 } else {
-                    const folders = vscode.workspace.workspaceFolders || [];
-                    if (folders.length > 0) {
-                        uri = vscode.Uri.joinPath(folders[0].uri, filePath);
+                    const files = await vscode.workspace.findFiles(`**/${filePath}`);
+                    if (files.length > 0) {
+                        uri = files[0];
                     } else {
-                        uri = vscode.Uri.file(filePath);
+                        const folders = vscode.workspace.workspaceFolders || [];
+                        if (folders.length > 0) {
+                            uri = vscode.Uri.joinPath(folders[0].uri, filePath);
+                        } else {
+                            uri = vscode.Uri.file(filePath);
+                        }
                     }
                 }
-            }
-            const doc = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(doc);
-        }, absolutePath);
+                const doc = await vscode.workspace.openTextDocument(uri);
+                await vscode.window.showTextDocument(
+                    doc,
+                    showOptions ? (showOptions as vscodeType.TextDocumentShowOptions) : undefined,
+                );
+            },
+            absolutePath,
+            options,
+        );
     }
 
     async getOutputChannelLogs(channelName?: string): Promise<string> {

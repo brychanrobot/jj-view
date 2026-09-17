@@ -4,7 +4,7 @@
  */
 import { ScmContextValue } from './jj-context-keys';
 import type { JjStatusEntry } from './jj-types';
-import { createDiffUris, toFileUri, type Uri } from './uri-utils';
+import { createDiffUris, isWorkingCopyRevision, toFileUri, type Uri } from './uri-utils';
 
 export interface ResourceCommand {
     command: string;
@@ -42,7 +42,7 @@ export function createJjResourceState(
         inConflictGroup?: boolean;
     } = {},
 ): JjResourceState {
-    const isCurrentWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
+    const isCurrentWorkingCopy = isWorkingCopyRevision(revision, options.workingCopyChangeId);
     const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, options);
 
     const openDiffOnClick = options.openDiffOnClick ?? true;

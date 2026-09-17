@@ -37,7 +37,7 @@ describe('JjEditFsService Unit Tests', () => {
 
     afterEach(async () => {
         await repoManager.dispose();
-        repo.dispose();
+        await repo.dispose();
     });
 
     it('reads file from historical revision', async () => {
@@ -70,5 +70,20 @@ describe('JjEditFsService Unit Tests', () => {
 
         const updated = await service.readFile(uri);
         expect(Buffer.from(updated).toString('utf8')).toBe('modified content\n');
+    });
+
+    it('advances stat mtime when invalidateCache is called', () => {
+        const uri = Uri.from({
+            scheme: 'jj-edit',
+            path: '/file.txt',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=@`,
+        });
+
+        const statBefore = service.stat(uri);
+        expect(statBefore.mtime).toBeGreaterThan(1700000000000 - 1);
+
+        service.invalidateCache();
+        const statAfter = service.stat(uri);
+        expect(statAfter.mtime).toBe(statBefore.mtime + 1);
     });
 });

@@ -7,6 +7,8 @@ import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import { createDiffUris } from '../uri-utils';
 
+const SHORT_CHANGE_ID_LENGTH = 8;
+
 export interface ShowMultiFileDiffPayload {
     revision?: string;
 }
@@ -30,13 +32,18 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
                 return;
             }
 
+            const diffOptions = {
+                editable,
+                workingCopyChangeId: logEntry?.is_current_working_copy ? changeId : undefined,
+            };
+
             const resources = changes.map((entry) => {
-                const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, { editable });
+                const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, diffOptions);
                 return { leftUri, rightUri, label: entry.path };
             });
 
             const firstLine = description.split('\n')[0].trim();
-            const shortId = changeId.slice(0, 8);
+            const shortId = changeId.slice(0, SHORT_CHANGE_ID_LENGTH);
             const title = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
             await ctx.host.nav.openMultiDiff(title, resources);
         });

@@ -189,9 +189,38 @@ describe('VsCodeEditFsProvider', () => {
         expect(onDidChangeFileFired.length).toBe(1);
     });
 
-    it('watch returns a disposable', () => {
-        const disposable = provider.watch();
+    it('watch returns a disposable and keeps URI notified across invalidations', () => {
+        const uri = getUri('file.txt');
+        const vscodeUri = vscode.Uri.parse(uri.toString());
+        const disposable = provider.watch(vscodeUri);
         expect(disposable).toHaveProperty('dispose');
+
+        provider.invalidateCache();
+        expect(onDidChangeFileFired.length).toBe(1);
+
+        provider.invalidateCache();
+        expect(onDidChangeFileFired.length).toBe(2);
+
+        disposable.dispose();
+        provider.invalidateCache();
+        expect(onDidChangeFileFired.length).toBe(2);
+    });
+
+    it('watch disposable is idempotent and does not drop shared watchers', () => {
+        const uri = getUri('file.txt');
+        const vscodeUri = vscode.Uri.parse(uri.toString());
+        const watcher1 = provider.watch(vscodeUri);
+        const watcher2 = provider.watch(vscodeUri);
+
+        watcher1.dispose();
+        watcher1.dispose();
+
+        provider.invalidateCache();
+        expect(onDidChangeFileFired.length).toBe(1);
+
+        watcher2.dispose();
+        provider.invalidateCache();
+        expect(onDidChangeFileFired.length).toBe(1);
     });
 
     it('readFile throws FileSystemError.Unavailable when no repository is found', async () => {

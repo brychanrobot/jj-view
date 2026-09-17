@@ -26,7 +26,12 @@ import type { JjLogEntry, JjStatusEntry } from '../jj-types';
 export interface CommitDetailsControllerOptions {
     logger?: LoggerChannel;
     onEditRecorded?: (edit: { undo: () => void; redo: () => void; label: string }) => void;
-    openDiff?: (payload: { file: JjStatusEntry; changeId: string; isImmutable?: boolean }) => Promise<void> | void;
+    openDiff?: (payload: {
+        file: JjStatusEntry;
+        changeId: string;
+        isImmutable?: boolean;
+        isWorkingCopy?: boolean;
+    }) => Promise<void> | void;
 }
 
 export class CommitDetailsController implements Disposable {
@@ -421,7 +426,12 @@ export class CommitDetailsController implements Disposable {
                 openDiff: async (payload) => {
                     const { file, changeId, isImmutable } = payload;
                     if (this._options?.openDiff) {
-                        await this._options.openDiff({ file, changeId, isImmutable });
+                        await this._options.openDiff({
+                            file,
+                            changeId,
+                            isImmutable,
+                            isWorkingCopy: this._logEntry?.is_current_working_copy,
+                        });
                     }
                 },
                 openMultiDiff: async (payload) => {
