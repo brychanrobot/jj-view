@@ -180,6 +180,12 @@ export class CodeForgeService implements Disposable {
         }
     }
 
+    public clearCache(): void {
+        for (const provider of this.providers.values()) {
+            provider.clearCache();
+        }
+    }
+
     public forceRefresh() {
         if (this.isDisposed) {
             return;
@@ -327,6 +333,7 @@ export class CodeForgeService implements Disposable {
                 localParent.change_id,
                 parentCommit?.description,
                 parentBookmarks,
+                localParent.commit_id,
             );
             if (!parentInfo) {
                 return localParent.is_immutable && remoteSet.has(localParent.commit_id);
@@ -351,8 +358,9 @@ export class CodeForgeService implements Disposable {
                     commit.change_id,
                     commit.description,
                     (commit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name),
+                    commit.commit_id,
                 );
-                commit.codeForgeChange = info ?? undefined;
+                commit.codeForgeChange = info ? { ...info } : undefined;
             }
         }
 

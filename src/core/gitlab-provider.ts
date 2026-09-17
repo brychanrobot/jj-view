@@ -20,6 +20,7 @@ import type {
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
+import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
@@ -264,22 +265,21 @@ export class GitLabProvider implements CodeForgeProvider {
         _changeId?: string,
         _description?: string,
         bookmarks?: string[],
+        commitId?: string,
     ): CodeForgeChangeInfo | undefined {
         if (bookmarks && bookmarks.length > 0) {
             for (const bookmark of bookmarks) {
                 const info = this.cache.get(bookmark);
                 if (info) {
-                    return { ...info };
+                    const contentSynced = commitId ? commitId === info.currentRevision : undefined;
+                    return { ...info, contentSynced };
                 }
             }
         }
         return undefined;
     }
 
-    public async fetchStatuses(
-        changes: ChangeStatusRequest[],
-        _jj: import('./jj-service').JjService,
-    ): Promise<boolean> {
+    public async fetchStatuses(changes: ChangeStatusRequest[], _jj: JjService): Promise<boolean> {
         if (!this.gitlabHost || !this.projectPath || changes.length === 0) {
             return false;
         }
@@ -313,18 +313,19 @@ export class GitLabProvider implements CodeForgeProvider {
                     const oldInfo = this.cache.get(bookmark);
 
                     if (info) {
-                        const matchingChange = changes.find((c) => c.bookmarks?.includes(bookmark));
-                        if (matchingChange) {
-                            info.contentSynced = info.currentRevision === matchingChange.commitId;
-                            this.cache.set(bookmark, info);
-                        } else {
-                            this.cache.delete(bookmark);
-                        }
+                        this.cache.set(bookmark, info);
                     } else {
                         this.cache.delete(bookmark);
                     }
 
-                    if (JSON.stringify(oldInfo) !== JSON.stringify(info)) {
+                    if (
+                        oldInfo?.status !== info?.status ||
+                        oldInfo?.currentRevision !== info?.currentRevision ||
+                        oldInfo?.submittable !== info?.submittable ||
+                        oldInfo?.unresolvedComments !== info?.unresolvedComments ||
+                        oldInfo?.remoteDescription !== info?.remoteDescription ||
+                        JSON.stringify(oldInfo?.remoteParents) !== JSON.stringify(info?.remoteParents)
+                    ) {
                         changed = true;
                     }
                 }

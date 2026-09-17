@@ -220,22 +220,51 @@ export class GerritProvider implements CodeForgeProvider {
         return response;
     }
 
+    private setContentSyncCache(key: string, synced: boolean): void {
+        this.contentSyncCache.delete(key);
+        if (this.contentSyncCache.size >= 300) {
+            const firstKey = this.contentSyncCache.keys().next().value;
+            if (firstKey !== undefined) {
+                this.contentSyncCache.delete(firstKey);
+            }
+        }
+        this.contentSyncCache.set(key, synced);
+    }
+
     public getCachedChangeInfo(
         changeId?: string,
         description?: string,
         _bookmarks?: string[],
+        commitId?: string,
     ): CodeForgeChangeInfo | undefined {
         if (!this.gerritHost) {
             return undefined;
         }
 
         const cacheKey = this.resolveCacheKey(changeId, description);
-        if (cacheKey && this.cache.has(cacheKey)) {
-            const info = this.cache.get(cacheKey);
-            return info ? { ...info } : undefined;
+        if (!cacheKey || !this.cache.has(cacheKey)) {
+            return undefined;
         }
 
-        return undefined;
+        const info = this.cache.get(cacheKey);
+        if (!info) {
+            return undefined;
+        }
+
+        let contentSynced: boolean | undefined;
+        if (commitId) {
+            const isExact = commitId === info.currentRevision;
+            if (isExact || this.contentSyncCache.get(`${commitId}:${info.currentRevision ?? ''}`) === true) {
+                contentSynced = true;
+            } else if (this.contentSyncCache.get(`${commitId}:${info.currentRevision ?? ''}`) === false) {
+                contentSynced = false;
+            }
+        }
+
+        return {
+            ...info,
+            contentSynced,
+        };
     }
 
     private resolveCacheKey(changeId?: string, description?: string): string | undefined {
@@ -346,6 +375,8 @@ export class GerritProvider implements CodeForgeProvider {
                 const changesForCacheKey = changesByCacheKey.get(cacheKey) || [];
                 await Promise.all(
                     changesForCacheKey.map(async (change) => {
+                        const syncCacheKey = `${change.commitId}:${info.currentRevision ?? ''}`;
+                        const prevSync = this.contentSyncCache.get(syncCacheKey);
                         const result = await this.verifyContentSync(
                             change.commitId,
                             change.description,
@@ -353,6 +384,10 @@ export class GerritProvider implements CodeForgeProvider {
                             jj,
                             change.changes,
                         );
+                        const newSync = this.contentSyncCache.get(syncCacheKey);
+                        if (prevSync !== newSync) {
+                            batchChanged = true;
+                        }
                         if (result === 'fast') {
                             fastHits++;
                         } else if (result === 'checked') {
@@ -365,7 +400,15 @@ export class GerritProvider implements CodeForgeProvider {
                 this.cache.delete(cacheKey);
             }
 
-            if (JSON.stringify(oldInfo) !== JSON.stringify(info)) {
+            if (
+                oldInfo?.status !== info?.status ||
+                oldInfo?.currentRevision !== info?.currentRevision ||
+                oldInfo?.submittable !== info?.submittable ||
+                oldInfo?.unresolvedComments !== info?.unresolvedComments ||
+                oldInfo?.remoteDescription !== info?.remoteDescription ||
+                JSON.stringify(oldInfo?.files) !== JSON.stringify(info?.files) ||
+                JSON.stringify(oldInfo?.remoteParents) !== JSON.stringify(info?.remoteParents)
+            ) {
                 batchChanged = true;
             }
         }
@@ -552,17 +595,13 @@ export class GerritProvider implements CodeForgeProvider {
             return 'skipped';
         }
 
+        const syncCacheKey = `${commitId}:${info.currentRevision ?? ''}`;
         if (info.currentRevision === commitId) {
-            info.contentSynced = true;
+            this.setContentSyncCache(syncCacheKey, true);
             return 'fast';
         }
 
-        const syncCacheKey = `${commitId}:${info.currentRevision ?? ''}`;
         if (this.contentSyncCache.has(syncCacheKey)) {
-            const cached = this.contentSyncCache.get(syncCacheKey);
-            if (cached) {
-                info.contentSynced = true;
-            }
             return 'fast';
         }
 
@@ -571,7 +610,7 @@ export class GerritProvider implements CodeForgeProvider {
             description &&
             stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)
         ) {
-            this.contentSyncCache.set(syncCacheKey, false);
+            this.setContentSyncCache(syncCacheKey, false);
             return 'checked';
         }
 
@@ -595,7 +634,7 @@ export class GerritProvider implements CodeForgeProvider {
             const gerritPathSet = new Set(gerritPaths);
 
             if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
-                this.contentSyncCache.set(syncCacheKey, false);
+                this.setContentSyncCache(syncCacheKey, false);
                 return 'checked';
             }
 
@@ -609,14 +648,13 @@ export class GerritProvider implements CodeForgeProvider {
                     const localSha = localHashes.get(file);
 
                     if (!localSha || localSha !== gerritFile.newSha) {
-                        this.contentSyncCache.set(syncCacheKey, false);
+                        this.setContentSyncCache(syncCacheKey, false);
                         return 'checked';
                     }
                 }
             }
 
-            info.contentSynced = true;
-            this.contentSyncCache.set(syncCacheKey, true);
+            this.setContentSyncCache(syncCacheKey, true);
             return 'checked';
         } catch (e) {
             this.outputChannel?.error(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
