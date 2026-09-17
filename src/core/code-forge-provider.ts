@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { Event } from './host/events';
+import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo, CommitParent, JjStatusEntry } from './jj-types';
 
 export interface GitRemote {
@@ -36,10 +37,15 @@ export interface CodeForgeProvider {
     detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean>;
 
     /** Retrieves the cached status info for a given change */
-    getCachedChangeInfo(changeId?: string, description?: string, bookmarks?: string[]): CodeForgeChangeInfo | undefined;
+    getCachedChangeInfo(
+        changeId?: string,
+        description?: string,
+        bookmarks?: string[],
+        commitId?: string,
+    ): CodeForgeChangeInfo | undefined;
 
     /** Batch fetches statuses from the network. Returns true if any cache state changed */
-    fetchStatuses(changes: ChangeStatusRequest[], jj: import('./jj-service').JjService): Promise<boolean>;
+    fetchStatuses(changes: ChangeStatusRequest[], jj: JjService): Promise<boolean>;
 
     /**
      * Resolves the jj upload subcommand and arguments for pushing code.

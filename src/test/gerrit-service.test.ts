@@ -582,7 +582,7 @@ describe('GerritService Detection', () => {
         // 3. Trigger fetch
         const desc = `Change-Id: ${changeId}`;
         await service.ensureFreshStatuses([{ commitId, changeId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(changeId, desc);
+        const result = provider.getCachedChangeInfo(changeId, desc, undefined, commitId);
 
         // 4. Verify
         expect(result).toBeDefined();
@@ -624,7 +624,7 @@ describe('GerritService Detection', () => {
 
         // Pass a DIFFERENT local description
         await service.ensureFreshStatuses([{ commitId, changeId, description: localDesc, parents: [] }]);
-        const resultNoSync = provider.getCachedChangeInfo(changeId, localDesc);
+        const resultNoSync = provider.getCachedChangeInfo(changeId, localDesc, undefined, commitId);
         expect(resultNoSync?.contentSynced).toBeFalsy();
     });
 
@@ -662,7 +662,7 @@ describe('GerritService Detection', () => {
 
         // Pass exactly the base description (different whitespace/trimming)
         await service.ensureFreshStatuses([{ commitId, changeId, description: baseDescription, parents: [] }]);
-        const resultSynced = provider.getCachedChangeInfo(changeId, baseDescription);
+        const resultSynced = provider.getCachedChangeInfo(changeId, baseDescription, undefined, commitId);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 
@@ -699,7 +699,7 @@ describe('GerritService Detection', () => {
         const commitId = repo.getCommitId('@').trim();
 
         await service.ensureFreshStatuses([{ commitId, changeId: jjId, description: localDesc, parents: [] }]);
-        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc);
+        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc, undefined, commitId);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 
@@ -738,7 +738,7 @@ describe('GerritService Detection', () => {
         const jjId = 'zzzzzzzzzzzzkkkkkkkkkkkkkkkkkkkkkkkkkkkk';
 
         await service.ensureFreshStatuses([{ commitId, changeId: jjId, description: localDesc, parents: [] }]);
-        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc);
+        const resultSynced = provider.getCachedChangeInfo(jjId, localDesc, undefined, commitId);
         expect(resultSynced?.contentSynced).toBeTruthy();
     });
 

@@ -120,7 +120,12 @@ export class CommentsManager implements Disposable {
             const bookmarks = (logEntry.bookmarks ?? [])
                 .filter((b: JjBookmark) => !b.remote)
                 .map((b: JjBookmark) => b.name);
-            return activeProvider.getCachedChangeInfo(logEntry.change_id, logEntry.description, bookmarks);
+            return activeProvider.getCachedChangeInfo(
+                logEntry.change_id,
+                logEntry.description,
+                bookmarks,
+                logEntry.commit_id,
+            );
         } catch {
             // Ignore error
         }

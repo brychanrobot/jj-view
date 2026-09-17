@@ -106,7 +106,7 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
         expect(result?.contentSynced).toBe(true);
     });
@@ -143,7 +143,7 @@ describe('Gerrit Sync Verification', () => {
                 changes: [{ path: 'hello.txt', status: 'modified' }],
             },
         ]);
-        const result1 = provider.getCachedChangeInfo(undefined, desc);
+        const result1 = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
         expect(result1?.contentSynced).toBe(true);
 
         // Verify repeated call uses cached contentSynced state
@@ -155,12 +155,12 @@ describe('Gerrit Sync Verification', () => {
                 changes: [{ path: 'hello.txt', status: 'modified' }],
             },
         ]);
-        const result2 = provider.getCachedChangeInfo(undefined, desc);
+        const result2 = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
         expect(result2?.contentSynced).toBe(true);
 
         // Verify clearCache clears the content sync cache
         provider.clearCache();
-        const resultAfterClear = provider.getCachedChangeInfo(undefined, desc);
+        const resultAfterClear = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
         expect(resultAfterClear).toBeUndefined();
     });
 
@@ -185,9 +185,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
-        expect(result?.contentSynced).toBeUndefined();
+        expect(result?.contentSynced).toBe(false);
     });
 
     test('sets synced when file is deleted on both sides', async () => {
@@ -213,7 +213,7 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
         expect(result?.contentSynced).toBe(true);
     });
@@ -239,9 +239,9 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
-        expect(result?.contentSynced).toBeUndefined();
+        expect(result?.contentSynced).toBe(false);
     });
 
     test('skips sync check when currentRevision matches commitId', async () => {
@@ -265,7 +265,7 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
         // When revisions match, we now set synced=true explicitly as it's definitely synced
         expect(result?.contentSynced).toBe(true);
@@ -301,7 +301,7 @@ describe('Gerrit Sync Verification', () => {
         await service.awaitReady();
 
         await service.ensureFreshStatuses([{ commitId, description: desc, parents: [] }]);
-        const result = provider.getCachedChangeInfo(undefined, desc);
+        const result = provider.getCachedChangeInfo(undefined, desc, undefined, commitId);
 
         expect(result?.contentSynced).toBe(true); // Content matches
 
@@ -514,6 +514,49 @@ describe('Gerrit Sync Verification', () => {
             expect(b.codeForgeChange?.parentSynced).toBe(false);
             expect(b.codeForgeChange?.synced).toBe(false);
             expect(b.codeForgeNeedsUpload).toBe(true);
+        });
+
+        test('divergent commits with same changeId do not cross-contaminate contentSynced state', async () => {
+            const changeId = 'I9999999999999999999999999999999999999999';
+            mockGerritResponse(
+                changeId,
+                'rev-commit-1',
+                {
+                    'file.txt': { status: 'M', new_sha: 'sha-1' },
+                },
+                'remote desc',
+            );
+
+            service = initService();
+            await service.awaitReady();
+
+            await service.ensureFreshStatuses([
+                { commitId: 'rev-commit-1', changeId, description: 'desc 1', parents: [] },
+                { commitId: 'rev-commit-2', changeId, description: 'desc 2', parents: [] },
+            ]);
+
+            // Commit 1 matches current_revision
+            const commit1Info = provider.getCachedChangeInfo(changeId, 'desc 1', undefined, 'rev-commit-1');
+            // Commit 2 is divergent with different commit_id
+            const commit2Info = provider.getCachedChangeInfo(changeId, 'desc 2', undefined, 'rev-commit-2');
+
+            expect(commit1Info?.contentSynced).toBe(true);
+            expect(commit2Info?.contentSynced).toBe(false);
+        });
+
+        test('returns contentSynced: undefined when commitId is omitted to prevent cross-commit leakage', async () => {
+            const changeId = 'I9999999999999999999999999999999999999999';
+            mockGerritResponse(changeId, 'rev-commit-1', {}, 'desc');
+
+            service = initService();
+            await service.awaitReady();
+
+            await service.ensureFreshStatuses([
+                { commitId: 'rev-commit-1', changeId, description: 'desc', parents: [] },
+            ]);
+
+            const infoWithoutCommitId = provider.getCachedChangeInfo(changeId, 'desc');
+            expect(infoWithoutCommitId?.contentSynced).toBeUndefined();
         });
     });
 });

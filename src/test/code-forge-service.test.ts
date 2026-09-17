@@ -438,23 +438,72 @@ describe('CodeForgeService Tests', () => {
         service.dispose();
     });
 
-    test('detectActiveProvider fires onRequestRefresh when provider is newly activated', async () => {
+    test('clearCache forwards call to all registered providers', async () => {
+        const mockProvider1 = new MockProvider('mock-clear1', 'Mock Clear 1', true);
+        const mockProvider2 = new MockProvider('mock-clear2', 'Mock Clear 2', false);
+        const clearSpy1 = vi.spyOn(mockProvider1, 'clearCache');
+        const clearSpy2 = vi.spyOn(mockProvider2, 'clearCache');
+        registry.register({
+            id: 'mock-clear1',
+            create: () => mockProvider1,
+        });
+        registry.register({
+            id: 'mock-clear2',
+            create: () => mockProvider2,
+        });
+
         const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
         await service.awaitReady();
 
-        const refreshListener = vi.fn();
-        service.onRequestRefresh(refreshListener);
+        service.clearCache();
+        expect(clearSpy1).toHaveBeenCalledTimes(1);
+        expect(clearSpy2).toHaveBeenCalledTimes(1);
 
-        const mockProvider = new MockProvider('mock-detect', 'Mock Detect', true);
+        service.dispose();
+    });
+
+    test('populateCodeForgeInfo clones info objects per commit', async () => {
+        const mockProvider = new MockProvider('mock-clone', 'Mock Clone', true);
+        const info: CodeForgeChangeInfo = {
+            id: 'shared-id',
+            number: 100,
+            displayLabel: 'CL 100',
+            providerName: 'Mock',
+            status: 'NEW',
+            submittable: true,
+            url: 'http://test',
+            unresolvedComments: 0,
+            currentRevision: 'rev-a',
+        };
+        mockProvider.setCachedChangeInfo('shared-id', info);
+
         registry.register({
-            id: 'mock-detect',
+            id: 'mock-clone',
             create: () => mockProvider,
         });
 
-        await service.detectActiveProvider(true);
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
 
-        expect(service.activeProvider).toBe(mockProvider);
-        expect(refreshListener).toHaveBeenCalledTimes(1);
+        const commit1 = createMock<JjLogEntry>({
+            change_id: 'shared-id',
+            commit_id: 'rev-a',
+            description: 'Commit A',
+            bookmarks: [],
+        });
+        const commit2 = createMock<JjLogEntry>({
+            change_id: 'shared-id',
+            commit_id: 'rev-b',
+            description: 'Commit B',
+            bookmarks: [],
+        });
+
+        service.populateCodeForgeInfo([commit1, commit2]);
+
+        expect(commit1.codeForgeChange).toBeDefined();
+        expect(commit2.codeForgeChange).toBeDefined();
+        expect(commit1.codeForgeChange).not.toBe(commit2.codeForgeChange);
+        expect(commit1.codeForgeChange).not.toBe(info);
 
         service.dispose();
     });

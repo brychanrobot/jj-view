@@ -661,7 +661,10 @@ describe('GitHubProvider', () => {
 
         // my-feature-merged SHOULD be cached even though local commit ID doesn't match
         expect(cache.get('my-feature-merged')).toBeDefined();
-        expect(cache.get('my-feature-merged')?.contentSynced).toBe(false);
+        expect(
+            provider.getCachedChangeInfo(undefined, undefined, ['my-feature-merged'], 'sha-local-differs')
+                ?.contentSynced,
+        ).toBe(false);
     });
 
     describe('Comments API', () => {
