@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { match } from 'ts-pattern';
 import { URI, Utils } from 'vscode-uri';
+import { LruCache } from '../utils/lru-cache';
 import type { JjStatusEntry } from './jj-types';
 
 export type Uri = URI;
@@ -250,7 +251,7 @@ export function toFileUri(uri: Uri): Uri {
     return Uri.file(getFsPathFromUri(uri));
 }
 
-const canonicalRootCache = new Map<string, string>();
+const canonicalRootCache = new LruCache<string, string>({ maxEntries: 100 });
 
 export function clearCanonicalRootCache(): void {
     canonicalRootCache.clear();

@@ -8,6 +8,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import which from 'which';
+import { AsyncCache } from './async-cache';
 import { fetchWithTimeout } from './fetch-utils';
 import type { LoggerChannel } from './output-channel';
 
@@ -38,15 +39,15 @@ function execFilePromise(
     });
 }
 
-const gitRootCache = new Map<string, string | null>();
-const gitRootPromiseCache = new Map<string, Promise<string | null>>();
+const gitRootCache = new AsyncCache<string, string | null>({
+    maxEntries: 100,
+});
 
 /**
  * Clears the in-memory cache of resolved git roots.
  */
 export function clearGitRootCache(): void {
-    gitRootCache.clear();
-    gitRootPromiseCache.clear();
+    void gitRootCache.clear();
 }
 
 /**
@@ -55,32 +56,16 @@ export function clearGitRootCache(): void {
 export async function resolveGitRoot(repoRoot: string, binaryPath = 'jj'): Promise<string | null> {
     const normalizedRoot = path.resolve(repoRoot);
     const cacheKey = `${binaryPath}:${normalizedRoot}`;
-    if (gitRootCache.has(cacheKey)) {
-        return gitRootCache.get(cacheKey) ?? null;
-    }
-    const pending = gitRootPromiseCache.get(cacheKey);
-    if (pending) {
-        return pending;
-    }
-    const promise = (async () => {
-        try {
-            const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], {
-                cwd: normalizedRoot,
-                timeout: 10000,
-            });
-            if (err || !stdout) {
-                gitRootCache.set(cacheKey, null);
-                return null;
-            }
-            const trimmed = stdout.trim();
-            gitRootCache.set(cacheKey, trimmed);
-            return trimmed;
-        } finally {
-            gitRootPromiseCache.delete(cacheKey);
+    return gitRootCache.getOrFetch(cacheKey, async () => {
+        const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], {
+            cwd: normalizedRoot,
+            timeout: 10000,
+        });
+        if (err || !stdout) {
+            return null;
         }
-    })();
-    gitRootPromiseCache.set(cacheKey, promise);
-    return promise;
+        return stdout.trim();
+    });
 }
 
 /**
