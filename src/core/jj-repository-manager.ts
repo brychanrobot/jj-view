@@ -6,8 +6,10 @@
 import { realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { AsyncCache } from '../utils/async-cache';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { toError } from '../utils/error-utils';
+import { LruCache } from '../utils/lru-cache';
 import { type LoggerChannel, OutputChannel } from '../utils/output-channel';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { type Event, EventEmitter } from './host/events';
@@ -31,7 +33,7 @@ export class JjRepositoryManager implements HostDisposable {
     private _focusedRepository: JjRepository | undefined;
     private _binaryPath: string | undefined;
     private _disposables: HostDisposable[] = [];
-    private readonly _dirToRepoRoot = new Map<string, string | null>();
+    private readonly _dirToRepoRoot = new LruCache<string, string | null>({ maxEntries: 500 });
     private readonly _ignoredAbsolutePaths = new Set<string>();
     private readonly _closingPaths = new Set<string>();
     private readonly _pendingRegistrations = new Map<string, Promise<JjRepository | undefined>>();
@@ -39,7 +41,7 @@ export class JjRepositoryManager implements HostDisposable {
     private readonly _scanQueue = new CoalescingQueue(() => this.doScan());
     private _disposed = false;
     private _normalizedWorkspaceFolders: string[] | undefined;
-    private readonly _realNormalizedPathCache = new Map<string, Promise<string>>();
+    private readonly _realNormalizedPathCache = new AsyncCache<string, string>({ maxEntries: 250 });
 
     private readonly _onDidOpenRepository = new EventEmitter<JjRepository>();
     readonly onDidOpenRepository: Event<JjRepository> = this._onDidOpenRepository.event;
@@ -118,7 +120,7 @@ export class JjRepositoryManager implements HostDisposable {
         this._disposables.push(
             this._host.workspace.onDidChangeWorkspaceFolders(() => {
                 this._normalizedWorkspaceFolders = undefined;
-                this._realNormalizedPathCache.clear();
+                void this._realNormalizedPathCache.clear();
                 this.scanForRepositories().catch((err) => {
                     this._outputChannel.error('[RepositoryManager] Error scanning on workspace change', toError(err));
                 });
@@ -568,8 +570,8 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         const normalizedDir = this.normalizePath(dir);
-        if (this._dirToRepoRoot.has(normalizedDir)) {
-            const cached = this._dirToRepoRoot.get(normalizedDir);
+        const cached = this._dirToRepoRoot.get(normalizedDir);
+        if (cached !== undefined) {
             return cached === null ? undefined : cached;
         }
 
@@ -747,19 +749,14 @@ export class JjRepositoryManager implements HostDisposable {
      */
     private getRealNormalizedPath(p: string): Promise<string> {
         const key = this.normalizePath(p);
-        let promise = this._realNormalizedPathCache.get(key);
-        if (!promise) {
-            promise = (async () => {
-                try {
-                    const resolved = await fs.realpath(p);
-                    return this.normalizePath(resolved);
-                } catch {
-                    return key;
-                }
-            })();
-            this._realNormalizedPathCache.set(key, promise);
-        }
-        return promise;
+        return this._realNormalizedPathCache.getOrFetch(key, async () => {
+            try {
+                const resolved = await fs.realpath(p);
+                return this.normalizePath(resolved);
+            } catch {
+                return key;
+            }
+        });
     }
 
     private async getNormalizedWorkspaceFolders(): Promise<string[]> {
@@ -1177,7 +1174,7 @@ export class JjRepositoryManager implements HostDisposable {
 
         // 3. Clear caches
         this._dirToRepoRoot.clear();
-        this._realNormalizedPathCache.clear();
+        void this._realNormalizedPathCache.clear();
         this._pendingRepoRoots.clear();
 
         // 4. Clear and dispose registered repositories

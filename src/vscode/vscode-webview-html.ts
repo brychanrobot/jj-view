@@ -6,8 +6,9 @@
 import * as fs from 'node:fs';
 import type * as vscode from 'vscode';
 import { Uri } from '../core/uri-utils';
+import { LruCache } from '../utils/lru-cache';
 
-const cssContentCache = new Map<string, string>();
+const cssContentCache = new LruCache<string, string>({ maxEntries: 20 });
 
 export function clearCssCache(): void {
     cssContentCache.clear();
