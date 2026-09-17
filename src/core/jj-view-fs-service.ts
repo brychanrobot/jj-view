@@ -3,64 +3,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type Disposable, type Event, EventEmitter } from './host/events';
+import { AsyncCache } from '../utils/async-cache';
+import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
-import { decodeJjViewQuery, type FileStatLike, getFsPathFromUri, Uri } from './uri-utils';
+import { decodeJjViewQuery, type FileStatLike, getFsPathFromUri, type Uri } from './uri-utils';
+import { VirtualFsUriTracker } from './virtual-fs-uri-tracker';
 
 export type { FileStatLike };
 
 const MAX_CACHE_ENTRIES = 100;
 
 export class JjViewFsService implements Disposable {
-    private readonly _onDidChangeFile = new EventEmitter<Uri[]>();
-    readonly onDidChangeFile: Event<Uri[]> = this._onDidChangeFile.event;
+    private readonly _uriTracker: VirtualFsUriTracker;
+    readonly onDidChangeFile: Event<Uri[]>;
 
     // Cache keyed by "base|filePath" → { left, right }
-    private readonly _cache = new Map<string, { left: string; right: string }>();
-    private readonly _inFlightDiffs = new Map<string, Promise<{ left: string; right: string }>>();
-    // Track all URIs that have been served so we can notify when cache invalidates
-    private readonly _knownUris = new Set<string>();
-    private readonly _watchedUris = new Map<string, number>();
+    private readonly _diffCache = new AsyncCache<string, { left: string; right: string }>({
+        maxEntries: MAX_CACHE_ENTRIES,
+    });
     private _cacheGeneration = 0;
     private _isDisposed = false;
 
-    constructor(private readonly _repositoryManager: JjRepositoryManager) {}
+    constructor(private readonly _repositoryManager: JjRepositoryManager) {
+        this._uriTracker = new VirtualFsUriTracker(this._repositoryManager);
+        this.onDidChangeFile = this._uriTracker.onDidChangeFile;
+    }
 
     watch(uri: Uri): Disposable {
         if (this._isDisposed) {
             return { dispose: () => {} };
         }
-        const key = uri.toString();
-        this._watchedUris.set(key, (this._watchedUris.get(key) || 0) + 1);
-        let isDisposed = false;
-        return {
-            dispose: () => {
-                if (isDisposed) {
-                    return;
-                }
-                isDisposed = true;
-                this._decrementWatcher(key);
-            },
-        };
-    }
-
-    private _decrementWatcher(key: string): void {
-        const count = (this._watchedUris.get(key) || 0) - 1;
-        if (count <= 0) {
-            this._watchedUris.delete(key);
-            return;
-        }
-        this._watchedUris.set(key, count);
+        return this._uriTracker.watch(uri);
     }
 
     dispose(): void {
         this._isDisposed = true;
-        this._cache.clear();
-        this._inFlightDiffs.clear();
-        this._knownUris.clear();
-        this._watchedUris.clear();
-        this._onDidChangeFile.dispose();
+        void this._diffCache.clear();
+        this._uriTracker.dispose();
     }
 
     /**
@@ -71,21 +51,8 @@ export class JjViewFsService implements Disposable {
             return [];
         }
         this._cacheGeneration++;
-        this._cache.clear();
-        this._inFlightDiffs.clear();
-        const changedUris: Uri[] = [];
-        const urisToNotify = new Set<string>([...this._knownUris, ...this._watchedUris.keys()]);
-        for (const uriStr of urisToNotify) {
-            const uri = Uri.parse(uriStr);
-            if (this._repositoryManager.getRepositoryForUri(uri)) {
-                changedUris.push(uri);
-            }
-        }
-        this._knownUris.clear();
-        if (changedUris.length > 0) {
-            this._onDidChangeFile.fire(changedUris);
-        }
-        return changedUris;
+        void this._diffCache.clear();
+        return this._uriTracker.fireChangeEvents();
     }
 
     stat(_uri: Uri): FileStatLike {
@@ -101,7 +68,6 @@ export class JjViewFsService implements Disposable {
         if (this._isDisposed) {
             return new Uint8Array();
         }
-        this._knownUris.add(uri.toString());
         const filePath = getFsPathFromUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
@@ -110,6 +76,7 @@ export class JjViewFsService implements Disposable {
             );
             throw new Error(`No Jujutsu repository found for: ${filePath}`);
         }
+        this._uriTracker.recordAccess(uri);
 
         try {
             const query = decodeJjViewQuery(uri);
@@ -144,42 +111,8 @@ export class JjViewFsService implements Disposable {
         side: 'left' | 'right',
     ): Promise<Uint8Array> {
         const cacheKey = `${base}|${filePath}`;
-        let content = this._cache.get(cacheKey);
-        if (content) {
-            this._cache.delete(cacheKey);
-            this._cache.set(cacheKey, content);
-        } else {
-            const generation = this._cacheGeneration;
-            let inFlight = this._inFlightDiffs.get(cacheKey);
-            if (!inFlight) {
-                inFlight = repo.jj.getDiffContent(base, filePath);
-                this._inFlightDiffs.set(cacheKey, inFlight);
-            }
-            try {
-                content = await inFlight;
-            } finally {
-                if (this._inFlightDiffs.get(cacheKey) === inFlight) {
-                    this._inFlightDiffs.delete(cacheKey);
-                }
-            }
-            this._setCacheEntry(cacheKey, content, generation);
-        }
+        const content = await this._diffCache.getOrFetch(cacheKey, () => repo.jj.getDiffContent(base, filePath));
         const text = side === 'left' ? content.left : content.right;
         return Buffer.from(text, 'utf8');
-    }
-
-    private _setCacheEntry(key: string, content: { left: string; right: string }, generation: number): void {
-        if (generation !== this._cacheGeneration || this._isDisposed) {
-            return;
-        }
-        if (this._cache.has(key)) {
-            this._cache.delete(key);
-        } else if (this._cache.size >= MAX_CACHE_ENTRIES) {
-            const oldestKey = this._cache.keys().next().value;
-            if (oldestKey) {
-                this._cache.delete(oldestKey);
-            }
-        }
-        this._cache.set(key, content);
     }
 }
