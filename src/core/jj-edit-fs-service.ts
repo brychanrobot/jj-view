@@ -6,10 +6,11 @@
 import * as fs from 'node:fs/promises';
 
 import * as path from 'node:path';
-import { type Disposable, type Event, EventEmitter } from './host/events';
+import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import { type FileStatLike, getFsPathFromUri, getUriParams, Uri } from './uri-utils';
+import { VirtualFsUriTracker } from './virtual-fs-uri-tracker';
 
 export interface JjEditFsPendingWrite {
     revision: string;
@@ -33,48 +34,29 @@ export function parseEditUri(uri: Uri): { revision: string; filePath: string } {
 const WRITE_FLUSH_DEBOUNCE_MS = 100;
 
 export class JjEditFsService implements Disposable {
-    private readonly _onDidChangeFile = new EventEmitter<Uri[]>();
-    readonly onDidChangeFile: Event<Uri[]> = this._onDidChangeFile.event;
+    private readonly _uriTracker: VirtualFsUriTracker;
+    readonly onDidChangeFile: Event<Uri[]>;
 
     private _pendingWrites = new Map<string, JjEditFsPendingWrite[]>();
     private _activeWrites = new Map<string, JjEditFsPendingWrite[]>();
     private _isFlushing = false;
     private _writeTimer: NodeJS.Timeout | undefined;
-    private _knownUris = new Set<string>();
-    private readonly _watchedUris = new Map<string, number>();
     private _writeVersion = 0;
     private _isDisposed = false;
 
     constructor(
         private readonly _repositoryManager: JjRepositoryManager,
         public onDidWrite?: (repo: JjRepository) => void,
-    ) {}
+    ) {
+        this._uriTracker = new VirtualFsUriTracker(this._repositoryManager);
+        this.onDidChangeFile = this._uriTracker.onDidChangeFile;
+    }
 
     watch(uri: Uri): Disposable {
         if (this._isDisposed) {
             return { dispose: () => {} };
         }
-        const key = uri.toString();
-        this._watchedUris.set(key, (this._watchedUris.get(key) || 0) + 1);
-        let isDisposed = false;
-        return {
-            dispose: () => {
-                if (isDisposed) {
-                    return;
-                }
-                isDisposed = true;
-                this._decrementWatcher(key);
-            },
-        };
-    }
-
-    private _decrementWatcher(key: string): void {
-        const count = (this._watchedUris.get(key) || 0) - 1;
-        if (count <= 0) {
-            this._watchedUris.delete(key);
-            return;
-        }
-        this._watchedUris.set(key, count);
+        return this._uriTracker.watch(uri);
     }
 
     dispose(): void {
@@ -95,10 +77,8 @@ export class JjEditFsService implements Disposable {
         }
         this._pendingWrites.clear();
         this._activeWrites.clear();
-        this._knownUris.clear();
-        this._watchedUris.clear();
         this.onDidWrite = undefined;
-        this._onDidChangeFile.dispose();
+        this._uriTracker.dispose();
     }
 
     invalidateCache(): Uri[] {
@@ -106,19 +86,7 @@ export class JjEditFsService implements Disposable {
             return [];
         }
         this._writeVersion++;
-        const changedUris: Uri[] = [];
-        const urisToNotify = new Set<string>([...this._knownUris, ...this._watchedUris.keys()]);
-        for (const uriStr of urisToNotify) {
-            const uri = Uri.parse(uriStr);
-            if (this._repositoryManager.getRepositoryForUri(uri)) {
-                changedUris.push(uri);
-            }
-        }
-        this._knownUris.clear();
-        if (changedUris.length > 0) {
-            this._onDidChangeFile.fire(changedUris);
-        }
-        return changedUris;
+        return this._uriTracker.fireChangeEvents();
     }
 
     stat(_uri: Uri): FileStatLike {
@@ -148,7 +116,6 @@ export class JjEditFsService implements Disposable {
         if (this._isDisposed) {
             throw new Error('JjEditFsService is disposed');
         }
-        this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
@@ -157,6 +124,7 @@ export class JjEditFsService implements Disposable {
             );
             throw new Error(`No Jujutsu repository found for: ${filePath}`);
         }
+        this._uriTracker.recordAccess(uri);
 
         const repoKey = repo.rootUri.fsPath;
         const inMemoryContent = this.getPendingOrActiveContent(repoKey, revision, filePath);
@@ -227,9 +195,7 @@ export class JjEditFsService implements Disposable {
 
             await repo.jj.setFilesContent(revision, filesMap);
             this._writeVersion++;
-            if (!this._isDisposed) {
-                this._onDidChangeFile.fire(revWrites.map((w) => w.uri));
-            }
+            this._uriTracker.fireDirectChangeEvents(revWrites.map((w) => w.uri));
 
             for (const w of revWrites) {
                 w.resolve();
