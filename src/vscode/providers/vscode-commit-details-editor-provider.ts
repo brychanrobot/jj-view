@@ -15,11 +15,11 @@ import { VsCodeHostEnvironment } from '../vscode-host-environment';
 import { getWebviewHtml } from '../vscode-webview-html';
 
 export class JjCommitDocument implements vscode.CustomDocument {
-    public readonly uri: Uri;
+    public readonly uri: vscode.Uri;
     public readonly changeId: string;
     public readonly repoRoot?: Uri;
 
-    constructor(uri: Uri, changeId: string, repoRoot?: Uri) {
+    constructor(uri: vscode.Uri, changeId: string, repoRoot?: Uri) {
         this.uri = uri;
         this.changeId = changeId;
         this.repoRoot = repoRoot;
@@ -172,12 +172,23 @@ export class VsCodeCommitDetailsEditorProvider
                     });
                 },
                 openDiff: async (payload) => {
-                    const state = createJjResourceState(payload.file, payload.changeId, repo.jj.workspaceRoot, {
-                        editable: !payload.isImmutable,
-                        openDiffOnClick: true,
-                    });
-                    if (state.command) {
-                        await vscode.commands.executeCommand(state.command.command, ...(state.command.arguments ?? []));
+                    try {
+                        const wcChangeId = payload.isWorkingCopy ? payload.changeId : undefined;
+                        const state = createJjResourceState(payload.file, payload.changeId, repo.jj.workspaceRoot, {
+                            editable: !payload.isImmutable,
+                            openDiffOnClick: true,
+                            workingCopyChangeId: wcChangeId,
+                        });
+                        if (state.command) {
+                            await vscode.commands.executeCommand(
+                                state.command.command,
+                                ...(state.command.arguments ?? []),
+                            );
+                        }
+                    } catch (err: unknown) {
+                        this._repositoryManager.outputChannel.error(
+                            `[VsCodeCommitDetailsEditorProvider] Failed to open diff: ${String(err)}`,
+                        );
                     }
                 },
             });

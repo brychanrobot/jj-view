@@ -14,6 +14,14 @@ export const Uri = Object.assign(URI, {
     joinPath: Utils.joinPath,
 });
 
+export interface FileStatLike {
+    type: number;
+    ctime: number;
+    mtime: number;
+    size: number;
+    permissions?: number;
+}
+
 export type JjViewQuery =
     | { mode: 'diff'; root?: string; base: string; side: 'left' | 'right' }
     | { mode: 'revision'; root?: string; revision: string };
@@ -60,12 +68,16 @@ export function decodeJjViewQuery(uri: Uri): JjViewQuery {
         return { mode: 'revision', root, revision };
     }
     if (base && side) {
-        if (side !== 'left' && side !== 'right') {
+        if (!isDiffSide(side)) {
             throw new Error(`Invalid side in jj-view query: ${side}`);
         }
-        return { mode: 'diff', root, base, side: side as 'left' | 'right' };
+        return { mode: 'diff', root, base, side };
     }
     throw new Error(`Invalid query combination for jj-view: ${uri.toString()}`);
+}
+
+function isDiffSide(side: string): side is 'left' | 'right' {
+    return side === 'left' || side === 'right';
 }
 
 /**
@@ -76,9 +88,32 @@ export function toForwardSlash(p: string): string {
 }
 
 function normalizePath(p: string): string {
-    const norm = path.normalize(toForwardSlash(p));
+    const norm = toForwardSlash(path.normalize(p));
     const isWinDrive = /^[a-zA-Z]:/.test(norm);
-    return process.platform === 'win32' || isWinDrive ? norm.toLowerCase() : norm;
+    return process.platform === 'win32' || process.platform === 'darwin' || isWinDrive ? norm.toLowerCase() : norm;
+}
+
+/**
+ * Determines whether a given revision refers to the current working copy.
+ */
+export function isWorkingCopyRevision(revision: string, workingCopyChangeId?: string): boolean {
+    if (revision === '@') {
+        return true;
+    }
+    if (!revision || !workingCopyChangeId) {
+        return false;
+    }
+    if (revision === workingCopyChangeId) {
+        return true;
+    }
+    const minPrefixLen = 3;
+    if (revision.length >= minPrefixLen && workingCopyChangeId.startsWith(revision)) {
+        return true;
+    }
+    if (workingCopyChangeId.length >= minPrefixLen && revision.startsWith(workingCopyChangeId)) {
+        return true;
+    }
+    return false;
 }
 
 export function getFsPathFromUri(uri: Uri): string {
@@ -88,16 +123,18 @@ export function getFsPathFromUri(uri: Uri): string {
         return path.normalize(targetPath);
     }
     const root = params.get('root') || params.get('repoRoot');
-    if (root) {
-        const normPath = path.normalize(uri.fsPath);
-        if (normalizePath(uri.fsPath).startsWith(normalizePath(root))) {
-            return normPath;
-        }
-        const decodedPath = decodeURIComponent(uri.path);
-        const relativePath = decodedPath.startsWith('/') ? decodedPath.substring(1) : decodedPath;
-        return path.resolve(root, relativePath);
+    if (!root) {
+        return uri.fsPath;
     }
-    return uri.fsPath;
+    const normFsPath = normalizePath(uri.fsPath);
+    const normRoot = normalizePath(root);
+    const isInsideRoot =
+        normFsPath === normRoot || normFsPath.startsWith(normRoot.endsWith('/') ? normRoot : `${normRoot}/`);
+    if (isInsideRoot) {
+        return path.normalize(uri.fsPath);
+    }
+    const relativePath = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+    return path.resolve(root, relativePath);
 }
 
 export function createDiffUris(
@@ -106,7 +143,7 @@ export function createDiffUris(
     root: string,
     options: { editable?: boolean; workingCopyChangeId?: string } = {},
 ): { leftUri: Uri; rightUri: Uri; resourceUri: Uri } {
-    const isCurrentWorkingCopy = revision === '@' || revision === options.workingCopyChangeId;
+    const isCurrentWorkingCopy = isWorkingCopyRevision(revision, options.workingCopyChangeId);
     const relPath = entry.path.startsWith('/') ? entry.path : `/${entry.path}`;
 
     // For renames/copies, the left side shows the old path
@@ -126,29 +163,24 @@ export function createDiffUris(
     resourceParams.set('jj-revision', revision);
     resourceParams.set('revision', isCurrentWorkingCopy ? '@' : revision);
 
-    const resourceUri = Uri.from({
-        scheme: options.editable || isCurrentWorkingCopy ? 'jj-edit' : 'jj-view',
-        path: relPath,
-        fragment: resourceParams.toString(),
-    });
+    const cleanEntryPath = entry.path.replace(/^[/\\]+/, '');
+    const resourceUri = isCurrentWorkingCopy
+        ? Uri.file(path.resolve(root, cleanEntryPath))
+        : Uri.from({
+              scheme: options.editable ? 'jj-edit' : 'jj-view',
+              path: relPath,
+              fragment: resourceParams.toString(),
+          });
 
-    let rightUri: Uri;
     const isDeleted = entry.status === 'deleted';
-    if (isDeleted) {
-        rightUri = Uri.from({
-            scheme: 'jj-view',
-            path: relPath,
-            fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-        });
-    } else if (isCurrentWorkingCopy || options.editable) {
-        rightUri = resourceUri;
-    } else {
-        rightUri = Uri.from({
-            scheme: 'jj-view',
-            path: relPath,
-            fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-        });
-    }
+    const rightUri =
+        !isDeleted && (isCurrentWorkingCopy || options.editable)
+            ? resourceUri
+            : Uri.from({
+                  scheme: 'jj-view',
+                  path: relPath,
+                  fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
+              });
 
     return { leftUri, rightUri, resourceUri };
 }
@@ -178,11 +210,15 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
     let relativePath = filePath;
 
     if (normFile.toLowerCase().startsWith(normRoot.toLowerCase())) {
-        relativePath = normFile.substring(normRoot.length);
+        const sliced = normFile.substring(normRoot.length);
+        if (sliced.startsWith('/') || sliced.length === 0) {
+            relativePath = sliced;
+        } else if (path.isAbsolute(filePath)) {
+            relativePath = path.relative(root, filePath);
+        }
     } else if (path.isAbsolute(filePath)) {
         relativePath = path.relative(root, filePath);
     }
-
     const posixRel = toForwardSlash(relativePath);
     const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
     return Uri.from({
@@ -214,24 +250,81 @@ export function toFileUri(uri: Uri): Uri {
     return Uri.file(getFsPathFromUri(uri));
 }
 
+const canonicalRootCache = new Map<string, string>();
+
+export function clearCanonicalRootCache(): void {
+    canonicalRootCache.clear();
+}
+
+function getCanonicalRoot(root: string): string {
+    let canonical = canonicalRootCache.get(root);
+    if (canonical === undefined) {
+        try {
+            canonical = fs.realpathSync(root);
+        } catch {
+            canonical = root;
+        }
+        canonicalRootCache.set(root, canonical);
+    }
+    return canonical;
+}
+
+function resolveNearestRealPath(fsPath: string): string | undefined {
+    let current = fsPath;
+    const trailingSegments: string[] = [];
+    while (current) {
+        try {
+            const canonicalDir = fs.realpathSync(current);
+            return trailingSegments.length > 0 ? path.join(canonicalDir, ...trailingSegments) : canonicalDir;
+        } catch {
+            const parent = path.dirname(current);
+            if (!parent || parent === current) {
+                break;
+            }
+            trailingSegments.unshift(path.basename(current));
+            current = parent;
+        }
+    }
+    return undefined;
+}
+
 /**
  * Gets the relative path of a URI within the repository root.
  * Normalizes leading slash.
  */
 export function getRepoRelativePath(uri: Uri, root: string): string {
-    if (uri.scheme === 'file') {
-        let canonicalRoot = root;
-        let canonicalPath = uri.fsPath;
-        try {
-            canonicalRoot = fs.realpathSync(root);
-        } catch {}
-        try {
-            canonicalPath = fs.realpathSync(uri.fsPath);
-        } catch {}
-        const rel = toForwardSlash(path.relative(canonicalRoot, canonicalPath));
-        return rel.startsWith('/') ? rel : `/${rel}`;
+    if (uri.scheme !== 'file') {
+        return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
     }
-    return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
+
+    const relFromRoot = path.relative(root, uri.fsPath);
+    if (!relFromRoot.startsWith('..') && !path.isAbsolute(relFromRoot)) {
+        const posixRel = toForwardSlash(relFromRoot);
+        return posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
+    }
+
+    const canonicalRoot = getCanonicalRoot(root);
+    const relFromCanonical = path.relative(canonicalRoot, uri.fsPath);
+    if (!relFromCanonical.startsWith('..') && !path.isAbsolute(relFromCanonical)) {
+        const posixRel = toForwardSlash(relFromCanonical);
+        return posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
+    }
+
+    const nearestCanonical = resolveNearestRealPath(uri.fsPath);
+    if (nearestCanonical) {
+        const rel = toForwardSlash(path.relative(canonicalRoot, nearestCanonical));
+        if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+            return rel.startsWith('/') ? rel : `/${rel}`;
+        }
+    }
+
+    const fallbackRel = toForwardSlash(path.relative(canonicalRoot, uri.fsPath));
+    if (!fallbackRel.startsWith('..') && !path.isAbsolute(fallbackRel)) {
+        return fallbackRel.startsWith('/') ? fallbackRel : `/${fallbackRel}`;
+    }
+
+    const posixFallback = toForwardSlash(relFromRoot);
+    return posixFallback.startsWith('/') ? posixFallback : `/${posixFallback}`;
 }
 
 /**

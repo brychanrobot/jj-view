@@ -25,11 +25,12 @@ describe('showMultiFileDiffCommand', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await repo.dispose();
         vi.clearAllMocks();
     });
 
-    it('opens multi-diff with correct 3-tuple URIs using change ID', async () => {
+    it('opens multi-diff with correct 3-tuple URIs for working copy change ID', async () => {
         const FILE_NAME = 'file1.txt';
         repo.writeFile(FILE_NAME, 'content 1');
         repo.describe('test commit description');
@@ -58,23 +59,42 @@ describe('showMultiFileDiffCommand', () => {
         expect(original.fragment).toContain('side=left');
         expect(original.path).toContain(FILE_NAME);
 
-        // Modified (right) should use jj-edit scheme (editable for mutable commits)
+        // Modified (right) should use file scheme for working copy
+        expect(modified.scheme).toBe('file');
+        expect(modified.fsPath).toContain(FILE_NAME);
+    });
+
+    it('opens multi-diff with jj-edit scheme for mutable ancestor commit', async () => {
+        const FILE_NAME = 'file1.txt';
+        repo.writeFile(FILE_NAME, 'content 1');
+        repo.describe('ancestor commit');
+        const ancestorChangeId = repo.getChangeId('@');
+
+        // Create new working copy commit on top
+        repo.new();
+
+        await showMultiFileDiffCommand(ctx, { revision: ancestorChangeId });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const multiDiff = ctx.host.nav.multiDiffsOpened[0];
+        const modified = multiDiff.resources[0].rightUri;
+
+        // Modified (right) should use jj-edit scheme for ancestor commit
         expect(modified.scheme).toBe('jj-edit');
-        expect(modified.fragment).toContain(`revision=${changeId}`);
+        expect(modified.fragment).toContain(`revision=${ancestorChangeId}`);
         expect(modified.path).toContain(FILE_NAME);
     });
 
-    it('resolves @ to change ID', async () => {
+    it('resolves @ to working copy file URI', async () => {
         repo.writeFile('file.txt', 'content');
-        const changeId = repo.getChangeId('@');
 
         await showMultiFileDiffCommand(ctx, { revision: '@' });
 
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
         const multiDiff = ctx.host.nav.multiDiffsOpened[0];
         const modified = multiDiff.resources[0].rightUri;
-        expect(modified.scheme).toBe('jj-edit');
-        expect(modified.fragment).toContain(`revision=${changeId}`);
+        expect(modified.scheme).toBe('file');
+        expect(modified.fsPath).toContain('file.txt');
     });
 
     it('shows info message when no changes found', async () => {

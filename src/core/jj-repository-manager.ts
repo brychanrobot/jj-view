@@ -15,7 +15,7 @@ import type { HostDisposable, HostEnvironment, HostStorage } from './host/host-e
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
-import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
+import { getFsPathFromUri, parseCommitDetailsUri, Uri } from './uri-utils';
 
 interface DetectedRepoInfo {
     rootPath: string;
@@ -915,16 +915,16 @@ export class JjRepositoryManager implements HostDisposable {
     }
 
     private getPathForUri(uri: Uri): string {
-        if (uri.scheme === 'jj-commit') {
-            try {
-                const query = getUriParams(uri);
-                const repoRoot = query.get('repoRoot');
-                if (repoRoot) {
-                    return decodeURIComponent(repoRoot);
-                }
-            } catch {
-                // Ignore parsing errors
+        if (uri.scheme !== 'jj-commit') {
+            return getFsPathFromUri(uri);
+        }
+        try {
+            const { repoRoot } = parseCommitDetailsUri(uri);
+            if (repoRoot) {
+                return repoRoot.fsPath;
             }
+        } catch {
+            // Ignore parsing errors
         }
         return getFsPathFromUri(uri);
     }

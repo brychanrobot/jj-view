@@ -40,7 +40,7 @@ describe('GerritService Detection', () => {
             await fakeGerritServer.stop();
         }
         if (sharedRepo) {
-            sharedRepo.dispose();
+            await sharedRepo.dispose();
         }
     });
 
@@ -57,12 +57,12 @@ describe('GerritService Detection', () => {
         ).mockResolvedValue(true);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         if (service) {
             service.dispose();
         }
         if (repo !== sharedRepo) {
-            repo.dispose();
+            await repo.dispose();
         }
         vi.clearAllMocks();
     });

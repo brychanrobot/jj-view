@@ -11,7 +11,7 @@ import { extractUriFromArgs } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjService } from '../jj-service';
-import { getUriParams, Uri } from '../uri-utils';
+import { parseCommitDetailsUri, Uri } from '../uri-utils';
 import type { HostEnvironment, HostNavigation, HostUi } from './host-environment';
 
 export interface PromptRevisionOptions {
@@ -346,10 +346,9 @@ export function resolveRepository(
     const candidateActiveUri = options?.activeUri ?? options?.host?.documents.getActiveDocumentUri?.();
     if (!uri && candidateActiveUri) {
         if (candidateActiveUri.scheme === 'jj-commit') {
-            const query = getUriParams(candidateActiveUri);
-            const repoRoot = query.get('repoRoot');
+            const { repoRoot } = parseCommitDetailsUri(candidateActiveUri);
             if (repoRoot) {
-                uri = Uri.file(decodeURIComponent(repoRoot));
+                uri = repoRoot;
                 repositoryManager.outputChannel.info(
                     `[resolveRepository] Resolved candidate URI from active jj-commit editor repoRoot: ${uri.toString()}`,
                 );

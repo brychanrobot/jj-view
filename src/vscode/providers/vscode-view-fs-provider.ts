@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import type { JjViewFsService } from '../../core/jj-view-fs-service';
-import type { Uri } from '../../core/uri-utils';
+import { Uri } from '../../core/uri-utils';
 import { getErrorMessage } from '../../utils/error-utils';
 
 /**
@@ -22,34 +22,39 @@ export class VsCodeViewFsProvider implements vscode.FileSystemProvider, vscode.D
                 this._onDidChangeFile.fire(
                     uris.map((uri) => ({
                         type: vscode.FileChangeType.Changed,
-                        uri: uri as unknown as vscode.Uri,
+                        uri: vscode.Uri.parse(uri.toString()),
                     })),
                 );
             }),
         );
     }
 
-    watch(): vscode.Disposable {
-        return new vscode.Disposable(() => {});
+    watch(
+        uri: vscode.Uri,
+        _options?: { readonly recursive: boolean; readonly excludes: readonly string[] },
+    ): vscode.Disposable {
+        const disposable = this.service.watch(Uri.parse(uri.toString()));
+        return new vscode.Disposable(() => disposable.dispose());
     }
 
     invalidateCache(): void {
         this.service.invalidateCache();
     }
 
-    stat(uri: Uri): vscode.FileStat {
-        const s = this.service.stat(uri);
+    stat(uri: vscode.Uri): vscode.FileStat {
+        const s = this.service.stat(Uri.parse(uri.toString()));
         return {
             type: vscode.FileType.File,
             ctime: s.ctime,
             mtime: s.mtime,
             size: s.size,
+            permissions: vscode.FilePermission.Readonly,
         };
     }
 
-    async readFile(uri: Uri): Promise<Uint8Array> {
+    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         try {
-            return await this.service.readFile(uri);
+            return await this.service.readFile(Uri.parse(uri.toString()));
         } catch (e: unknown) {
             throw vscode.FileSystemError.Unavailable(getErrorMessage(e));
         }
@@ -76,9 +81,11 @@ export class VsCodeViewFsProvider implements vscode.FileSystemProvider, vscode.D
     }
 
     dispose(): void {
+        this.service.dispose();
         this._onDidChangeFile.dispose();
         for (const d of this._disposables) {
             d.dispose();
         }
+        this._disposables.length = 0;
     }
 }

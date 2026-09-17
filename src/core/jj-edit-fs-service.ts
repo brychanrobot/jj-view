@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { type Disposable, type Event, EventEmitter } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
-import { getFsPathFromUri, getUriParams, Uri } from './uri-utils';
+import { type FileStatLike, getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 
 export interface JjEditFsPendingWrite {
     revision: string;
@@ -30,6 +30,8 @@ export function parseEditUri(uri: Uri): { revision: string; filePath: string } {
     return { revision, filePath };
 }
 
+const WRITE_FLUSH_DEBOUNCE_MS = 100;
+
 export class JjEditFsService implements Disposable {
     private readonly _onDidChangeFile = new EventEmitter<Uri[]>();
     readonly onDidChangeFile: Event<Uri[]> = this._onDidChangeFile.event;
@@ -39,13 +41,44 @@ export class JjEditFsService implements Disposable {
     private _isFlushing = false;
     private _writeTimer: NodeJS.Timeout | undefined;
     private _knownUris = new Set<string>();
+    private readonly _watchedUris = new Map<string, number>();
+    private _writeVersion = 0;
+    private _isDisposed = false;
 
     constructor(
         private readonly _repositoryManager: JjRepositoryManager,
         public onDidWrite?: (repo: JjRepository) => void,
     ) {}
 
+    watch(uri: Uri): Disposable {
+        if (this._isDisposed) {
+            return { dispose: () => {} };
+        }
+        const key = uri.toString();
+        this._watchedUris.set(key, (this._watchedUris.get(key) || 0) + 1);
+        let isDisposed = false;
+        return {
+            dispose: () => {
+                if (isDisposed) {
+                    return;
+                }
+                isDisposed = true;
+                this._decrementWatcher(key);
+            },
+        };
+    }
+
+    private _decrementWatcher(key: string): void {
+        const count = (this._watchedUris.get(key) || 0) - 1;
+        if (count <= 0) {
+            this._watchedUris.delete(key);
+            return;
+        }
+        this._watchedUris.set(key, count);
+    }
+
     dispose(): void {
+        this._isDisposed = true;
         if (this._writeTimer) {
             clearTimeout(this._writeTimer);
             this._writeTimer = undefined;
@@ -55,15 +88,27 @@ export class JjEditFsService implements Disposable {
                 write.reject(new Error('JjEditFsService disposed'));
             }
         }
+        for (const writes of this._activeWrites.values()) {
+            for (const write of writes) {
+                write.reject(new Error('JjEditFsService disposed'));
+            }
+        }
         this._pendingWrites.clear();
         this._activeWrites.clear();
         this._knownUris.clear();
+        this._watchedUris.clear();
+        this.onDidWrite = undefined;
         this._onDidChangeFile.dispose();
     }
 
     invalidateCache(): Uri[] {
+        if (this._isDisposed) {
+            return [];
+        }
+        this._writeVersion++;
         const changedUris: Uri[] = [];
-        for (const uriStr of this._knownUris) {
+        const urisToNotify = new Set<string>([...this._knownUris, ...this._watchedUris.keys()]);
+        for (const uriStr of urisToNotify) {
             const uri = Uri.parse(uriStr);
             if (this._repositoryManager.getRepositoryForUri(uri)) {
                 changedUris.push(uri);
@@ -76,11 +121,11 @@ export class JjEditFsService implements Disposable {
         return changedUris;
     }
 
-    stat(_uri: Uri): { type: number; ctime: number; mtime: number; size: number } {
+    stat(_uri: Uri): FileStatLike {
         return {
             type: 1, // File
             ctime: 0,
-            mtime: Date.now(),
+            mtime: 1700000000000 + this._writeVersion,
             size: 0,
         };
     }
@@ -100,6 +145,9 @@ export class JjEditFsService implements Disposable {
     }
 
     async readFile(uri: Uri): Promise<Uint8Array> {
+        if (this._isDisposed) {
+            throw new Error('JjEditFsService is disposed');
+        }
         this._knownUris.add(uri.toString());
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
@@ -129,6 +177,9 @@ export class JjEditFsService implements Disposable {
     }
 
     async writeFile(uri: Uri, content: Uint8Array): Promise<void> {
+        if (this._isDisposed) {
+            throw new Error('JjEditFsService is disposed');
+        }
         const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
         if (!repo) {
@@ -159,12 +210,133 @@ export class JjEditFsService implements Disposable {
             this._writeTimer = setTimeout(() => {
                 this._writeTimer = undefined;
                 this._flushPendingWrites();
-            }, 100);
+            }, WRITE_FLUSH_DEBOUNCE_MS);
         });
     }
 
+    private async _flushRevisionWrites(
+        repo: JjRepository,
+        revision: string,
+        revWrites: JjEditFsPendingWrite[],
+    ): Promise<void> {
+        try {
+            const filesMap = new Map<string, string>();
+            for (const w of revWrites) {
+                filesMap.set(w.filePath, w.content);
+            }
+
+            await repo.jj.setFilesContent(revision, filesMap);
+            this._writeVersion++;
+            if (!this._isDisposed) {
+                this._onDidChangeFile.fire(revWrites.map((w) => w.uri));
+            }
+
+            for (const w of revWrites) {
+                w.resolve();
+            }
+
+            if (this.onDidWrite) {
+                try {
+                    this.onDidWrite(repo);
+                } catch (err: unknown) {
+                    this._repositoryManager.outputChannel.error(
+                        `[JjEditFsService] onDidWrite callback failed: ${String(err)}`,
+                    );
+                }
+            }
+        } catch (err: unknown) {
+            for (const w of revWrites) {
+                w.reject(err);
+            }
+        }
+    }
+
+    private _groupWritesByRevision(writes: JjEditFsPendingWrite[]): Map<string, JjEditFsPendingWrite[]> {
+        const writesByRevision = new Map<string, JjEditFsPendingWrite[]>();
+        for (const write of writes) {
+            const list = writesByRevision.get(write.revision) || [];
+            list.push(write);
+            writesByRevision.set(write.revision, list);
+        }
+        return writesByRevision;
+    }
+
+    private async _flushRepoWrites(repoKey: string, writes: JjEditFsPendingWrite[]): Promise<void> {
+        if (this._isDisposed) {
+            for (const write of writes) {
+                write.reject(new Error('JjEditFsService disposed'));
+            }
+            this._activeWrites.delete(repoKey);
+            return;
+        }
+
+        try {
+            const repo = this._repositoryManager.getRepositoryForUri(Uri.file(repoKey));
+            if (!repo) {
+                for (const write of writes) {
+                    write.reject(new Error(`Repository no longer available: ${repoKey}`));
+                }
+                return;
+            }
+
+            const writesByRevision = this._groupWritesByRevision(writes);
+            for (const [revision, revWrites] of writesByRevision) {
+                await this._flushSingleRevision(repo, repoKey, revision, revWrites);
+            }
+        } catch (repoErr: unknown) {
+            for (const write of writes) {
+                write.reject(repoErr);
+            }
+        } finally {
+            this._activeWrites.delete(repoKey);
+        }
+    }
+
+    private async _flushSingleRevision(
+        repo: JjRepository,
+        repoKey: string,
+        revision: string,
+        revWrites: JjEditFsPendingWrite[],
+    ): Promise<void> {
+        if (this._isDisposed) {
+            for (const w of revWrites) {
+                w.reject(new Error('JjEditFsService disposed'));
+            }
+            return;
+        }
+
+        try {
+            await this._flushRevisionWrites(repo, revision, revWrites);
+        } finally {
+            this._pruneActiveWrites(repoKey, revWrites);
+        }
+    }
+
+    private _pruneActiveWrites(repoKey: string, completedWrites: JjEditFsPendingWrite[]): void {
+        const activeList = this._activeWrites.get(repoKey);
+        if (!activeList) {
+            return;
+        }
+        const remaining = activeList.filter((w) => !completedWrites.includes(w));
+        if (remaining.length > 0) {
+            this._activeWrites.set(repoKey, remaining);
+            return;
+        }
+        this._activeWrites.delete(repoKey);
+    }
+
+    private _schedulePendingWriteFlush(): void {
+        if (this._isDisposed || this._pendingWrites.size === 0 || this._writeTimer) {
+            return;
+        }
+        this._writeTimer = setTimeout(() => {
+            this._writeTimer = undefined;
+            this._flushPendingWrites();
+        }, WRITE_FLUSH_DEBOUNCE_MS);
+    }
+
     private async _flushPendingWrites(): Promise<void> {
-        if (this._isFlushing) {
+        if (this._isFlushing || this._isDisposed) {
             return;
         }
         this._isFlushing = true;
@@ -174,69 +346,23 @@ export class JjEditFsService implements Disposable {
         }
 
         try {
-            while (this._pendingWrites.size > 0) {
-                const writesByRepo = new Map(this._pendingWrites);
-                this._pendingWrites.clear();
-                this._activeWrites = writesByRepo;
+            if (this._pendingWrites.size === 0 || this._isDisposed) {
+                return;
+            }
+            const writesByRepo = new Map(this._pendingWrites);
+            this._pendingWrites.clear();
+            this._activeWrites = writesByRepo;
 
-                for (const [repoKey, writes] of writesByRepo) {
-                    try {
-                        const repo = this._repositoryManager.getRepositoryForUri(Uri.file(repoKey));
-                        if (!repo) {
-                            for (const write of writes) {
-                                write.reject(new Error(`Repository no longer available: ${repoKey}`));
-                            }
-                            continue;
-                        }
-
-                        // Group by revision within this repo
-                        const writesByRevision = new Map<string, JjEditFsPendingWrite[]>();
-                        for (const write of writes) {
-                            const list = writesByRevision.get(write.revision) || [];
-                            list.push(write);
-                            writesByRevision.set(write.revision, list);
-                        }
-
-                        for (const [revision, revWrites] of writesByRevision) {
-                            try {
-                                const filesMap = new Map<string, string>();
-                                for (const w of revWrites) {
-                                    filesMap.set(w.filePath, w.content);
-                                }
-
-                                await repo.jj.setFilesContent(revision, filesMap);
-
-                                this._onDidChangeFile.fire(revWrites.map((w) => w.uri));
-
-                                for (const w of revWrites) {
-                                    w.resolve();
-                                }
-
-                                if (this.onDidWrite) {
-                                    this.onDidWrite(repo);
-                                }
-                            } catch (err: unknown) {
-                                for (const w of revWrites) {
-                                    w.reject(err);
-                                }
-                            }
-                        }
-                    } catch (repoErr: unknown) {
-                        for (const write of writes) {
-                            write.reject(repoErr);
-                        }
-                    }
+            for (const [repoKey, writes] of writesByRepo) {
+                if (this._isDisposed) {
+                    break;
                 }
+                await this._flushRepoWrites(repoKey, writes);
             }
         } finally {
             this._activeWrites.clear();
             this._isFlushing = false;
-            if (this._pendingWrites.size > 0 && !this._writeTimer) {
-                this._writeTimer = setTimeout(() => {
-                    this._writeTimer = undefined;
-                    this._flushPendingWrites();
-                }, 100);
-            }
+            this._schedulePendingWriteFlush();
         }
     }
 }
