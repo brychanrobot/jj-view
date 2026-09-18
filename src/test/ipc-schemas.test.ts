@@ -315,6 +315,12 @@ describe('IPC Schemas Unit Tests', () => {
             ).toBe(true);
             expect(
                 CommitDetailsHostToWebviewMessageSchema.safeParse({
+                    type: 'saveComplete',
+                    payload: { description: 'Saved description', savedDraft: 'Draft before save' },
+                }).success,
+            ).toBe(true);
+            expect(
+                CommitDetailsHostToWebviewMessageSchema.safeParse({
                     type: 'saveFailed',
                 }).success,
             ).toBe(true);

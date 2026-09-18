@@ -400,4 +400,132 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         detailsClient.dispose();
         detailsController.dispose();
     });
+
+    test('preserves in-flight edits typed while save is actively executing', async () => {
+        testRepo.writeFile('file.txt', 'data\n');
+        testRepo.describe('initial description');
+        const commitId = testRepo.getChangeId('@');
+
+        const repo = repositoryManager.repositories[0];
+        if (!repo) {
+            throw new Error('Expected repository to be registered');
+        }
+
+        const detailsController = new CommitDetailsController(commitId, repo, fakeHost);
+        const detailsClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        detailsController.addMessenger(detailsClient.webview);
+
+        await detailsController.load();
+        detailsController.updateDraft('version 2 to save');
+
+        // Start save
+        const savePromise = detailsController.save();
+
+        // While save is in flight, user types more
+        detailsController.updateDraft('version 2 to save + concurrent edits');
+
+        const saved = await savePromise;
+        expect(saved).toBe(true);
+
+        // Draft must NOT be purged!
+        expect(detailsController.draftDescription).toBe('version 2 to save + concurrent edits');
+        expect(detailsController.persistedDescription).toBe('version 2 to save');
+
+        // Verify saveComplete message sent to webview has savedDraft
+        const saveCompleteMsg = detailsClient.receivedMessages.find((m) => m.type === 'saveComplete');
+        expect(saveCompleteMsg).toEqual({
+            type: 'saveComplete',
+            payload: {
+                description: 'version 2 to save',
+                savedDraft: 'version 2 to save',
+            },
+        });
+
+        // Repository on disk has 'version 2 to save'
+        expect(testRepo.log()).toContain('version 2 to save');
+
+        // A second save now persists the remaining in-flight edits
+        const secondSave = await detailsController.save();
+        expect(secondSave).toBe(true);
+        expect(detailsController.draftDescription).toBe('version 2 to save + concurrent edits');
+        expect(detailsController.persistedDescription).toBe('version 2 to save + concurrent edits');
+        expect(testRepo.log()).toContain('version 2 to save + concurrent edits');
+
+        detailsClient.dispose();
+        detailsController.dispose();
+    });
+
+    test('coalesces concurrent save calls and saves latest draft sequentially', async () => {
+        testRepo.writeFile('file.txt', 'data\n');
+        testRepo.describe('initial description');
+        const commitId = testRepo.getChangeId('@');
+
+        const repo = repositoryManager.repositories[0];
+        if (!repo) {
+            throw new Error('Expected repository to be registered');
+        }
+
+        const detailsController = new CommitDetailsController(commitId, repo, fakeHost);
+        await detailsController.load();
+
+        detailsController.updateDraft('draft 1');
+        const save1 = detailsController.save();
+
+        detailsController.updateDraft('draft 2');
+        const save2 = detailsController.save();
+
+        detailsController.updateDraft('draft 3');
+        const save3 = detailsController.save();
+
+        const results = await Promise.all([save1, save2, save3]);
+        expect(results).toEqual([true, true, true]);
+
+        expect(detailsController.draftDescription).toBe('draft 3');
+        expect(detailsController.persistedDescription).toBe('draft 3');
+        expect(testRepo.log()).toContain('draft 3');
+
+        detailsController.dispose();
+    });
+
+    test('records edit on host when in-flight edits are present upon save completion', async () => {
+        testRepo.writeFile('file.txt', 'data\n');
+        testRepo.describe('initial description');
+        const commitId = testRepo.getChangeId('@');
+
+        const repo = repositoryManager.repositories[0];
+        if (!repo) {
+            throw new Error('Expected repository to be registered');
+        }
+
+        const editRecordedListener = vi.fn();
+        const detailsController = new CommitDetailsController(commitId, repo, fakeHost, {
+            onEditRecorded: editRecordedListener,
+        });
+
+        await detailsController.load();
+        detailsController.updateDraft('first draft to save');
+
+        const savePromise = detailsController.save();
+        detailsController.updateDraft('first draft to save + more typing');
+
+        await savePromise;
+
+        // Allow microtask to fire
+        await new Promise<void>((resolve) => {
+            queueMicrotask(resolve);
+        });
+
+        expect(editRecordedListener).toHaveBeenCalled();
+        const lastCall = editRecordedListener.mock.calls[editRecordedListener.mock.calls.length - 1];
+        expect(lastCall[0]).toEqual(
+            expect.objectContaining({
+                label: 'Edit Description',
+            }),
+        );
+
+        detailsController.dispose();
+    });
 });

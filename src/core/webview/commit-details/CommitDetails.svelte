@@ -207,13 +207,15 @@ useRpcReceiver<CommitDetailsHostToWebviewMessage>(CommitDetailsHostToWebviewMess
             clearTimeout(saveTimeout);
         }
     },
-    saveComplete: ({ description: savedDescription }) => {
+    saveComplete: ({ description: savedDescription, savedDraft }) => {
         isSaving = false;
         if (saveTimeout) {
             clearTimeout(saveTimeout);
         }
-        draftDescription = savedDescription;
-        prevDescription = savedDescription;
+        if (savedDraft === undefined || draftDescription === savedDraft) {
+            draftDescription = savedDescription;
+            prevDescription = savedDescription;
+        }
     },
     updateDescription: async ({ description: newDesc, selectionStart, selectionEnd }) => {
         isApplyingExtensionEdit = true;

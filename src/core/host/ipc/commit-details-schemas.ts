@@ -84,6 +84,7 @@ export const CommitDetailsHostToWebviewMessageSchema = z.discriminatedUnion('typ
         type: z.literal('saveComplete'),
         payload: z.object({
             description: z.string(),
+            savedDraft: z.string().optional(),
         }),
     }),
     z.object({

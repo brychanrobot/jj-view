@@ -52,6 +52,8 @@ export class CommitDetailsController implements Disposable {
     private _lastPushedSelection = { start: 0, end: 0 };
     private _debounceTimer?: NodeJS.Timeout;
     private _pendingUpdate?: { newText: string; newSelection: { start: number; end: number } };
+    private _currentSavePromise?: Promise<boolean>;
+    private _nextSavePromise?: Promise<boolean>;
 
     private readonly _onDidUpdate = new EventEmitter<JjLogEntry>();
     public readonly onDidUpdate: Event<JjLogEntry> = this._onDidUpdate.event;
@@ -361,9 +363,36 @@ export class CommitDetailsController implements Disposable {
         if (this._disposed || !this._logEntry) {
             return false;
         }
+
+        if (finalDescription !== undefined) {
+            this._draftDescription = finalDescription;
+        }
+
+        if (this._currentSavePromise) {
+            if (!this._nextSavePromise) {
+                this._nextSavePromise = this._currentSavePromise
+                    .catch(() => false)
+                    .then(async () => {
+                        this._nextSavePromise = undefined;
+                        return this._executeSave();
+                    });
+            }
+            return this._nextSavePromise;
+        }
+
+        this._currentSavePromise = this._executeSave().finally(() => {
+            this._currentSavePromise = undefined;
+        });
+        return this._currentSavePromise;
+    }
+
+    private async _executeSave(): Promise<boolean> {
+        if (this._disposed || !this._logEntry) {
+            return false;
+        }
         this.flushDebounce();
 
-        const descriptionToSave = finalDescription ?? this._draftDescription ?? this._logEntry?.description ?? '';
+        const descriptionToSave = this._draftDescription ?? this._logEntry?.description ?? '';
         const isSoftSave = descriptionToSave === this._persistedDescription;
         try {
             let savedDescription = descriptionToSave;
@@ -390,12 +419,40 @@ export class CommitDetailsController implements Disposable {
                     description: savedDescription,
                 };
             }
-            this._draftDescription = savedDescription;
+
+            const hadConcurrentEdits = this._draftDescription !== descriptionToSave;
+
+            if (!hadConcurrentEdits) {
+                this._draftDescription = savedDescription;
+                this._lastPushedText = savedDescription;
+            }
             this._persistedDescription = savedDescription;
 
             this._receiver.sender.saveComplete({
                 description: savedDescription,
+                savedDraft: descriptionToSave,
             });
+
+            if (hadConcurrentEdits) {
+                this.flushDebounce();
+                const currentDraft = this._draftDescription ?? '';
+                const currentSelection = this._lastPushedSelection;
+                queueMicrotask(() => {
+                    if (this._disposed || this._draftDescription === this._persistedDescription) {
+                        return;
+                    }
+                    this._options?.onEditRecorded?.({
+                        label: 'Edit Description',
+                        undo: () => {
+                            this.applyUndoRedo(savedDescription, { start: 0, end: 0 });
+                        },
+                        redo: () => {
+                            this.applyUndoRedo(currentDraft, currentSelection);
+                        },
+                    });
+                });
+            }
+
             return true;
         } catch (err) {
             this._logger?.error(`[CommitDetailsController] Failed to save commit ${this.changeId}`, toError(err));
