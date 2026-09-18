@@ -313,6 +313,9 @@ export class FakeHostDocuments implements HostDocuments {
     }
 
     async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
+        if (startLine1Based <= 0 || endLine1Based <= 0 || endLine1Based < startLine1Based) {
+            return '';
+        }
         let text = this.virtualDocs.get(uri.fsPath);
         if (text === undefined) {
             if (fs.existsSync(uri.fsPath)) {
@@ -320,9 +323,6 @@ export class FakeHostDocuments implements HostDocuments {
             } else {
                 text = '';
             }
-        }
-        if (endLine1Based < startLine1Based) {
-            return '';
         }
         const lines = text.split(/\r?\n/);
         const start = Math.max(0, startLine1Based - 1);
@@ -344,10 +344,18 @@ export class FakeHostDocuments implements HostDocuments {
             }
         }
         const lines = text.split(/\r?\n/);
-        const start = Math.max(0, lineRange.startLine1Based - 1);
-        const end = Math.max(start, lineRange.endLine1Based);
+        const isPureInsertion = lineRange.endLine1Based === 0 || lineRange.endLine1Based < lineRange.startLine1Based;
         const replacementLines = replacementText.length > 0 ? replacementText.split(/\r?\n/) : [];
-        lines.splice(start, end - start, ...replacementLines);
+
+        if (isPureInsertion) {
+            const insertIndex = lineRange.startLine1Based === 0 ? 0 : Math.min(lineRange.startLine1Based, lines.length);
+            lines.splice(insertIndex, 0, ...replacementLines);
+        } else {
+            const start = Math.max(0, lineRange.startLine1Based - 1);
+            const end = Math.max(start, lineRange.endLine1Based);
+            lines.splice(start, end - start, ...replacementLines);
+        }
+
         const updated = lines.join('\n');
         this.virtualDocs.set(uri.fsPath, updated);
         this.savedUris.push(uri);
