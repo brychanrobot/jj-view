@@ -43,7 +43,7 @@ export async function discardChangeCommand(ctx: CommandContext, payload?: Discar
         }
 
         let originalTextStr = '';
-        if (change.originalEndLineNumber >= change.originalStartLineNumber) {
+        if (change.originalEndLineNumber > 0 && change.originalEndLineNumber >= change.originalStartLineNumber) {
             originalTextStr = await ctx.host.documents.readLineRangeText(
                 originalUri,
                 change.originalStartLineNumber,

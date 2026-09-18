@@ -136,4 +136,28 @@ describe('discardChangeCommand', () => {
 
         expect(ctx.host.documents.savedUris).toContain(fileUri);
     });
+
+    test('handles start-of-file deletion discard (modifiedStartLineNumber = 0, modifiedEndLineNumber = 0)', async () => {
+        const fileName = 'start-deletion.txt';
+        repo.writeFile(fileName, 'line1\nline2\nline3\n');
+        repo.describe('parent');
+        repo.new();
+        repo.writeFile(fileName, 'line2\nline3\n');
+
+        const fileUri = Uri.file(path.join(repo.path, fileName));
+
+        // VS Code reports 0, 0 for deletion at start of file
+        const changes = [
+            {
+                originalStartLineNumber: 1,
+                originalEndLineNumber: 1,
+                modifiedStartLineNumber: 0,
+                modifiedEndLineNumber: 0,
+            },
+        ];
+
+        await discardChangeCommand(ctx, { uri: fileUri, changes, index: 0 });
+
+        expect(ctx.host.documents.savedUris).toContain(fileUri);
+    });
 });

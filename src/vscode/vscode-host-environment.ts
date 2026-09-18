@@ -424,8 +424,11 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
     }
 
     async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
+        if (startLine1Based <= 0 || endLine1Based <= 0 || endLine1Based < startLine1Based) {
+            return '';
+        }
         const doc = await vscode.workspace.openTextDocument(uri);
-        if (endLine1Based < startLine1Based) {
+        if (startLine1Based > doc.lineCount) {
             return '';
         }
         const range = this.getSafeRange(doc, startLine1Based, endLine1Based);
@@ -438,17 +441,18 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
         replacementText: string,
     ): Promise<void> {
         const doc = await vscode.workspace.openTextDocument(uri);
-        let modifiedRange: vscode.Range;
-        if (lineRange.endLine1Based >= lineRange.startLine1Based) {
-            modifiedRange = this.getSafeRange(doc, lineRange.startLine1Based, lineRange.endLine1Based);
-        } else {
-            const insertLine = Math.max(0, Math.min(lineRange.startLine1Based, doc.lineCount));
-            modifiedRange = new vscode.Range(insertLine, 0, insertLine, 0);
-        }
+        const isPureInsertion = lineRange.endLine1Based === 0 || lineRange.endLine1Based < lineRange.startLine1Based;
+        const insertLine = Math.max(0, Math.min(lineRange.startLine1Based, doc.lineCount));
+        const modifiedRange = isPureInsertion
+            ? new vscode.Range(insertLine, 0, insertLine, 0)
+            : this.getSafeRange(doc, lineRange.startLine1Based, lineRange.endLine1Based);
 
         const workspaceEdit = new vscode.WorkspaceEdit();
-        workspaceEdit.replace(uri, modifiedRange, replacementText);
-        await vscode.workspace.applyEdit(workspaceEdit);
+        workspaceEdit.replace(doc.uri, modifiedRange, replacementText);
+        const applied = await vscode.workspace.applyEdit(workspaceEdit);
+        if (!applied) {
+            throw new Error(`Failed to apply edit to ${uri.fsPath}`);
+        }
         await doc.save();
     }
 

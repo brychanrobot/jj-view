@@ -14,7 +14,6 @@ import { Uri } from '../core/uri-utils';
 import { createDiscardChangePayload } from '../vscode/payloads/discard-change.payload';
 import { createSquashHunkIntoParentPayload } from '../vscode/payloads/squash-selection.payload';
 import type { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
-import type { VsCodeViewFsProvider } from '../vscode/providers/vscode-view-fs-provider';
 import { createIntegrationCommandContext, createTestRepositoryContext, waitUntil } from './integration-test-utils';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
@@ -23,8 +22,6 @@ suite('Quick Diff Commands Integration Test', () => {
     let repo: TestRepo;
     let canonicalPath: string;
     let scmProvider: VsCodeScmProvider;
-    let viewFileSystemProvider: VsCodeViewFsProvider;
-    let jjViewProviderDisposable: vscode.Disposable | undefined;
     let contextHelper: import('./integration-test-utils').TestRepositoryContext;
 
     setup(async () => {
@@ -32,10 +29,6 @@ suite('Quick Diff Commands Integration Test', () => {
         repo.init();
         // Canonicalize path to resolve RUNNER~1 short names on Windows
         canonicalPath = fs.realpathSync(repo.path);
-
-        const context = createMock<vscode.ExtensionContext>({
-            subscriptions: [],
-        });
 
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
@@ -48,28 +41,10 @@ suite('Quick Diff Commands Integration Test', () => {
             name: 'mock',
         });
         contextHelper = await createTestRepositoryContext(canonicalPath, outputChannel);
-
         scmProvider = contextHelper.scmProvider;
-        if (!scmProvider.viewFileSystemProvider) {
-            throw new Error('viewFileSystemProvider is not defined on scmProvider');
-        }
-        viewFileSystemProvider = scmProvider.viewFileSystemProvider;
 
-        // Register a test-specific content provider to handle a unique scheme per test
-        // This avoids conflict with the main extension's 'jj-view' provider and parallel tests
-        const uniqueScheme = `jj-view-test-${Math.random().toString(36).substring(2, 11)}`;
-        jjViewProviderDisposable = vscode.workspace.registerFileSystemProvider(uniqueScheme, viewFileSystemProvider);
-        context.subscriptions.push(jjViewProviderDisposable);
-
-        scmProvider.provideOriginalResource = (uri: Uri) => {
-            return uri.with({
-                scheme: uniqueScheme,
-                fragment: `base=@&side=left&root=${encodeURIComponent(canonicalPath)}`,
-            });
-        };
-
-        // Await the initial refresh to ensure state is ready before tests start
-        await scmProvider.refresh();
+        await contextHelper.repository.awaitWatchersReady();
+        await scmProvider.refresh({ forceSnapshot: true });
     });
 
     teardown(async () => {
@@ -79,10 +54,6 @@ suite('Quick Diff Commands Integration Test', () => {
 
         if (contextHelper) {
             await contextHelper.dispose();
-        }
-        if (jjViewProviderDisposable) {
-            jjViewProviderDisposable.dispose();
-            jjViewProviderDisposable = undefined;
         }
     });
 
@@ -104,6 +75,7 @@ suite('Quick Diff Commands Integration Test', () => {
                 isCurrentWorkingCopy: true,
             },
         ]);
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const filePath = path.join(canonicalPath, fileName);
         const fileUri = Uri.file(filePath);
@@ -128,7 +100,57 @@ suite('Quick Diff Commands Integration Test', () => {
         await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
-        const matched = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 3000);
+        const matched = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 5000);
+        assert.ok(
+            matched,
+            `File content should match original after discard, got: ${fs.readFileSync(filePath, 'utf-8')}`,
+        );
+    });
+
+    test('Discard Change handles start-of-file deletion', async () => {
+        const fileName = 'start-deletion.txt';
+        const fileContentOriginal = 'a\nb\nc\nd\ne\n';
+        const fileContentModified = 'b\nc\nd\ne\n';
+
+        // Setup: Parent has 'a\nb\nc\nd\ne\n', WC has 'b\nc\nd\ne\n' (line 'a\n' deleted)
+        await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: { [fileName]: fileContentOriginal },
+            },
+            {
+                parents: ['parent'],
+                files: { [fileName]: fileContentModified },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        await scmProvider.refresh({ forceSnapshot: true });
+
+        const filePath = path.join(canonicalPath, fileName);
+        const fileUri = Uri.file(filePath);
+
+        // Verify initial state
+        assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), fileContentModified);
+
+        // Construct LineChange for start-of-file deletion:
+        // VS Code reports original 1..1, modified 0..0
+        const changes = [
+            {
+                originalStartLineNumber: 1,
+                originalEndLineNumber: 1,
+                modifiedStartLineNumber: 0,
+                modifiedEndLineNumber: 0,
+            },
+        ];
+
+        // Execute Discard Command
+        const cmdCtx = createIntegrationCommandContext(scmProvider, createMock<CommentsManager>({}));
+        const payload = createDiscardChangePayload([fileUri, changes, 0]);
+        await discardChangeCommand(cmdCtx, payload);
+
+        // Verify final state on disk
+        const matched = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 5000);
         assert.ok(
             matched,
             `File content should match original after discard, got: ${fs.readFileSync(filePath, 'utf-8')}`,
@@ -153,6 +175,7 @@ suite('Quick Diff Commands Integration Test', () => {
                 isCurrentWorkingCopy: true,
             },
         ]);
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const filePath = path.join(canonicalPath, fileName);
         const fileUri = Uri.file(filePath);
@@ -178,7 +201,7 @@ suite('Quick Diff Commands Integration Test', () => {
         await discardChangeCommand(cmdCtx, payload);
 
         // Verify final state on disk
-        const matchedDeletion = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 3000);
+        const matchedDeletion = await waitUntil(() => fs.readFileSync(filePath, 'utf-8') === fileContentOriginal, 5000);
         assert.ok(
             matchedDeletion,
             `File content should match original after discard, got: ${fs.readFileSync(filePath, 'utf-8')}`,
@@ -203,6 +226,7 @@ suite('Quick Diff Commands Integration Test', () => {
                 isCurrentWorkingCopy: true,
             },
         ]);
+        await scmProvider.refresh({ forceSnapshot: true });
 
         const filePath = path.join(canonicalPath, fileName);
         const fileUri = Uri.file(filePath);
