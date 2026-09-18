@@ -482,4 +482,126 @@ describe('VsCodeCommitDetailsEditorProvider Unit & Concurrency Tests', () => {
         await vi.waitFor(() => expect(disposeSpy).toHaveBeenCalled(), { timeout: 2000 });
         client.dispose();
     });
+
+    test('saveCustomDocument persists commit description to real repository', async () => {
+        const changeId = testRepo.getChangeId('@');
+        const repoRoot = Uri.file(testRepo.path);
+        const docUri = createCommitDetailsUri({
+            repoRoot: testRepo.path,
+            changeId,
+            title: `Commit: ${changeId}`,
+        });
+        const document = new JjCommitDocument(docUri, changeId, repoRoot);
+        const cancellationToken = createMock<vscode.CancellationToken>({
+            isCancellationRequested: false,
+        });
+
+        const client = createCommitDetailsClient();
+        await provider.resolveCustomEditor(document, client.panel, cancellationToken);
+        await client.sender.webviewLoaded();
+
+        const controller = provider.getController(changeId, repoRoot);
+        expect(controller).toBeDefined();
+
+        controller?.updateDraft('saved through saveCustomDocument');
+        await provider.saveCustomDocument(document, cancellationToken);
+
+        expect(controller?.draftDescription).toBe('saved through saveCustomDocument');
+        expect(controller?.persistedDescription).toBe('saved through saveCustomDocument');
+        expect(testRepo.log()).toContain('saved through saveCustomDocument');
+
+        client.dispose();
+    });
+
+    test('saveCustomDocument preserves in-flight edits made while saving and fires onDidChangeCustomDocument', async () => {
+        const changeId = testRepo.getChangeId('@');
+        const repoRoot = Uri.file(testRepo.path);
+        const docUri = createCommitDetailsUri({
+            repoRoot: testRepo.path,
+            changeId,
+            title: `Commit: ${changeId}`,
+        });
+        const document = new JjCommitDocument(docUri, changeId, repoRoot);
+        const cancellationToken = createMock<vscode.CancellationToken>({
+            isCancellationRequested: false,
+        });
+
+        const client = createCommitDetailsClient();
+        await provider.resolveCustomEditor(document, client.panel, cancellationToken);
+        await client.sender.webviewLoaded();
+
+        const controller = provider.getController(changeId, repoRoot);
+        expect(controller).toBeDefined();
+
+        const editListener = vi.fn();
+        const sub = provider.onDidChangeCustomDocument(editListener);
+
+        controller?.updateDraft('first draft');
+
+        // Start save
+        const savePromise = provider.saveCustomDocument(document, cancellationToken);
+
+        // While saving is in flight, user types more via webview RPC
+        await client.sender.descriptionChanged({
+            description: 'first draft + concurrent typing',
+        });
+
+        await savePromise;
+
+        // Verify draft was NOT wiped out
+        expect(controller?.draftDescription).toBe('first draft + concurrent typing');
+        expect(controller?.persistedDescription).toBe('first draft');
+        expect(testRepo.log()).toContain('first draft');
+
+        // Allow microtask to fire
+        await new Promise<void>((resolve) => {
+            queueMicrotask(resolve);
+        });
+
+        // onDidChangeCustomDocument must have fired so VS Code knows the document remains dirty
+        expect(editListener).toHaveBeenCalledWith(
+            expect.objectContaining({
+                document,
+                label: 'Edit Description',
+            }),
+        );
+
+        sub.dispose();
+        client.dispose();
+    });
+
+    test('concurrent saveCustomDocument calls are serialized safely without collisions', async () => {
+        const changeId = testRepo.getChangeId('@');
+        const repoRoot = Uri.file(testRepo.path);
+        const docUri = createCommitDetailsUri({
+            repoRoot: testRepo.path,
+            changeId,
+            title: `Commit: ${changeId}`,
+        });
+        const document = new JjCommitDocument(docUri, changeId, repoRoot);
+        const cancellationToken = createMock<vscode.CancellationToken>({
+            isCancellationRequested: false,
+        });
+
+        const client = createCommitDetailsClient();
+        await provider.resolveCustomEditor(document, client.panel, cancellationToken);
+        await client.sender.webviewLoaded();
+
+        const controller = provider.getController(changeId, repoRoot);
+        expect(controller).toBeDefined();
+
+        controller?.updateDraft('step 1');
+        const p1 = provider.saveCustomDocument(document, cancellationToken);
+
+        controller?.updateDraft('step 2');
+        const p2 = provider.saveCustomDocument(document, cancellationToken);
+
+        await Promise.all([p1, p2]);
+
+        expect(controller?.draftDescription).toBe('step 2');
+        expect(controller?.persistedDescription).toBe('step 2');
+        expect(testRepo.log()).toContain('step 2');
+
+        client.dispose();
+    });
 });
