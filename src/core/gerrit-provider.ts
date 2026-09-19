@@ -5,11 +5,14 @@
 
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
+import { AsyncCache } from '../utils/async-cache';
+import { Duration } from '../utils/duration';
 import { fetchWithTimeout } from '../utils/fetch-utils';
 import { getGerritAuthHeader, resolveGitRoot } from '../utils/gerrit-credential-utils';
 import { detectGerritHost } from '../utils/gerrit-host-detection';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
 import { convertJjChangeIdToHex } from '../utils/jj-utils';
+import { LruCache } from '../utils/lru-cache';
 import type { LoggerChannel } from '../utils/output-channel';
 import type {
     ChangeStatusRequest,
@@ -86,7 +89,39 @@ interface FetchGerritOptions extends RequestInit {
     timeoutMs?: number;
 }
 
-const AUTH_HEADER_TTL_MS = 5 * 60 * 1000;
+const AUTH_HEADER_TTL = Duration.minutes(5);
+const COMMENTS_CACHE_TTL = Duration.seconds(30);
+const MAX_COMMENTS_CACHE_ENTRIES = 150;
+
+function computeDraftMetrics(draftsMap: Record<string, GerritCommentGql[]>): {
+    draftComments: number;
+    draftResponses: number;
+    addressedThreads: number;
+    hasDraftResponses: boolean;
+} {
+    let draftComments = 0;
+    let draftResponses = 0;
+    const addressedThreadIds = new Set<string>();
+    for (const drafts of Object.values(draftsMap)) {
+        if (!Array.isArray(drafts)) {
+            continue;
+        }
+        for (const d of drafts) {
+            if (d.in_reply_to) {
+                draftResponses++;
+                addressedThreadIds.add(d.in_reply_to);
+            } else {
+                draftComments++;
+            }
+        }
+    }
+    return {
+        draftComments,
+        draftResponses,
+        addressedThreads: addressedThreadIds.size,
+        hasDraftResponses: draftResponses > 0,
+    };
+}
 
 function parseGerritJsonResponse<T>(text: string): T {
     const cleanJson = text.replace(/^\)]}'\r?\n/, '').trim();
@@ -102,8 +137,18 @@ export class GerritProvider implements CodeForgeProvider {
     public readonly changeTerm = 'CL' as const;
     public readonly priority = 100;
 
-    private cache = new Map<string, CodeForgeChangeInfo>();
-    private contentSyncCache = new Map<string, boolean>();
+    private cache = new LruCache<string, CodeForgeChangeInfo>({ maxEntries: 1000 });
+    private contentSyncCache = new LruCache<string, boolean>({ maxEntries: 500 });
+    private commentsCache = new AsyncCache<number, Record<string, GerritCommentWithDraftStatus[]>>({
+        ttl: COMMENTS_CACHE_TTL,
+        maxEntries: MAX_COMMENTS_CACHE_ENTRIES,
+        keepStaleOnError: true,
+    });
+    private draftsCache = new AsyncCache<number, Record<string, GerritCommentGql[]>>({
+        ttl: COMMENTS_CACHE_TTL,
+        maxEntries: MAX_COMMENTS_CACHE_ENTRIES,
+        keepStaleOnError: true,
+    });
     private gerritHost: string | undefined;
     private repoRoot: string | undefined;
     private gitRoot: string | null = null;
@@ -170,7 +215,7 @@ export class GerritProvider implements CodeForgeProvider {
             return undefined;
         }
         const now = Date.now();
-        if (this.authChecked && now - this.lastAuthTime < AUTH_HEADER_TTL_MS) {
+        if (this.authChecked && now - this.lastAuthTime < AUTH_HEADER_TTL.toMilliseconds()) {
             return this.authHeader;
         }
         const start = performance.now();
@@ -395,6 +440,14 @@ export class GerritProvider implements CodeForgeProvider {
                         }
                     }),
                 );
+                const latestDrafts = this.draftsCache.peekStale(info.number);
+                if (latestDrafts) {
+                    const latestMetrics = computeDraftMetrics(latestDrafts);
+                    info.draftComments = latestMetrics.draftComments;
+                    info.draftResponses = latestMetrics.draftResponses;
+                    info.addressedThreads = latestMetrics.addressedThreads;
+                    info.hasDraftResponses = latestMetrics.hasDraftResponses;
+                }
                 this.cache.set(cacheKey, info);
             } else {
                 this.cache.delete(cacheKey);
@@ -405,6 +458,10 @@ export class GerritProvider implements CodeForgeProvider {
                 oldInfo?.currentRevision !== info?.currentRevision ||
                 oldInfo?.submittable !== info?.submittable ||
                 oldInfo?.unresolvedComments !== info?.unresolvedComments ||
+                oldInfo?.draftComments !== info?.draftComments ||
+                oldInfo?.draftResponses !== info?.draftResponses ||
+                oldInfo?.addressedThreads !== info?.addressedThreads ||
+                oldInfo?.hasDraftResponses !== info?.hasDraftResponses ||
                 oldInfo?.remoteDescription !== info?.remoteDescription ||
                 JSON.stringify(oldInfo?.files) !== JSON.stringify(info?.files) ||
                 JSON.stringify(oldInfo?.remoteParents) !== JSON.stringify(info?.remoteParents)
@@ -466,6 +523,39 @@ export class GerritProvider implements CodeForgeProvider {
         const parseStart = performance.now();
         const queryResults = this.parseBatchResponse(text);
 
+        const uniqueChanges = new Map<number, GerritChange>();
+        for (const matches of queryResults) {
+            for (const change of matches) {
+                if (!uniqueChanges.has(change._number)) {
+                    uniqueChanges.set(change._number, change);
+                }
+            }
+        }
+
+        const draftMetricsByNumber = new Map<
+            number,
+            { draftComments: number; draftResponses: number; addressedThreads: number; hasDraftResponses: boolean }
+        >();
+        const newChanges = Array.from(uniqueChanges.values()).filter((c) => c.status === 'NEW');
+        const DRAFT_FETCH_CONCURRENCY = 4;
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < newChanges.length) {
+                const c = newChanges[cursor++];
+                if (c) {
+                    try {
+                        const metrics = await this.getOrFetchDraftMetrics(c._number);
+                        draftMetricsByNumber.set(c._number, metrics);
+                    } catch (err) {
+                        this.outputChannel?.warn(
+                            `[GerritProvider] Failed to fetch draft metrics for change ${c._number}: ${err}`,
+                        );
+                    }
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(DRAFT_FETCH_CONCURRENCY, newChanges.length) }, () => worker()));
+
         // Map matching changes by change_id ('I...'), change number (_number, e.g. '12345'),
         // and any requested cacheKeys that are prefixes of change_id (e.g. 33-char JJ hex conversions).
         for (const matches of queryResults) {
@@ -473,6 +563,13 @@ export class GerritProvider implements CodeForgeProvider {
                 const info = this.parseGerritChange(change);
                 if (!info) {
                     continue;
+                }
+                const metrics = draftMetricsByNumber.get(change._number);
+                if (metrics) {
+                    info.draftComments = metrics.draftComments;
+                    info.draftResponses = metrics.draftResponses;
+                    info.addressedThreads = metrics.addressedThreads;
+                    info.hasDraftResponses = metrics.hasDraftResponses;
                 }
                 if (!results.has(change.change_id)) {
                     results.set(change.change_id, info);
@@ -504,6 +601,13 @@ export class GerritProvider implements CodeForgeProvider {
                 if (Array.isArray(matches) && matches.length > 0 && cacheKeys[i]) {
                     const info = this.parseGerritChange(matches[0]);
                     if (info) {
+                        const metrics = draftMetricsByNumber.get(matches[0]._number);
+                        if (metrics) {
+                            info.draftComments = metrics.draftComments;
+                            info.draftResponses = metrics.draftResponses;
+                            info.addressedThreads = metrics.addressedThreads;
+                            info.hasDraftResponses = metrics.hasDraftResponses;
+                        }
                         results.set(cacheKeys[i], info);
                     }
                 }
@@ -676,20 +780,127 @@ export class GerritProvider implements CodeForgeProvider {
         return { subcommand: 'gerrit', args: ['upload', '-r', revision] };
     }
 
+    private recordDraftComment(changeNumber: number, draft: GerritCommentGql, filePath: string): void {
+        const draftsMap = { ...(this.draftsCache.peekStale(changeNumber) ?? {}) };
+        const fileDrafts = draftsMap[filePath] ? [...draftsMap[filePath]] : [];
+        const existingDraftIdx = fileDrafts.findIndex((d) => d.id === draft.id);
+        if (existingDraftIdx >= 0) {
+            fileDrafts[existingDraftIdx] = draft;
+        } else {
+            fileDrafts.push(draft);
+        }
+        draftsMap[filePath] = fileDrafts;
+        this.draftsCache.set(changeNumber, draftsMap);
+
+        const metrics = computeDraftMetrics(draftsMap);
+        for (const info of this.cache.values()) {
+            if (info.number === changeNumber) {
+                info.draftComments = metrics.draftComments;
+                info.draftResponses = metrics.draftResponses;
+                info.addressedThreads = metrics.addressedThreads;
+                info.hasDraftResponses = metrics.hasDraftResponses;
+            }
+        }
+
+        const commentsMap = this.commentsCache.peek(changeNumber);
+        if (commentsMap) {
+            const updatedCommentsMap = { ...commentsMap };
+            const list = updatedCommentsMap[filePath] ? [...updatedCommentsMap[filePath]] : [];
+            const existingCommentIdx = list.findIndex((c) => c.id === draft.id);
+            if (existingCommentIdx >= 0) {
+                list[existingCommentIdx] = { ...draft, isDraft: true };
+            } else {
+                list.push({ ...draft, isDraft: true });
+            }
+            updatedCommentsMap[filePath] = list;
+            this.commentsCache.set(changeNumber, updatedCommentsMap);
+        }
+    }
+
+    private async fetchDraftsFromNetwork(
+        changeNumber: number,
+        signal?: AbortSignal,
+    ): Promise<Record<string, GerritCommentGql[]> | undefined> {
+        if (!this.gerritHost) {
+            return undefined;
+        }
+        const draftsUrl = `${this.gerritHost}/changes/${changeNumber}/drafts`;
+        const draftsResponse = await this.fetchGerrit(draftsUrl, { signal }).catch(() => undefined);
+        if (!draftsResponse?.ok) {
+            return undefined;
+        }
+        try {
+            const draftsText = await draftsResponse.text();
+            return parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(draftsText);
+        } catch (err) {
+            this.outputChannel?.warn(`[GerritProvider] Failed to parse Gerrit draft comments response: ${err}`);
+            return undefined;
+        }
+    }
+
+    private async getOrFetchDraftMetrics(
+        changeNumber: number,
+        signal?: AbortSignal,
+    ): Promise<{
+        draftComments: number;
+        draftResponses: number;
+        addressedThreads: number;
+        hasDraftResponses: boolean;
+    }> {
+        try {
+            const draftsMap = await this.draftsCache.getOrFetch(changeNumber, async () => {
+                const drafts = await this.fetchDraftsFromNetwork(changeNumber, signal);
+                if (!drafts) {
+                    throw new Error(`Failed to fetch drafts for change ${changeNumber}`);
+                }
+                return drafts;
+            });
+            return computeDraftMetrics(draftsMap);
+        } catch {
+            const stale = this.draftsCache.peekStale(changeNumber);
+            if (stale) {
+                return computeDraftMetrics(stale);
+            }
+            return { draftComments: 0, draftResponses: 0, addressedThreads: 0, hasDraftResponses: false };
+        }
+    }
+
     private async fetchMergedCommentsAndDrafts(
         changeNumber: number,
         signal?: AbortSignal,
+        options?: { forceRefresh?: boolean },
     ): Promise<Record<string, GerritCommentWithDraftStatus[]>> {
         if (!this.gerritHost) {
             return {};
         }
 
-        const commentsUrl = `${this.gerritHost}/changes/${changeNumber}/comments`;
-        const draftsUrl = `${this.gerritHost}/changes/${changeNumber}/drafts`;
+        if (options?.forceRefresh) {
+            await this.commentsCache.delete(changeNumber);
+            await this.draftsCache.delete(changeNumber);
+        }
 
-        const [commentsResponse, draftsResponse] = await Promise.all([
+        return this.commentsCache.getOrFetch(changeNumber, async () => {
+            return this.doFetchMergedCommentsAndDrafts(changeNumber, signal);
+        });
+    }
+
+    private async doFetchMergedCommentsAndDrafts(
+        changeNumber: number,
+        signal?: AbortSignal,
+    ): Promise<Record<string, GerritCommentWithDraftStatus[]>> {
+        const commentsUrl = `${this.gerritHost}/changes/${changeNumber}/comments`;
+
+        const [commentsResponse, draftsMap] = await Promise.all([
             this.fetchGerrit(commentsUrl, { signal }).catch(() => undefined),
-            this.fetchGerrit(draftsUrl, { signal }).catch(() => undefined),
+            this.draftsCache
+                .getOrFetch(changeNumber, async () => {
+                    const drafts = await this.fetchDraftsFromNetwork(changeNumber, signal);
+                    if (!drafts) {
+                        throw new Error(`Failed to fetch drafts for change ${changeNumber}`);
+                    }
+                    return drafts;
+                })
+                .catch(() => this.draftsCache.peekStale(changeNumber) ?? {}),
         ]);
 
         if (!commentsResponse?.ok) {
@@ -701,15 +912,7 @@ export class GerritProvider implements CodeForgeProvider {
         const commentsText = await commentsResponse.text();
         const publishedCommentsMap = parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(commentsText);
 
-        let draftsMap: Record<string, GerritCommentGql[]> = {};
-        if (draftsResponse?.ok) {
-            try {
-                const draftsText = await draftsResponse.text();
-                draftsMap = parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(draftsText);
-            } catch (err) {
-                this.outputChannel?.warn(`[GerritProvider] Failed to parse Gerrit draft comments response: ${err}`);
-            }
-        }
+        const metrics = computeDraftMetrics(draftsMap);
 
         const commentsMap: Record<string, GerritCommentWithDraftStatus[]> = {};
         const filePaths = new Set([...Object.keys(publishedCommentsMap), ...Object.keys(draftsMap)]);
@@ -727,6 +930,15 @@ export class GerritProvider implements CodeForgeProvider {
                 }
             }
             commentsMap[filePath] = combined;
+        }
+
+        for (const info of this.cache.values()) {
+            if (info.number === changeNumber) {
+                info.draftComments = metrics.draftComments;
+                info.draftResponses = metrics.draftResponses;
+                info.addressedThreads = metrics.addressedThreads;
+                info.hasDraftResponses = metrics.hasDraftResponses;
+            }
         }
 
         return commentsMap;
@@ -855,6 +1067,8 @@ export class GerritProvider implements CodeForgeProvider {
             try {
                 const createdDraft = parseGerritJsonResponse<GerritCommentGql>(responseText);
                 if (createdDraft?.id) {
+                    this.recordDraftComment(changeInfo.number, createdDraft, filePath);
+                    this._onDidUpdate.fire();
                     return {
                         id: createdDraft.id,
                         author: {
@@ -872,7 +1086,9 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         // Re-fetch to retrieve the newly posted draft comment
-        const updatedMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number);
+        const updatedMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number, undefined, {
+            forceRefresh: true,
+        });
         const threadComments = updatedMap[filePath] || [];
         const replies = threadComments.filter(
             (c) => c.in_reply_to === thread.id && c.id !== thread.id && Boolean(c.isDraft),
@@ -883,6 +1099,8 @@ export class GerritProvider implements CodeForgeProvider {
         if (!newest) {
             throw new Error('Could not find the newly created comment');
         }
+
+        this._onDidUpdate.fire();
 
         return {
             id: newest.id,
@@ -946,11 +1164,32 @@ export class GerritProvider implements CodeForgeProvider {
                 `Failed to resolve Gerrit comment: ${response.status}${statusText}${errorBody ? ` - ${errorBody}` : ''}`,
             );
         }
+
+        const responseText = await response.text();
+        let recorded = false;
+        if (responseText) {
+            try {
+                const createdDraft = parseGerritJsonResponse<GerritCommentGql>(responseText);
+                if (createdDraft?.id) {
+                    this.recordDraftComment(changeInfo.number, createdDraft, filePath);
+                    recorded = true;
+                }
+            } catch {
+                // Fallback to full refresh below
+            }
+        }
+
+        if (!recorded) {
+            await this.fetchMergedCommentsAndDrafts(changeInfo.number, undefined, { forceRefresh: true });
+        }
+        this._onDidUpdate.fire();
     }
 
     public clearCache(): void {
         this.cache.clear();
         this.contentSyncCache.clear();
+        void this.commentsCache.clear();
+        void this.draftsCache.clear();
         this.authHeader = undefined;
         this.authChecked = false;
         this.lastAuthTime = 0;
@@ -966,6 +1205,7 @@ export class GerritProvider implements CodeForgeProvider {
     }
 
     public dispose(): void {
+        this.clearCache();
         this._onDidUpdate.dispose();
     }
 }

@@ -214,4 +214,123 @@ describe('AsyncCache Unit Tests', () => {
         expect(cache.has('k2')).toBe(true);
         expect(cache.has('k3')).toBe(true);
     });
+
+    test('keepStaleOnError retains expired value across failed fetcher calls', async () => {
+        const onEvict = vi.fn();
+        const cache = new AsyncCache<string, string>({
+            ttl: Duration.milliseconds(30),
+            keepStaleOnError: true,
+            onEvict,
+        });
+
+        // 1. Initial successful fetch
+        const val1 = await cache.getOrFetch('k1', async () => 'initial');
+        expect(val1).toBe('initial');
+
+        // Wait past TTL
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // Expired: get() and peek() return undefined, but peekStale() returns 'initial'
+        expect(cache.get('k1')).toBeUndefined();
+        expect(cache.peek('k1')).toBeUndefined();
+        expect(cache.peekStale('k1')).toBe('initial');
+
+        // 2. Fetcher fails
+        const failingFetcher = vi.fn().mockRejectedValue(new Error('Network error'));
+        await expect(cache.getOrFetch('k1', failingFetcher)).rejects.toThrow('Network error');
+
+        // Still retained!
+        expect(cache.peekStale('k1')).toBe('initial');
+        expect(onEvict).not.toHaveBeenCalled();
+
+        // 3. Fetcher succeeds later
+        const val2 = await cache.getOrFetch('k1', async () => 'recovered');
+        expect(val2).toBe('recovered');
+        expect(cache.peek('k1')).toBe('recovered');
+        expect(cache.peekStale('k1')).toBe('recovered');
+        // onEvict was called when replacing the old value
+        expect(onEvict).toHaveBeenCalledWith('initial');
+    });
+
+    test('keepStaleOnError does not store error state on cold miss', async () => {
+        const cache = new AsyncCache<string, string>({
+            keepStaleOnError: true,
+        });
+
+        await expect(
+            cache.getOrFetch('cold', async () => {
+                throw new Error('Initial fail');
+            }),
+        ).rejects.toThrow('Initial fail');
+
+        expect(cache.peekStale('cold')).toBeUndefined();
+        expect(cache.size).toBe(0);
+    });
+
+    test('peekStale returns undefined after delete() or clear()', async () => {
+        const cache = new AsyncCache<string, string>({
+            ttl: Duration.milliseconds(30),
+            keepStaleOnError: true,
+        });
+
+        cache.set('a', 'alpha');
+        cache.set('b', 'beta');
+
+        // Wait past TTL
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(cache.peekStale('a')).toBe('alpha');
+        expect(cache.peekStale('b')).toBe('beta');
+
+        await cache.delete('a');
+        expect(cache.peekStale('a')).toBeUndefined();
+        expect(cache.peekStale('b')).toBe('beta');
+
+        await cache.clear();
+        expect(cache.peekStale('b')).toBeUndefined();
+    });
+
+    test('reports maxEntries from configuration', () => {
+        const cache = new AsyncCache<string, string>({ maxEntries: 150 });
+        expect(cache.maxEntries).toBe(150);
+    });
+
+    test('does not call onEvict twice if entry was already evicted by capacity limits during in-flight fetch', async () => {
+        const onEvict = vi.fn();
+        const cache = new AsyncCache<string, string>({
+            maxEntries: 2,
+            ttl: Duration.milliseconds(20),
+            keepStaleOnError: true,
+            onEvict,
+        });
+
+        // Seed cache with 'k1'
+        await cache.getOrFetch('k1', async () => 'v1');
+        await new Promise((resolve) => setTimeout(resolve, 30)); // Expire 'k1'
+
+        let resolveK1Fetch: (val: string) => void = () => {};
+        const k1FetchPromise = cache.getOrFetch(
+            'k1',
+            () =>
+                new Promise<string>((resolve) => {
+                    resolveK1Fetch = resolve;
+                }),
+        );
+
+        // While k1 fetch is in flight, fill cache with k2 and k3 to evict k1
+        await cache.getOrFetch('k2', async () => 'v2');
+        await cache.getOrFetch('k3', async () => 'v3');
+
+        // At this point, k1 was evicted by LRU capacity
+        expect(onEvict).toHaveBeenCalledTimes(1);
+        expect(onEvict).toHaveBeenCalledWith('v1');
+
+        // Resolve k1 fetch
+        resolveK1Fetch('v1_recovered');
+        await k1FetchPromise;
+
+        // onEvict should have been called for v1 (when evicted by k3) and v2 (when evicted by k1_recovered),
+        // but crucially NOT twice for 'v1'
+        expect(onEvict.mock.calls.filter(([val]) => val === 'v1')).toHaveLength(1);
+    });
 });

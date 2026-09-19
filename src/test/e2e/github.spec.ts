@@ -572,7 +572,7 @@ test.describe('GitHub Integration E2E', () => {
         await focusJJLog(page);
 
         const row = await waitForLogCommitRow(page, 'PR Commit');
-        const bubble = row.getByTitle('1 Unresolved Comments');
+        const bubble = row.getByTitle('1 Unresolved Comment');
         await expect(bubble).toBeVisible();
 
         // Click unresolved comments bubble to focus and fetch comments
@@ -675,7 +675,7 @@ test.describe('GitHub Integration E2E', () => {
         await focusJJLog(page);
 
         const row = await waitForLogCommitRow(page, 'PR Commit');
-        const bubble = row.getByTitle('1 Unresolved Comments');
+        const bubble = row.getByTitle('1 Unresolved Comment');
         await expect(bubble).toBeVisible();
 
         // Focus and fetch comments

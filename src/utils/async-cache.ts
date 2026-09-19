@@ -17,6 +17,8 @@ export interface AsyncCacheOptions<V> {
     onEvict?: (value: V) => Promise<void> | void;
     /** Optional clone function applied to returned values to prevent external mutation */
     clone?: (value: V) => V;
+    /** Retain expired/stale entry in cache if fetcher throws an error */
+    keepStaleOnError?: boolean;
 }
 
 export class AsyncCache<K = string, V = unknown> {
@@ -25,6 +27,7 @@ export class AsyncCache<K = string, V = unknown> {
     private readonly _defaultTtl: Duration;
     private readonly _onEvict?: (value: V) => Promise<void> | void;
     private readonly _clone?: (value: V) => V;
+    private readonly _keepStaleOnError: boolean;
 
     private _epoch = 0;
 
@@ -33,6 +36,7 @@ export class AsyncCache<K = string, V = unknown> {
             options.ttl ?? (options.ttlMs !== undefined ? Duration.milliseconds(options.ttlMs) : Duration.INFINITY);
         this._onEvict = options.onEvict;
         this._clone = options.clone;
+        this._keepStaleOnError = options.keepStaleOnError ?? false;
 
         this._cache = new LruCache<K, { value: V; expires: number }>({
             maxEntries: options.maxEntries ?? Number.MAX_SAFE_INTEGER,
@@ -46,6 +50,10 @@ export class AsyncCache<K = string, V = unknown> {
 
     get defaultTtl(): Duration {
         return this._defaultTtl;
+    }
+
+    get maxEntries(): number {
+        return this._cache.maxEntries;
     }
 
     async getOrFetch(key: K, fetcher: () => Promise<V>, ttl?: Duration): Promise<V> {
@@ -66,7 +74,7 @@ export class AsyncCache<K = string, V = unknown> {
         const currentEpoch = this._epoch;
         let promise: Promise<V> | undefined;
         promise = (async () => {
-            if (cached) {
+            if (cached && !this._keepStaleOnError) {
                 this._cache.delete(key);
                 if (this._onEvict) {
                     await this._onEvict(cached.value);
@@ -77,13 +85,16 @@ export class AsyncCache<K = string, V = unknown> {
             try {
                 value = await fetcher();
             } catch (err: unknown) {
-                if (cached) {
+                if (cached && !this._keepStaleOnError) {
                     this._cache.delete(key);
                 }
                 throw err;
             }
 
             if (this._promises.get(key) === promise && this._epoch === currentEpoch) {
+                if (cached && this._cache.peek(key) === cached && this._keepStaleOnError && this._onEvict) {
+                    await this._onEvict(cached.value);
+                }
                 const duration = ttl ?? this._defaultTtl;
                 this._cache.set(key, {
                     value,
@@ -112,7 +123,9 @@ export class AsyncCache<K = string, V = unknown> {
             return undefined;
         }
         if (Date.now() >= cached.expires) {
-            this._cache.delete(key);
+            if (!this._keepStaleOnError) {
+                this._cache.delete(key);
+            }
             return undefined;
         }
         const entry = this._cache.get(key);
@@ -125,6 +138,14 @@ export class AsyncCache<K = string, V = unknown> {
     peek(key: K): V | undefined {
         const cached = this._cache.peek(key);
         if (!cached || Date.now() >= cached.expires) {
+            return undefined;
+        }
+        return this._clone ? this._clone(cached.value) : cached.value;
+    }
+
+    peekStale(key: K): V | undefined {
+        const cached = this._cache.peek(key);
+        if (!cached) {
             return undefined;
         }
         return this._clone ? this._clone(cached.value) : cached.value;
