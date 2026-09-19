@@ -31,8 +31,6 @@
 - **Code Forge & Upload**:
     - Support `-c`/`--change` flags in upload commands and automatically fall back to parent revision (`@-`) when uploading an empty working copy.
     - Decouple forge sync state evaluation per commit ID to prevent crosstalk between divergent commits sharing a change ID.
-    - Expand code forge status change detection to track remote comment updates and approval state changes.
-    - Preserve force-snapshot across deferred debounces so working copy changes are not missed following background writes.
 
 ### Performance
 
