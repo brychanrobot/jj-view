@@ -1,5 +1,63 @@
 # Changelog
 
+## 2.9.0
+
+### Features
+
+- **Commit Details Editor**:
+    - Modernize Commit Details panel with a clean flat layout resting seamlessly on the editor background without card borders or redundant headers.
+    - Implement a dynamic surplus-lending layout where the commit message editor and changed files list adapt to unconstrained content, falling back to a balanced split with independent scrolling when constrained.
+    - Mark conflicted files in the changed files list with warning icons, conflict status colors, and `<N>-way conflict` badges across rebase and merge conflicts.
+    - Highlight the shortest unique Change ID prefix in bold with dimmed trailing characters matching the log view styling.
+    - Keep commit details tabs open when deselecting commits in the log view, allowing native VS Code preview tab navigation.
+    - Add visual checkmark confirmation feedback when copying Change ID or Commit ID to clipboard.
+- **Log View**:
+    - Add rich multi-line native tooltips for commit nodes displaying change ID, commit hash, bold shortest prefixes, conflict/divergent status badges, relative and absolute timestamps, bookmarks, and full descriptions.
+- **Quick Pick**:
+    - Highlight and scroll to matching commit nodes in the log graph in real time as you navigate QuickPick revision items or type arbitrary revision queries.
+    - Streamline revision selection prompts to a single-line layout that filters directly on change prefixes, bookmarks, and commit descriptions.
+- **Working Copy & Virtual Filesystem**:
+    - Open working copy diffs with native `file://` URIs for live editor updates and edits.
+
+### Fixes
+
+- **Commit Details Editor**:
+    - Preserve in-flight commit description keystrokes typed during save operations and prevent save completion from clobbering edits.
+    - Serialize concurrent save requests to prevent Jujutsu repository lock conflicts.
+    - Polish changed files list layout and align conflict indicators flush with editor margins.
+- **Quick Diff & SCM**:
+    - Fix start-of-file pure deletion line ranges (line 0..0) being overwritten instead of inserted when discarding quick diff hunks.
+    - Gracefully handle deleted files under symlinked workspace roots.
+- **Code Forge & Upload**:
+    - Support `-c`/`--change` flags in upload commands and automatically fall back to parent revision (`@-`) when uploading an empty working copy.
+    - Decouple forge sync state evaluation per commit ID to prevent crosstalk between divergent commits sharing a change ID.
+    - Expand code forge status change detection to track remote comment updates and approval state changes.
+    - Preserve force-snapshot across deferred debounces so working copy changes are not missed following background writes.
+
+### Performance
+
+- **Commit Details Editor**:
+    - Server-render initial webview HTML shell from the extension host for instant painting without flicker, streaming file diffs progressively in the background.
+- **Memory & Caching**:
+    - Bound module-level cache maps across URI, credential, and webview utilities with `LruCache` to prevent memory growth.
+    - Guard `AsyncCache` against stale data resurrection across cache resets and index cached log entries strictly by immutable commit IDs.
+- **Code Forge & Upload**:
+    - Parallelize GitLab merge request queries, creation, and retargeting with concurrent requests.
+    - Reuse pre-resolved stack commits across upload commands to eliminate redundant `jj log` subprocess invocations.
+    - Speed up Gerrit sync queries with boolean OR filtering and blob hash memoization.
+    - Prioritize fast-path URL detection for GitHub and GitLab to bypass subprocess and filesystem probes.
+- **SCM & Repository**:
+    - Batch mutable ancestor queries and strip diffs from log metadata queries during SCM refreshes.
+    - Memoize git root resolution per repository service instance.
+
+### Chores & Internal
+
+- **Tooling & CI**:
+    - Migrate CI workflows to standalone `pnpm/setup@v2` with toolchain caching and jj binary caching.
+    - Optimize Windows CI runners with filesystem exclusions and process tuning.
+    - Deflake E2E test suites with fixture-level active UI dismissal and resilient retry loops.
+    - Optimize test repository setup and teardown with batched configuration commands and asynchronous cleanup.
+
 ## 2.8.0
 
 ### Features
