@@ -13,7 +13,9 @@ import type { ChangeStatusRequest } from '../core/code-forge-provider';
 import { GerritProvider } from '../core/gerrit-provider';
 import type { JjService } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
+import type { AsyncCache } from '../utils/async-cache';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import type { LruCache } from '../utils/lru-cache';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
 import { accessPrivate, createMock, createMockLogOutputChannel, exposePrivate, setPrivate } from './test-utils';
@@ -131,7 +133,7 @@ describe('GerritProvider', () => {
         setPrivate(provider, 'gerritHost', 'https://my-gerrit-host.com');
 
         // Populate cache
-        const cache = accessPrivate<Map<string, unknown>>(provider, 'cache');
+        const cache = accessPrivate<LruCache<string, unknown>>(provider, 'cache');
         cache.set('I12345', {
             id: 'I12345',
             number: 123,
@@ -268,7 +270,7 @@ describe('GerritProvider', () => {
             setPrivate(provider, 'gerritHost', server.url);
 
             // Populate cache
-            const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+            const cache = accessPrivate<LruCache<string, CodeForgeChangeInfo>>(provider, 'cache');
             cache.set('I12345', {
                 id: 'I12345',
                 number: 123,
@@ -762,7 +764,7 @@ describe('GerritProvider', () => {
             provider.clearCache();
 
             // Repopulate cache for this changeId so getCommentThreads doesn't exit early
-            const cache = accessPrivate<Map<string, CodeForgeChangeInfo>>(provider, 'cache');
+            const cache = accessPrivate<LruCache<string, CodeForgeChangeInfo>>(provider, 'cache');
             cache.set('I12345', {
                 id: 'I12345',
                 number: 123,
@@ -782,6 +784,358 @@ describe('GerritProvider', () => {
             expect(lines).toHaveLength(2);
 
             await fs.rm(tempRepoDir, { recursive: true, force: true });
+        });
+
+        test('getCommentThreads caches results within TTL and does not make duplicate requests', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'First comment',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+            server.registerDrafts(123, {
+                'file.txt': [
+                    {
+                        id: 'draft-1',
+                        in_reply_to: 'comment-1',
+                        line: 10,
+                        message: 'Draft reply',
+                        updated: '2026-06-30T12:05:00Z',
+                        unresolved: true,
+                        author: { name: 'Me', username: 'me' },
+                    },
+                ],
+            });
+
+            // First call fetches from server
+            const threads1 = await provider.getCommentThreads('I12345');
+            expect(threads1).toHaveLength(1);
+            expect(server.requests.filter((r) => r.includes('/comments'))).toHaveLength(1);
+            expect(server.requests.filter((r) => r.includes('/drafts'))).toHaveLength(1);
+
+            // Second call within TTL returns cached results with zero duplicate requests
+            server.clearRequests();
+            const threads2 = await provider.getCommentThreads('I12345');
+            expect(threads2).toHaveLength(1);
+            expect(server.requests).toHaveLength(0);
+        });
+
+        test('getCommentThreads coalesces concurrent in-flight requests', async () => {
+            server.registerComments(123, {});
+            server.registerDrafts(123, {});
+            server.clearRequests();
+
+            const [threads1, threads2] = await Promise.all([
+                provider.getCommentThreads('I12345'),
+                provider.getCommentThreads('I12345'),
+            ]);
+
+            expect(threads1).toEqual(threads2);
+            expect(server.requests.filter((r) => r.includes('/comments'))).toHaveLength(1);
+            expect(server.requests.filter((r) => r.includes('/drafts'))).toHaveLength(1);
+        });
+
+        test('replyToCommentThread records draft comment in cache, updates changeInfo, and fires onDidUpdate', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'Need fix',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(1);
+
+            let didUpdateFired = false;
+            const disposable = provider.onDidUpdate(() => {
+                didUpdateFired = true;
+            });
+
+            try {
+                const reply = await provider.replyToCommentThread('I12345', threads[0], 'Fixed in draft');
+                expect(reply.body).toBe('Fixed in draft');
+                expect(reply.isDraft).toBe(true);
+                expect(didUpdateFired).toBe(true);
+
+                const cachedInfo = provider.getCachedChangeInfo('I12345');
+                expect(cachedInfo?.draftComments).toBe(0);
+                expect(cachedInfo?.draftResponses).toBe(1);
+                expect(cachedInfo?.addressedThreads).toBe(1);
+                expect(cachedInfo?.hasDraftResponses).toBe(true);
+            } finally {
+                disposable.dispose();
+            }
+        });
+
+        test('resolveCommentThread records resolution draft, updates changeInfo, and fires onDidUpdate', async () => {
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'Need fix',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(1);
+
+            let didUpdateFired = false;
+            const disposable = provider.onDidUpdate(() => {
+                didUpdateFired = true;
+            });
+
+            try {
+                await provider.resolveCommentThread('I12345', threads[0], true);
+                expect(didUpdateFired).toBe(true);
+
+                const cachedInfo = provider.getCachedChangeInfo('I12345');
+                expect(cachedInfo?.draftComments).toBe(0);
+                expect(cachedInfo?.draftResponses).toBe(1);
+                expect(cachedInfo?.addressedThreads).toBe(1);
+                expect(cachedInfo?.hasDraftResponses).toBe(true);
+            } finally {
+                disposable.dispose();
+            }
+        });
+
+        test('fetchStatuses populates draftComments, draftResponses, and addressedThreads for changes with drafts', async () => {
+            const changeNum = server.registerChange('I55555');
+            server.registerComments(changeNum, {
+                'file.txt': [
+                    {
+                        id: 'c1',
+                        line: 5,
+                        message: 'Please update',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                    },
+                ],
+            });
+            server.registerDrafts(changeNum, {
+                'file.txt': [
+                    {
+                        id: 'd1',
+                        in_reply_to: 'c1',
+                        line: 5,
+                        message: 'Done',
+                        updated: '2026-06-30T12:01:00Z',
+                        unresolved: false,
+                    },
+                ],
+            });
+
+            const changed = await provider.fetchStatuses(
+                [
+                    {
+                        commitId: 'commit-555',
+                        changeId: 'I55555',
+                    },
+                ],
+                mockJjService,
+            );
+
+            expect(changed).toBe(true);
+            const cached = provider.getCachedChangeInfo('I55555');
+            expect(cached?.draftComments).toBe(0);
+            expect(cached?.draftResponses).toBe(1);
+            expect(cached?.addressedThreads).toBe(1);
+            expect(cached?.hasDraftResponses).toBe(true);
+        });
+
+        test('deduplicates addressedThreads when multiple draft replies exist for the same thread', async () => {
+            const changeNum = server.registerChange('I66666');
+            server.registerComments(changeNum, {
+                'file.txt': [
+                    { id: 'c1', line: 5, message: 'Comment 1', updated: '2026-06-30T12:00:00Z', unresolved: true },
+                    { id: 'c2', line: 10, message: 'Comment 2', updated: '2026-06-30T12:00:00Z', unresolved: true },
+                ],
+            });
+            // Two drafts replying to the SAME comment thread 'c1'
+            server.registerDrafts(changeNum, {
+                'file.txt': [
+                    { id: 'd1', in_reply_to: 'c1', line: 5, message: 'Part 1', updated: '2026-06-30T12:01:00Z' },
+                    { id: 'd2', in_reply_to: 'c1', line: 5, message: 'Part 2', updated: '2026-06-30T12:02:00Z' },
+                    // One top-level draft comment
+                    { id: 'd3', line: 15, message: 'Top-level draft', updated: '2026-06-30T12:03:00Z' },
+                ],
+            });
+
+            const changed = await provider.fetchStatuses(
+                [{ commitId: 'commit-666', changeId: 'I66666' }],
+                mockJjService,
+            );
+
+            expect(changed).toBe(true);
+            const cached = provider.getCachedChangeInfo('I66666');
+            expect(cached?.draftComments).toBe(1); // 1 top-level draft
+            expect(cached?.draftResponses).toBe(2); // 2 draft replies total
+            expect(cached?.addressedThreads).toBe(1); // but only 1 unique thread addressed!
+            expect(cached?.hasDraftResponses).toBe(true);
+        });
+
+        test('updating an existing draft replaces it in cache rather than dropping the update', () => {
+            const recordDraft = exposePrivate<{
+                recordDraftComment(
+                    changeNumber: number,
+                    draft: { id: string; in_reply_to?: string; line?: number; message?: string },
+                    filePath: string,
+                ): void;
+            }>(provider).recordDraftComment.bind(provider);
+
+            // Populate change cache first
+            const cache = accessPrivate<LruCache<string, CodeForgeChangeInfo>>(provider, 'cache');
+            cache.set('I12345', {
+                id: 'I12345',
+                number: 123,
+                displayLabel: 'CL/123',
+                providerName: 'Gerrit',
+                status: 'NEW',
+                submittable: true,
+                unresolvedComments: 1,
+                url: 'url',
+                currentRevision: 'sha-1',
+            });
+
+            // Initial draft
+            recordDraft(123, { id: 'd1', in_reply_to: 'c1', line: 5, message: 'Initial draft text' }, 'file.txt');
+            let cached = provider.getCachedChangeInfo('I12345');
+            expect(cached?.draftResponses).toBe(1);
+            expect(cached?.addressedThreads).toBe(1);
+
+            // Updating the existing draft (same id) replaces it instead of creating duplicates
+            recordDraft(123, { id: 'd1', in_reply_to: 'c1', line: 5, message: 'Updated draft text' }, 'file.txt');
+            cached = provider.getCachedChangeInfo('I12345');
+            expect(cached?.draftResponses).toBe(1);
+            expect(cached?.addressedThreads).toBe(1);
+
+            const draftsCache = accessPrivate<AsyncCache<number, Record<string, { id: string; message?: string }[]>>>(
+                provider,
+                'draftsCache',
+            );
+            const draftsMap = draftsCache.peek(123);
+            expect(draftsMap?.['file.txt']).toHaveLength(1);
+            expect(draftsMap?.['file.txt']?.[0].message).toBe('Updated draft text');
+
+            // When commentsCache has expired, recordDraftComment does not revive it
+            const commentsCache = accessPrivate<AsyncCache<number, unknown>>(provider, 'commentsCache');
+            const commentsInternal = accessPrivate<LruCache<number, { expires: number }>>(commentsCache, '_cache');
+            commentsCache.set(123, { 'file.txt': [] });
+            const commentsEntry = commentsInternal.get(123);
+            if (commentsEntry) {
+                commentsEntry.expires = 0; // Expire commentsCache
+            }
+
+            // Record draft
+            recordDraft(123, { id: 'd2', in_reply_to: 'c2', line: 10, message: 'New draft' }, 'file.txt');
+
+            // commentsCache should NOT have been revived (peek returns undefined because expired)
+            expect(commentsCache.peek(123)).toBeUndefined();
+        });
+
+        test('network error in fetchDraftsFromNetwork does not poison cache with empty draft state', async () => {
+            const changeNum = server.registerChange('I77777');
+            server.registerDrafts(changeNum, {
+                'file.txt': [
+                    { id: 'd1', in_reply_to: 'c1', line: 5, message: 'Reply', updated: '2026-06-30T12:01:00Z' },
+                ],
+            });
+
+            // Initial successful fetch
+            await provider.fetchStatuses([{ commitId: 'commit-777', changeId: 'I77777' }], mockJjService);
+            const initial = provider.getCachedChangeInfo('I77777');
+            expect(initial?.draftResponses).toBe(1);
+            expect(initial?.addressedThreads).toBe(1);
+
+            // Expire drafts cache TTL so next fetch would re-query drafts
+            const draftsCache = accessPrivate<AsyncCache<number, unknown>>(provider, 'draftsCache');
+            const internalCache = accessPrivate<LruCache<number, { expires: number }>>(draftsCache, '_cache');
+            const entry = internalCache.get(changeNum);
+            if (entry) {
+                entry.expires = 0;
+            }
+
+            // Simulate drafts endpoint failure
+            server.failDraftsWithStatus = 500;
+
+            // Fetch should gracefully preserve existing cached draft metrics rather than poisoning with 0
+            await provider.fetchStatuses([{ commitId: 'commit-777', changeId: 'I77777' }], mockJjService);
+            const afterError = provider.getCachedChangeInfo('I77777');
+            expect(afterError?.draftResponses).toBe(1);
+            expect(afterError?.addressedThreads).toBe(1);
+
+            // When cache is empty and network fails, cache is not poisoned with empty entry
+            provider.clearCache();
+            await provider.fetchStatuses([{ commitId: 'commit-777', changeId: 'I77777' }], mockJjService);
+            const emptyCacheEntry = draftsCache.peekStale(changeNum);
+            expect(emptyCacheEntry).toBeUndefined();
+        });
+
+        test('fetchStatuses tolerates individual change draft fetch errors without failing entire batch', async () => {
+            server.registerChange('I11111');
+            server.registerChange('I22222');
+
+            // Simulate drafts endpoint failure for change 1, but change 2 succeeds
+            server.failDraftsWithStatus = 500;
+
+            const changed = await provider.fetchStatuses(
+                [
+                    { commitId: 'c1', changeId: 'I11111' },
+                    { commitId: 'c2', changeId: 'I22222' },
+                ],
+                mockJjService,
+            );
+
+            expect(changed).toBe(true);
+            const cached1 = provider.getCachedChangeInfo('I11111');
+            const cached2 = provider.getCachedChangeInfo('I22222');
+            expect(cached1).toBeDefined();
+            expect(cached2).toBeDefined();
+        });
+
+        test('dispose calls clearCache and empties all caches', () => {
+            provider.clearCache();
+            const cache = accessPrivate<LruCache<string, unknown>>(provider, 'cache');
+            const draftsCache = accessPrivate<AsyncCache<number, unknown>>(provider, 'draftsCache');
+            cache.set('key', { id: 'test' });
+            draftsCache.set(1, {});
+
+            expect(cache.size).toBe(1);
+            expect(draftsCache.size).toBe(1);
+
+            provider.dispose();
+
+            expect(cache.size).toBe(0);
+            expect(draftsCache.size).toBe(0);
+        });
+
+        test('draftsCache evicts least recently used entries when capacity exceeds maxEntries', () => {
+            const draftsCache = accessPrivate<AsyncCache<number, unknown>>(provider, 'draftsCache');
+
+            expect(draftsCache.maxEntries).toBe(150);
+            for (let i = 1; i <= 155; i++) {
+                draftsCache.set(i, {});
+            }
+            expect(draftsCache.size).toBe(150);
+            // Oldest entries 1..5 should be evicted
+            expect(draftsCache.peek(1)).toBeUndefined();
+            expect(draftsCache.peek(5)).toBeUndefined();
+            expect(draftsCache.peek(6)).toBeDefined();
+            expect(draftsCache.peek(155)).toBeDefined();
         });
     });
 });

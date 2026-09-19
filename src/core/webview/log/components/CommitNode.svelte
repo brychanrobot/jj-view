@@ -4,10 +4,9 @@
 -->
 <script lang="ts">
 import type { ActionPayload, CommitAction } from '../../../host/ipc/log-view-schemas';
-import type { JjBookmark, JjLogEntry } from '../../../jj-types';
+import type { JjLogEntry } from '../../../jj-types';
 import { BookmarkPill, IconButton, TagPill, WorkspacePill } from '../../common/components';
 import type { DragManager } from '../drag-manager.svelte';
-import { COMMIT_ROW_PADDING_LEFT } from '../layout-constants';
 import { formatCommitTooltip } from '../utils/commit-tooltip';
 import { computeCommitActions } from '../utils/commit-utils';
 import DraggableBookmark from './DraggableBookmark.svelte';
@@ -45,6 +44,57 @@ const isCurrentWorkingCopy = $derived(commit.is_current_working_copy);
 const isConflict = $derived(commit.conflict);
 const isEmpty = $derived(commit.is_empty);
 const codeForgeChange = $derived(commit.codeForgeChange);
+
+const commentButtonState = $derived.by(() => {
+    if (!codeForgeChange) {
+        return undefined;
+    }
+    const unresolved = Math.max(0, codeForgeChange.unresolvedComments || 0);
+    const drafts = Math.max(0, codeForgeChange.draftComments || 0);
+    const responses = Math.max(0, codeForgeChange.draftResponses || 0);
+    const addressed = Math.max(0, codeForgeChange.addressedThreads ?? responses);
+
+    if (unresolved === 0 && drafts === 0 && responses === 0) {
+        return undefined;
+    }
+
+    if (unresolved === 0) {
+        const totalDrafts = drafts + responses;
+        return {
+            icon: 'codicon-edit',
+            badge: `${totalDrafts}`,
+            title: `${totalDrafts} Draft Comment${totalDrafts === 1 ? '' : 's'} (Click to view)`,
+            allDrafted: true,
+        };
+    }
+
+    if (addressed >= unresolved) {
+        const addressedText = unresolved === 1 ? 'Addressed in draft' : 'All addressed in draft';
+        return {
+            icon: 'codicon-comment-discussion',
+            badge: `${unresolved} ✎`,
+            title: `${unresolved} Unresolved Comment${unresolved === 1 ? '' : 's'} (${addressedText}) (Click to view)`,
+            allDrafted: true,
+        };
+    }
+
+    if (addressed > 0) {
+        return {
+            icon: 'codicon-comment-discussion',
+            badge: `${unresolved} (${addressed}✎)`,
+            title: `${unresolved} Unresolved Comment${unresolved === 1 ? '' : 's'} (${addressed} addressed in draft) (Click to view)`,
+            allDrafted: false,
+        };
+    }
+
+    const draftNoteText = drafts > 0 ? ` (${drafts} draft note${drafts === 1 ? '' : 's'})` : '';
+    return {
+        icon: 'codicon-comment-discussion',
+        badge: `${unresolved}`,
+        title: `${unresolved} Unresolved Comment${unresolved === 1 ? '' : 's'}${draftNoteText} (Click to view)`,
+        allDrafted: false,
+    };
+});
 
 const actionsInfo = $derived(
     computeCommitActions(commit, hiddenActions, isSelected, selectionCount, hasImmutableSelection),
@@ -397,18 +447,28 @@ const hasActiveBookmarkAlready = $derived(
                 {/if}
 
                 <!-- Comments -->
-                {#if codeForgeChange.unresolvedComments > 0}
+                {#if commentButtonState}
                     <button
                         type="button"
-                        title={`${codeForgeChange.unresolvedComments} Unresolved Comments (Click to view)`}
+                        title={commentButtonState.title}
+                        aria-label={commentButtonState.title}
                         onclick={(e) => {
                             e.stopPropagation();
                             onAction('showComments', { changeId: commit.change_id });
                         }}
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                                e.stopPropagation();
+                                if (e.key === ' ' || e.key === 'Spacebar') {
+                                    e.preventDefault();
+                                }
+                            }
+                        }}
                         class="comments-button"
+                        class:all-drafted={commentButtonState.allDrafted}
                     >
-                        <span class="codicon codicon-comment-discussion comments-icon"></span>
-                        <span>{codeForgeChange.unresolvedComments}</span>
+                        <span class="codicon {commentButtonState.icon} comments-icon" aria-hidden="true"></span>
+                        <span>{commentButtonState.badge}</span>
                     </button>
                 {/if}
 
@@ -601,12 +661,23 @@ const hasActiveBookmarkAlready = $derived(
         display: flex;
         align-items: center;
         gap: 3px;
-        color: var(--vscode-problemsWarningIcon-foreground);
+        color: var(--vscode-problemsWarningIcon-foreground, var(--vscode-editorWarning-foreground, #cca700));
         margin-left: 4px;
         background: none;
         border: none;
         padding: 0;
         cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .comments-button:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    .comments-button.all-drafted {
+        color: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue));
     }
 
     .comments-icon {

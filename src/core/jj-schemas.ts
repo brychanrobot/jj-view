@@ -108,6 +108,14 @@ export const CodeForgeChangeInfoSchema = z.object({
     url: z.string(),
     /** Number of unresolved comments/discussions */
     unresolvedComments: z.number(),
+    /** Number of draft comments/discussions pending publication (top-level, not in reply to an existing thread) */
+    draftComments: z.number().optional(),
+    /** Number of draft replies addressing comments */
+    draftResponses: z.number().optional(),
+    /** Number of unique unresolved comment threads that have at least one draft reply */
+    addressedThreads: z.number().optional(),
+    /** Whether there are any draft responses addressing comments */
+    hasDraftResponses: z.boolean().optional(),
     /** The commit ID of the current remote revision */
     currentRevision: z.string().optional(),
     /** Map of files in the current remote revision and their blob SHAs */

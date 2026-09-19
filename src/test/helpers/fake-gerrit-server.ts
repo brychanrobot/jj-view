@@ -251,6 +251,11 @@ export class FakeGerritServer {
 
                 const matchGetDrafts = urlStr.match(/\/changes\/(\d+)\/drafts/);
                 if (matchGetDrafts && req.method === 'GET') {
+                    if (this.failDraftsWithStatus) {
+                        res.writeHead(this.failDraftsWithStatus);
+                        res.end(this.failDraftsResponseBody ?? 'Error');
+                        return;
+                    }
                     const changeNumber = parseInt(matchGetDrafts[1], 10);
                     const list = this.drafts.get(changeNumber) || {};
                     res.writeHead(200, { 'Content-Type': 'application/json' });
