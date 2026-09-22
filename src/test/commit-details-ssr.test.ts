@@ -169,4 +169,38 @@ describe('CommitDetailsApp SSR Rendering', () => {
         expect(html).toContain('change-id-offset');
         expect(html).toContain('/2');
     });
+
+    it('renders file paths with directory and filename without intervening spaces (#595)', () => {
+        const initialCommit: CommitDetailsPayload = {
+            changeId: 'krsyowswxmxnqznrtlpuyutskyzrpunp',
+            commitId: 'abcdef1234567890abcdef1234567890abcdef12',
+            description: 'test: file paths',
+            files: [
+                {
+                    path: 'src/core/webview/CommitDetails.svelte',
+                    status: 'modified',
+                },
+                {
+                    path: 'root-file.txt',
+                    status: 'added',
+                },
+            ],
+            isLoadingFiles: false,
+            isImmutable: false,
+            isEmpty: false,
+            isConflict: false,
+            minChangeIdLength: 4,
+        };
+
+        const result = render(CommitDetailsApp, { props: { initialCommit } });
+        const html = result.body;
+
+        expect(html).toContain('file-path-container');
+        expect(html).toContain('src/core/webview/');
+        expect(html).toContain('CommitDetails.svelte</span>');
+        expect(html).toMatch(
+            /<span class="file-dir[^"]*">src\/core\/webview\/<\/span>(?:<!--.*?-->)*<span class="file-name/,
+        );
+        expect(html).not.toContain('src/core/webview/</span> ');
+    });
 });
