@@ -612,10 +612,7 @@ function getFileColor(status: string, conflicted?: boolean): string {
                                 aria-label={file.conflicted ? conflictLabel : undefined}
                             ></span>
                             <span class="file-path-container" title={file.path}>
-                                {#if dir}
-                                    <span class="file-dir">{dir}</span>
-                                {/if}
-                                <span class="file-name" style:color={file.conflicted ? 'var(--vscode-gitDecoration-conflictingResourceForeground, #e51400)' : undefined}>{name}</span>
+                                {#if dir}<span class="file-dir">{dir}</span>{/if}<span class="file-name" style:color={file.conflicted ? 'var(--vscode-gitDecoration-conflictingResourceForeground, #e51400)' : undefined}>{name}</span>
                             </span>
                             <span class="file-meta-group">
                                 {#if file.additions !== undefined || file.deletions !== undefined}
@@ -1160,7 +1157,6 @@ function getFileColor(status: string, conflicted?: boolean): string {
     .file-dir {
         color: var(--vscode-descriptionForeground);
         font-size: 12px;
-        margin-right: 4px;
     }
 
     .file-name {
