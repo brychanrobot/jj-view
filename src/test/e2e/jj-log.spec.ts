@@ -5,7 +5,7 @@
 
 import { expect } from '@playwright/test';
 import { getPersonDisplayStrings } from '../../core/webview/common/utils/person-utils';
-import { toUnicodeBold, toUnicodeMonospace } from '../../core/webview/log/utils/commit-tooltip';
+import { toUnicodeSansBold, toUnicodeSansRegular } from '../../core/webview/log/utils/commit-tooltip';
 import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import {
     clickLogAction,
@@ -515,19 +515,18 @@ test.describe('JJ Log Pane E2E', () => {
         const timestamp = repo.getLog(nodes.feature.commitId, 'author.timestamp()');
         const { fullTime } = getPersonDisplayStrings({ name: '', email: '', timestamp });
         const truncatedChangeId = nodes.feature.changeId.slice(0, 10);
-        const boldShortest = toUnicodeBold(shortest);
-        const restChangeId = toUnicodeMonospace(truncatedChangeId.slice(shortest.length));
-        const monospaceCommitId = toUnicodeMonospace(nodes.feature.commitId.slice(0, 10));
+        const boldShortest = toUnicodeSansBold(shortest);
+        const restChangeId = toUnicodeSansRegular(truncatedChangeId.slice(shortest.length));
+        const sansRegularCommitId = toUnicodeSansRegular(nodes.feature.commitId.slice(0, 10));
 
         const escapedFullTime = fullTime.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
         const expectedPattern = new RegExp(
             `^` +
                 [
                     `ᴄʜᴀɴɢᴇ: ${boldShortest}${restChangeId}`,
-                    `ᴄᴏᴍᴍɪᴛ: ${monospaceCommitId}`,
-                    'sᴛᴀᴛᴜs: @ \\(working copy\\)',
+                    `ᴄᴏᴍᴍɪᴛ: ${sansRegularCommitId}`,
                     `ᴅᴀᴛᴇ: (?:just now|\\d+ (?:second|minute|hour|day|week|month|year)s? ago) \\(${escapedFullTime}\\)`,
-                    '────────────────────────────────────────',
+                    '────────────────',
                     'feature commit',
                     '',
                     'Extended details about the feature\\.',
