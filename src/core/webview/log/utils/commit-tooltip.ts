@@ -10,7 +10,7 @@ import { getPersonDisplayStrings } from '../../common/utils/person-utils';
  * Converts alphanumeric characters to Mathematical Sans-Serif Bold Unicode glyphs.
  * Non-alphanumeric characters remain untouched.
  */
-export function toUnicodeBold(text: string): string {
+export function toUnicodeSansBold(text: string): string {
     let result = '';
     for (let i = 0; i < text.length; i++) {
         const code = text.charCodeAt(i);
@@ -33,7 +33,7 @@ export function toUnicodeBold(text: string): string {
 /**
  * Converts Mathematical Sans-Serif Bold Unicode glyphs back to standard ASCII characters.
  */
-export function fromUnicodeBold(text: string): string {
+export function fromUnicodeSansBold(text: string): string {
     let result = '';
     for (const char of text) {
         const code = char.codePointAt(0) ?? 0;
@@ -54,22 +54,22 @@ export function fromUnicodeBold(text: string): string {
 }
 
 /**
- * Converts alphanumeric characters to Mathematical Monospace Unicode glyphs.
+ * Converts alphanumeric characters to Mathematical Sans-Serif Regular Unicode glyphs.
  * Non-alphanumeric characters remain untouched.
  */
-export function toUnicodeMonospace(text: string): string {
+export function toUnicodeSansRegular(text: string): string {
     let result = '';
     for (let i = 0; i < text.length; i++) {
         const code = text.charCodeAt(i);
         if (code >= 65 && code <= 90) {
             // A-Z
-            result += String.fromCodePoint(0x1d670 + (code - 65));
+            result += String.fromCodePoint(0x1d5a0 + (code - 65));
         } else if (code >= 97 && code <= 122) {
             // a-z
-            result += String.fromCodePoint(0x1d68a + (code - 97));
+            result += String.fromCodePoint(0x1d5ba + (code - 97));
         } else if (code >= 48 && code <= 57) {
             // 0-9
-            result += String.fromCodePoint(0x1d7f6 + (code - 48));
+            result += String.fromCodePoint(0x1d7e2 + (code - 48));
         } else {
             result += text[i];
         }
@@ -78,21 +78,21 @@ export function toUnicodeMonospace(text: string): string {
 }
 
 /**
- * Converts Mathematical Monospace Unicode glyphs back to standard ASCII characters.
+ * Converts Mathematical Sans-Serif Regular Unicode glyphs back to standard ASCII characters.
  */
-export function fromUnicodeMonospace(text: string): string {
+export function fromUnicodeSansRegular(text: string): string {
     let result = '';
     for (const char of text) {
         const code = char.codePointAt(0) ?? 0;
-        if (code >= 0x1d670 && code <= 0x1d689) {
+        if (code >= 0x1d5a0 && code <= 0x1d5b9) {
             // A-Z
-            result += String.fromCharCode(65 + (code - 0x1d670));
-        } else if (code >= 0x1d68a && code <= 0x1d6a3) {
+            result += String.fromCharCode(65 + (code - 0x1d5a0));
+        } else if (code >= 0x1d5ba && code <= 0x1d5d3) {
             // a-z
-            result += String.fromCharCode(97 + (code - 0x1d68a));
-        } else if (code >= 0x1d7f6 && code <= 0x1d7ff) {
+            result += String.fromCharCode(97 + (code - 0x1d5ba));
+        } else if (code >= 0x1d7e2 && code <= 0x1d7eb) {
             // 0-9
-            result += String.fromCharCode(48 + (code - 0x1d7f6));
+            result += String.fromCharCode(48 + (code - 0x1d7e2));
         } else {
             result += char;
         }
@@ -100,57 +100,34 @@ export function fromUnicodeMonospace(text: string): string {
     return result;
 }
 
-const DIVIDER = '────────────────────────────────────────';
+export const DIVIDER = '────────────────';
 
 /**
  * Formats a rich, multi-line native title tooltip for a JJ commit revision.
- * Uses small caps labels, bold shortest change ID prefix, monospace hashes,
- * relative timestamps, and dividers.
+ * Uses small caps labels, Mathematical Sans-Serif bold shortest change ID prefix,
+ * Mathematical Sans-Serif regular hashes, relative timestamps, and short divider.
  */
 export function formatCommitTooltip(commit: JjLogEntry): string {
     const lines: string[] = [];
-
-    // Header: Change ID and Badges
-    const badges: string[] = [];
-    if (commit.is_current_working_copy) {
-        badges.push('@ (working copy)');
-    }
-    if (commit.is_empty) {
-        badges.push('(empty)');
-    }
-    if (commit.conflict) {
-        badges.push('⚠️ (conflict)');
-    }
-    if (commit.is_divergent) {
-        badges.push('⑂ (divergent)');
-    }
-    if (commit.is_immutable) {
-        badges.push('🔒 (immutable)');
-    }
-
     const HASH_DISPLAY_LENGTH = 10;
 
+    // Change ID
     const truncatedChangeId = commit.change_id.slice(0, HASH_DISPLAY_LENGTH);
-    let formattedChangeId = toUnicodeMonospace(truncatedChangeId);
+    let formattedChangeId = toUnicodeSansRegular(truncatedChangeId);
     if (commit.change_id_shortest && commit.change_id.startsWith(commit.change_id_shortest)) {
         const prefix = commit.change_id_shortest;
         if (prefix.length < truncatedChangeId.length) {
             const rest = truncatedChangeId.slice(prefix.length);
-            formattedChangeId = `${toUnicodeBold(prefix)}${toUnicodeMonospace(rest)}`;
+            formattedChangeId = `${toUnicodeSansBold(prefix)}${toUnicodeSansRegular(rest)}`;
         } else {
-            formattedChangeId = toUnicodeBold(truncatedChangeId);
+            formattedChangeId = toUnicodeSansBold(truncatedChangeId);
         }
     }
     lines.push(`ᴄʜᴀɴɢᴇ: ${formattedChangeId}`);
 
     // Commit ID
     const truncatedCommitId = commit.commit_id.slice(0, HASH_DISPLAY_LENGTH);
-    lines.push(`ᴄᴏᴍᴍɪᴛ: ${toUnicodeMonospace(truncatedCommitId)}`);
-
-    // Status Badges
-    if (badges.length > 0) {
-        lines.push(`sᴛᴀᴛᴜs: ${badges.join(' ')}`);
-    }
+    lines.push(`ᴄᴏᴍᴍɪᴛ: ${toUnicodeSansRegular(truncatedCommitId)}`);
 
     // Date (Author or Committer timestamp)
     const person = commit.author || commit.committer;

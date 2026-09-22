@@ -6,11 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import type { JjLogEntry } from '../core/jj-types';
 import {
+    DIVIDER,
     formatCommitTooltip,
-    fromUnicodeBold,
-    fromUnicodeMonospace,
-    toUnicodeBold,
-    toUnicodeMonospace,
+    fromUnicodeSansBold,
+    fromUnicodeSansRegular,
+    toUnicodeSansBold,
+    toUnicodeSansRegular,
 } from '../core/webview/log/utils/commit-tooltip';
 
 function createMockCommit(overrides: Partial<JjLogEntry> = {}): JjLogEntry {
@@ -39,49 +40,49 @@ function createMockCommit(overrides: Partial<JjLogEntry> = {}): JjLogEntry {
 }
 
 describe('commit-tooltip', () => {
-    describe('toUnicodeBold', () => {
+    describe('toUnicodeSansBold', () => {
         it('converts ASCII letters and digits to Mathematical Sans-Serif Bold', () => {
-            expect(toUnicodeBold('Change:')).toBe('𝗖𝗵𝗮𝗻𝗴𝗲:');
-            expect(toUnicodeBold('Commit:')).toBe('𝗖𝗼𝗺𝗺𝗶𝘁:');
-            expect(toUnicodeBold('Author 123')).toBe('𝗔𝘂𝘁𝗵𝗼𝗿 𝟭𝟮𝟯');
+            expect(toUnicodeSansBold('Change:')).toBe('𝗖𝗵𝗮𝗻𝗴𝗲:');
+            expect(toUnicodeSansBold('Commit:')).toBe('𝗖𝗼𝗺𝗺𝗶𝘁:');
+            expect(toUnicodeSansBold('Author 123')).toBe('𝗔𝘂𝘁𝗵𝗼𝗿 𝟭𝟮𝟯');
         });
 
         it('preserves non-alphanumeric characters', () => {
-            expect(toUnicodeBold('• - / : ( )')).toBe('• - / : ( )');
+            expect(toUnicodeSansBold('• - / : ( )')).toBe('• - / : ( )');
         });
 
         it('converts Mathematical Sans-Serif Bold Unicode glyphs back to ASCII', () => {
-            expect(fromUnicodeBold('𝗖𝗵𝗮𝗻𝗴𝗲: 𝗸𝗸')).toBe('Change: kk');
-            expect(fromUnicodeBold('𝗖𝗼𝗺𝗺𝗶𝘁: 𝟬𝟭𝟮')).toBe('Commit: 012');
-            expect(fromUnicodeBold(toUnicodeBold('Test 123 ABC xyz'))).toBe('Test 123 ABC xyz');
+            expect(fromUnicodeSansBold('𝗖𝗵𝗮𝗻𝗴𝗲: 𝗸𝗸')).toBe('Change: kk');
+            expect(fromUnicodeSansBold('𝗖𝗼𝗺𝗺𝗶𝘁: 𝟬𝟭𝟮')).toBe('Commit: 012');
+            expect(fromUnicodeSansBold(toUnicodeSansBold('Test 123 ABC xyz'))).toBe('Test 123 ABC xyz');
         });
     });
 
-    describe('toUnicodeMonospace', () => {
-        it('converts ASCII letters and digits to Mathematical Monospace', () => {
-            expect(toUnicodeMonospace('abcXYZ012')).toBe('𝚊𝚋𝚌𝚇𝚈𝚉𝟶𝟷𝟸');
+    describe('toUnicodeSansRegular', () => {
+        it('converts ASCII letters and digits to Mathematical Sans-Serif Regular', () => {
+            expect(toUnicodeSansRegular('abcXYZ012')).toBe('𝖺𝖻𝖼𝖷𝖸𝖹𝟢𝟣𝟤');
         });
 
         it('preserves non-alphanumeric characters', () => {
-            expect(toUnicodeMonospace('• - / : ( )')).toBe('• - / : ( )');
+            expect(toUnicodeSansRegular('• - / : ( )')).toBe('• - / : ( )');
         });
 
-        it('converts Mathematical Monospace Unicode glyphs back to ASCII', () => {
-            expect(fromUnicodeMonospace('𝚊𝚋𝚌𝚇𝚈𝚉𝟶𝟷𝟸')).toBe('abcXYZ012');
-            expect(fromUnicodeMonospace(toUnicodeMonospace('Change/0 123'))).toBe('Change/0 123');
+        it('converts Mathematical Sans-Serif Regular Unicode glyphs back to ASCII', () => {
+            expect(fromUnicodeSansRegular('𝖺𝖻𝖼𝖷𝖸𝖹𝟢𝟣𝟤')).toBe('abcXYZ012');
+            expect(fromUnicodeSansRegular(toUnicodeSansRegular('Change/0 123'))).toBe('Change/0 123');
         });
     });
 
     describe('formatCommitTooltip', () => {
-        it('formats small caps labels, bold shortest prefix, monospace hashes, divider, and full body', () => {
+        it('formats small caps labels, bold shortest prefix, sans-serif regular hashes, divider, and full body', () => {
             const commit = createMockCommit({ author: undefined, committer: undefined });
             const tooltip = formatCommitTooltip(commit);
 
             expect(tooltip).toBe(
                 [
-                    'ᴄʜᴀɴɢᴇ: 𝗸𝗸𝚖𝚙𝚙𝚝𝚡𝚣𝚊𝚋',
-                    'ᴄᴏᴍᴍɪᴛ: 𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿',
-                    '────────────────────────────────────────',
+                    'ᴄʜᴀɴɢᴇ: 𝗸𝗸𝗆𝗉𝗉𝗍𝗑𝗓𝖺𝖻',
+                    'ᴄᴏᴍᴍɪᴛ: 𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫',
+                    DIVIDER,
                     'feat: add feature',
                     '',
                     'Detailed body explanation.',
@@ -94,10 +95,10 @@ describe('commit-tooltip', () => {
             const tooltip = formatCommitTooltip(commit);
 
             expect(tooltip).toContain('ᴅᴀᴛᴇ: 2 hours ago');
-            expect(tooltip).toContain('────────────────────────────────────────');
+            expect(tooltip).toContain(DIVIDER);
         });
 
-        it('includes status badges for conflict, divergent, working copy, empty, and immutable', () => {
+        it('does not include status line for working copy, empty, conflict, divergent, or immutable commits', () => {
             const commit = createMockCommit({
                 author: undefined,
                 committer: undefined,
@@ -109,7 +110,9 @@ describe('commit-tooltip', () => {
             });
             const tooltip = formatCommitTooltip(commit);
 
-            expect(tooltip).toContain('sᴛᴀᴛᴜs: @ (working copy) (empty) ⚠️ (conflict) ⑂ (divergent) 🔒 (immutable)');
+            expect(tooltip).not.toContain('sᴛᴀᴛᴜs:');
+            expect(tooltip).not.toContain('(working copy)');
+            expect(tooltip).not.toContain('(immutable)');
         });
 
         it('includes bookmarks, tags, and working copies', () => {
@@ -124,12 +127,12 @@ describe('commit-tooltip', () => {
 
             expect(tooltip).toBe(
                 [
-                    'ᴄʜᴀɴɢᴇ: 𝗸𝗸𝚖𝚙𝚙𝚝𝚡𝚣𝚊𝚋',
-                    'ᴄᴏᴍᴍɪᴛ: 𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿',
+                    'ᴄʜᴀɴɢᴇ: 𝗸𝗸𝗆𝗉𝗉𝗍𝗑𝗓𝖺𝖻',
+                    'ᴄᴏᴍᴍɪᴛ: 𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫',
                     'ʙᴏᴏᴋᴍᴀʀᴋs: main, push-feat@origin',
                     'ᴛᴀɢs: v1.2.0',
                     'ᴡᴏʀᴋsᴘᴀᴄᴇs: default',
-                    '────────────────────────────────────────',
+                    DIVIDER,
                     'feat: add feature',
                     '',
                     'Detailed body explanation.',
