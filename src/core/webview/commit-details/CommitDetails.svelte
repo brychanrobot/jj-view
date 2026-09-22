@@ -1125,6 +1125,10 @@ function getFileColor(status: string, conflicted?: boolean): string {
         box-sizing: border-box;
     }
 
+    .file-row:nth-child(even) {
+        background-color: var(--vscode-keybindingTable-rowsBackground, var(--vscode-tree-tableOddRowsBackground, rgba(128, 128, 128, 0.04)));
+    }
+
     .file-row:hover {
         background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
     }
