@@ -24,8 +24,12 @@ export class ChangeDetectionManager implements HostDisposable {
     private _fileWatcherMode: 'polling' | 'watch' = 'polling';
     private _isFocused = true;
     private lastExternalOpTime = 0;
+    private _lastFocusRefreshTime = 0;
     private _deferredRefreshTimeout: NodeJS.Timeout | undefined;
     private _watchersWarmedUp = false;
+
+    /** Throttle interval in milliseconds to prevent excessive repository snapshots on rapid window focus events. */
+    public static readonly FOCUS_REFRESH_THROTTLE_MS = 10000;
 
     private async _runLifecycleTask(task: () => Promise<void>): Promise<void> {
         this._lifecyclePromise = this._lifecyclePromise
@@ -171,19 +175,38 @@ export class ChangeDetectionManager implements HostDisposable {
         this.updatePollingState();
     }
 
-    private onWindowStateChange(focused: boolean) {
+    private onWindowStateChange(focused: boolean): void {
+        if (this._disposed) {
+            return;
+        }
         this._isFocused = focused;
-        // If getting focused, we want an immediate poll
-        this.updatePollingState(focused);
+        this.updatePollingState();
+
+        if (!focused) {
+            return;
+        }
+
+        const now = Date.now();
+        if (now - this._lastFocusRefreshTime <= ChangeDetectionManager.FOCUS_REFRESH_THROTTLE_MS) {
+            return;
+        }
+
+        if (this.hasActiveOrRecentWrites) {
+            this._scheduleDeferredRefresh(true);
+            return;
+        }
+
+        this._lastFocusRefreshTime = now;
+        this.triggerRefresh({ forceSnapshot: true, reason: 'focus refresh' }).catch((err: unknown) => {
+            this.outputChannel.error?.(`[ChangeDetectionManager] Focus refresh failed: ${err}`);
+        });
     }
 
     /**
      * Reconciles the polling state based on current mode, focus, and disposal status.
      * Starts or stops the poller accordingly.
-     *
-     * @param immediate If true, attempts to force an immediate poll execution if polling is active.
      */
-    private updatePollingState(immediate = false) {
+    private updatePollingState(): void {
         // If not in polling mode, or not focused, or disposed -> Stop
         if (this._fileWatcherMode !== 'polling' || !this._isFocused || this._disposed) {
             this._poller.stop();
@@ -192,11 +215,6 @@ export class ChangeDetectionManager implements HostDisposable {
 
         // We are in polling mode and focused.
         this._poller.start();
-
-        if (immediate) {
-            // Force an immediate poll to ensure responsiveness
-            this._poller.force();
-        }
     }
 
     private async startOpHeadsWatcher() {
@@ -449,11 +467,17 @@ export class ChangeDetectionManager implements HostDisposable {
         }
     }
 
-    async dispose() {
+    async dispose(): Promise<void> {
         if (this._disposed) {
             return;
         }
         this._disposed = true;
+        this._pendingForceSnapshot = false;
+
+        this.disposables.forEach((d) => {
+            d.dispose();
+        });
+        this.disposables = [];
 
         if (this._deferredRefreshTimeout) {
             clearTimeout(this._deferredRefreshTimeout);
@@ -476,10 +500,5 @@ export class ChangeDetectionManager implements HostDisposable {
                 this._opHeadsWatcher = undefined;
             }
         });
-
-        this.disposables.forEach((d) => {
-            d.dispose();
-        });
-        this.disposables = [];
     }
 }
