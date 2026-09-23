@@ -55,9 +55,6 @@ export class JjRepository implements Disposable {
                 this._isValid = undefined;
                 try {
                     await this._jj.clearCache();
-                    if (Array.from(reasonsSet).some((r) => r.includes('manual') || r.includes('refresh'))) {
-                        this._codeForge.clearCache();
-                    }
                     if (options?.forceSnapshot) {
                         await this._jj.status();
                     }
