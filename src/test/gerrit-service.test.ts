@@ -790,50 +790,6 @@ describe('GerritService Detection', () => {
         vi.useRealTimers();
     });
 
-    test('refreshes on window focus with throttling', async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(20000); // Start at t=20s to ensure throttling logic works (20000 > 10000)
-
-        // Setup to be enabled
-        host.config.set('gerrit.host', fakeGerritServer.url);
-
-        // Initialize service
-        service = initService();
-        await service.awaitReady();
-
-        // Spy on _onRequestRefresh.fire to verify refreshes
-        let updateCount = 0;
-        const disposable = service.onRequestRefresh(() => {
-            updateCount++;
-        });
-
-        // 1. Trigger focus (should refresh)
-        host.ui.setFocused(true);
-        expect(updateCount).toBe(1);
-
-        // 2. Trigger focus again immediately (should be throttled)
-        host.ui.setFocused(true);
-        expect(updateCount).toBe(1);
-
-        // 3. Advance time by 5s (still throttled)
-        await vi.advanceTimersByTimeAsync(5000);
-        host.ui.setFocused(true);
-        expect(updateCount).toBe(1);
-
-        // 4. Advance time by another 6s (total 11s > 10s) -> Should refresh
-        await vi.advanceTimersByTimeAsync(6000);
-        host.ui.setFocused(true);
-        expect(updateCount).toBe(2);
-
-        // 5. Blur event (should NOT refresh)
-        host.ui.setFocused(false);
-        expect(updateCount).toBe(2);
-
-        disposable.dispose();
-
-        vi.useRealTimers();
-    });
-
     test('detectActiveProvider is rate-limited and coalesced', async () => {
         vi.useFakeTimers();
 

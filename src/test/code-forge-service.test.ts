@@ -161,40 +161,6 @@ describe('CodeForgeService Tests', () => {
         service.dispose();
     });
 
-    test('window focus triggers throttled refresh if enabled', async () => {
-        vi.useFakeTimers();
-
-        const provider = new MockProvider();
-        registry.register({
-            id: 'mock-provider',
-            create: () => provider,
-        });
-
-        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
-        await service.awaitReady();
-
-        // Must be enabled (have an active provider)
-        expect(service.isEnabled).toBe(true);
-
-        const refreshSpy = vi.spyOn(service, 'forceRefresh');
-
-        // Gaining focus should trigger refresh
-        host.ui.setFocused(true);
-        expect(refreshSpy).toHaveBeenCalledTimes(1);
-
-        // Instant focus again should NOT trigger refresh (throttled to 10s)
-        host.ui.setFocused(true);
-        expect(refreshSpy).toHaveBeenCalledTimes(1);
-
-        // Advance timers by 11 seconds to bypass throttle
-        await vi.advanceTimersByTimeAsync(11000);
-        host.ui.setFocused(true);
-        expect(refreshSpy).toHaveBeenCalledTimes(2);
-
-        vi.useRealTimers();
-        service.dispose();
-    });
-
     test('propagates provider update events', async () => {
         const provider = new MockProvider();
         registry.register({

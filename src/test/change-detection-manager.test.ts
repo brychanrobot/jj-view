@@ -140,6 +140,78 @@ describe('ChangeDetectionManager', () => {
             expect(triggerRefreshSpy).toHaveBeenCalledTimes(3);
         });
 
+        it('triggers focus refresh with forceSnapshot: true and throttles within 10s', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            triggerRefreshSpy.mockClear();
+
+            // 1. Focus the window -> triggers focus refresh
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
+            expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                forceSnapshot: true,
+                reason: 'focus refresh',
+            });
+
+            // 2. Immediate focus again -> throttled
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
+
+            // 3. Advance time by 5s (still within 10s throttle)
+            await vi.advanceTimersByTimeAsync(5000);
+            host.ui.setFocused(true);
+            // Poller may have fired once for the 5s interval, but focus refresh shouldn't fire again
+            const focusCalls = triggerRefreshSpy.mock.calls.filter((c) => c[0].reason === 'focus refresh');
+            expect(focusCalls).toHaveLength(1);
+
+            // 4. Advance time by another 6s (total 11s > 10s) -> should trigger focus refresh again
+            await vi.advanceTimersByTimeAsync(6000);
+            host.ui.setFocused(true);
+            const focusCallsAfter11s = triggerRefreshSpy.mock.calls.filter((c) => c[0].reason === 'focus refresh');
+            expect(focusCallsAfter11s).toHaveLength(2);
+        });
+
+        it('triggers throttled focus refresh in watch mode', async () => {
+            host.config.set('fileWatcherMode', 'watch');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            triggerRefreshSpy.mockClear();
+
+            // Gaining focus should trigger focus refresh even in watch mode
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
+            expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                forceSnapshot: true,
+                reason: 'focus refresh',
+            });
+
+            // Gaining focus again immediately should be throttled
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).toHaveBeenCalledTimes(1);
+
+            // Advance by 11s -> bypass throttle
+            await vi.advanceTimersByTimeAsync(11000);
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).toHaveBeenCalledTimes(2);
+        });
+
+        it('defers focus refresh when writes are active or recent', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            triggerRefreshSpy.mockClear();
+
+            // Simulate recent write operation
+            setPrivate(changeManager, 'lastExternalOpTime', Date.now());
+
+            // Gaining focus should defer refresh rather than dropping or running immediately
+            host.ui.setFocused(true);
+            expect(triggerRefreshSpy).not.toHaveBeenCalled();
+
+            // Fast forward past the 500ms deferral timeout
+            await vi.advanceTimersByTimeAsync(600);
+            expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                forceSnapshot: true,
+                reason: 'deferred watcher event',
+            });
+        });
+
         it('triggers refresh on file save (Host document save event)', async () => {
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
 

@@ -40,7 +40,6 @@ export class CodeForgeService implements Disposable {
         this._onDidActiveProviderChange.event;
 
     private _initPromise: Promise<void>;
-    private lastRefreshTime: number = 0;
     private lastDetectionTime = 0;
     private detectPromise: Promise<boolean> | undefined;
 
@@ -80,20 +79,6 @@ export class CodeForgeService implements Disposable {
                         e.affectsConfiguration('jj-view.codeForge')
                     ) {
                         this.detectActiveProvider(true);
-                    }
-                }),
-            );
-        }
-
-        // Refresh when window gains focus (throttled to 10s)
-        if (this.host.ui.onDidChangeFocus) {
-            this.disposables.push(
-                this.host.ui.onDidChangeFocus((focused) => {
-                    if (focused && this.isEnabled) {
-                        const now = Date.now();
-                        if (now - this.lastRefreshTime > 10000) {
-                            this.forceRefresh();
-                        }
                     }
                 }),
             );
@@ -192,7 +177,6 @@ export class CodeForgeService implements Disposable {
         }
         if (this.activeProviderInstance) {
             this.outputChannel.info(`[CodeForgeService] Force refresh triggered`);
-            this.lastRefreshTime = Date.now();
             this._onRequestRefresh.fire();
         }
     }
