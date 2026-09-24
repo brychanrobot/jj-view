@@ -22,13 +22,13 @@ function createMockCommit(overrides: Partial<JjLogEntry> = {}): JjLogEntry {
         commit_id: '0123456789abcdef0123456789abcdef01234567',
         description: 'feat: add feature\n\nDetailed body explanation.',
         author: {
-            name: 'Bryant Chandler',
-            email: 'bryant@example.com',
+            name: 'Tree Snow',
+            email: 'tree@example.com',
             timestamp,
         },
         committer: {
-            name: 'Bryant Chandler',
-            email: 'bryant@example.com',
+            name: 'Tree Snow',
+            email: 'tree@example.com',
             timestamp,
         },
         parents: [],

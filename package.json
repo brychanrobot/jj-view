@@ -1285,6 +1285,7 @@
         "@vscode-elements/elements": "^2.4.0",
         "@vscode/codicons": "^0.0.45",
         "parse-diff": "^0.11.1",
+        "pathe": "^2.0.3",
         "prettier": "^3.8.1",
         "renderdag-ts": "git+https://github.com/brychanrobot/renderdag-ts.git",
         "svelte": "^5.57.0",

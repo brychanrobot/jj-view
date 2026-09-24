@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as path from 'node:path';
+import path from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 import type { JjStatusEntry } from '../core/jj-types';
 import {
@@ -13,6 +13,7 @@ import {
     createRevisionUri,
     decodeJjViewQuery,
     encodeJjViewQuery,
+    fnv1aHash,
     getFsPathFromUri,
     getOriginalResourceUri,
     getRepoRelativePath,
@@ -33,9 +34,10 @@ vi.mock('vscode', () => createVscodeMock({}));
 const ENCODED_AT = '%40';
 
 describe('toForwardSlash', () => {
-    it('replaces backslashes with forward slashes', () => {
+    it('replaces backslashes with forward slashes and preserves empty string', () => {
         expect(toForwardSlash('C:\\path\\to\\file.txt')).toBe('C:/path/to/file.txt');
         expect(toForwardSlash('foo/bar/baz')).toBe('foo/bar/baz');
+        expect(toForwardSlash('')).toBe('');
     });
 });
 
@@ -514,6 +516,11 @@ describe('getOriginalResourceUri and getRepoRelativePath', () => {
         expect(getRepoRelativePath(deletedFileUri, root)).toBe('/deleted-file.txt');
     });
 
+    it('returns root slash for repo root URI itself', () => {
+        const rootUri = Uri.file(root);
+        expect(getRepoRelativePath(rootUri, root)).toBe('/');
+    });
+
     it('can clear canonical root cache', () => {
         expect(() => clearCanonicalRootCache()).not.toThrow();
     });
@@ -541,5 +548,86 @@ describe('decodeJjViewQuery and encodeJjViewQuery', () => {
     it('throws on invalid side', () => {
         const uri = Uri.from({ scheme: 'jj-view', path: '/file.ts', fragment: 'base=rev1&side=middle' });
         expect(() => decodeJjViewQuery(uri)).toThrow('Invalid side');
+    });
+});
+
+describe('fnv1aHash', () => {
+    it('generates deterministic 8-char hex strings', () => {
+        const hash1 = fnv1aHash('test-string');
+        const hash2 = fnv1aHash('test-string');
+        const hash3 = fnv1aHash('different-string');
+        expect(hash1).toBe(hash2);
+        expect(hash1).not.toBe(hash3);
+        expect(hash1).toMatch(/^[0-9a-f]{8}$/);
+    });
+
+    it('produces known FNV-1a 32-bit test vectors', () => {
+        expect(fnv1aHash('')).toBe('811c9dc5');
+        expect(fnv1aHash('a')).toBe('e40c292c');
+    });
+
+    it('handles unicode strings and produces 8-char zero-padded strings', () => {
+        const unicodeHash = fnv1aHash('日本語_emoji_🚀');
+        expect(unicodeHash).toMatch(/^[0-9a-f]{8}$/);
+        expect(fnv1aHash('')).toHaveLength(8);
+    });
+});
+
+describe('pathe cross-platform contract', () => {
+    it('isAbsolute detects POSIX and Windows absolute paths', () => {
+        expect(path.isAbsolute('/foo/bar')).toBe(true);
+        expect(path.isAbsolute('C:/foo/bar')).toBe(true);
+        expect(path.isAbsolute('c:/foo/bar')).toBe(true);
+        expect(path.isAbsolute('foo/bar')).toBe(false);
+        expect(path.isAbsolute('./foo')).toBe(false);
+        expect(path.isAbsolute('../foo')).toBe(false);
+        expect(path.isAbsolute('')).toBe(false);
+    });
+
+    it('normalize handles slashes, relative segments, and Windows drive letters', () => {
+        expect(path.normalize('foo\\bar\\baz')).toBe('foo/bar/baz');
+        expect(path.normalize('/foo/bar/../baz')).toBe('/foo/baz');
+        expect(path.normalize('/foo/./bar')).toBe('/foo/bar');
+        expect(path.normalize('C:\\workspace\\..\\repo')).toBe('C:/repo');
+        expect(path.normalize('')).toBe('.');
+    });
+
+    it('join joins segments and normalizes separators to forward slash', () => {
+        expect(path.join('foo', 'bar', 'baz')).toBe('foo/bar/baz');
+        expect(path.join('/foo', 'bar/../baz')).toBe('/foo/baz');
+        expect(path.join('C:/repo', 'src', 'index.ts')).toBe('C:/repo/src/index.ts');
+        expect(path.join()).toBe('.');
+    });
+
+    it('dirname and basename extract path segments correctly', () => {
+        expect(path.dirname('/foo/bar/baz.txt')).toBe('/foo/bar');
+        expect(path.dirname('/foo')).toBe('/');
+        expect(path.dirname('foo')).toBe('.');
+        expect(path.dirname('C:/foo/bar')).toBe('C:/foo');
+        expect(path.dirname('C:/')).toBe('/');
+
+        expect(path.basename('/foo/bar/baz.txt')).toBe('baz.txt');
+        expect(path.basename('/foo/bar/baz.txt', '.txt')).toBe('baz');
+        expect(path.basename('C:/foo/bar/')).toBe('bar');
+    });
+
+    it('extname extracts extensions', () => {
+        expect(path.extname('/foo/bar/baz.txt')).toBe('.txt');
+        expect(path.extname('index.html')).toBe('.html');
+        expect(path.extname('.gitignore')).toBe('');
+        expect(path.extname('noext')).toBe('');
+    });
+
+    it('resolve resolves absolute sequences', () => {
+        expect(path.resolve('/base', 'sub', 'file.txt')).toBe('/base/sub/file.txt');
+        expect(path.resolve('/base', '/absolute/path')).toBe('/absolute/path');
+        expect(path.resolve('C:/base', 'sub')).toBe('C:/base/sub');
+    });
+
+    it('relative computes relative paths accurately across platforms', () => {
+        expect(path.relative('/a/b', '/a/b/c/d')).toBe('c/d');
+        expect(path.relative('/a/b/c', '/a/b/d')).toBe('../d');
+        expect(path.relative('/a/b', '/a/b')).toBe('');
+        expect(path.relative('C:/workspace/repo', 'C:/workspace/repo/src/file.ts')).toBe('src/file.ts');
     });
 });

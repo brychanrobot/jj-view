@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as path from 'node:path';
+import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import { getFsPathFromUri, getRevisionFromUri, type Uri } from '../uri-utils';

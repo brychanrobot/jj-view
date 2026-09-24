@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+import path from 'pathe';
 import { match } from 'ts-pattern';
 import { URI, Utils } from 'vscode-uri';
 import { LruCache } from '../utils/lru-cache';
@@ -88,10 +88,25 @@ export function toForwardSlash(p: string): string {
     return p.replace(/\\/g, '/');
 }
 
+/**
+ * Synchronous 32-bit FNV-1a hash function returning an 8-character hex string.
+ * Used for deterministic caching signatures without requiring node:crypto.
+ */
+export function fnv1aHash(str: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
 function normalizePath(p: string): string {
-    const norm = toForwardSlash(path.normalize(p));
+    const norm = path.normalize(p);
     const isWinDrive = /^[a-zA-Z]:/.test(norm);
-    return process.platform === 'win32' || process.platform === 'darwin' || isWinDrive ? norm.toLowerCase() : norm;
+    return globalThis.process?.platform === 'win32' || globalThis.process?.platform === 'darwin' || isWinDrive
+        ? norm.toLowerCase()
+        : norm;
 }
 
 /**
@@ -132,7 +147,7 @@ export function getFsPathFromUri(uri: Uri): string {
     const isInsideRoot =
         normFsPath === normRoot || normFsPath.startsWith(normRoot.endsWith('/') ? normRoot : `${normRoot}/`);
     if (isInsideRoot) {
-        return path.normalize(uri.fsPath);
+        return uri.fsPath;
     }
     const relativePath = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
     return path.resolve(root, relativePath);
@@ -279,7 +294,7 @@ function resolveNearestRealPath(fsPath: string): string | undefined {
             return trailingSegments.length > 0 ? path.join(canonicalDir, ...trailingSegments) : canonicalDir;
         } catch {
             const parent = path.dirname(current);
-            if (!parent || parent === current) {
+            if (!parent || parent === current || /^[a-zA-Z]:(\/)?$/.test(current)) {
                 break;
             }
             trailingSegments.unshift(path.basename(current));

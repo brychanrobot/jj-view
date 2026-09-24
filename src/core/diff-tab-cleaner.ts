@@ -3,14 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import path from 'pathe';
 import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import type { HostDiffTab, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
-import { getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
+import { fnv1aHash, getRevisionFromUri, isJjScheme, type Uri } from './uri-utils';
 
 interface CollectedTabs {
     uniqueRevisions: Set<string>;
@@ -68,7 +67,7 @@ export class DiffTabCleaner {
             const opHeadsDir = path.join(storePath, 'op_heads', 'heads');
             const files = await fs.readdir(opHeadsDir);
             files.sort();
-            return crypto.createHash('sha256').update(files.join(',')).digest('hex');
+            return fnv1aHash(files.join(','));
         } catch {
             return '';
         }

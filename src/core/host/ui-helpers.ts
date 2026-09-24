@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import path from 'pathe';
 import { getErrorMessage, toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { extractUriFromArgs } from '../commands/command-utils';

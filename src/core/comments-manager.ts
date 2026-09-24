@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as path from 'node:path';
+import path from 'pathe';
 import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { CommentThread } from './comments-types';
 import { type Disposable, type Event, EventEmitter } from './host/events';

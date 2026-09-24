@@ -6,7 +6,7 @@ import * as cp from 'node:child_process';
 import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import * as path from 'node:path';
+import path from 'pathe';
 import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
@@ -247,7 +247,7 @@ export class JjService {
 
         let cur = path.dirname(filePath);
         const tail: string[] = [path.basename(filePath)];
-        while (cur && cur !== path.dirname(cur)) {
+        while (cur && cur !== path.dirname(cur) && !/^[a-zA-Z]:(\/)?$/.test(cur)) {
             try {
                 const parentReal = await fs.realpath(cur);
                 return path.join(parentReal, ...tail);
@@ -271,7 +271,7 @@ export class JjService {
 
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
         const isWin = process.platform === 'win32';
-        const normalizedScriptPath = scriptPath.split(path.sep).join('/');
+        const normalizedScriptPath = path.normalize(scriptPath);
 
         // Ensure all arguments in the template are quoted for the JSON array
         const quotedArgs = argsTemplate.map((arg) => {
@@ -673,7 +673,7 @@ export class JjService {
 
         try {
             // Normalize path separators to forward slashes for safe injection into JS script string
-            const tempDirNormalized = tempDir.split(path.sep).join('/');
+            const tempDirNormalized = path.normalize(tempDir);
             const basePath = `${tempDirNormalized}/base`;
             const leftPath = `${tempDirNormalized}/left`;
             const rightPath = `${tempDirNormalized}/right`;
@@ -795,8 +795,8 @@ export class JjService {
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
                 '$right',
-                leftDir.split(path.sep).join('/'),
-                rightDir.split(path.sep).join('/'),
+                path.normalize(leftDir),
+                path.normalize(rightDir),
             ]);
 
             try {
@@ -890,8 +890,8 @@ export class JjService {
 
                 const argsTemplate = ['$left', '$right'];
                 for (const f of fileList) {
-                    argsTemplate.push(f.tmpPath.split(path.sep).join('/'));
-                    argsTemplate.push(f.repoRelPath.split(path.sep).join('/'));
+                    argsTemplate.push(path.normalize(f.tmpPath));
+                    argsTemplate.push(path.normalize(f.repoRelPath));
                 }
                 const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, argsTemplate);
 
@@ -1413,8 +1413,8 @@ export class JjService {
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
                 '$right',
-                tmpFile.split(path.sep).join('/'),
-                fileRelPath.split(path.sep).join('/'),
+                path.normalize(tmpFile),
+                path.normalize(fileRelPath),
             ]);
 
             // squash --from X --into Y --tool ...

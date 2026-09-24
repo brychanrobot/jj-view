@@ -5,7 +5,7 @@
 
 import { realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import path from 'pathe';
 import { AsyncCache } from '../utils/async-cache';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { toError } from '../utils/error-utils';
@@ -590,7 +590,8 @@ export class JjRepositoryManager implements HostDisposable {
                 } catch {
                     const parent = path.dirname(existingDir);
                     // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
-                    if (parent === existingDir) {
+                    // Also guard against pathe returning '/' for Windows drive roots (e.g. 'C:/')
+                    if (parent === existingDir || /^[a-zA-Z]:(\/)?$/.test(existingDir)) {
                         break;
                     }
                     existingDir = parent;
