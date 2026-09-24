@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs/promises';
 
-import * as path from 'node:path';
+import path from 'pathe';
 import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';

@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import path from 'pathe';
 import { DebouncingQueue } from '../utils/debouncing-queue';
 import type { LoggerChannel } from '../utils/output-channel';
 import { ChangeDetectionManager } from './change-detection-manager';

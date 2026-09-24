@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import { Uri } from '../uri-utils';

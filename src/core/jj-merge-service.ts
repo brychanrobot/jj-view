@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as path from 'node:path';
+import path from 'pathe';
 import { type Event, EventEmitter } from './host/events';
 import type { JjService } from './jj-service';
 import { getUriParams, type Uri } from './uri-utils';

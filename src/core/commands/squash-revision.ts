@@ -3,14 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import * as path from 'node:path';
+import path from 'pathe';
 import { z } from 'zod';
 import type { CommandContext } from '../host/command-context';
 import { createQuickPickHighlightTracker, promptForRevision, showJjError } from '../host/ui-helpers';
-import { Uri } from '../uri-utils';
+import { fnv1aHash, Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
 const SquashMetaSchema = z.object({
@@ -30,8 +29,8 @@ export interface SquashRevisionIntoAncestorPayload {
 }
 
 export function getSquashStorageDir(workspaceRoot: string): string {
-    const normRoot = path.normalize(workspaceRoot.replace(/\\/g, '/')).toLowerCase();
-    const hash = crypto.createHash('md5').update(normRoot).digest('hex');
+    const normRoot = path.normalize(workspaceRoot).toLowerCase();
+    const hash = fnv1aHash(normRoot);
     return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
 }
 

@@ -4,8 +4,8 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { BackendType } from '@parcel/watcher';
+import path from 'pathe';
 import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import { DirectoryWatcher } from './directory-watcher';
