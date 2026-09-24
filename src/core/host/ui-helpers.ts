@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
 import path from 'pathe';
 import { getErrorMessage, toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
@@ -237,9 +236,9 @@ export async function showJjError(
 
     if (selection === SHOW_LOG) {
         log?.show?.();
-    } else if (selection === DELETE_LOCK && lockPath) {
+    } else if (selection === DELETE_LOCK && lockPath && jj?.system?.fs) {
         try {
-            await fs.unlink(lockPath);
+            await jj.system.fs.unlink(lockPath);
             log?.info(`Deleted lock file at ${lockPath}`);
         } catch (e) {
             const errStr = getErrorMessage(e);

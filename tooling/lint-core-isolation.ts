@@ -40,8 +40,15 @@ const pathImportPattern =
     /(from\s+['"](node:path|path)(\/.*)?['"]|require\s*\(\s*['"](node:path|path)(\/.*)?['"]\s*\)|import\s*\(?\s*['"](node:path|path)(\/.*)?['"])/;
 const cryptoImportPattern =
     /(from\s+['"](node:crypto|crypto)(\/.*)?['"]|require\s*\(\s*['"](node:crypto|crypto)(\/.*)?['"]\s*\)|import\s*\(?\s*['"](node:crypto|crypto)(\/.*)?['"])/;
+const fsImportPattern =
+    /(from\s+['"](node:fs(\/.*)?|fs(\/.*)?)['"]|require\s*\(\s*['"](node:fs(\/.*)?|fs(\/.*)?)['"]\s*\)|import\s*\(?\s*['"](node:fs(\/.*)?|fs(\/.*)?)['"])/;
+const childProcessImportPattern =
+    /(from\s+['"](node:child_process|child_process)['"]|require\s*\(\s*['"](node:child_process|child_process)['"]\s*\)|import\s*\(?\s*['"](node:child_process|child_process)['"])/;
+const osImportPattern =
+    /(from\s+['"](node:os|os)['"]|require\s*\(\s*['"](node:os|os)['"]\s*\)|import\s*\(?\s*['"](node:os|os)['"])/;
 
 for (const filePath of sourceFiles) {
+    const isNodeHostAdapter = filePath.endsWith('src/core/host/node-host-system.ts');
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
 
@@ -78,6 +85,33 @@ for (const filePath of sourceFiles) {
                 reason: "Forbidden 'node:crypto' or 'crypto' import in src/core/. Use portable utilities like 'fnv1aHash'.",
             });
         }
+
+        if (!isNodeHostAdapter && fsImportPattern.test(line)) {
+            violations.push({
+                file: path.relative(process.cwd(), filePath),
+                line: index + 1,
+                content: trimmed,
+                reason: "Forbidden 'node:fs' or 'fs' import in src/core/. Use HostSystem.fs instead.",
+            });
+        }
+
+        if (!isNodeHostAdapter && childProcessImportPattern.test(line)) {
+            violations.push({
+                file: path.relative(process.cwd(), filePath),
+                line: index + 1,
+                content: trimmed,
+                reason: "Forbidden 'node:child_process' or 'child_process' import in src/core/. Use HostSystem.process instead.",
+            });
+        }
+
+        if (!isNodeHostAdapter && osImportPattern.test(line)) {
+            violations.push({
+                file: path.relative(process.cwd(), filePath),
+                line: index + 1,
+                content: trimmed,
+                reason: "Forbidden 'node:os' or 'os' import in src/core/. Use HostSystem instead.",
+            });
+        }
     });
 }
 
@@ -91,6 +125,6 @@ if (violations.length > 0) {
 }
 
 console.log(
-    `Core isolation lint passed: ${sourceFiles.length} files in src/core/ are 100% free of vscode, node:path, and node:crypto imports.`,
+    `Core isolation lint passed: ${sourceFiles.length} files in src/core/ are 100% free of forbidden Node and VS Code imports.`,
 );
 process.exit(0);

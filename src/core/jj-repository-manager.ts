@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { realpathSync } from 'node:fs';
-import * as fs from 'node:fs/promises';
 import path from 'pathe';
 import { AsyncCache } from '../utils/async-cache';
 import { CoalescingQueue } from '../utils/coalescing-queue';
@@ -14,6 +12,7 @@ import { type LoggerChannel, OutputChannel } from '../utils/output-channel';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { type Event, EventEmitter } from './host/events';
 import type { HostDisposable, HostEnvironment, HostStorage } from './host/host-environment';
+import type { HostFs } from './host/host-system';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
@@ -148,6 +147,21 @@ export class JjRepositoryManager implements HostDisposable {
         return this._host;
     }
 
+    private get fs(): HostFs {
+        const hostFs = this._host.system?.fs;
+        if (!hostFs) {
+            throw new Error('Host filesystem not available');
+        }
+        return hostFs;
+    }
+
+    private realpathSync(p: string): string {
+        if (this._host.system?.fs?.realpathSync) {
+            return this._host.system.fs.realpathSync(p);
+        }
+        return p;
+    }
+
     get outputChannel(): LoggerChannel {
         return this._outputChannel;
     }
@@ -229,7 +243,7 @@ export class JjRepositoryManager implements HostDisposable {
                 continue;
             }
             try {
-                const stats = await fs.stat(item.rootPath);
+                const stats = await this.fs.stat(item.rootPath);
                 if (!stats.isDirectory()) {
                     continue;
                 }
@@ -301,7 +315,7 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         const addCandidate = async (rootDir: string) => {
-            const realRoot = await fs.realpath(rootDir).catch(() => rootDir);
+            const realRoot = await this.fs.realpath(rootDir).catch(() => rootDir);
             const normalizedRoot = this.normalizePath(realRoot);
             if (seenRoots.has(normalizedRoot)) {
                 return;
@@ -325,7 +339,7 @@ export class JjRepositoryManager implements HostDisposable {
                     if (!(await this.isPathInOrAncestorOfWorkspace(rootPath))) {
                         return;
                     }
-                    const stats = await fs.stat(rootPath);
+                    const stats = await this.fs.stat(rootPath);
                     if (stats.isDirectory() && (await repo.isValid())) {
                         await addCandidate(rootPath);
                     }
@@ -342,7 +356,7 @@ export class JjRepositoryManager implements HostDisposable {
                     return;
                 }
                 const rootPath = folder.uri.fsPath;
-                const rootReal = await fs.realpath(rootPath).catch(() => rootPath);
+                const rootReal = await this.fs.realpath(rootPath).catch(() => rootPath);
 
                 if (this.shouldScanWorkspaceRoots()) {
                     const rootDir = await this.findRepoRoot(rootReal);
@@ -383,10 +397,11 @@ export class JjRepositoryManager implements HostDisposable {
                     return;
                 }
                 try {
-                    const realAbs = await fs.realpath(absPath);
+                    const realAbs = await this.fs.realpath(absPath);
                     const selfCheck = path.join(realAbs, '.jj', 'working_copy', 'type');
-                    await fs.access(selfCheck);
-                    await addCandidate(realAbs);
+                    if (await this.fs.exists(selfCheck)) {
+                        await addCandidate(realAbs);
+                    }
                 } catch {
                     // Path not accessible or not a repo
                 }
@@ -543,13 +558,13 @@ export class JjRepositoryManager implements HostDisposable {
      */
     private async resolveStorePath(repoPath: string): Promise<string> {
         try {
-            const stats = await fs.lstat(repoPath);
+            const stats = await this.fs.lstat(repoPath);
             if (stats.isFile()) {
                 // Secondary workspace: file contains relative path to main store
-                const content = await fs.readFile(repoPath, 'utf8');
+                const content = await this.fs.readTextFile(repoPath);
                 return path.resolve(path.dirname(repoPath), content.trim());
             }
-            return await fs.realpath(repoPath);
+            return await this.fs.realpath(repoPath);
         } catch {
             return repoPath;
         }
@@ -561,7 +576,7 @@ export class JjRepositoryManager implements HostDisposable {
     private async findRepoRoot(fsPath: string): Promise<string | undefined> {
         let dir = fsPath;
         try {
-            const stats = await fs.stat(fsPath);
+            const stats = await this.fs.stat(fsPath);
             if (!stats.isDirectory()) {
                 dir = path.dirname(fsPath);
             }
@@ -584,30 +599,29 @@ export class JjRepositoryManager implements HostDisposable {
             // Find the closest existing parent directory
             let existingDir = dir;
             while (existingDir) {
-                try {
-                    await fs.access(existingDir);
+                if (await this.fs.exists(existingDir)) {
                     break;
-                } catch {
-                    const parent = path.dirname(existingDir);
-                    // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
-                    // Also guard against pathe returning '/' for Windows drive roots (e.g. 'C:/')
-                    if (parent === existingDir || /^[a-zA-Z]:(\/)?$/.test(existingDir)) {
-                        break;
-                    }
-                    existingDir = parent;
                 }
+                const parent = path.dirname(existingDir);
+                // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
+                // Also guard against pathe returning '/' for Windows drive roots (e.g. 'C:/')
+                if (parent === existingDir || /^[a-zA-Z]:(\/)?$/.test(existingDir)) {
+                    break;
+                }
+                existingDir = parent;
             }
 
-            const realDir = await fs.realpath(existingDir).catch(() => existingDir);
+            const realDir = await this.fs.realpath(existingDir).catch(() => existingDir);
 
             const jj = new JjService(realDir, NO_OP_LOGGER, {
                 binaryPath: this._binaryPath || 'jj',
                 getConfig: <T>(key: string, defaultValue?: T) => this._host.config.get(key, defaultValue as T),
                 processTracker: this._processTracker,
+                system: this._host.system,
             });
             try {
                 const resolvedRoot = await jj.getRepoRoot();
-                const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
+                const realRoot = await this.fs.realpath(resolvedRoot).catch(() => resolvedRoot);
                 this._dirToRepoRoot.set(normalizedDir, realRoot);
                 return realRoot;
             } catch {
@@ -752,7 +766,7 @@ export class JjRepositoryManager implements HostDisposable {
         const key = this.normalizePath(p);
         return this._realNormalizedPathCache.getOrFetch(key, async () => {
             try {
-                const resolved = await fs.realpath(p);
+                const resolved = await this.fs.realpath(p);
                 return this.normalizePath(resolved);
             } catch {
                 return key;
@@ -798,7 +812,7 @@ export class JjRepositoryManager implements HostDisposable {
             return undefined;
         }
         try {
-            const realRoot = await fs.realpath(rootDir);
+            const realRoot = await this.fs.realpath(rootDir);
             if (this._disposed) {
                 return undefined;
             }
@@ -812,9 +826,7 @@ export class JjRepositoryManager implements HostDisposable {
             }
 
             // Verify .jj/working_copy/type exists to ensure it's a valid, initialized repository
-            try {
-                await fs.access(path.join(realRoot, '.jj', 'working_copy', 'type'));
-            } catch {
+            if (!(await this.fs.exists(path.join(realRoot, '.jj', 'working_copy', 'type')))) {
                 return undefined; // Not a valid repository
             }
 
@@ -882,7 +894,7 @@ export class JjRepositoryManager implements HostDisposable {
     private async isMainWorkspace(rootPath: string, storePath: string): Promise<boolean> {
         try {
             const jjPath = path.join(rootPath, '.jj');
-            const realJjPath = await fs.realpath(jjPath);
+            const realJjPath = await this.fs.realpath(jjPath);
             const realJjParent = path.dirname(realJjPath);
             if (!this.isSamePath(realJjParent, rootPath)) {
                 return false;
@@ -892,7 +904,7 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         const expectedMainStore = path.join(rootPath, '.jj', 'repo');
-        const realExpected = await fs.realpath(expectedMainStore).catch(() => expectedMainStore);
+        const realExpected = await this.fs.realpath(expectedMainStore).catch(() => expectedMainStore);
         return this.isSamePath(realExpected, storePath) || this.isSamePath(expectedMainStore, storePath);
     }
 
@@ -965,11 +977,11 @@ export class JjRepositoryManager implements HostDisposable {
         try {
             // Try resolving the directory path instead of the file path, since the file might not exist yet
             const dir = path.dirname(rawPath);
-            const realDir = realpathSync(dir);
+            const realDir = this.realpathSync(dir);
             fsPath = path.join(realDir, path.basename(rawPath));
         } catch {
             try {
-                fsPath = realpathSync(rawPath);
+                fsPath = this.realpathSync(rawPath);
             } catch {
                 // Path might not exist, use original fsPath
             }
@@ -1010,7 +1022,7 @@ export class JjRepositoryManager implements HostDisposable {
         for (const p of ignoredPaths) {
             const abs = !path.isAbsolute(p) && folders.length > 0 ? path.resolve(folders[0].uri.fsPath, p) : p;
             try {
-                const real = realpathSync(abs);
+                const real = this.realpathSync(abs);
                 this._ignoredAbsolutePaths.add(this.normalizePath(real));
             } catch {
                 this._ignoredAbsolutePaths.add(this.normalizePath(abs));

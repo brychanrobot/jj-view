@@ -25,6 +25,8 @@ import type {
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
 } from '../core/host/host-environment';
+import type { HostSystem } from '../core/host/host-system';
+import { NodeHostSystem } from '../core/host/node-host-system';
 import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, type Uri } from '../core/uri-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -693,6 +695,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
     readonly views: HostViews;
     readonly workspace: HostWorkspace;
     readonly extensions: HostExtensions;
+    readonly system: HostSystem;
 
     constructor(options: {
         context: vscode.ExtensionContext;
@@ -709,6 +712,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
         this.views = new VsCodeHostViews();
         this.workspace = new VsCodeHostWorkspace();
         this.extensions = new VsCodeHostExtensions();
+        this.system = new NodeHostSystem();
     }
 
     dispose(): void {

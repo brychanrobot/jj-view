@@ -85,10 +85,28 @@
                                     "node:path": "Use 'pathe' instead of 'node:path' in src/core.",
                                     "path": "Use 'pathe' instead of 'path' in src/core.",
                                     "node:crypto": "Use portable utilities like 'fnv1aHash' instead of 'node:crypto' in src/core.",
-                                    "crypto": "Use portable utilities like 'fnv1aHash' instead of 'crypto' in src/core."
+                                    "crypto": "Use portable utilities like 'fnv1aHash' instead of 'crypto' in src/core.",
+                                    "node:fs": "Use HostSystem.fs instead of 'node:fs' in src/core.",
+                                    "fs": "Use HostSystem.fs instead of 'fs' in src/core.",
+                                    "node:fs/promises": "Use HostSystem.fs instead of 'node:fs/promises' in src/core.",
+                                    "fs/promises": "Use HostSystem.fs instead of 'fs/promises' in src/core.",
+                                    "node:child_process": "Use HostSystem.process instead of 'node:child_process' in src/core.",
+                                    "child_process": "Use HostSystem.process instead of 'child_process' in src/core.",
+                                    "node:os": "Use HostSystem instead of 'node:os' in src/core.",
+                                    "os": "Use HostSystem instead of 'os' in src/core."
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["src/core/host/node-host-system.ts"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noRestrictedImports": "off"
                     }
                 }
             }

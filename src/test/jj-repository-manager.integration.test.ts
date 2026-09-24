@@ -267,7 +267,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan filters out secondary workspaces when main is present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(secondaryRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
 
@@ -295,7 +295,7 @@ suite('JjRepositoryManager Integration Test', () => {
 
     test('scan includes secondary workspace if main is NOT present', async () => {
         const secondaryRepo = mainRepo.workspaceAdd('second_ws');
-        await setWorkspaceFolders([Uri.file(secondaryRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(secondaryRepo.path)]);
 
         await manager.scanForRepositories();
 
@@ -309,7 +309,7 @@ suite('JjRepositoryManager Integration Test', () => {
         const subRepo = new TestRepo(subRepoPath);
         subRepo.init();
 
-        await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(subRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(mainRepo.path), Uri.file(subRepo.path)]);
 
         await manager.scanForRepositories();
         assert.strictEqual(manager.repositories.length, 2);
@@ -454,7 +454,7 @@ suite('JjRepositoryManager Integration Test', () => {
         using otherRepo = new ScopedTestRepo(otherRepoPath);
         otherRepo.init();
 
-        await setWorkspaceFolders([Uri.file(mainRepo.path)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(mainRepo.path)]);
 
         // Stub configuration: autoDetect is false, but otherRepo is in scanRepositories
         const getStub = sandbox.stub();
@@ -483,7 +483,7 @@ suite('JjRepositoryManager Integration Test', () => {
         const subfolder = path.join(mainRepo.path, 'src');
         fs.mkdirSync(subfolder, { recursive: true });
 
-        await setWorkspaceFolders([Uri.file(subfolder)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(subfolder)]);
 
         await manager.scanForRepositories();
 
@@ -625,7 +625,7 @@ suite('JjRepositoryManager Integration Test', () => {
         const subfolder = path.join(mainRepo.path, 'src');
         fs.mkdirSync(subfolder, { recursive: true });
 
-        await setWorkspaceFolders([Uri.file(subfolder)]);
+        await using _workspace = await setWorkspaceFolders([Uri.file(subfolder)]);
 
         // Try dynamically registering a file inside the subfolder, which is part of the parent repository
         const fileUri = Uri.file(path.join(subfolder, 'file.txt'));

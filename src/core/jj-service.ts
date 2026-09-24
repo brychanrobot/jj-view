@@ -2,15 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import * as cp from 'node:child_process';
-import * as fsSync from 'node:fs';
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import path from 'pathe';
 import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
+import { type HostSystem, type ProcessExecOptions, ProcessExitError, type TrackableProcess } from './host/host-system';
+import { NodeHostSystem } from './host/node-host-system';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import {
     ChangesAndStatsOutputSchema,
@@ -50,9 +48,6 @@ const MUTATION_TIMEOUT_MS = ONE_MINUTE;
 const READ_TIMEOUT_MS = 2 * ONE_MINUTE;
 const UPLOAD_TIMEOUT_MS = 6 * ONE_MINUTE;
 
-const IS_WINDOWS = process.platform === 'win32';
-const NO_OP_EDITOR = IS_WINDOWS ? 'cmd.exe /c exit 0' : 'true';
-
 declare global {
     var __JJ_VIEW_COMMAND_HOOK__: ((command: string, args: string[], durationMs: number) => void) | undefined;
 }
@@ -63,6 +58,16 @@ export interface JjServiceOptions {
     binaryPath?: string;
     getConfig?: JjServiceConfigProvider;
     processTracker?: JjProcessTracker;
+    system?: HostSystem;
+}
+
+export interface JjRunOptions {
+    timeout?: number;
+    cwd?: string;
+    trim?: boolean;
+    useCachedSnapshot?: boolean;
+    isMutation?: boolean;
+    label?: string;
 }
 
 function unquoteGitPath(rawPath: string): string {
@@ -89,6 +94,7 @@ function unquoteGitPath(rawPath: string): string {
 export class JjService {
     public binaryPath: string;
     public processTracker?: JjProcessTracker;
+    public readonly system: HostSystem;
     private readonly _getConfig?: JjServiceConfigProvider;
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
@@ -97,10 +103,8 @@ export class JjService {
     private static readonly MAX_LOG_ENTRY_CACHE_KEYS = 4000;
     private _cacheEpoch = 0;
     private readonly _logEntryCache = new Map<string, JjLogEntry>();
-    private _diffCache = new AsyncCache<string, { tempDir: string; expires: number }>({
-        onEvict: (entry) => fs.rm(entry.tempDir, { recursive: true, force: true }).catch(() => {}),
-    });
-    private _changesCache = new AsyncCache<string, JjStatusEntry[]>({
+    private readonly _diffCache: AsyncCache<string, { tempDir: string; expires: number }>;
+    private readonly _changesCache = new AsyncCache<string, JjStatusEntry[]>({
         clone: (entries) => entries.map((e) => ({ ...e })),
     });
     private _mutationMutex: Promise<void> = Promise.resolve();
@@ -113,6 +117,10 @@ export class JjService {
         this.binaryPath = options?.binaryPath ?? 'jj';
         this._getConfig = options?.getConfig;
         this.processTracker = options?.processTracker;
+        this.system = options?.system ?? new NodeHostSystem();
+        this._diffCache = new AsyncCache<string, { tempDir: string; expires: number }>({
+            onEvict: (entry) => this.system.fs.rm(entry.tempDir, { recursive: true, force: true }).catch(() => {}),
+        });
     }
 
     private getReadTimeoutMs(): number {
@@ -143,12 +151,12 @@ export class JjService {
         const workspaceRoot = await this.getRepoRoot();
         const repoPath = path.join(workspaceRoot, '.jj', 'repo');
         try {
-            const stats = await fs.lstat(repoPath);
+            const stats = await this.system.fs.lstat(repoPath);
             if (stats.isFile()) {
-                const content = await fs.readFile(repoPath, 'utf8');
+                const content = await this.system.fs.readTextFile(repoPath);
                 return path.resolve(path.dirname(repoPath), content.trim());
             }
-            return await fs.realpath(repoPath);
+            return await this.system.fs.realpath(repoPath);
         } catch {
             return repoPath;
         }
@@ -223,8 +231,8 @@ export class JjService {
 
     private async toRepoRelative(filePath: string): Promise<string> {
         const repoRoot = await this.getRepoRoot();
-        const repoReal = await fs.realpath(repoRoot).catch(() => repoRoot);
-        const workspaceReal = await fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+        const repoReal = await this.system.fs.realpath(repoRoot).catch(() => repoRoot);
+        const workspaceReal = await this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
 
         if (!path.isAbsolute(filePath)) {
             const repoToWorkspace = path.relative(repoReal, workspaceReal);
@@ -242,14 +250,14 @@ export class JjService {
 
     private async resolveRealPath(filePath: string): Promise<string> {
         try {
-            return await fs.realpath(filePath);
+            return await this.system.fs.realpath(filePath);
         } catch {}
 
         let cur = path.dirname(filePath);
         const tail: string[] = [path.basename(filePath)];
         while (cur && cur !== path.dirname(cur) && !/^[a-zA-Z]:(\/)?$/.test(cur)) {
             try {
-                const parentReal = await fs.realpath(cur);
+                const parentReal = await this.system.fs.realpath(cur);
                 return path.join(parentReal, ...tail);
             } catch {
                 tail.unshift(path.basename(cur));
@@ -259,18 +267,8 @@ export class JjService {
         return filePath;
     }
 
-    private getScriptPath(scriptBaseName: string): string {
-        const isWin = process.platform === 'win32';
-        const scriptName = isWin ? `${scriptBaseName}.bat` : `${scriptBaseName}.sh`;
-        const candidate1 = path.join(__dirname, '..', 'scripts', scriptName);
-        if (fsSync.existsSync(candidate1)) {
-            return candidate1;
-        }
-        return path.join(__dirname, '..', '..', 'scripts', scriptName);
-    }
-
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
-        const isWin = process.platform === 'win32';
+        const isWin = this.system.platform === 'win32';
         const normalizedScriptPath = path.normalize(scriptPath);
 
         // Ensure all arguments in the template are quoted for the JSON array
@@ -301,32 +299,14 @@ export class JjService {
     // POLICY: This method is intentionally private. Do not expose it publicly.
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution.
-    private async run(
-        command: string,
-        args: string[],
-        options: cp.ExecFileOptions & {
-            trim?: boolean;
-            useCachedSnapshot?: boolean;
-            isMutation?: boolean;
-            label?: string;
-        } = {},
-    ): Promise<string> {
+    private async run(command: string, args: string[], options: JjRunOptions = {}): Promise<string> {
         if (options.isMutation) {
             return this.runMutation(() => this.runInternal(command, args, options));
         }
         return this.runInternal(command, args, options);
     }
 
-    private async runInternal(
-        command: string,
-        args: string[],
-        options: cp.ExecFileOptions & {
-            trim?: boolean;
-            useCachedSnapshot?: boolean;
-            isMutation?: boolean;
-            label?: string;
-        } = {},
-    ): Promise<string> {
+    private async runInternal(command: string, args: string[], options: JjRunOptions = {}): Promise<string> {
         const opId = this._nextOpId++;
 
         const globalArgs = [
@@ -351,97 +331,108 @@ export class JjService {
         const logSummaryStr = `${prefix}jj ${[command, ...args].slice(0, 2).join(' ')}${[command, ...args].length > 2 ? '...' : ''}`;
 
         const isMutation = !!options.isMutation;
-        let timeout: NodeJS.Timeout | undefined;
+        const maxDuration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : this.getReadTimeoutMs());
+
+        let timeout: ReturnType<typeof setTimeout> | undefined;
         let timedOut = false;
+        let trackedProcess: IJjTrackedProcess | undefined;
+        let spawnedProc: TrackableProcess | undefined;
+
+        const abortController = new AbortController();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => {
+                timedOut = true;
+                const opType = isMutation ? 'Mutation operation' : 'Read operation';
+                const timeoutMsg = `${opType} timed out after ${maxDuration / 1000}s`;
+                this.logger.warn(`[${timeoutMsg}] ${logSummaryStr}`);
+                const timeoutError = new Error(timeoutMsg);
+                trackedProcess?.finish('timed_out', timeoutError);
+                try {
+                    spawnedProc?.kill?.();
+                } catch {}
+                abortController.abort();
+                reject(timeoutError);
+            }, maxDuration);
+        });
+
+        if (isMutation && timeout !== undefined) {
+            this._operationTimeouts.set(opId, timeout);
+        }
+
+        const isWin = this.system.platform === 'win32';
+        const noOpEditor = isWin ? 'cmd.exe /c exit 0' : 'true';
 
         try {
-            const { stdout } = await new Promise<{ stdout: string | Buffer }>((resolve, reject) => {
-                const maxDuration = options.timeout ?? (isMutation ? MUTATION_TIMEOUT_MS : this.getReadTimeoutMs());
-                let childProcess: cp.ChildProcess | undefined;
-                let trackedProcess: IJjTrackedProcess | undefined;
+            const execOptions: ProcessExecOptions = {
+                cwd: options.cwd ?? this.workspaceRoot,
+                env: {
+                    JJ_EDITOR: noOpEditor,
+                    EDITOR: noOpEditor,
+                    JJ_VIEW_EXTENSION: '1',
+                },
+                maxBuffer: 100 * 1024 * 1024,
+                signal: abortController.signal,
+                onSpawn: (childProcess) => {
+                    spawnedProc = childProcess;
+                    trackedProcess = this.processTracker?.startTrackingProcess({
+                        command: fullCommandStr,
+                        args: allArgs,
+                        status: 'running',
+                        label: options.label,
+                        childProcess,
+                    });
+                },
+            };
 
-                timeout = setTimeout(() => {
-                    timedOut = true;
-                    const opType = isMutation ? 'Mutation operation' : 'Read operation';
-                    const timeoutMsg = `${opType} timed out after ${maxDuration / 1000}s`;
-                    this.logger.warn(`[${timeoutMsg}] ${logSummaryStr}`);
-                    trackedProcess?.finish('timed_out', timeoutMsg);
-                    if (childProcess) {
-                        try {
-                            childProcess.kill();
-                        } catch {}
-                    }
-                    reject(new Error(timeoutMsg));
-                }, maxDuration);
-
-                if (isMutation) {
-                    this._operationTimeouts.set(opId, timeout);
-                }
-
-                const finalOptions = {
-                    cwd: this.workspaceRoot,
-                    env: {
-                        ...process.env,
-                        JJ_EDITOR: NO_OP_EDITOR,
-                        EDITOR: NO_OP_EDITOR,
-                        JJ_VIEW_EXTENSION: '1',
-                    },
-                    maxBuffer: 100 * 1024 * 1024,
-                    ...options,
-                };
-
-                childProcess = cp.execFile(this.binaryPath, allArgs, finalOptions, (err, stdout, stderr) => {
-                    if (timedOut) {
-                        return;
-                    }
-                    const duration = performance.now() - start;
-                    if (globalThis.__JJ_VIEW_COMMAND_HOOK__) {
-                        globalThis.__JJ_VIEW_COMMAND_HOOK__(command, args, duration);
-                    }
-                    const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
-                    this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${prefix}${fullCommandStr}`);
-
-                    if (err) {
-                        const combined: string[] = [];
-                        const outStr = stdout?.toString().trim();
-                        const errStr = stderr?.toString().trim();
-                        if (outStr) {
-                            combined.push(outStr);
-                        }
-                        if (errStr) {
-                            combined.push(errStr);
-                        }
-                        if (combined.length > 0) {
-                            err.message = combined.join('\n\n');
-                        }
-                        trackedProcess?.finish('failed', err, stdout, stderr);
-                        reject(err);
-                    } else {
-                        trackedProcess?.finish('completed', undefined, stdout, stderr);
-                        resolve({ stdout });
-                    }
-                });
-
-                // Note: startTrackingProcess is called synchronously right after execFile returns childProcess.
-                // Because Node.js executes synchronously within the current tick of the event loop, the completion
-                // callback passed to execFile will fire asynchronously on a later tick, guaranteeing that trackedProcess
-                // is assigned before trackedProcess?.finish() can be called inside the callback.
-                trackedProcess = this.processTracker?.startTrackingProcess({
-                    command: fullCommandStr,
-                    args: allArgs,
-                    status: 'running',
-                    label: options.label,
-                    childProcess,
-                });
-            });
+            const result = await Promise.race([
+                this.system.process.execFile(this.binaryPath, allArgs, execOptions),
+                timeoutPromise,
+            ]);
+            const duration = performance.now() - start;
+            if (globalThis.__JJ_VIEW_COMMAND_HOOK__) {
+                globalThis.__JJ_VIEW_COMMAND_HOOK__(command, args, duration);
+            }
+            const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
+            this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${prefix}${fullCommandStr}`);
+            trackedProcess?.finish('completed', undefined, result.stdout, result.stderr);
 
             if (isMutation) {
                 await this.clearCache().catch((err) => this.logger.warn(`Warning: failed to clear cache: ${err}`));
             }
 
             const shouldTrim = options.trim !== false;
-            const result = typeof stdout === 'string' ? stdout : stdout.toString();
-            return shouldTrim ? result.trim() : result;
+            return shouldTrim ? result.stdout.trim() : result.stdout;
+        } catch (err: unknown) {
+            if (timedOut) {
+                throw new Error(
+                    `${isMutation ? 'Mutation operation' : 'Read operation'} timed out after ${maxDuration / 1000}s`,
+                );
+            }
+            const duration = performance.now() - start;
+            if (globalThis.__JJ_VIEW_COMMAND_HOOK__) {
+                globalThis.__JJ_VIEW_COMMAND_HOOK__(command, args, duration);
+            }
+            const cachedInfo = options.useCachedSnapshot ? ' (cached)' : '';
+            this.logger.debug(`[${duration.toFixed(0)}ms]${cachedInfo} ${prefix}${fullCommandStr}`);
+
+            let formattedErr: Error;
+            if (err instanceof ProcessExitError) {
+                const combined: string[] = [];
+                const outStr = err.stdout.trim();
+                const errStr = err.stderr.trim();
+                if (outStr) {
+                    combined.push(outStr);
+                }
+                if (errStr) {
+                    combined.push(errStr);
+                }
+                formattedErr = new Error(combined.length > 0 ? combined.join('\n\n') : err.message);
+                trackedProcess?.finish('failed', formattedErr, err.stdout, err.stderr, err.exitCode);
+            } else {
+                formattedErr = err instanceof Error ? err : new Error(String(err));
+                trackedProcess?.finish('failed', formattedErr);
+            }
+            throw formattedErr;
         } finally {
             if (timeout) {
                 clearTimeout(timeout);
@@ -668,7 +659,7 @@ export class JjService {
      * Uses `jj resolve` with a custom capture tool to extract the properly separated content.
      */
     async getConflictParts(filePath: string): Promise<{ base: string; left: string; right: string }> {
-        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-conflict-'));
+        const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-conflict-'));
         const relativePath = this.toRelative(filePath);
 
         try {
@@ -678,7 +669,7 @@ export class JjService {
             const leftPath = `${tempDirNormalized}/left`;
             const rightPath = `${tempDirNormalized}/right`;
 
-            const normalizedScriptPath = this.getScriptPath('conflict-capture');
+            const normalizedScriptPath = await this.system.process.getHelperScriptPath('conflict-capture');
 
             let resolveError: unknown;
             try {
@@ -700,10 +691,7 @@ export class JjService {
 
             // Verify that conflict-capture actually ran and wrote the .complete marker
             const marker = path.join(tempDir, '.complete');
-            const isCompleted = await fs
-                .access(marker)
-                .then(() => true)
-                .catch(() => false);
+            const isCompleted = await this.system.fs.exists(marker);
             if (!isCompleted) {
                 throw (
                     resolveError ??
@@ -713,7 +701,7 @@ export class JjService {
 
             const readConflictPart = async (partPath: string): Promise<string> => {
                 try {
-                    return await fs.readFile(partPath, 'utf8');
+                    return await this.system.fs.readTextFile(partPath);
                 } catch (error: unknown) {
                     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
                         return '';
@@ -728,7 +716,7 @@ export class JjService {
 
             return { base, left, right };
         } finally {
-            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+            await this.system.fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         }
     }
 
@@ -742,18 +730,12 @@ export class JjService {
         const leftPath = path.join(cache.tempDir, 'left', relativePath);
         const rightPath = path.join(cache.tempDir, 'right', relativePath);
 
-        const leftExists = await fs
-            .access(leftPath)
-            .then(() => true)
-            .catch(() => false);
-        const rightExists = await fs
-            .access(rightPath)
-            .then(() => true)
-            .catch(() => false);
+        const leftExists = await this.system.fs.exists(leftPath);
+        const rightExists = await this.system.fs.exists(rightPath);
 
         if (leftExists || rightExists) {
-            const left = leftExists ? await fs.readFile(leftPath, 'utf8') : '';
-            const right = rightExists ? await fs.readFile(rightPath, 'utf8') : '';
+            const left = leftExists ? await this.system.fs.readTextFile(leftPath) : '';
+            const right = rightExists ? await this.system.fs.readTextFile(rightPath) : '';
             return { left, right };
         }
 
@@ -782,15 +764,15 @@ export class JjService {
     }
 
     private async _warmDiffCache(revision: string): Promise<{ tempDir: string; expires: number }> {
-        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-bulk-diff-'));
+        const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-bulk-diff-'));
         const leftDir = path.join(tempDir, 'left');
         const rightDir = path.join(tempDir, 'right');
 
         try {
-            await fs.mkdir(leftDir, { recursive: true });
-            await fs.mkdir(rightDir, { recursive: true });
+            await this.system.fs.mkdir(leftDir, { recursive: true });
+            await this.system.fs.mkdir(rightDir, { recursive: true });
 
-            const normalizedScriptPath = this.getScriptPath('batch-diff');
+            const normalizedScriptPath = await this.system.process.getHelperScriptPath('batch-diff');
             const toolName = 'vscode-bulk-capture';
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
@@ -807,10 +789,7 @@ export class JjService {
             } catch (err) {
                 // Verify that batch-diff actually ran and wrote the .complete marker
                 const marker = path.join(rightDir, '.complete');
-                const isCompleted = await fs
-                    .access(marker)
-                    .then(() => true)
-                    .catch(() => false);
+                const isCompleted = await this.system.fs.exists(marker);
                 if (!isCompleted) {
                     throw err;
                 }
@@ -821,7 +800,7 @@ export class JjService {
                 expires: Date.now() + 5 * 60_000,
             };
         } catch (err) {
-            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+            await this.system.fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
             throw err;
         }
     }
@@ -872,20 +851,20 @@ export class JjService {
         }
 
         return this.runMutation(async () => {
-            const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-batch-edit-'));
+            const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-batch-edit-'));
             try {
                 const writePromises = Array.from(files.entries()).map(async ([filePath, content], idx) => {
                     const repoRelPath = await this.toRepoRelative(filePath);
                     const workspaceRelPath = this.toRelative(filePath);
                     const safeName = repoRelPath.replace(/[\\/]/g, '_');
                     const tmpPath = path.join(tempDir, `src_${idx}_${safeName}`);
-                    await fs.writeFile(tmpPath, content, 'utf8');
+                    await this.system.fs.writeTextFile(tmpPath, content);
                     return { repoRelPath, workspaceRelPath, tmpPath };
                 });
 
                 const fileList = await Promise.all(writePromises);
 
-                const normalizedScriptPath = this.getScriptPath('batch-edit');
+                const normalizedScriptPath = await this.system.process.getHelperScriptPath('batch-edit');
                 const toolName = 'vscode-batch-write';
 
                 const argsTemplate = ['$left', '$right'];
@@ -901,7 +880,7 @@ export class JjService {
                     { isMutation: true, label: 'setFilesContent' },
                 );
             } finally {
-                await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+                await this.system.fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
             }
         });
     }
@@ -1149,7 +1128,7 @@ export class JjService {
                 const cache = await this.getDiffForRevision(revision);
                 const relativePath = await this.toRepoRelative(filePath);
                 const rightPath = path.join(cache.tempDir, 'right', relativePath);
-                return await fs.readFile(rightPath, 'utf8');
+                return await this.system.fs.readTextFile(rightPath);
             } catch {
                 // Fall through if not in cache (e.g. file not changed in this revision)
             }
@@ -1403,13 +1382,13 @@ export class JjService {
         fileRelPath: string,
         wantedContent: string,
     ): Promise<void> {
-        const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-partial-squash-'));
+        const tmpDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-partial-squash-'));
         const tmpFile = path.join(tmpDir, 'wanted_content');
-        await fs.writeFile(tmpFile, wantedContent, 'utf8');
+        await this.system.fs.writeTextFile(tmpFile, wantedContent);
 
         try {
             const toolName = 'partial-squash';
-            const normalizedScriptPath = this.getScriptPath('batch-edit');
+            const normalizedScriptPath = await this.system.process.getHelperScriptPath('batch-edit');
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
                 '$right',
@@ -1422,7 +1401,7 @@ export class JjService {
 
             await this.run('squash', args, { isMutation: true });
         } finally {
-            await fs.rm(tmpDir, { recursive: true, force: true });
+            await this.system.fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
         }
     }
 
@@ -1474,62 +1453,54 @@ export class JjService {
         }
 
         // We use raw git command because jj doesn't expose ls-tree
-        return new Promise((resolve) => {
+        try {
             const timeout = 10000; // 10s safety timeout
-            cp.execFile(
+            const res = await this.system.process.execFile(
                 'git',
                 ['--no-pager', '--no-optional-locks', 'ls-tree', commitId, '--', ...missingPaths],
                 {
                     cwd: this.workspaceRoot,
                     maxBuffer: 10 * 1024 * 1024,
                     timeout,
-                    env: {
-                        ...process.env,
-                    },
-                },
-                (err, stdout) => {
-                    if (err) {
-                        // If git fails (e.g. not a git repo, or commit not found in git backing), return partial resultMap
-                        // This is expected fallback behavior
-                        this.logger.warn(`getGitBlobHashes failed: ${err.message}`);
-                        resolve(resultMap);
-                        return;
-                    }
-
-                    // Output format: <mode> blob <sha> <tab><path>
-                    // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
-
-                    const lines = stdout.toString().trim().split('\n');
-                    const foundPaths = new Set<string>();
-                    for (const line of lines) {
-                        if (!line) {
-                            continue;
-                        }
-
-                        // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
-                        // Git ls-tree output is fairly standard: mode type sha\tpath
-                        const parts = line.split(/\s+/);
-                        if (parts.length >= 4 && parts[1] === 'blob') {
-                            const sha = parts[2];
-                            const pathPart = line.substring(line.indexOf('\t') + 1);
-                            const cleanPath = unquoteGitPath(pathPart);
-
-                            commitCache.set(cleanPath, sha);
-                            resultMap.set(cleanPath, sha);
-                            foundPaths.add(cleanPath);
-                        }
-                    }
-
-                    // Negative cache requested paths absent from ls-tree
-                    for (const path of missingPaths) {
-                        if (!foundPaths.has(path)) {
-                            commitCache.set(path, null);
-                        }
-                    }
-
-                    resolve(resultMap);
                 },
             );
-        });
+
+            // Output format: <mode> blob <sha> <tab><path>
+            // 100644 blob 3a8500ab7725f03cca3806ee9ebaf7b4b53c3ca6    vitest.config.js
+
+            const lines = res.stdout.trim().split('\n');
+            const foundPaths = new Set<string>();
+            for (const line of lines) {
+                if (!line) {
+                    continue;
+                }
+
+                // Split by whitespace, but handle path potentially containing spaces (though git ls-tree usually quotes)
+                // Git ls-tree output is fairly standard: mode type sha\tpath
+                const parts = line.split(/\s+/);
+                if (parts.length >= 4 && parts[1] === 'blob') {
+                    const sha = parts[2];
+                    const pathPart = line.substring(line.indexOf('\t') + 1);
+                    const cleanPath = unquoteGitPath(pathPart);
+
+                    commitCache.set(cleanPath, sha);
+                    resultMap.set(cleanPath, sha);
+                    foundPaths.add(cleanPath);
+                }
+            }
+
+            // Negative cache requested paths absent from ls-tree
+            for (const path of missingPaths) {
+                if (!foundPaths.has(path)) {
+                    commitCache.set(path, null);
+                }
+            }
+        } catch (err) {
+            // If git fails (e.g. not a git repo, or commit not found in git backing), return partial resultMap
+            // This is expected fallback behavior
+            this.logger.warn(`getGitBlobHashes failed: ${getErrorMessage(err)}`);
+        }
+
+        return resultMap;
     }
 }

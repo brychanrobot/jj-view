@@ -8,6 +8,7 @@ import { isWatchmanAvailable } from '../utils/binary-utils';
 import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
 import type { HostDisposable, HostEnvironment } from './host/host-environment';
+import type { HostWatcher, WatcherSubscription } from './host/host-system';
 import { Uri } from './uri-utils';
 
 export type DirectoryWatcherCallback = (events: Event[]) => void;
@@ -25,6 +26,7 @@ export interface DirectoryWatcherOptions {
     name?: string;
     backend?: BackendType;
     host?: HostEnvironment;
+    watcher?: HostWatcher;
     onReconnect?: () => void | Promise<void>;
     onPermanentFailure?: (err: unknown) => void | Promise<void>;
     reconnectOptions?: ReconnectOptions;
@@ -33,13 +35,14 @@ export interface DirectoryWatcherOptions {
 export class DirectoryWatcher implements HostDisposable {
     private readonly name: string;
     private readonly host: HostEnvironment | undefined;
+    private readonly watcher: HostWatcher | undefined;
     private readonly onReconnect: (() => void | Promise<void>) | undefined;
     private readonly onPermanentFailure: ((err: unknown) => void | Promise<void>) | undefined;
     private readonly _initialReconnectDelay: number;
     private readonly _maxReconnectDelay: number;
     private readonly _maxRetries: number | undefined;
 
-    private _subscription: AsyncSubscription | undefined;
+    private _subscription: AsyncSubscription | WatcherSubscription | undefined;
     private _startPromise: Promise<void> | undefined;
     private _stopPromise: Promise<void> | undefined;
     private _reconnectPromise: Promise<void> | undefined;
@@ -60,6 +63,7 @@ export class DirectoryWatcher implements HostDisposable {
     ) {
         this.name = options?.name ?? 'DirectoryWatcher';
         this.host = options?.host;
+        this.watcher = options?.watcher ?? options?.host?.system?.watcher;
         this.onReconnect = options?.onReconnect;
         this.onPermanentFailure = options?.onPermanentFailure;
         this._initialReconnectDelay = Math.max(1, options?.reconnectOptions?.initialDelayMs ?? 1000);
@@ -74,13 +78,16 @@ export class DirectoryWatcher implements HostDisposable {
             if (await isWatchmanAvailable()) {
                 return 'watchman';
             }
-            if (process.platform === 'win32') {
+            const platform =
+                this.host?.system?.platform ??
+                (typeof process !== 'undefined' ? (process.platform as 'win32' | 'darwin' | 'linux') : 'linux');
+            if (platform === 'win32') {
                 return 'windows';
             }
-            if (process.platform === 'linux') {
+            if (platform === 'linux') {
                 return 'inotify';
             }
-            if (process.platform === 'darwin') {
+            if (platform === 'darwin') {
                 return 'fs-events';
             }
             return undefined;
@@ -116,24 +123,25 @@ export class DirectoryWatcher implements HostDisposable {
             }
             this.log(`[${this.name}] Starting (${backend}) watcher on: ${this.path}`);
 
-            const sub = await subscribe(
-                this.path,
-                (err, events) => {
-                    if (err) {
-                        this.logError(`[${this.name}] Error`, err);
-                        this.handleSubscriptionError(err);
-                        return;
-                    }
-                    if (this._disposed || this._stopped) {
-                        return;
-                    }
-                    if (events.length > 0) {
-                        this.log(`[${this.name}] Event received: ${JSON.stringify(events)}`);
-                        this.callback(events);
-                    }
-                },
-                { ignore: ignores, backend },
-            );
+            const eventHandler = (err: Error | null, events: Event[]) => {
+                if (err) {
+                    this.logError(`[${this.name}] Error`, err);
+                    this.handleSubscriptionError(err);
+                    return;
+                }
+                if (this._disposed || this._stopped) {
+                    return;
+                }
+                if (events.length > 0) {
+                    this.log(`[${this.name}] Event received: ${JSON.stringify(events)}`);
+                    this.callback(events);
+                }
+            };
+
+            const watcher = this.watcher;
+            const sub = watcher
+                ? await watcher.watch(this.path, eventHandler, { ignore: ignores, backend })
+                : await subscribe(this.path, eventHandler, { ignore: ignores, backend });
 
             if (this._disposed || this._stopped) {
                 try {
@@ -352,7 +360,7 @@ export class DirectoryWatcher implements HostDisposable {
 
         if (sub) {
             try {
-                await sub.unsubscribe();
+                await Promise.race([sub.unsubscribe(), new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
             } catch (err) {
                 this.logError(`[${this.name}] Failed to unsubscribe`, err);
             }

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import path from 'pathe';
 import { match } from 'ts-pattern';
 import { URI, Utils } from 'vscode-uri';
@@ -268,6 +267,13 @@ export function toFileUri(uri: Uri): Uri {
 
 const canonicalRootCache = new LruCache<string, string>({ maxEntries: 100 });
 
+export type RealpathSyncFn = (filePath: string) => string;
+let globalRealpathSync: RealpathSyncFn | undefined;
+
+export function setRealpathSyncResolver(fn: RealpathSyncFn | undefined): void {
+    globalRealpathSync = fn;
+}
+
 export function clearCanonicalRootCache(): void {
     canonicalRootCache.clear();
 }
@@ -276,7 +282,7 @@ function getCanonicalRoot(root: string): string {
     let canonical = canonicalRootCache.get(root);
     if (canonical === undefined) {
         try {
-            canonical = fs.realpathSync(root);
+            canonical = globalRealpathSync ? globalRealpathSync(root) : root;
         } catch {
             canonical = root;
         }
@@ -286,11 +292,14 @@ function getCanonicalRoot(root: string): string {
 }
 
 function resolveNearestRealPath(fsPath: string): string | undefined {
+    if (!globalRealpathSync) {
+        return undefined;
+    }
     let current = fsPath;
     const trailingSegments: string[] = [];
     while (current) {
         try {
-            const canonicalDir = fs.realpathSync(current);
+            const canonicalDir = globalRealpathSync(current);
             return trailingSegments.length > 0 ? path.join(canonicalDir, ...trailingSegments) : canonicalDir;
         } catch {
             const parent = path.dirname(current);

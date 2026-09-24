@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
 import path from 'pathe';
 import { DebouncingQueue } from '../utils/debouncing-queue';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -43,6 +42,7 @@ export class JjRepository implements Disposable {
             binaryPath,
             getConfig: (key, defaultValue) => host.config.get(key, defaultValue),
             processTracker,
+            system: host.system,
         });
         this._codeForge = new CodeForgeService(rootUri.fsPath, this._jj, registry, host, outputChannel);
 
@@ -126,12 +126,12 @@ export class JjRepository implements Disposable {
         if (this._isValid !== undefined) {
             return this._isValid;
         }
-        try {
-            await fs.access(path.join(this.rootUri.fsPath, '.jj', 'working_copy', 'type'));
-            this._isValid = true;
-        } catch {
+        const hostFs = this.host.system?.fs;
+        if (!hostFs) {
             this._isValid = false;
+            return false;
         }
+        this._isValid = await hostFs.exists(path.join(this.rootUri.fsPath, '.jj', 'working_copy', 'type'));
         return this._isValid;
     }
 
