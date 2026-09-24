@@ -196,19 +196,25 @@ export class VsCodeHostUi implements HostUi {
         }
     }
 
-    get isFocused(): boolean {
-        return vscode.window.state.focused;
+    get isActive(): boolean {
+        return vscode.window.state.active;
     }
 
-    readonly onDidChangeFocus: Event<boolean> = (listener, thisArgs, disposables) => {
+    get isFocused(): boolean {
+        return this.isActive;
+    }
+
+    readonly onDidChangeActive: Event<boolean> = (listener, thisArgs, disposables) => {
         const disposable = vscode.window.onDidChangeWindowState((state) => {
-            listener.call(thisArgs, state.focused);
+            listener.call(thisArgs, state.active);
         });
         if (disposables) {
             disposables.push(disposable);
         }
         return disposable;
     };
+
+    readonly onDidChangeFocus: Event<boolean> = this.onDidChangeActive;
 }
 
 export class VsCodeHostConfig implements HostConfig {

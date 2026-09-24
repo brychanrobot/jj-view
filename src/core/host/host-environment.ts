@@ -45,6 +45,8 @@ export interface HostUi {
     showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
     withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     setStatusBarMessage?(message: string, timeoutMs?: number): void;
+    readonly isActive?: boolean;
+    readonly onDidChangeActive?: Event<boolean>;
     readonly isFocused?: boolean;
     readonly onDidChangeFocus?: Event<boolean>;
 }

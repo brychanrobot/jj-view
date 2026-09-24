@@ -312,7 +312,7 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             },
             visibleTextEditors: [],
             onDidChangeWindowState: onDidChangeWindowStateEmitter.event,
-            state: { focused: true },
+            state: { focused: true, active: true },
         },
         workspace: {
             get workspaceFolders() {

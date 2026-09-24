@@ -151,8 +151,8 @@ export class CodeForgeService implements Disposable {
         }
 
         this.poller = setInterval(() => {
-            const isFocused = this.host.ui.isFocused ?? true;
-            if (this.isEnabled && isFocused) {
+            const isActive = this.host.ui.isActive ?? this.host.ui.isFocused ?? true;
+            if (this.isEnabled && isActive) {
                 this.forceRefresh();
             }
         }, 60000);
