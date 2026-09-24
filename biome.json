@@ -93,7 +93,9 @@
                                     "node:child_process": "Use HostSystem.process instead of 'node:child_process' in src/core.",
                                     "child_process": "Use HostSystem.process instead of 'child_process' in src/core.",
                                     "node:os": "Use HostSystem instead of 'node:os' in src/core.",
-                                    "os": "Use HostSystem instead of 'os' in src/core."
+                                    "os": "Use HostSystem instead of 'os' in src/core.",
+                                    "node:buffer": "Use portable Web APIs (Uint8Array, TextEncoder, TextDecoder, atob, btoa) instead of 'node:buffer' in src/core.",
+                                    "buffer": "Use portable Web APIs instead of 'buffer' in src/core."
                                 }
                             }
                         }

@@ -46,6 +46,8 @@ const childProcessImportPattern =
     /(from\s+['"](node:child_process|child_process)['"]|require\s*\(\s*['"](node:child_process|child_process)['"]\s*\)|import\s*\(?\s*['"](node:child_process|child_process)['"])/;
 const osImportPattern =
     /(from\s+['"](node:os|os)['"]|require\s*\(\s*['"](node:os|os)['"]\s*\)|import\s*\(?\s*['"](node:os|os)['"])/;
+const bufferImportPattern =
+    /(from\s+['"](node:buffer|buffer)['"]|require\s*\(\s*['"](node:buffer|buffer)['"]\s*\)|import\s*\(?\s*['"](node:buffer|buffer)['"])/;
 
 for (const filePath of sourceFiles) {
     const isNodeHostAdapter = filePath.endsWith('src/core/host/node-host-system.ts');
@@ -110,6 +112,15 @@ for (const filePath of sourceFiles) {
                 line: index + 1,
                 content: trimmed,
                 reason: "Forbidden 'node:os' or 'os' import in src/core/. Use HostSystem instead.",
+            });
+        }
+
+        if (bufferImportPattern.test(line)) {
+            violations.push({
+                file: path.relative(process.cwd(), filePath),
+                line: index + 1,
+                content: trimmed,
+                reason: "Forbidden 'node:buffer' or 'buffer' import in src/core/. Use portable Web APIs (Uint8Array, TextEncoder, TextDecoder, atob, btoa) instead.",
             });
         }
     });
