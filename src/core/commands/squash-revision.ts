@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import path from 'pathe';
 import { z } from 'zod';
 import type { CommandContext } from '../host/command-context';
@@ -28,16 +26,24 @@ export interface SquashRevisionIntoAncestorPayload {
     ancestorRevision?: string;
 }
 
-export function getSquashStorageDir(workspaceRoot: string): string {
+function getDefaultTempDir(): string {
+    if (typeof process !== 'undefined' && process.env) {
+        return process.env.TMPDIR || process.env.TMP || process.env.TEMP || '/tmp';
+    }
+    return '/tmp';
+}
+
+export function getSquashStorageDir(workspaceRoot: string, tempDir?: string): string {
     const normRoot = path.normalize(workspaceRoot).toLowerCase();
     const hash = fnv1aHash(normRoot);
-    return path.join(os.tmpdir(), `jj-view-squash-${hash}`);
+    return path.join(tempDir ?? getDefaultTempDir(), `jj-view-squash-${hash}`);
 }
 
 const inProgressCompletions = new Set<string>();
 
 export function isSquashInProgress(workspaceRoot: string): boolean {
-    return inProgressCompletions.has(getSquashStorageDir(workspaceRoot));
+    const normRoot = path.normalize(workspaceRoot).toLowerCase();
+    return inProgressCompletions.has(normRoot);
 }
 
 export async function squashRevisionIntoParentCommand(
@@ -174,20 +180,25 @@ async function openSquashDescriptionEditor(
     parentDesc: string,
 ) {
     const combined = `${parentDesc.trim()}\n\n${sourceDesc.trim()}`;
-    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
+    const hostFs = ctx.host.system?.fs;
+    if (!hostFs) {
+        throw new Error('Host filesystem not available');
+    }
+
+    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath, hostFs.tempDir);
     const squashMsgPath = path.join(storageDir, 'SQUASH_MSG');
-    await fs.mkdir(storageDir, { recursive: true });
+    await hostFs.mkdir(storageDir, { recursive: true });
 
     const content = `${combined}\n\nJJ: Please enter the commit message for your changes.\nJJ: Lines starting with "JJ:" will be ignored.\nJJ: When finished, save this file to complete the squash, or click the checkmark button in the editor title.`;
 
-    await fs.writeFile(squashMsgPath, content);
+    await hostFs.writeTextFile(squashMsgPath, content);
     await ctx.host.nav.openFile(Uri.file(squashMsgPath));
 
     const meta: SquashMeta = {
         revision,
         parentRev,
     };
-    await fs.writeFile(path.join(storageDir, 'SQUASH_META.json'), JSON.stringify(meta));
+    await hostFs.writeTextFile(path.join(storageDir, 'SQUASH_META.json'), JSON.stringify(meta));
 }
 
 export interface CompleteSquashRevisionPayload {
@@ -198,19 +209,25 @@ export async function completeSquashRevisionCommand(
     ctx: CommandContext,
     payload?: CompleteSquashRevisionPayload,
 ): Promise<void> {
-    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath);
+    const hostFs = ctx.host.system?.fs;
+    if (!hostFs) {
+        throw new Error('Host filesystem not available');
+    }
+
+    const normRoot = path.normalize(ctx.repo.rootUri.fsPath).toLowerCase();
+    const storageDir = getSquashStorageDir(ctx.repo.rootUri.fsPath, hostFs.tempDir);
     const metaPath = path.join(storageDir, 'SQUASH_META.json');
     const msgPath = path.join(storageDir, 'SQUASH_MSG');
     const msgUri = Uri.file(msgPath);
 
-    if (inProgressCompletions.has(storageDir)) {
+    if (inProgressCompletions.has(normRoot)) {
         return;
     }
 
-    inProgressCompletions.add(storageDir);
+    inProgressCompletions.add(normRoot);
 
     try {
-        const metaContent = await fs.readFile(metaPath, 'utf-8');
+        const metaContent = await hostFs.readTextFile(metaPath);
         const parsed = JSON.parse(metaContent);
         const validation = SquashMetaSchema.safeParse(parsed);
         if (!validation.success) {
@@ -223,7 +240,7 @@ export async function completeSquashRevisionCommand(
         let rawMessage = payload?.message;
         if (!rawMessage || rawMessage.trim().length === 0) {
             rawMessage =
-                ctx.host.documents.getOpenDocumentText(msgUri) ?? (await fs.readFile(msgPath, 'utf-8').catch(() => ''));
+                ctx.host.documents.getOpenDocumentText(msgUri) ?? (await hostFs.readTextFile(msgPath).catch(() => ''));
         }
 
         const finalMessage = rawMessage
@@ -250,9 +267,9 @@ export async function completeSquashRevisionCommand(
             await showJjError(ctx.host.ui, e, 'Failed to complete squash revision.', ctx.repo.jj, ctx.log);
         }
     } finally {
-        await fs.unlink(metaPath).catch(() => {});
-        await fs.unlink(msgPath).catch(() => {});
+        await hostFs.unlink(metaPath).catch(() => {});
+        await hostFs.unlink(msgPath).catch(() => {});
         await ctx.host.nav.closeTab(msgUri);
-        inProgressCompletions.delete(storageDir);
+        inProgressCompletions.delete(normRoot);
     }
 }

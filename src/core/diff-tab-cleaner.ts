@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
 import path from 'pathe';
 import { toError } from '../utils/error-utils';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -63,9 +62,13 @@ export class DiffTabCleaner {
      */
     private async getOpHeadsSignature(): Promise<string> {
         try {
+            const hostFs = this.host.system?.fs;
+            if (!hostFs) {
+                return '';
+            }
             const storePath = await this.jj.getRepoStorePath();
             const opHeadsDir = path.join(storePath, 'op_heads', 'heads');
-            const files = await fs.readdir(opHeadsDir);
+            const files = await hostFs.readdir(opHeadsDir);
             files.sort();
             return fnv1aHash(files.join(','));
         } catch {

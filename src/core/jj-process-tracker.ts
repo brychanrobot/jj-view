@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ChildProcess } from 'node:child_process';
 import { type Disposable, type Event, EventEmitter } from './host/events';
+import type { TrackableProcess } from './host/host-system';
 
 export type JjProcessStatus = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
 
@@ -12,7 +12,7 @@ export interface JjProcessTask {
     id: number;
     command: string;
     args: string[];
-    childProcess: ChildProcess;
+    childProcess: TrackableProcess;
     startPerformanceTime: number;
     duration?: number;
     status: JjProcessStatus;
@@ -20,6 +20,7 @@ export interface JjProcessTask {
     error?: string;
     stdout?: string;
     stderr?: string;
+    exitCode?: number;
     timestamp?: number;
 }
 
@@ -27,10 +28,10 @@ export interface IJjTrackedProcess {
     readonly id: number;
     finish(
         status?: Exclude<JjProcessStatus, 'running'>,
-        error?: Error | string,
-        stdout?: string | Buffer,
-        stderr?: string | Buffer,
-        _exitCode?: number,
+        error?: Error,
+        stdout?: string,
+        stderr?: string,
+        exitCode?: number,
     ): void;
 }
 
@@ -71,12 +72,12 @@ export class JjProcessTracker implements Disposable {
             id,
             finish: (
                 status?: Exclude<JjProcessStatus, 'running'>,
-                error?: Error | string,
-                stdout?: string | Buffer,
-                stderr?: string | Buffer,
-                _exitCode?: number,
+                error?: Error,
+                stdout?: string,
+                stderr?: string,
+                exitCode?: number,
             ) => {
-                this.onFinishProcess(id, status, error, stdout, stderr, _exitCode);
+                this.onFinishProcess(id, status, error, stdout, stderr, exitCode);
             },
         };
 
@@ -91,10 +92,10 @@ export class JjProcessTracker implements Disposable {
     public onFinishProcess(
         opId: number,
         status?: Exclude<JjProcessStatus, 'running'>,
-        error?: Error | string,
-        stdout?: string | Buffer,
-        stderr?: string | Buffer,
-        _exitCode?: number,
+        error?: Error,
+        stdout?: string,
+        stderr?: string,
+        exitCode?: number,
         fireEvent = true,
     ): void {
         const task = this._activeTasks.get(opId);
@@ -103,8 +104,8 @@ export class JjProcessTracker implements Disposable {
             if (historyIndex !== -1) {
                 const historyTask = this._history[historyIndex];
                 const isCancelled = historyTask.childProcess.killed;
-                const rawStdout = stdout?.toString() ?? historyTask.stdout;
-                const rawStderr = stderr?.toString() ?? historyTask.stderr;
+                const rawStdout = stdout ?? historyTask.stdout;
+                const rawStderr = stderr ?? historyTask.stderr;
                 const finalStatus = resolveProcessStatus(
                     status,
                     isCancelled,
@@ -119,6 +120,7 @@ export class JjProcessTracker implements Disposable {
                     error: errMessage,
                     stdout: truncateOutput(rawStdout),
                     stderr: truncateOutput(rawStderr),
+                    exitCode: exitCode ?? historyTask.exitCode,
                 };
 
                 if (fireEvent) {
@@ -133,8 +135,8 @@ export class JjProcessTracker implements Disposable {
         const timestamp = Date.now();
 
         const isCancelled = task.childProcess.killed;
-        const rawStdout = stdout?.toString();
-        const rawStderr = stderr?.toString();
+        const rawStdout = stdout;
+        const rawStderr = stderr;
         const finalStatus = resolveProcessStatus(status, isCancelled, !!error);
         const errMessage = formatProcessErrorMessage(error, finalStatus, rawStdout, rawStderr);
 
@@ -146,6 +148,10 @@ export class JjProcessTracker implements Disposable {
             timestamp,
             stdout: truncateOutput(rawStdout),
             stderr: truncateOutput(rawStderr),
+            exitCode:
+                exitCode ??
+                task.exitCode ??
+                (typeof task.childProcess.exitCode === 'number' ? task.childProcess.exitCode : undefined),
         };
 
         this._history.unshift(finishedTask);
@@ -169,11 +175,11 @@ export class JjProcessTracker implements Disposable {
 
         if (task.childProcess) {
             try {
-                task.childProcess.kill();
+                task.childProcess.kill?.();
             } catch {}
         }
 
-        this.onFinishProcess(opId, 'cancelled', 'Cancelled by user');
+        this.onFinishProcess(opId, 'cancelled', new Error('Cancelled by user'));
         return true;
     }
 
@@ -182,10 +188,18 @@ export class JjProcessTracker implements Disposable {
         for (const task of tasks) {
             if (task.childProcess) {
                 try {
-                    task.childProcess.kill();
+                    task.childProcess.kill?.();
                 } catch {}
             }
-            this.onFinishProcess(task.id, 'cancelled', 'Cancelled by user', undefined, undefined, undefined, false);
+            this.onFinishProcess(
+                task.id,
+                'cancelled',
+                new Error('Cancelled by user'),
+                undefined,
+                undefined,
+                undefined,
+                false,
+            );
         }
         this._onDidChangeProcesses.fire();
     }
@@ -241,11 +255,14 @@ function resolveProcessStatus(
     return 'completed';
 }
 
-export function isProcessTerminated(cp: ChildProcess): boolean {
+export function isProcessTerminated(cp: TrackableProcess): boolean {
     return typeof cp.exitCode === 'number' || typeof cp.signalCode === 'string' || cp.killed === true;
 }
 
 export function getTaskExitCode(task: JjProcessTask): number {
+    if (typeof task.exitCode === 'number') {
+        return task.exitCode;
+    }
     if (typeof task.childProcess.exitCode === 'number') {
         return task.childProcess.exitCode;
     }
@@ -260,12 +277,12 @@ function truncateOutput(text?: string, maxLen = 100_000): string | undefined {
 }
 
 function formatProcessErrorMessage(
-    error: Error | string | undefined,
+    error: Error | undefined,
     finalStatus: JjProcessStatus,
     rawStdout?: string,
     rawStderr?: string,
 ): string | undefined {
-    let errMessage = error instanceof Error ? error.message : error;
+    let errMessage = error?.message;
     if (finalStatus !== 'completed' && (!errMessage || errMessage.startsWith('Command failed'))) {
         const combined: string[] = [];
         const trimmedStdout = rawStdout?.trim();

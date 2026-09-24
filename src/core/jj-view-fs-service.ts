@@ -95,7 +95,7 @@ export class JjViewFsService implements Disposable {
     private async _readRevisionContent(repo: JjRepository, filePath: string, revision: string): Promise<Uint8Array> {
         try {
             const content = await repo.jj.getFileContent(filePath, revision);
-            return Buffer.from(content, 'utf8');
+            return new TextEncoder().encode(content);
         } catch (err: unknown) {
             this._repositoryManager.outputChannel.debug(
                 `[JjViewFsService] Failed to read revision file ${filePath}@${revision}: ${String(err)}`,
@@ -113,6 +113,6 @@ export class JjViewFsService implements Disposable {
         const cacheKey = `${base}|${filePath}`;
         const content = await this._diffCache.getOrFetch(cacheKey, () => repo.jj.getDiffContent(base, filePath));
         const text = side === 'left' ? content.left : content.right;
-        return Buffer.from(text, 'utf8');
+        return new TextEncoder().encode(text);
     }
 }

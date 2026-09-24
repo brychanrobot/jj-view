@@ -138,7 +138,9 @@ export class JjDecorationModel implements Disposable {
         const normalizedFsPath = uri.fsPath.replace(/\\/g, '/');
         const normalizedRoot = this.workspaceRoot.replace(/\\/g, '/');
 
-        const isWin = process.platform === 'win32';
+        const isWin =
+            (this.jjService?.system?.platform ?? (typeof process !== 'undefined' ? process.platform : undefined)) ===
+            'win32';
         let fsPathMatch = normalizedFsPath;
         let rootMatch = normalizedRoot;
 

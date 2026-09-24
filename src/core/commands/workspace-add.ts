@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs';
 import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
@@ -48,7 +47,9 @@ export async function workspaceAddCommand(ctx: CommandContext): Promise<void> {
         // 4. Run jj workspace add
         await ctx.host.ui.withProgress(`Creating workspace "${workspaceName}"...`, async () => {
             // Ensure the parent directory (workspacesLocation) exists
-            await fs.promises.mkdir(workspacesLocation, { recursive: true });
+            if (ctx.host.system?.fs) {
+                await ctx.host.system.fs.mkdir(workspacesLocation, { recursive: true });
+            }
             await jj.workspaceAdd(destination, workspaceName);
         });
 

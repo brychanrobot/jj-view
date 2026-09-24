@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
-
 import path from 'pathe';
 import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
@@ -129,19 +127,21 @@ export class JjEditFsService implements Disposable {
         const repoKey = repo.rootUri.fsPath;
         const inMemoryContent = this.getPendingOrActiveContent(repoKey, revision, filePath);
         if (inMemoryContent !== undefined) {
-            return Buffer.from(inMemoryContent, 'utf8');
+            return new TextEncoder().encode(inMemoryContent);
         }
 
         if (revision === '@') {
             try {
-                return await fs.readFile(filePath);
+                if (repo.host.system?.fs) {
+                    return await repo.host.system.fs.readBinaryFile(filePath);
+                }
             } catch {
                 // Fallback to jj file show if disk file is missing/unreadable
             }
         }
 
         const content = await repo.jj.getFileContent(filePath, revision);
-        return Buffer.from(content, 'utf8');
+        return new TextEncoder().encode(content);
     }
 
     async writeFile(uri: Uri, content: Uint8Array): Promise<void> {
@@ -158,7 +158,7 @@ export class JjEditFsService implements Disposable {
         }
 
         const repoKey = repo.rootUri.fsPath;
-        const stringContent = Buffer.from(content).toString('utf8');
+        const stringContent = new TextDecoder().decode(content);
 
         return new Promise<void>((resolve, reject) => {
             const pendingList = this._pendingWrites.get(repoKey) || [];

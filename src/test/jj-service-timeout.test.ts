@@ -7,8 +7,8 @@ import * as cp from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 
-// Mock child_process to control execution and simulate hangs
-vi.mock('child_process');
+// Mock node:child_process to control execution and simulate hangs
+vi.mock('node:child_process');
 
 describe('JjService Timeout Tests', () => {
     let jjService: JjService;

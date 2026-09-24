@@ -27,6 +27,8 @@ import type {
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
 } from '../core/host/host-environment';
+import type { HostSystem } from '../core/host/host-system';
+import { NodeHostSystem } from '../core/host/node-host-system';
 import type { JjRepository } from '../core/jj-repository';
 import type { Uri } from '../core/uri-utils';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -586,8 +588,9 @@ export class FakeHostEnvironment implements HostEnvironment {
     readonly views: FakeHostViews;
     readonly workspace: FakeHostWorkspace;
     public extensions?: FakeHostExtensions;
+    public system: HostSystem;
 
-    constructor() {
+    constructor(system?: HostSystem) {
         this.ui = new FakeHostUi();
         this.nav = new FakeHostNavigation();
         this.config = new FakeHostConfig();
@@ -599,6 +602,7 @@ export class FakeHostEnvironment implements HostEnvironment {
         this.views = new FakeHostViews();
         this.workspace = new FakeHostWorkspace();
         this.extensions = new FakeHostExtensions();
+        this.system = system ?? new NodeHostSystem();
     }
 }
 

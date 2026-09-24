@@ -5,6 +5,7 @@
 
 import type { Uri } from '../uri-utils';
 import type { Event } from './events';
+import type { HostSystem } from './host-system';
 
 export interface HostDisposable {
     dispose(): void;
@@ -180,4 +181,5 @@ export interface HostEnvironment {
     readonly views: HostViews;
     readonly workspace: HostWorkspace;
     readonly extensions?: HostExtensions;
+    readonly system?: HostSystem;
 }

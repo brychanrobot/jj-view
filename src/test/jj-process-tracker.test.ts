@@ -179,7 +179,7 @@ describe('JjProcessTracker Unit Tests', () => {
             childProcess: mockChildProcess,
         });
 
-        handle.finish('failed', 'Process killed');
+        handle.finish('failed', new Error('Process killed'));
 
         const history = tracker.getHistory();
         expect(history[0].status).toBe('cancelled');

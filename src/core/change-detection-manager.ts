@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
 import type { BackendType } from '@parcel/watcher';
 import path from 'pathe';
 import { toError } from '../utils/error-utils';
@@ -244,7 +243,8 @@ export class ChangeDetectionManager implements HostDisposable {
                 const opHeadsPath = path.join(repoStorePath, 'op_heads');
 
                 // Final check that the directory exists and we have a real path
-                const realOpHeadsPath = await fs.realpath(opHeadsPath);
+                const hostFs = this.host.system?.fs;
+                const realOpHeadsPath = hostFs ? await hostFs.realpath(opHeadsPath) : opHeadsPath;
 
                 if (this._disposed) {
                     return;
@@ -404,13 +404,16 @@ export class ChangeDetectionManager implements HostDisposable {
 
     private async getSecondaryWorkspacePatterns(): Promise<string[]> {
         try {
+            const hostFs = this.host.system?.fs;
             const workspaceList = await this.jj.getWorkspaces();
             this.outputChannel.info(`[ChangeDetectionManager] Workspaces retrieved: ${JSON.stringify(workspaceList)}`);
             const patterns: string[] = [];
-            const rootReal = await fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+            const rootReal = hostFs
+                ? await hostFs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot)
+                : this.workspaceRoot;
 
             for (const ws of workspaceList) {
-                const wsReal = await fs.realpath(ws.path).catch(() => ws.path);
+                const wsReal = hostFs ? await hostFs.realpath(ws.path).catch(() => ws.path) : ws.path;
                 if (wsReal !== rootReal) {
                     const relative = path.relative(rootReal, wsReal);
                     if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
@@ -427,8 +430,12 @@ export class ChangeDetectionManager implements HostDisposable {
 
     private async getGitIgnorePatterns(): Promise<string[]> {
         try {
+            const hostFs = this.host.system?.fs;
+            if (!hostFs) {
+                return [];
+            }
             const gitIgnorePath = path.join(this.workspaceRoot, '.gitignore');
-            const data = await fs.readFile(gitIgnorePath, 'utf8');
+            const data = await hostFs.readTextFile(gitIgnorePath);
             return data
                 .split('\n')
                 .map((line) => line.trim())
@@ -452,8 +459,12 @@ export class ChangeDetectionManager implements HostDisposable {
 
     private async getGitModulesPatterns(): Promise<string[]> {
         try {
+            const hostFs = this.host.system?.fs;
+            if (!hostFs) {
+                return [];
+            }
             const gitModulesPath = path.join(this.workspaceRoot, '.gitmodules');
-            const data = await fs.readFile(gitModulesPath, 'utf8');
+            const data = await hostFs.readTextFile(gitModulesPath);
             const paths: string[] = [];
 
             const lines = data.split('\n');
