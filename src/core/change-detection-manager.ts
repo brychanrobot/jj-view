@@ -22,14 +22,15 @@ export class ChangeDetectionManager implements HostDisposable {
     private _lifecyclePromise: Promise<void> = Promise.resolve();
     private _poller: Poller;
     private _fileWatcherMode: 'polling' | 'watch' = 'polling';
-    private _isFocused = true;
+    private _isActive = true;
     private lastExternalOpTime = 0;
-    private _lastFocusRefreshTime = 0;
+    private _lastActiveRefreshTime = 0;
     private _deferredRefreshTimeout: NodeJS.Timeout | undefined;
     private _watchersWarmedUp = false;
 
-    /** Throttle interval in milliseconds to prevent excessive repository snapshots on rapid window focus events. */
-    public static readonly FOCUS_REFRESH_THROTTLE_MS = 10000;
+    /** Throttle interval in milliseconds to prevent excessive repository snapshots on rapid window active events. */
+    public static readonly ACTIVE_REFRESH_THROTTLE_MS = 10000;
+    public static readonly FOCUS_REFRESH_THROTTLE_MS = ChangeDetectionManager.ACTIVE_REFRESH_THROTTLE_MS;
 
     private async _runLifecycleTask(task: () => Promise<void>): Promise<void> {
         this._lifecyclePromise = this._lifecyclePromise
@@ -113,11 +114,12 @@ export class ChangeDetectionManager implements HostDisposable {
 
         // 2. Poll for external changes or start main watcher
         // Listen for window state changes to pause/resume polling if in polling mode
-        this._isFocused = this.host.ui.isFocused ?? true;
-        if (this.host.ui.onDidChangeFocus) {
+        this._isActive = this.host.ui.isActive ?? this.host.ui.isFocused ?? true;
+        const activeChangeEvent = this.host.ui.onDidChangeActive ?? this.host.ui.onDidChangeFocus;
+        if (activeChangeEvent) {
             this.disposables.push(
-                this.host.ui.onDidChangeFocus((focused) => {
-                    this.onWindowStateChange(focused);
+                activeChangeEvent((active) => {
+                    this.onWindowStateChange(active);
                 }),
             );
         }
@@ -175,19 +177,19 @@ export class ChangeDetectionManager implements HostDisposable {
         this.updatePollingState();
     }
 
-    private onWindowStateChange(focused: boolean): void {
+    private onWindowStateChange(active: boolean): void {
         if (this._disposed) {
             return;
         }
-        this._isFocused = focused;
+        this._isActive = active;
         this.updatePollingState();
 
-        if (!focused) {
+        if (!active) {
             return;
         }
 
         const now = Date.now();
-        if (now - this._lastFocusRefreshTime <= ChangeDetectionManager.FOCUS_REFRESH_THROTTLE_MS) {
+        if (now - this._lastActiveRefreshTime <= ChangeDetectionManager.ACTIVE_REFRESH_THROTTLE_MS) {
             return;
         }
 
@@ -196,24 +198,24 @@ export class ChangeDetectionManager implements HostDisposable {
             return;
         }
 
-        this._lastFocusRefreshTime = now;
-        this.triggerRefresh({ forceSnapshot: true, reason: 'focus refresh' }).catch((err: unknown) => {
-            this.outputChannel.error?.(`[ChangeDetectionManager] Focus refresh failed: ${err}`);
+        this._lastActiveRefreshTime = now;
+        this.triggerRefresh({ forceSnapshot: true, reason: 'active refresh' }).catch((err: unknown) => {
+            this.outputChannel.error?.(`[ChangeDetectionManager] Active refresh failed: ${err}`);
         });
     }
 
     /**
-     * Reconciles the polling state based on current mode, focus, and disposal status.
+     * Reconciles the polling state based on current mode, active state, and disposal status.
      * Starts or stops the poller accordingly.
      */
     private updatePollingState(): void {
-        // If not in polling mode, or not focused, or disposed -> Stop
-        if (this._fileWatcherMode !== 'polling' || !this._isFocused || this._disposed) {
+        // If not in polling mode, or not active, or disposed -> Stop
+        if (this._fileWatcherMode !== 'polling' || !this._isActive || this._disposed) {
             this._poller.stop();
             return;
         }
 
-        // We are in polling mode and focused.
+        // We are in polling mode and active.
         this._poller.start();
     }
 

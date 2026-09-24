@@ -174,13 +174,25 @@ export class FakeHostUi implements HostUi {
         this.statusBarMessages.push({ message, timeoutMs });
     }
 
-    public isFocused = true;
-    private readonly _onDidChangeFocusEmitter = new EventEmitter<boolean>();
-    readonly onDidChangeFocus: Event<boolean> = this._onDidChangeFocusEmitter.event;
+    public isActive = true;
+    public get isFocused(): boolean {
+        return this.isActive;
+    }
+    public set isFocused(focused: boolean) {
+        this.isActive = focused;
+    }
+
+    private readonly _onDidChangeActiveEmitter = new EventEmitter<boolean>();
+    readonly onDidChangeActive: Event<boolean> = this._onDidChangeActiveEmitter.event;
+    readonly onDidChangeFocus: Event<boolean> = this.onDidChangeActive;
+
+    setActive(active: boolean): void {
+        this.isActive = active;
+        this._onDidChangeActiveEmitter.fire(active);
+    }
 
     setFocused(focused: boolean): void {
-        this.isFocused = focused;
-        this._onDidChangeFocusEmitter.fire(focused);
+        this.setActive(focused);
     }
 }
 
