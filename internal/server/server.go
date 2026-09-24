@@ -98,6 +98,7 @@ func NewServer(cfg Config) (*Server, error) {
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024 * 1024,
 			WriteBufferSize: 1024 * 1024,
+			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
 	}
 
@@ -452,8 +453,13 @@ func (c *wsClient) send(v any) error {
 
 func (c *wsClient) trackSubscription(subID string) {
 	c.subsMu.Lock()
-	defer c.subsMu.Unlock()
+	if c.closed {
+		c.subsMu.Unlock()
+		c.server.watcherHub.Unwatch(subID)
+		return
+	}
 	c.subscriptions[subID] = true
+	c.subsMu.Unlock()
 }
 
 func (c *wsClient) untrackSubscription(subID string) {
@@ -484,6 +490,7 @@ func (c *wsClient) cleanup() {
 
 	// Clean up all active watcher subscriptions to prevent inotify leaks
 	c.subsMu.Lock()
+	c.closed = true
 	for subID := range c.subscriptions {
 		c.server.watcherHub.Unwatch(subID)
 	}
@@ -522,23 +529,26 @@ func (c *wsClient) serve() {
 			continue
 		}
 
-		go c.handleRequest(&req)
+		ctx, cancel := context.WithCancel(context.Background())
+		var cancelKey string
+		if req.ID != nil {
+			cancelKey = protocol.NormalizeID(req.ID)
+			c.reqMu.Lock()
+			c.cancelFunc[cancelKey] = cancel
+			c.reqMu.Unlock()
+		}
+
+		go c.handleRequest(&req, ctx, cancel, cancelKey)
 	}
 }
 
-func (c *wsClient) handleRequest(req *protocol.Request) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (c *wsClient) handleRequest(req *protocol.Request, ctx context.Context, cancel context.CancelFunc, cancelKey string) {
 	defer cancel()
 
-	if req.ID != nil {
-		key := protocol.NormalizeID(req.ID)
-		c.reqMu.Lock()
-		c.cancelFunc[key] = cancel
-		c.reqMu.Unlock()
-
+	if cancelKey != "" {
 		defer func() {
 			c.reqMu.Lock()
-			delete(c.cancelFunc, key)
+			delete(c.cancelFunc, cancelKey)
 			c.reqMu.Unlock()
 		}()
 	}
@@ -572,6 +582,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 			"platform": plat,
 			"version":  c.server.cfg.Version,
 			"repoRoot": c.server.cfg.RepoRoot,
+			"tempDir":  c.server.fsMgr.DaemonTempDir(),
 		}, nil
 
 	case "process.execFile":
@@ -633,6 +644,13 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		}
 		data, err := c.server.fsMgr.ReadFile(params.Path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, &protocol.RPCError{
+					Code:    protocol.CodeInternalError,
+					Message: fmt.Sprintf("ENOENT: no such file or directory: %s", params.Path),
+					Data:    map[string]any{"code": "ENOENT"},
+				}
+			}
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]string{"content": base64.StdEncoding.EncodeToString(data)}, nil
