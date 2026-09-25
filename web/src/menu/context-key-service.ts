@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type AsyncEvent, AsyncEventEmitter, type Disposable } from '../../core/host/events';
+import { type AsyncEvent, AsyncEventEmitter, type Disposable } from '../../../src/core/host/events';
 import type { ContextSource } from './when-evaluator';
 
 export interface IContextKeyService extends ContextSource, Disposable {

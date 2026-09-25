@@ -7,5 +7,5 @@ import "embed"
 
 // FS embeds the web client assets.
 //
-//go:embed all:*
+//go:embed all:dist index.html
 var FS embed.FS

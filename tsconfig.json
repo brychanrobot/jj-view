@@ -20,6 +20,7 @@
         "playwright.config.ts",
         "playwright.e2e.config.ts",
         "node_modules",
+        "web",
         "scripts",
         "tooling",
         "playwright-report",

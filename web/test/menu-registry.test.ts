@@ -4,8 +4,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ContextKeyService } from '../../web/menu/context-key-service';
-import { MenuRegistry, parseMenuGroup, resolveIconClass } from '../../web/menu/menu-registry';
+import { ContextKeyService } from '../src/menu/context-key-service';
+import { MenuRegistry, parseMenuGroup, resolveIconClass } from '../src/menu/menu-registry';
 
 describe('ContextKeyService', () => {
     it('sets, gets, and deletes keys', () => {
