@@ -309,13 +309,21 @@ jobs:
             - name: Install Dependencies
               run: pnpm install --frozen-lockfile --config.ignore-scripts=true
 
-            - name: Install Playwright system dependencies
-              run: pnpm playwright install-deps chromium
+            - name: Install Playwright Browsers & Dependencies
+              run: |
+                  sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+                  pnpm playwright install --with-deps chromium
 
             - name: Run E2E Tests
               env:
                   VSIX_PATH: jj-view.vsix
+                  PLAYWRIGHT_HTML_REPORT: playwright-report/vscode
               run: xvfb-run -a pnpm exec playwright test -c playwright.e2e.config.ts
+
+            - name: Run Web E2E Tests
+              env:
+                  PLAYWRIGHT_HTML_REPORT: playwright-report/web
+              run: xvfb-run -a pnpm test:e2e:web
 
             - name: Upload Playwright Report
               if: always()

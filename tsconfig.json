@@ -19,6 +19,7 @@
         "vitest.config.ts",
         "playwright.config.ts",
         "playwright.e2e.config.ts",
+        "playwright.web.config.ts",
         "node_modules",
         "web",
         "scripts",
