@@ -22,6 +22,9 @@ test-artifacts/**
 web/**
 cmd/**
 internal/**
+dist/bin/**
+go.mod
+go.sum
 .jj/**
 .github/**
 knip.json

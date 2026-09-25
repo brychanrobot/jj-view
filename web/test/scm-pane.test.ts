@@ -65,7 +65,7 @@ describe('Web SCM Components (SSR & Rendering)', () => {
     });
 
     describe('ScmInputBox', () => {
-        it('renders commit description textarea and commit button', () => {
+        it('renders commit description textarea and rulers', () => {
             const result = render(ScmInputBox, {
                 props: {
                     value: 'feat: add new feature description',
@@ -76,8 +76,8 @@ describe('Web SCM Components (SSR & Rendering)', () => {
             const html = result.body;
 
             expect(html).toContain('feat: add new feature description');
-            expect(html).toContain('scm-commit-button');
-            expect(html).toContain('Commit');
+            expect(html).toContain('scm-input-textarea');
+            expect(html).toContain('scm-input-container');
         });
     });
 
@@ -329,20 +329,18 @@ describe('Web SCM Components (SSR & Rendering)', () => {
     });
 
     describe('AppLayout & SplitPane', () => {
-        it('renders AppLayout with top bar, logo, and tabs', () => {
+        it('renders AppLayout shell and main content', () => {
             const result = render(AppLayout, {
                 props: {
                     repoPath: '/home/user/my-repo',
-                    activeTab: 'scm',
                 },
             });
             const html = result.body;
 
-            expect(html).toContain('JJ VIEW');
-            expect(html).toContain('my-repo');
-            expect(html).toContain('Source Control');
-            expect(html).toContain('JJ Log');
+            expect(html).toContain('app-shell');
+            expect(html).toContain('app-main-content');
             expect(html).toContain('split-pane');
+            expect(html).not.toContain('app-top-bar');
         });
 
         it('renders SplitPane resizable container', () => {

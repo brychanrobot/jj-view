@@ -85,8 +85,10 @@ function extractRevisionsFromObject(arg: Record<string, unknown>, unique: Set<st
         'jj.revision',
         'changeId',
         'jj.changeId',
+        'change_id',
         'commitId',
         'jj.commitId',
+        'commit_id',
         'bookmarkName',
         'bookmark',
     ];
@@ -110,6 +112,20 @@ function extractRevisionsFromObject(arg: Record<string, unknown>, unique: Set<st
             if (unique.size > 0) {
                 return;
             }
+        }
+    }
+
+    if (typeof arg.ancestor === 'object' && arg.ancestor !== null) {
+        extractRevisionsFromObject(arg.ancestor as Record<string, unknown>, unique);
+        if (unique.size > 0) {
+            return;
+        }
+    }
+
+    if (typeof arg.entry === 'object' && arg.entry !== null) {
+        extractRevisionsFromObject(arg.entry as Record<string, unknown>, unique);
+        if (unique.size > 0) {
+            return;
         }
     }
 }

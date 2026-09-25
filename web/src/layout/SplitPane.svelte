@@ -124,18 +124,32 @@ function handleKeyDown(e: KeyboardEvent): void {
     position: relative;
 }
 
-.left-pane {
+.split-container.horizontal .left-pane {
     height: 100%;
+    min-width: 0;
 }
 
-.right-pane {
+.split-container.vertical .left-pane {
+    width: 100%;
+    min-height: 0;
+}
+
+.split-container.horizontal .right-pane {
     flex-grow: 1;
     height: 100%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.split-container.vertical .right-pane {
+    flex-grow: 1;
+    width: 100%;
+    min-height: 0;
     overflow: hidden;
 }
 
 .split-handle {
-    background-color: var(--vscode-sideBar-border, rgba(128, 128, 128, 0.2));
+    background-color: var(--vscode-sideBar-border, #1d1d1d);
     transition: background-color 0.15s ease;
     z-index: 10;
     flex-shrink: 0;
@@ -159,7 +173,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 
 .split-handle:hover,
 .split-container.resizing .split-handle {
-    background-color: var(--vscode-focusBorder, #007fd4);
+    background-color: var(--vscode-focusBorder, #69b1ff);
 }
 
 .split-container.resizing {

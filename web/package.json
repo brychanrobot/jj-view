@@ -5,6 +5,9 @@
     "type": "module",
     "dependencies": {
         "@pierre/diffs": "^1.5.0",
+        "@pierre/theme": "^2.0.0",
+        "@shikijs/langs": "^4.4.3",
+        "shiki": "^4.4.3",
         "svelte": "^5.57.0"
     }
 }

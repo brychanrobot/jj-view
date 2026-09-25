@@ -12,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -58,6 +60,7 @@ type Server struct {
 	readyCh      chan struct{}
 	upgrader     websocket.Upgrader
 	allowedHosts map[string]bool
+	fileServer   http.Handler
 	clientsMu    sync.Mutex
 	clients      map[*wsClient]bool
 	mu           sync.RWMutex
@@ -95,6 +98,7 @@ func NewServer(cfg Config) (*Server, error) {
 			"github.com":     true,
 			"gitlab.com":     true,
 		},
+		fileServer:  http.FileServer(http.FS(web.FS)),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024 * 1024,
 			WriteBufferSize: 1024 * 1024,
@@ -115,6 +119,10 @@ func NewServer(cfg Config) (*Server, error) {
 	s.configStore = configStore
 	s.procMgr = process.NewManager(filepath.Join(fsMgr.DaemonTempDir(), "scripts"))
 
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
+	_ = mime.AddExtensionType(".woff", "font/woff")
+	_ = mime.AddExtensionType(".ttf", "font/ttf")
+	_ = mime.AddExtensionType(".svg", "image/svg+xml")
 	// Pre-extract scripts in the background
 	go func() {
 		_ = s.procMgr.EnsureScriptsExtracted()
@@ -259,14 +267,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		// Serve embedded static files (css, js, assets)
-		fsHandler := http.FileServer(http.FS(web.FS))
-		fsHandler.ServeHTTP(w, r)
-		return
+	cleanPath := path.Clean(r.URL.Path)
+
+	// If the path is not root or index.html, check if it's an existing static file in web.FS
+	if cleanPath != "/" && cleanPath != "/index.html" && cleanPath != "." {
+		trimmed := strings.TrimPrefix(cleanPath, "/")
+		if file, err := web.FS.Open(trimmed); err == nil {
+			stat, statErr := file.Stat()
+			_ = file.Close()
+			if statErr == nil && !stat.IsDir() {
+				s.fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
 	}
 
-	// Authenticate GET / to prevent local processes from scraping the session token
+	// For root, /index.html, or client-side SPA routes (fallback to index.html):
+	// Authenticate to prevent local processes from scraping the session token
 	if !s.authenticateRequest(r) {
 		http.Error(w, "Unauthorized: missing or invalid session token", http.StatusUnauthorized)
 		return
@@ -288,6 +305,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	html := strings.Replace(string(content), "</head>", injected, 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	_, _ = w.Write([]byte(html))
 }
 

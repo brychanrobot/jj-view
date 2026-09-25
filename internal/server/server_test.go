@@ -411,3 +411,61 @@ func TestConfigDidChangeNotification(t *testing.T) {
 		t.Fatal("timed out waiting for config/didChange notification")
 	}
 }
+
+func TestIndexAndSPARouting(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", srv.Port())
+
+	// 1. GET / without token -> 401
+	resp, err := http.Get(baseURL + "/")
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /, got %d", resp.StatusCode)
+	}
+
+	// 2. GET /index.html without token -> 401
+	respIndex, err := http.Get(baseURL + "/index.html")
+	if err != nil {
+		t.Fatalf("GET /index.html failed: %v", err)
+	}
+	respIndex.Body.Close()
+	if respIndex.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /index.html, got %d", respIndex.StatusCode)
+	}
+
+	// 3. GET / with token -> 200, injected config, Cache-Control
+	authedURL := fmt.Sprintf("%s/?token=%s", baseURL, srv.SessionToken())
+	respAuth, err := http.Get(authedURL)
+	if err != nil {
+		t.Fatalf("GET / with token failed: %v", err)
+	}
+	defer respAuth.Body.Close()
+	if respAuth.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for authenticated /, got %d", respAuth.StatusCode)
+	}
+	if cacheCtrl := respAuth.Header.Get("Cache-Control"); !strings.Contains(cacheCtrl, "no-cache") {
+		t.Fatalf("expected Cache-Control to contain no-cache, got %s", cacheCtrl)
+	}
+	body, _ := io.ReadAll(respAuth.Body)
+	if !strings.Contains(string(body), "window.__JJ_VIEW_CONFIG__") {
+		t.Fatalf("expected body to contain injected config, got: %s", string(body))
+	}
+
+	// 4. SPA route: GET /diff with token -> 200, serves index.html with injected config
+	spaURL := fmt.Sprintf("%s/diff?token=%s", baseURL, srv.SessionToken())
+	respSPA, err := http.Get(spaURL)
+	if err != nil {
+		t.Fatalf("GET /diff with token failed: %v", err)
+	}
+	defer respSPA.Body.Close()
+	if respSPA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for SPA route /diff, got %d", respSPA.StatusCode)
+	}
+	spaBody, _ := io.ReadAll(respSPA.Body)
+	if !strings.Contains(string(spaBody), "window.__JJ_VIEW_CONFIG__") {
+		t.Fatalf("expected SPA route to serve index.html with injected config, got: %s", string(spaBody))
+	}
+}

@@ -43,13 +43,13 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 export function isBinaryByExtension(filename: string): boolean {
-    const cleanFilename = filename.replace(/\s*\([^)]*\)$/, '');
-    const lastSlash = Math.max(cleanFilename.lastIndexOf('/'), cleanFilename.lastIndexOf('\\'));
-    const dotIdx = cleanFilename.lastIndexOf('.');
+    const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
+    const lastSlash = Math.max(cleanName.lastIndexOf('/'), cleanName.lastIndexOf('\\'));
+    const dotIdx = cleanName.lastIndexOf('.');
     if (dotIdx === -1 || dotIdx < lastSlash) {
         return false;
     }
-    const ext = cleanFilename.slice(dotIdx).toLowerCase();
+    const ext = cleanName.slice(dotIdx).toLowerCase();
     return BINARY_EXTENSIONS.has(ext);
 }
 

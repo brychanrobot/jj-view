@@ -132,6 +132,15 @@ importers:
       '@pierre/diffs':
         specifier: ^1.5.0
         version: 1.5.0(@shikijs/themes@4.4.3)
+      '@pierre/theme':
+        specifier: ^2.0.0
+        version: 2.0.0
+      '@shikijs/langs':
+        specifier: ^4.4.3
+        version: 4.4.3
+      shiki:
+        specifier: ^4.4.3
+        version: 4.4.3
       svelte:
         specifier: ^5.57.0
         version: 5.57.0

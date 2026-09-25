@@ -122,20 +122,24 @@ const statusBadge = $derived(getStatusBadge());
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 22px;
-    padding: 0 12px 0 20px;
+    min-height: 26px;
+    padding: 4px 12px 4px 20px;
+    margin: 1px 4px;
+    border-radius: 4px;
     cursor: pointer;
     user-select: none;
-    font-size: 13px;
-    color: var(--vscode-sideBar-foreground, #cccccc);
+    font-size: var(--vscode-font-size, 13px);
+    color: var(--vscode-foreground, #d4d4d4);
+    transition: background-color 0.12s;
+    box-sizing: border-box;
 }
 
 .scm-resource-item:hover {
-    background-color: var(--vscode-list-hoverBackground, rgba(90, 93, 94, 0.2));
+    background-color: var(--vscode-list-hoverBackground, rgba(31, 62, 94, 0.35));
 }
 
 .scm-resource-item:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline: 1px solid var(--vscode-focusBorder, #69b1ff);
     outline-offset: -1px;
 }
 
@@ -149,7 +153,8 @@ const statusBadge = $derived(getStatusBadge());
 }
 
 .file-name {
-    color: var(--vscode-sideBar-foreground, #cccccc);
+    font-weight: 500;
+    color: var(--vscode-foreground, #d4d4d4);
 }
 
 .file-name.deleted {
@@ -159,13 +164,14 @@ const statusBadge = $derived(getStatusBadge());
 
 .dir-name {
     font-size: 11px;
-    color: var(--vscode-descriptionForeground, #888888);
+    color: var(--vscode-descriptionForeground, #8a8a8a);
+    margin-left: 2px;
 }
 
 .resource-actions-container {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex-shrink: 0;
 }
 
@@ -182,9 +188,9 @@ const statusBadge = $derived(getStatusBadge());
 
 .item-action-button {
     background: transparent;
-    color: var(--vscode-icon-foreground, #c5c5c5);
+    color: var(--vscode-icon-foreground, #8a8a8a);
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     width: 20px;
     height: 20px;
     display: inline-flex;
@@ -192,33 +198,47 @@ const statusBadge = $derived(getStatusBadge());
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    transition: background-color 0.15s, color 0.15s;
 }
 
 .item-action-button:hover {
-    background-color: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
-    color: var(--vscode-foreground, #ffffff);
+    background-color: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
+    color: var(--vscode-foreground);
 }
 
 .status-badge {
-    font-size: 11px;
-    font-weight: 600;
-    width: 14px;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    line-height: 14px;
+    min-width: 14px;
+    user-select: none;
 }
 
 .status-modified {
-    color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+    color: var(--vscode-gitDecoration-modifiedResourceForeground, #69b1ff);
+    background: color-mix(in srgb, var(--vscode-gitDecoration-modifiedResourceForeground, #69b1ff) 14%, transparent);
 }
 
 .status-added {
-    color: var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+    color: var(--vscode-gitDecoration-addedResourceForeground, #60d199);
+    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #60d199) 14%, transparent);
 }
 
 .status-deleted {
-    color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #ff6762);
+    background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground, #ff6762) 14%, transparent);
 }
 
 .status-conflicted {
-    color: var(--vscode-gitDecoration-conflictingResourceForeground, #e51400);
+    color: var(--vscode-gitDecoration-conflictingResourceForeground, #9d6afb);
+    background: color-mix(in srgb, var(--vscode-gitDecoration-conflictingResourceForeground, #9d6afb) 12%, transparent);
 }
 </style>

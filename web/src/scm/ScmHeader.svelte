@@ -56,31 +56,46 @@ const actions: ResolvedMenuItem[] = $derived.by(() => {
                     {/if}
                 </button>
             {/each}
+            <button
+                type="button"
+                class="icon-button toolbar-button"
+                data-testid="scm-settings-button"
+                title="Settings (Ctrl+,)"
+                aria-label="Settings"
+                onclick={() => onAction('jj-view.openSettings')}
+            >
+                <i class="codicon codicon-settings-gear" aria-hidden="true"></i>
+            </button>
         </div>
     </div>
 </header>
 
 <style>
 .scm-header {
-    padding: 6px 12px;
-    background-color: var(--vscode-sideBarSectionHeader-background, var(--vscode-sideBar-background, #1e1e1e));
-    border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128, 128, 128, 0.2));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 35px;
+    padding: 0 16px;
+    background-color: var(--vscode-editorGroupHeader-tabsBackground, #171717);
+    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
     user-select: none;
+    box-sizing: border-box;
 }
 
 .scm-title-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 24px;
+    width: 100%;
 }
 
 .scm-title {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--vscode-sideBarTitle-foreground, #bbbbbb);
+    letter-spacing: 0.6px;
+    color: var(--vscode-descriptionForeground, #8a8a8a);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -94,24 +109,25 @@ const actions: ResolvedMenuItem[] = $derived.by(() => {
 
 .toolbar-button {
     background: transparent;
-    color: var(--vscode-icon-foreground, #c5c5c5);
+    color: var(--vscode-icon-foreground, #8a8a8a);
     border: none;
     border-radius: 4px;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    transition: background-color 0.15s, color 0.15s;
 }
 
 .toolbar-button:hover {
-    background-color: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
-    color: var(--vscode-foreground, #ffffff);
+    background-color: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
+    color: var(--vscode-foreground);
 }
 
 .toolbar-button:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline: 1px solid var(--vscode-focusBorder, #69b1ff);
 }
 </style>

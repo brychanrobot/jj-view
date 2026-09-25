@@ -7,13 +7,16 @@ import { FileDiff } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import { isBinaryFile } from './binary-detection';
+import { ensureHighlighterRegistered } from './highlighter-setup';
 
 interface Props {
     filename: string;
     originalContent?: string;
     modifiedContent?: string;
+    fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
     isWorkingCopy?: boolean;
     isConflict?: boolean;
+    theme?: string;
     onSave?: (newContent: string) => Promise<void> | void;
     onDiscard?: () => Promise<void> | void;
     onResolveConflict?: () => Promise<void> | void;
@@ -23,8 +26,10 @@ let {
     filename,
     originalContent = '',
     modifiedContent = '',
+    fileStatus,
     isWorkingCopy = false,
     isConflict = false,
+    theme: themeProp = '',
     onSave,
     onDiscard,
     onResolveConflict,
@@ -63,14 +68,7 @@ function cleanupInstances(): void {
         detachEditor();
         detachEditor = null;
     }
-    if (editorInstance) {
-        try {
-            (editorInstance as { cleanUp?: () => void }).cleanUp?.();
-        } catch {
-            // Ignore cleanup failure
-        }
-        editorInstance = null;
-    }
+    editorInstance = null;
     if (fileDiffInstance) {
         fileDiffInstance.cleanUp();
         fileDiffInstance = null;
@@ -145,17 +143,38 @@ function renderDiff(): void {
     cleanupInstances();
     containerEl.innerHTML = '';
 
+    ensureHighlighterRegistered();
+
+    const isLight =
+        typeof document !== 'undefined' &&
+        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
+    const effectiveTheme =
+        themeProp ||
+        (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
+        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
+    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
+
     fileDiffInstance = new FileDiff({
         diffStyle,
         expandUnchanged: false,
+        disableFileHeader: true,
+        theme: effectiveTheme,
+        themeType,
     });
 
     const contentToRender = untrack(() => currentContent);
 
+    const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
+
+    const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
+    const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
+    const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
+    const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
+
     fileDiffInstance.render({
-        fileContainer: containerEl,
-        oldFile: { name: filename, contents: originalContent },
-        newFile: { name: filename, contents: contentToRender },
+        containerWrapper: containerEl,
+        oldFile,
+        newFile,
     });
 
     if (isWorkingCopy) {
@@ -176,6 +195,45 @@ function renderDiff(): void {
             // Fallback gracefully in testing or headless environments
         }
     }
+}
+
+function setDiffStyle(style: 'split' | 'unified'): void {
+    if (diffStyle === style) {
+        return;
+    }
+    diffStyle = style;
+    const isLight =
+        typeof document !== 'undefined' &&
+        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
+    const effectiveTheme =
+        themeProp ||
+        (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
+        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
+    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
+
+    if (fileDiffInstance) {
+        fileDiffInstance.setOptions({
+            diffStyle,
+            expandUnchanged: false,
+            disableFileHeader: true,
+            theme: effectiveTheme,
+            themeType,
+        });
+        const contentToRender = untrack(() => currentContent);
+        const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
+        const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
+        const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
+        const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
+        const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
+        fileDiffInstance.render({
+            containerWrapper: containerEl,
+            forceRender: true,
+            oldFile,
+            newFile,
+        });
+        return;
+    }
+    renderDiff();
 }
 
 function handleUndo(): void {
@@ -220,13 +278,13 @@ $effect(() => {
     canRedo = false;
 });
 
-// Re-render when filename, content, diffStyle, or mode change
+// Re-render when filename, content, or mode change
 $effect(() => {
     // Explicitly track these props
     void filename;
     void originalContent;
     void modifiedContent;
-    void diffStyle;
+    void fileStatus;
     void isWorkingCopy;
 
     renderDiff();
@@ -264,9 +322,7 @@ onDestroy(() => {
                     type="button"
                     class="toggle-btn"
                     class:active={diffStyle === 'split'}
-                    onclick={() => {
-                        diffStyle = 'split';
-                    }}
+                    onclick={() => setDiffStyle('split')}
                     title="Side-by-side split diff"
                     data-testid="toggle-split-diff"
                 >
@@ -276,9 +332,7 @@ onDestroy(() => {
                     type="button"
                     class="toggle-btn"
                     class:active={diffStyle === 'unified'}
-                    onclick={() => {
-                        diffStyle = 'unified';
-                    }}
+                    onclick={() => setDiffStyle('unified')}
                     title="Inline unified diff"
                     data-testid="toggle-unified-diff"
                 >
@@ -368,14 +422,24 @@ onDestroy(() => {
 </div>
 
 <style>
+:global(diffs-container) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
 .pierre-diff-viewer {
     display: flex;
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-editor-background, #1e1e1e);
-    color: var(--vscode-editor-foreground, #cccccc);
+    background-color: var(--vscode-editor-background, #171717);
+    color: var(--vscode-editor-foreground, #d4d4d4);
     overflow: hidden;
+    --diffs-font-family: var(--vscode-editor-font-family, monospace);
+    --diffs-font-size: var(--vscode-editor-font-size, 12px);
+    --diffs-line-height: var(--vscode-editor-line-height, 19px);
 }
 
 .diff-toolbar {
@@ -384,8 +448,8 @@ onDestroy(() => {
     align-items: center;
     height: 35px;
     padding: 0 16px;
-    background-color: var(--vscode-editorGroupHeader-tabsBackground, #252526);
-    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, rgba(128, 128, 128, 0.2));
+    background-color: var(--vscode-editorGroupHeader-tabsBackground, #171717);
+    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
     font-size: 12px;
     flex-shrink: 0;
 }
@@ -405,13 +469,13 @@ onDestroy(() => {
 }
 
 .dirty-indicator {
-    color: var(--vscode-editorOverviewRuler-modifiedForeground, #007fd4);
+    color: var(--vscode-editorOverviewRuler-modifiedForeground, #69b1ff);
     font-size: 14px;
 }
 
 .save-status {
     font-size: 11px;
-    color: var(--vscode-descriptionForeground, #888888);
+    color: var(--vscode-descriptionForeground, #8a8a8a);
 }
 
 .toolbar-right {
@@ -422,24 +486,46 @@ onDestroy(() => {
 
 .diff-style-toggle {
     display: inline-flex;
-    border-radius: 3px;
+    align-items: stretch;
+    height: 24px;
+    border: 1px solid var(--vscode-input-border, #2c2c2c);
+    border-radius: 6px;
+    background: var(--vscode-input-background, #262626);
     overflow: hidden;
-    border: 1px solid var(--vscode-button-secondaryBorder, rgba(128, 128, 128, 0.3));
+    box-sizing: border-box;
 }
 
 .toggle-btn {
-    background-color: var(--vscode-button-secondaryBackground, #3a3d41);
-    color: var(--vscode-button-secondaryForeground, #ffffff);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
     border: none;
-    padding: 3px 8px;
+    border-right: 1px solid var(--vscode-input-border, #2c2c2c);
+    background: transparent;
+    color: var(--vscode-descriptionForeground, #8a8a8a);
     font-size: 11px;
+    font-weight: 500;
     cursor: pointer;
     font-family: inherit;
+    transition: background 0.15s ease, color 0.15s ease;
+    white-space: nowrap;
+    outline: none;
+    user-select: none;
+}
+
+.toggle-btn:last-child {
+    border-right: none;
+}
+
+.toggle-btn:hover:not(.active) {
+    background: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
+    color: var(--vscode-foreground, #d4d4d4);
 }
 
 .toggle-btn.active {
-    background-color: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #ffffff);
+    background: var(--vscode-button-background, #69b1ff);
+    color: var(--vscode-button-foreground, #171717);
     font-weight: 600;
 }
 
@@ -452,15 +538,22 @@ onDestroy(() => {
 .toolbar-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background-color: var(--vscode-button-secondaryBackground, #3a3d41);
-    color: var(--vscode-button-secondaryForeground, #ffffff);
-    border: none;
-    border-radius: 2px;
-    padding: 3px 8px;
-    font-size: 11px;
+    gap: 6px;
+    background-color: var(--vscode-button-secondaryBackground, #262626);
+    color: var(--vscode-button-secondaryForeground, #d4d4d4);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     font-family: inherit;
+    line-height: normal;
+    transition: background-color 0.15s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+    background-color: var(--vscode-button-secondaryHoverBackground, #2c2c2c);
 }
 
 .toolbar-btn:disabled {
@@ -469,27 +562,40 @@ onDestroy(() => {
 }
 
 .toolbar-btn.primary {
-    background-color: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #ffffff);
+    background-color: var(--vscode-button-background, #69b1ff);
+    color: var(--vscode-button-foreground, #171717);
+}
+
+.toolbar-btn.primary:hover:not(:disabled) {
+    background-color: var(--vscode-button-hoverBackground, #61a2e8);
 }
 
 .toolbar-btn.danger {
-    background-color: var(--vscode-inputValidation-errorBackground, #5a1d1d);
-    color: #ffffff;
+    background-color: var(--vscode-inputValidation-errorBackground, #ff6762);
+    color: #171717;
+}
+
+.toolbar-btn.danger:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #ff6762) 85%, black);
 }
 
 .toolbar-btn.resolve-btn {
-    background-color: var(--vscode-terminal-ansiGreen, #4ec9b0);
-    color: #1e1e1e;
+    background-color: var(--vscode-terminal-ansiGreen, #60d199);
+    color: #171717;
     font-weight: 600;
 }
 
+.toolbar-btn.resolve-btn:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--vscode-terminal-ansiGreen, #60d199) 85%, black);
+}
+
 .diff-content-container {
-    flex-grow: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
     overflow: auto;
     position: relative;
     width: 100%;
-    height: 100%;
 }
 
 .binary-card {
@@ -501,12 +607,12 @@ onDestroy(() => {
     gap: 8px;
     padding: 32px;
     text-align: center;
-    color: var(--vscode-descriptionForeground, #888888);
+    color: var(--vscode-descriptionForeground, #8a8a8a);
 }
 
 .binary-icon {
     font-size: 48px;
-    color: var(--vscode-icon-foreground, #777777);
+    color: var(--vscode-icon-foreground, #8a8a8a);
     margin-bottom: 8px;
 }
 
@@ -514,7 +620,7 @@ onDestroy(() => {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: var(--vscode-foreground, #ffffff);
+    color: var(--vscode-foreground, #d4d4d4);
 }
 
 .binary-filename {

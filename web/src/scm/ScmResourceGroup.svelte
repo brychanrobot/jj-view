@@ -152,24 +152,27 @@ function toggleExpanded(): void {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 24px;
+    height: 26px;
     padding: 0 12px 0 8px;
+    margin: 2px 4px;
+    border-radius: 4px;
     cursor: pointer;
     user-select: none;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--vscode-sideBarSectionHeader-foreground, #bbbbbb);
-    background-color: var(--vscode-sideBarSectionHeader-background, transparent);
+    letter-spacing: 0.6px;
+    color: var(--vscode-descriptionForeground, #8a8a8a);
+    background-color: transparent;
+    transition: background-color 0.12s;
 }
 
 .group-header:hover {
-    background-color: var(--vscode-list-hoverBackground, rgba(90, 93, 94, 0.2));
+    background-color: var(--vscode-list-hoverBackground, rgba(31, 62, 94, 0.35));
 }
 
 .group-header:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline: 1px solid var(--vscode-focusBorder, #69b1ff);
     outline-offset: -1px;
 }
 
@@ -189,7 +192,7 @@ function toggleExpanded(): void {
     width: 16px;
     height: 16px;
     font-size: 14px;
-    color: var(--vscode-icon-foreground, #c5c5c5);
+    color: var(--vscode-icon-foreground, #8a8a8a);
 }
 
 .group-label {
@@ -217,9 +220,9 @@ function toggleExpanded(): void {
 
 .group-action-button {
     background: transparent;
-    color: var(--vscode-icon-foreground, #c5c5c5);
+    color: var(--vscode-icon-foreground, #8a8a8a);
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     width: 20px;
     height: 20px;
     display: inline-flex;
@@ -227,22 +230,25 @@ function toggleExpanded(): void {
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    transition: background-color 0.15s, color 0.15s;
 }
 
 .group-action-button:hover {
-    background-color: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
-    color: var(--vscode-foreground, #ffffff);
+    background-color: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
+    color: var(--vscode-foreground);
 }
 
 .count-badge {
-    background-color: var(--vscode-badge-background, #4d4d4d);
-    color: var(--vscode-badge-foreground, #ffffff);
+    background-color: color-mix(in srgb, var(--vscode-editor-foreground), transparent 90%);
+    color: var(--vscode-descriptionForeground, #8a8a8a);
     border-radius: 10px;
     padding: 1px 6px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     min-width: 14px;
     text-align: center;
+    line-height: 14px;
+    user-select: none;
 }
 
 .group-items-container {
