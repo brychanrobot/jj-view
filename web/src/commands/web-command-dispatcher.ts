@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ScmModel } from '../../core/scm-model';
-import type { JjResourceState } from '../../core/scm-resource-state';
-import type { Uri } from '../../core/uri-utils';
-import { toError } from '../../utils/error-utils';
+import type { ScmModel } from '../../../src/core/scm-model';
+import type { JjResourceState } from '../../../src/core/scm-resource-state';
+import type { Uri } from '../../../src/core/uri-utils';
+import { toError } from '../../../src/utils/error-utils';
 
 export interface WebGroupPayload {
     readonly groupId: string;

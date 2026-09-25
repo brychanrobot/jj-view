@@ -3,8 +3,8 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import type { ScmSnapshot } from '../../core/scm-model';
-import { createJjResourceState, type JjResourceState } from '../../core/scm-resource-state';
+import type { ScmSnapshot } from '../../../src/core/scm-model';
+import { createJjResourceState, type JjResourceState } from '../../../src/core/scm-resource-state';
 import type { IContextKeyService } from '../menu/context-key-service';
 import type { MenuRegistry } from '../menu/menu-registry';
 import type { ResolvedMenuItemGroup } from '../menu/menu-types';

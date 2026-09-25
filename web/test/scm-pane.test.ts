@@ -5,18 +5,18 @@
 
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
-import type { JjLogEntry } from '../../core/jj-types';
-import type { ScmSnapshot } from '../../core/scm-model';
-import { createJjResourceState } from '../../core/scm-resource-state';
-import AppLayout from '../../web/layout/AppLayout.svelte';
-import SplitPane from '../../web/layout/SplitPane.svelte';
-import { ContextKeyService } from '../../web/menu/context-key-service';
-import { MenuRegistry } from '../../web/menu/menu-registry';
-import ScmHeader from '../../web/scm/ScmHeader.svelte';
-import ScmInputBox from '../../web/scm/ScmInputBox.svelte';
-import ScmPane from '../../web/scm/ScmPane.svelte';
-import ScmResourceGroup from '../../web/scm/ScmResourceGroup.svelte';
-import ScmResourceItem from '../../web/scm/ScmResourceItem.svelte';
+import type { JjLogEntry } from '../../src/core/jj-types';
+import type { ScmSnapshot } from '../../src/core/scm-model';
+import { createJjResourceState } from '../../src/core/scm-resource-state';
+import AppLayout from '../src/layout/AppLayout.svelte';
+import SplitPane from '../src/layout/SplitPane.svelte';
+import { ContextKeyService } from '../src/menu/context-key-service';
+import { MenuRegistry } from '../src/menu/menu-registry';
+import ScmHeader from '../src/scm/ScmHeader.svelte';
+import ScmInputBox from '../src/scm/ScmInputBox.svelte';
+import ScmPane from '../src/scm/ScmPane.svelte';
+import ScmResourceGroup from '../src/scm/ScmResourceGroup.svelte';
+import ScmResourceItem from '../src/scm/ScmResourceItem.svelte';
 
 function createMockLogEntry(overrides: Partial<JjLogEntry> = {}): JjLogEntry {
     return {

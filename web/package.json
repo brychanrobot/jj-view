@@ -1,0 +1,10 @@
+{
+    "name": "@jj-view/web",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@pierre/diffs": "^1.5.0",
+        "svelte": "^5.57.0"
+    }
+}

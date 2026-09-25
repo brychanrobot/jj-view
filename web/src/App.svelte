@@ -4,11 +4,12 @@
 -->
 <script lang="ts">
 import { onMount } from 'svelte';
-import type { RemoteHostSystem } from '../core/host/remote-host-system';
-import type { ScmModel, ScmSnapshot } from '../core/scm-model';
-import type { JjResourceState } from '../core/scm-resource-state';
-import type { Uri } from '../core/uri-utils';
+import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
+import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
+import type { JjResourceState } from '../../src/core/scm-resource-state';
+import { isWorkingCopyRevision, type Uri } from '../../src/core/uri-utils';
 import { WebCommandDispatcher } from './commands/web-command-dispatcher';
+import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
 import AppLayout from './layout/AppLayout.svelte';
 import { ContextKeyService } from './menu/context-key-service';
 import { MenuRegistry } from './menu/menu-registry';
@@ -31,6 +32,80 @@ let activeTab: 'scm' | 'log' = $state('scm');
 let activeDiffTitle: string | null = $state(null);
 let activeDiffLeftUri: Uri | undefined = $state(undefined);
 let activeDiffRightUri: Uri | undefined = $state(undefined);
+let activeResourceState: JjResourceState | null = $state(null);
+let originalContent = $state('');
+let modifiedContent = $state('');
+
+async function loadDiffFromUris(
+    leftUri?: Uri,
+    rightUri?: Uri,
+    title?: string,
+    resourceState?: JjResourceState,
+): Promise<void> {
+    activeResourceState = resourceState ?? null;
+    activeDiffLeftUri = leftUri;
+    activeDiffRightUri = rightUri;
+    activeDiffTitle = title || rightUri?.path || 'Diff';
+
+    if (!host) {
+        return;
+    }
+
+    try {
+        if (leftUri) {
+            const leftData = await host.fs.readFile(leftUri.path);
+            originalContent = typeof leftData === 'string' ? leftData : new TextDecoder().decode(leftData);
+        } else {
+            originalContent = '';
+        }
+
+        if (rightUri) {
+            const rightData = await host.fs.readFile(rightUri.path);
+            modifiedContent = typeof rightData === 'string' ? rightData : new TextDecoder().decode(rightData);
+        } else {
+            modifiedContent = '';
+        }
+    } catch (err) {
+        console.error('Failed to load file contents for diff:', err);
+    }
+}
+
+async function loadDiffContents(state: JjResourceState): Promise<void> {
+    await loadDiffFromUris(state.leftUri, state.rightUri, state.diffTitle || state.resourceUri.path, state);
+}
+
+async function handleSaveFile(newContent: string): Promise<void> {
+    if (!host || !activeDiffRightUri) {
+        return;
+    }
+    const encoder = new TextEncoder();
+    await host.fs.writeFile(activeDiffRightUri.path, encoder.encode(newContent));
+    modifiedContent = newContent;
+    if (scmModel) {
+        await scmModel.refresh({ reason: 'save-diff' });
+    }
+}
+
+async function handleDiscardFile(): Promise<void> {
+    if (!activeResourceState) {
+        return;
+    }
+    await handleAction('jj-view.restore', activeResourceState);
+    if (scmModel) {
+        await scmModel.refresh({ reason: 'discard-file' });
+    }
+    await loadDiffContents(activeResourceState);
+}
+
+async function handleResolveConflict(): Promise<void> {
+    if (!activeResourceState) {
+        return;
+    }
+    if (scmModel) {
+        await scmModel.refresh({ reason: 'resolve-conflict' });
+    }
+    await loadDiffContents(activeResourceState);
+}
 
 const dispatcher: WebCommandDispatcher | null = $derived.by(() => {
     if (!scmModel) {
@@ -38,15 +113,11 @@ const dispatcher: WebCommandDispatcher | null = $derived.by(() => {
     }
     return new WebCommandDispatcher({
         scmModel,
-        onOpenDiff: (leftUri, rightUri, title) => {
-            activeDiffLeftUri = leftUri;
-            activeDiffRightUri = rightUri;
-            activeDiffTitle = title || 'Diff';
+        onOpenDiff: async (leftUri, rightUri, title) => {
+            await loadDiffFromUris(leftUri, rightUri, title, activeResourceState ?? undefined);
         },
-        onOpenFile: (uri) => {
-            activeDiffLeftUri = undefined;
-            activeDiffRightUri = uri;
-            activeDiffTitle = uri.path;
+        onOpenFile: async (uri) => {
+            await loadDiffFromUris(undefined, uri, uri.path, activeResourceState ?? undefined);
         },
         onError: (err) => {
             console.error('Command execution failed:', err);
@@ -66,44 +137,44 @@ $effect(() => {
     };
 });
 
-function handleAction(command: string, payload?: unknown): void {
+async function handleAction(command: string, payload?: unknown): Promise<void> {
+    if (payload && typeof payload === 'object' && 'resourceUri' in (payload as Record<string, unknown>)) {
+        activeResourceState = payload as JjResourceState;
+    }
     if (dispatcher) {
-        dispatcher.execute(command, payload);
+        await dispatcher.execute(command, payload);
         return;
     }
 
     if (command === 'vscode.diff' || command === 'jj-view.openChanges') {
         const item = payload as JjResourceState | undefined;
         if (item) {
-            activeDiffTitle = item.diffTitle || item.resourceUri.path;
-            activeDiffLeftUri = item.leftUri;
-            activeDiffRightUri = item.rightUri;
+            await loadDiffContents(item);
         }
     }
 }
 
-function handleOpenResource(state: JjResourceState): void {
+async function handleOpenResource(state: JjResourceState): Promise<void> {
     if (state.command) {
-        handleAction(state.command.command, state);
+        await handleAction(state.command.command, state);
     } else {
-        activeDiffTitle = state.diffTitle || state.resourceUri.path;
+        await loadDiffContents(state);
     }
 }
 
 function handleCommit(message: string): void {
-    handleAction('jj-view.commit', message);
+    void handleAction('jj-view.commit', message);
 }
 
 function handleSetDescription(message: string): void {
-    handleAction('jj-view.setDescription', message);
+    void handleAction('jj-view.describe', message);
 }
 
 function handleRefresh(): void {
-    handleAction('jj-view.refresh');
+    void handleAction('jj-view.refresh');
 }
 
 onMount(() => {
-    // If host is provided and connected, we could wire JjService / ScmModel
     return () => {
         rootContext.dispose();
     };
@@ -141,12 +212,24 @@ onMount(() => {
     {#snippet main()}
         <div class="editor-main-area" data-testid="editor-main-area">
             {#if activeDiffTitle}
-                <div class="editor-header">
-                    <span>{activeDiffTitle}</span>
-                </div>
-                <div class="diff-placeholder">
-                    <p>Viewing: {activeDiffTitle}</p>
-                </div>
+                {#key activeDiffTitle}
+                    <PierreDiffViewer
+                        filename={activeDiffTitle}
+                        {originalContent}
+                        {modifiedContent}
+                        isWorkingCopy={activeResourceState
+                            ? isWorkingCopyRevision(
+                                  activeResourceState.revision,
+                                  currentSnapshot?.currentEntry?.change_id
+                              )
+                            : true}
+                        isConflict={activeResourceState?.status === 'conflicted' ||
+                            (activeResourceState?.contextValue?.includes('AllowOpenMergeEditor') ?? false)}
+                        onSave={handleSaveFile}
+                        onDiscard={handleDiscardFile}
+                        onResolveConflict={handleResolveConflict}
+                    />
+                {/key}
             {:else}
                 <div class="empty-editor-message">
                     <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>

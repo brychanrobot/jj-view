@@ -22,11 +22,13 @@ function getAllTestFiles(dirPath: string): string[] {
     return files;
 }
 
-const testDir = path.resolve(process.cwd(), 'src/test');
-const testFiles = getAllTestFiles(testDir);
+const testDirs = [path.resolve(process.cwd(), 'src/test'), path.resolve(process.cwd(), 'web/test')].filter((d) =>
+    fs.existsSync(d),
+);
+const testFiles = testDirs.flatMap((d) => getAllTestFiles(d));
 
 if (testFiles.length === 0) {
-    console.error('Error: No test files found in src/test/');
+    console.error('Error: No test files found in test directories');
     process.exit(1);
 }
 

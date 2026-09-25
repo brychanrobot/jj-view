@@ -4,13 +4,13 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { JjService } from '../../core/jj-service';
-import type { JjLogEntry } from '../../core/jj-types';
-import type { ScmModel, ScmSnapshot } from '../../core/scm-model';
-import { createJjResourceState } from '../../core/scm-resource-state';
-import type { Uri } from '../../core/uri-utils';
-import { WebCommandDispatcher } from '../../web/commands/web-command-dispatcher';
-import { createMock } from '../test-utils';
+import type { JjService } from '../../src/core/jj-service';
+import type { JjLogEntry } from '../../src/core/jj-types';
+import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
+import { createJjResourceState } from '../../src/core/scm-resource-state';
+import type { Uri } from '../../src/core/uri-utils';
+import { WebCommandDispatcher } from '../src/commands/web-command-dispatcher';
+import { createMock } from './test-mock';
 
 interface MockScmModelResult {
     scmModel: ScmModel;

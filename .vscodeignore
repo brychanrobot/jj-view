@@ -19,6 +19,9 @@ test-results/**
 test-artifacts/**
 
 # Dev config and tools
+web/**
+cmd/**
+internal/**
 .jj/**
 .github/**
 knip.json
@@ -35,3 +38,4 @@ GEMINI.md
 .agents/**
 media/custom-icons-src/**
 pnpm-lock.yaml
+pnpm-workspace.yaml

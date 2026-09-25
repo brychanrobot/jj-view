@@ -73,7 +73,7 @@
             }
         },
         {
-            "includes": ["src/core/**"],
+            "includes": ["src/core/**", "web/src/**"],
             "linter": {
                 "rules": {
                     "style": {
@@ -81,7 +81,7 @@
                             "level": "error",
                             "options": {
                                 "paths": {
-                                    "vscode": "src/core must remain platform-agnostic with zero vscode imports.",
+                                    "vscode": "Browser and core code must remain platform-agnostic with zero vscode imports.",
                                     "node:path": "Use 'pathe' instead of 'node:path' in src/core.",
                                     "path": "Use 'pathe' instead of 'path' in src/core.",
                                     "node:crypto": "Use portable utilities like 'fnv1aHash' instead of 'node:crypto' in src/core.",
