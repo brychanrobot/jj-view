@@ -6,6 +6,7 @@
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
 import { isBinaryBuffer, isBinaryByExtension, isBinaryFile, isBinaryString } from '../src/diff/binary-detection';
+import { ensureHighlighterRegistered } from '../src/diff/highlighter-setup';
 import PierreDiffViewer from '../src/diff/PierreDiffViewer.svelte';
 
 describe('Binary Detection Utilities', () => {
@@ -125,5 +126,43 @@ describe('PierreDiffViewer Component', () => {
 
         expect(html).toContain('diff-resolve-conflict-btn');
         expect(html).toContain('Mark Resolved');
+    });
+
+    it('renders cleanly for added files without errors', () => {
+        const result = render(PierreDiffViewer, {
+            props: {
+                filename: 'src/new-file.ts',
+                originalContent: '',
+                modifiedContent: 'export const hello = "world";\n',
+                fileStatus: 'added',
+                isWorkingCopy: true,
+            },
+        });
+        const html = result.body;
+        expect(html).toContain('pierre-diff-viewer');
+        expect(html).toContain('src/new-file.ts');
+        expect(html).toContain('diff-content-container');
+    });
+
+    it('renders cleanly for deleted files without errors', () => {
+        const result = render(PierreDiffViewer, {
+            props: {
+                filename: 'src/old-file.ts',
+                originalContent: 'export const old = true;\n',
+                modifiedContent: '',
+                fileStatus: 'deleted',
+                isWorkingCopy: true,
+            },
+        });
+        const html = result.body;
+        expect(html).toContain('pierre-diff-viewer');
+        expect(html).toContain('src/old-file.ts');
+        expect(html).toContain('diff-content-container');
+    });
+
+    it('registers custom languages and themes without error', () => {
+        expect(() => {
+            ensureHighlighterRegistered();
+        }).not.toThrow();
     });
 });

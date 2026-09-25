@@ -846,6 +846,19 @@ export class JjRepositoryManager implements HostDisposable {
         }
     }
 
+    public registerRepositoryInstance(repo: JjRepository): void {
+        if (this._disposed) {
+            return;
+        }
+        if (!this._repositories.some((r) => this.isSamePath(r.rootUri.fsPath, repo.rootUri.fsPath))) {
+            this._repositories.push(repo);
+            this.sortRepositories();
+            this.fireEvent(this._onDidOpenRepository, repo);
+            this.fireEvent(this._onDidChangeRepositories, this._repositories);
+        }
+        this.setFocusedRepository(repo);
+    }
+
     private registerRepositories(repos: JjRepository[]): void {
         if (this._disposed || repos.length === 0) {
             return;
@@ -996,7 +1009,12 @@ export class JjRepositoryManager implements HostDisposable {
 
         const normalizedFsPath = this.normalizePath(fsPath);
 
-        for (const repo of this._repositories) {
+        const reposToSearch =
+            this._focusedRepository && !this._repositories.includes(this._focusedRepository)
+                ? [...this._repositories, this._focusedRepository]
+                : this._repositories;
+
+        for (const repo of reposToSearch) {
             const repoRoot = repo.rootUri.fsPath;
             const normalizedRepoRoot = this.normalizePath(repoRoot);
             if (

@@ -101,10 +101,10 @@ onMount(() => {
     z-index: 10000;
     min-width: 180px;
     max-width: 320px;
-    background-color: var(--vscode-menu-background, #252526);
-    color: var(--vscode-menu-foreground, #cccccc);
-    border: 1px solid var(--vscode-menu-border, #454545);
-    border-radius: 5px;
+    background-color: var(--vscode-menu-background, #1d1d1d);
+    color: var(--vscode-menu-foreground, #d4d4d4);
+    border: 1px solid var(--vscode-menu-border, #262626);
+    border-radius: 6px;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
     padding: 4px 0;
     user-select: none;
@@ -112,7 +112,7 @@ onMount(() => {
 
 .menu-separator {
     height: 1px;
-    background-color: var(--vscode-menu-separatorBackground, #454545);
+    background-color: var(--vscode-menu-separatorBackground, #262626);
     margin: 4px 0;
 }
 
@@ -134,8 +134,8 @@ onMount(() => {
 
 .menu-item:hover,
 .menu-item:focus-visible {
-    background-color: var(--vscode-menu-selectionBackground, #04395e);
-    color: var(--vscode-menu-selectionForeground, #ffffff);
+    background-color: var(--vscode-menu-selectionBackground, #1f3e5e99);
+    color: var(--vscode-menu-selectionForeground, #d4d4d4);
     outline: none;
 }
 

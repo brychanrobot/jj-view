@@ -7,33 +7,59 @@ import { onMount } from 'svelte';
 
 interface Props {
     value?: string;
+    changeId?: string;
     placeholder?: string;
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     onCommit: (message: string) => void;
     onSetDescription: (message: string) => void;
+    onValueChange?: (message: string) => void;
 }
 
 let {
     value = '',
+    changeId,
     placeholder = 'Describe your changes... (Ctrl+Enter to commit, Ctrl+S to set description)',
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     onCommit,
     onSetDescription,
+    onValueChange,
 }: Props = $props();
 
 // svelte-ignore state_referenced_locally
 let description = $state(value);
+// svelte-ignore state_referenced_locally
+let previousValue = $state(value);
+// svelte-ignore state_referenced_locally
+let previousChangeId = $state(changeId);
 let textareaEl: HTMLTextAreaElement | null = $state(null);
-let isFocused = $state(false);
 
 $effect(() => {
-    if (!isFocused && value !== description) {
+    if (changeId !== previousChangeId) {
+        previousChangeId = changeId;
+        previousValue = value;
+        description = value;
+        setTimeout(() => handleInput(), 0);
+        return;
+    }
+    if (value !== previousValue) {
+        previousValue = value;
         description = value;
         setTimeout(() => handleInput(), 0);
     }
 });
+
+function triggerCommit(): void {
+    const messageToCommit = description;
+    onCommit(messageToCommit);
+    description = '';
+    previousValue = '';
+    onValueChange?.('');
+    if (textareaEl) {
+        textareaEl.style.height = 'auto';
+    }
+}
 
 function handleKeyDown(e: KeyboardEvent): void {
     const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -41,7 +67,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 
     if (modKey && e.key === 'Enter') {
         e.preventDefault();
-        onCommit(description);
+        triggerCommit();
         return;
     }
 
@@ -58,6 +84,7 @@ function handleInput(): void {
     }
     textareaEl.style.height = 'auto';
     textareaEl.style.height = `${Math.max(68, textareaEl.scrollHeight)}px`;
+    onValueChange?.(description);
 }
 
 onMount(() => {
@@ -74,38 +101,21 @@ onMount(() => {
             data-testid="scm-input-textarea"
             {placeholder}
             rows={3}
-            onfocus={() => {
-                isFocused = true;
-            }}
-            onblur={() => {
-                isFocused = false;
-            }}
             onkeydown={handleKeyDown}
             oninput={handleInput}
             aria-label="Commit description"
         ></textarea>
     </div>
-    <div class="scm-input-actions">
-        <button
-            type="button"
-            class="commit-button"
-            data-testid="scm-commit-button"
-            onclick={() => onCommit(description)}
-            title="Commit changes (Ctrl+Enter)"
-        >
-            <i class="codicon codicon-check" aria-hidden="true"></i>
-            <span>Commit</span>
-        </button>
-    </div>
 </div>
 
 <style>
 .scm-input-container {
-    padding: 10px 12px;
+    padding: 12px 16px 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background-color: var(--vscode-sideBar-background, #1e1e1e);
+    background-color: var(--vscode-sideBar-background, #171717);
+    box-sizing: border-box;
 }
 
 .textarea-wrapper {
@@ -121,48 +131,22 @@ onMount(() => {
     box-sizing: border-box;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: var(--vscode-editor-font-size, 12px);
-    background-color: var(--vscode-input-background, #3c3c3c);
-    color: var(--vscode-input-foreground, #cccccc);
-    border: 1px solid var(--vscode-input-border, transparent);
-    border-radius: 2px;
-    padding: 6px 8px;
-    line-height: 1.4;
+    background-color: var(--vscode-input-background, #262626);
+    color: var(--vscode-input-foreground, #d4d4d4);
+    border: 1px solid var(--vscode-input-border, #2c2c2c);
+    border-radius: 6px;
+    padding: 8px 10px;
+    line-height: 1.5;
     outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .scm-textarea:focus {
-    border-color: var(--vscode-focusBorder, #007fd4);
+    border-color: var(--vscode-focusBorder, #69b1ff);
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder, #69b1ff);
 }
 
 .scm-textarea::placeholder {
-    color: var(--vscode-input-placeholderForeground, #888888);
-}
-
-.scm-input-actions {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.commit-button {
-    background-color: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #ffffff);
-    border: none;
-    border-radius: 2px;
-    padding: 4px 12px;
-    font-size: 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    font-family: inherit;
-    font-weight: 500;
-}
-
-.commit-button:hover {
-    background-color: var(--vscode-button-hoverBackground, #1177bb);
-}
-
-.commit-button:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    color: var(--vscode-input-placeholderForeground, #525252);
 }
 </style>

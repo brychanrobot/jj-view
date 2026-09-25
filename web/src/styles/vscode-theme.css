@@ -1,0 +1,296 @@
+/**
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* ==========================================================================
+   Pierre Theme Tokens & CSS Custom Properties
+   Skins the standalone web application with Pierre Dark & Pierre Light palettes.
+   ========================================================================== */
+
+:root,
+body.vscode-dark {
+    /* Typography */
+    --vscode-font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
+    --vscode-font-size: 13px;
+    --vscode-font-weight: 400;
+    --vscode-editor-font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --vscode-editor-font-size: 12px;
+    --vscode-editor-font-weight: 400;
+
+    /* Unified Canvas Surface (#171717) */
+    --vscode-editor-background: #171717;
+    --vscode-editor-foreground: #d4d4d4;
+    --vscode-foreground: #d4d4d4;
+    --vscode-descriptionForeground: #8a8a8a;
+    --vscode-sideBar-background: #171717;
+    --vscode-sideBar-foreground: #d4d4d4;
+    --vscode-sideBar-border: #1d1d1d;
+    --vscode-sideBarTitle-foreground: #d4d4d4;
+
+    /* Header Strips & Tabs (#171717 with #1d1d1d borders) */
+    --vscode-sideBarSectionHeader-background: #171717;
+    --vscode-sideBarSectionHeader-foreground: #8a8a8a;
+    --vscode-sideBarSectionHeader-border: #1d1d1d;
+    --vscode-panel-background: #171717;
+    --vscode-panel-border: #1d1d1d;
+    --vscode-titleBar-activeBackground: #171717;
+    --vscode-titleBar-activeForeground: #d4d4d4;
+    --vscode-titleBar-border: #1d1d1d;
+    --vscode-editorGroupHeader-tabsBackground: #171717;
+    --vscode-editorGroupHeader-tabsBorder: #1d1d1d;
+    --vscode-tab-activeBackground: #171717;
+    --vscode-tab-activeForeground: #d4d4d4;
+    --vscode-tab-activeBorderTop: #69b1ff;
+    --vscode-tab-inactiveBackground: #171717;
+    --vscode-tab-inactiveForeground: #636363;
+    --vscode-tab-border: #1d1d1d;
+
+    /* Controls & Inputs (#262626 / #2c2c2c) */
+    --vscode-input-background: #262626;
+    --vscode-input-border: #2c2c2c;
+    --vscode-input-foreground: #d4d4d4;
+    --vscode-input-placeholderForeground: #525252;
+    --vscode-dropdown-background: #262626;
+    --vscode-dropdown-border: #2c2c2c;
+    --vscode-dropdown-foreground: #d4d4d4;
+    --vscode-checkbox-background: var(--vscode-input-background, #262626);
+    --vscode-checkbox-border: var(--vscode-input-border, #2c2c2c);
+    --vscode-checkbox-foreground: var(--vscode-input-foreground, #d4d4d4);
+
+    /* Buttons & Accents (Pierre Pastel Sky Blue #69b1ff) */
+    --vscode-button-background: #69b1ff;
+    --vscode-button-foreground: #171717;
+    --vscode-button-hoverBackground: #61a2e8;
+    --vscode-button-secondaryBackground: #262626;
+    --vscode-button-secondaryForeground: #d4d4d4;
+    --vscode-button-secondaryHoverBackground: #2c2c2c;
+    --vscode-button-secondaryBorder: #2c2c2c;
+    --vscode-focusBorder: #69b1ff;
+
+    /* Lists, Tables & Selections (Pierre Slate Navy Tint #1f3e5e) */
+    --vscode-selection-background: #1f3e5e;
+    --vscode-list-activeSelectionBackground: #1f3e5e99;
+    --vscode-list-activeSelectionForeground: #d4d4d4;
+    --vscode-list-inactiveSelectionBackground: #1f3e5e73;
+    --vscode-list-hoverBackground: #1f3e5e59;
+    --vscode-list-focusBackground: #1f3e5e99;
+    --vscode-list-focusOutline: #69b1ff;
+    --vscode-toolbar-hoverBackground: rgba(31, 62, 94, 0.45);
+    --vscode-icon-foreground: #8a8a8a;
+    --vscode-badge-background: #262626;
+    --vscode-badge-foreground: #8a8a8a;
+
+    /* Git Decorations (Pierre Dark Soft Pastel Tones) */
+    --vscode-gitDecoration-addedResourceForeground: #60d199;
+    --vscode-gitDecoration-modifiedResourceForeground: #69b1ff;
+    --vscode-gitDecoration-deletedResourceForeground: #ff6762;
+    --vscode-gitDecoration-conflictingResourceForeground: #9d6afb;
+    --vscode-gitDecoration-untrackedResourceForeground: #60d199;
+    --vscode-gitDecoration-ignoredResourceForeground: #636363;
+
+    /* Diff & Merge Backgrounds */
+    --vscode-diffEditor-insertedTextBackground: #60d1991a;
+    --vscode-diffEditor-deletedTextBackground: #ff67621a;
+    --vscode-merge-currentHeaderBackground: #9d6afb4d;
+    --vscode-merge-currentContentBackground: #9d6afb1f;
+    --vscode-merge-incomingHeaderBackground: #68cdf24d;
+    --vscode-merge-incomingContentBackground: #68cdf21f;
+
+    /* Editor Highlights & Rulers */
+    --vscode-editor-lineHighlightBackground: #1f3e5e8c;
+    --vscode-editor-selectionBackground: #69b1ff4d;
+    --vscode-editorRuler-foreground: #262626;
+    --vscode-widget-border: #262626;
+
+    /* JJ Log Charts & Rails (Pierre Soft Dark) */
+    --vscode-charts-green: #60d199;
+    --vscode-charts-blue: #69b1ff;
+    --vscode-charts-yellow: #ffd452;
+    --vscode-charts-purple: #9d6afb;
+    --vscode-charts-orange: #ffab16;
+    --vscode-charts-red: #ff6762;
+    --vscode-charts-cyan: #68cdf2;
+    --vscode-charts-lines: #262626;
+    --vscode-charts-foreground: #d4d4d4;
+
+    --jj-lane-0: var(--vscode-charts-green, #60d199);
+    --jj-lane-1: var(--vscode-charts-blue, #69b1ff);
+    --jj-lane-2: var(--vscode-charts-yellow, #ffd452);
+    --jj-lane-3: var(--vscode-charts-purple, #9d6afb);
+    --jj-lane-4: var(--vscode-charts-orange, #ffab16);
+    --jj-lane-5: var(--vscode-charts-red, #ff6762);
+    --jj-lane-6: var(--vscode-charts-cyan, #68cdf2);
+
+    /* Scrollbars */
+    --vscode-scrollbarSlider-background: rgba(121, 121, 121, 0.25);
+    --vscode-scrollbarSlider-hoverBackground: rgba(121, 121, 121, 0.45);
+    --vscode-scrollbarSlider-activeBackground: rgba(121, 121, 121, 0.65);
+}
+
+body.vscode-light {
+    /* Typography */
+    --vscode-font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
+    --vscode-font-size: 13px;
+    --vscode-font-weight: 400;
+    --vscode-editor-font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --vscode-editor-font-size: 12px;
+    --vscode-editor-font-weight: 400;
+
+    /* Surfaces - Unified Canvas (#ffffff) with Soft Charcoal Foreground (#525252) */
+    --vscode-editor-background: #ffffff;
+    --vscode-editor-foreground: #525252;
+    --vscode-foreground: #525252;
+    --vscode-descriptionForeground: #737373;
+    --vscode-sideBar-background: #ffffff;
+    --vscode-sideBar-foreground: #525252;
+    --vscode-sideBar-border: #ededed;
+    --vscode-sideBarTitle-foreground: #525252;
+
+    /* Header Strips & Tabs (#ffffff with #ededed borders) */
+    --vscode-sideBarSectionHeader-background: #ffffff;
+    --vscode-sideBarSectionHeader-foreground: #737373;
+    --vscode-sideBarSectionHeader-border: #ededed;
+    --vscode-panel-background: #ffffff;
+    --vscode-panel-border: #ededed;
+    --vscode-titleBar-activeBackground: #f7f7f7;
+    --vscode-titleBar-activeForeground: #525252;
+    --vscode-titleBar-border: #ededed;
+    --vscode-editorGroupHeader-tabsBackground: #ffffff;
+    --vscode-editorGroupHeader-tabsBorder: #ededed;
+    --vscode-tab-activeBackground: #ffffff;
+    --vscode-tab-activeForeground: #525252;
+    --vscode-tab-activeBorderTop: #009fff;
+    --vscode-tab-inactiveBackground: #f7f7f7;
+    --vscode-tab-inactiveForeground: #8a8a8a;
+    --vscode-tab-border: #ededed;
+
+    /* Controls & Inputs (#f5f5f5 / #d4d4d4) */
+    --vscode-input-background: #f5f5f5;
+    --vscode-input-border: #d4d4d4;
+    --vscode-input-foreground: #525252;
+    --vscode-input-placeholderForeground: #a3a3a3;
+    --vscode-dropdown-background: #f5f5f5;
+    --vscode-dropdown-border: #d4d4d4;
+    --vscode-dropdown-foreground: #525252;
+    --vscode-checkbox-background: var(--vscode-input-background, #f5f5f5);
+    --vscode-checkbox-border: var(--vscode-input-border, #d4d4d4);
+    --vscode-checkbox-foreground: var(--vscode-input-foreground, #525252);
+
+    /* Buttons */
+    --vscode-button-background: #009fff;
+    --vscode-button-foreground: #ffffff;
+    --vscode-button-hoverBackground: #1aa9ff;
+    --vscode-button-secondaryBackground: #f5f5f5;
+    --vscode-button-secondaryForeground: #525252;
+    --vscode-button-secondaryHoverBackground: #ededed;
+    --vscode-button-secondaryBorder: #d4d4d4;
+    --vscode-focusBorder: #009fff;
+
+    /* Lists, Tables & Selections (Pierre Powder Blue #dfebff) */
+    --vscode-selection-background: #dfebff;
+    --vscode-list-activeSelectionBackground: #dfebffcc;
+    --vscode-list-activeSelectionForeground: #525252;
+    --vscode-list-inactiveSelectionBackground: #dfebff73;
+    --vscode-list-hoverBackground: #dfebff59;
+    --vscode-list-focusBackground: #dfebffcc;
+    --vscode-list-focusOutline: #009fff;
+    --vscode-toolbar-hoverBackground: rgba(223, 235, 255, 0.45);
+    --vscode-icon-foreground: #737373;
+    --vscode-badge-background: #ededed;
+    --vscode-badge-foreground: #525252;
+
+    /* Git Decorations */
+    --vscode-gitDecoration-addedResourceForeground: #07c480;
+    --vscode-gitDecoration-modifiedResourceForeground: #009fff;
+    --vscode-gitDecoration-deletedResourceForeground: #ff2e3f;
+    --vscode-gitDecoration-conflictingResourceForeground: #7b43f8;
+    --vscode-gitDecoration-untrackedResourceForeground: #07c480;
+    --vscode-gitDecoration-ignoredResourceForeground: #8a8a8a;
+
+    /* Diff & Merge Backgrounds */
+    --vscode-diffEditor-insertedTextBackground: #07c48033;
+    --vscode-diffEditor-deletedTextBackground: #ff2e3f33;
+    --vscode-merge-currentHeaderBackground: #7b43f833;
+    --vscode-merge-currentContentBackground: #7b43f814;
+    --vscode-merge-incomingHeaderBackground: #08c0ef33;
+    --vscode-merge-incomingContentBackground: #08c0ef14;
+
+    /* Editor Highlights & Rulers */
+    --vscode-editor-lineHighlightBackground: #dfebff8c;
+    --vscode-editor-selectionBackground: #009fff2e;
+    --vscode-editorRuler-foreground: #ededed;
+    --vscode-widget-border: #ededed;
+
+    /* JJ Log Charts & Rails (Pierre Light Soft) */
+    --vscode-charts-green: #07c480;
+    --vscode-charts-blue: #009fff;
+    --vscode-charts-yellow: #ffca00;
+    --vscode-charts-purple: #7b43f8;
+    --vscode-charts-orange: #d97706;
+    --vscode-charts-red: #ff2e3f;
+    --vscode-charts-cyan: #08c0ef;
+    --vscode-charts-lines: #ededed;
+    --vscode-charts-foreground: #525252;
+
+    --jj-lane-0: var(--vscode-charts-green, #07c480);
+    --jj-lane-1: var(--vscode-charts-blue, #009fff);
+    --jj-lane-2: var(--vscode-charts-yellow, #ffca00);
+    --jj-lane-3: var(--vscode-charts-purple, #7b43f8);
+    --jj-lane-4: var(--vscode-charts-orange, #d97706);
+    --jj-lane-5: var(--vscode-charts-red, #ff2e3f);
+    --jj-lane-6: var(--vscode-charts-cyan, #08c0ef);
+
+    /* Scrollbars */
+    --vscode-scrollbarSlider-background: rgba(100, 100, 100, 0.18);
+    --vscode-scrollbarSlider-hoverBackground: rgba(100, 100, 100, 0.35);
+    --vscode-scrollbarSlider-activeBackground: rgba(100, 100, 100, 0.55);
+}
+
+/* ==========================================================================
+   Slim, Auto-Hiding Scrollbars (6px width, transparent until hover)
+   ========================================================================== */
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+*:hover {
+    scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.3)) transparent;
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.3));
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.6));
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--vscode-scrollbarSlider-activeBackground, rgba(85, 85, 85, 0.8));
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}

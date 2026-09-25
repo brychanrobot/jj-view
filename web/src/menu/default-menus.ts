@@ -14,6 +14,12 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(eye)',
         },
         {
+            command: 'jj-view.newMergeChange',
+            title: 'New Merge Change',
+            category: 'JJ View',
+            icon: '$(git-merge)',
+        },
+        {
             command: 'jj-view.new',
             title: 'New',
             category: 'JJ View',
@@ -26,10 +32,42 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(save)',
         },
         {
+            command: 'jj-view.describePrompt',
+            title: 'Set Description (Prompt)',
+            category: 'JJ View',
+            icon: '$(save)',
+        },
+        {
+            command: 'jj-view.focusDescriptionInput',
+            title: 'Focus SCM Description Input',
+            category: 'JJ View',
+        },
+        {
             command: 'jj-view.commit',
             title: 'Commit',
             category: 'JJ View',
             icon: '$(check)',
+        },
+        {
+            command: 'jj-view.commitPrompt',
+            title: 'Commit (Prompt)',
+            category: 'JJ View',
+            icon: '$(check)',
+        },
+        {
+            command: 'jj-view.compareWithWorkingCopy',
+            title: 'Compare All Files with Revision...',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.compareFileWith',
+            title: 'Compare File with Revision...',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.viewFileAtRevision',
+            title: 'View File at Revision...',
+            category: 'JJ View',
         },
         {
             command: 'jj-view.refresh',
@@ -38,52 +76,10 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(refresh)',
         },
         {
-            command: 'jj-view.manageAuth',
-            title: 'Manage Code Forge Authentication',
-            category: 'JJ View',
-            icon: '$(key)',
-        },
-        {
-            command: 'jj-view.openFile',
-            title: 'Open File in Working Copy',
-            category: 'JJ View',
-            icon: '$(go-to-file)',
-        },
-        {
-            command: 'jj-view.openChanges',
-            title: 'Open Changes',
-            category: 'JJ View',
-            icon: '$(diff)',
-        },
-        {
             command: 'jj-view.restore',
             title: 'Restore',
             category: 'JJ View',
             icon: '$(discard)',
-        },
-        {
-            command: 'jj-view.abandon',
-            title: 'Abandon',
-            category: 'JJ View',
-            icon: '$(trash)',
-        },
-        {
-            command: 'jj-view.edit',
-            title: 'Edit',
-            category: 'JJ View',
-            icon: '$(edit)',
-        },
-        {
-            command: 'jj-view.absorb',
-            title: 'Absorb',
-            category: 'JJ View',
-            icon: '$(cloud-upload)',
-        },
-        {
-            command: 'jj-view.showMultiFileDiff',
-            title: 'Show Multi-File Diff',
-            category: 'JJ View',
-            icon: '$(diff)',
         },
         {
             command: 'jj-view.squashRevisionIntoParent',
@@ -98,28 +94,62 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(jj-icon-squash-into)',
         },
         {
-            command: 'jj-view.squashFilesIntoParent',
-            title: 'Squash File into Parent',
+            command: 'jj-view.openFile',
+            title: 'Open File in Working Copy',
             category: 'JJ View',
-            icon: '$(arrow-down)',
+            icon: '$(go-to-file)',
         },
         {
-            command: 'jj-view.squashFilesIntoAncestor',
-            title: 'Squash File into Ancestor...',
+            command: 'jj-view.openChanges',
+            title: 'Open Changes',
             category: 'JJ View',
-            icon: '$(jj-icon-squash-into)',
+            icon: '$(diff)',
         },
         {
-            command: 'jj-view.squashFilesIntoChild',
-            title: 'Squash File into Child',
+            command: 'jj-view.undo',
+            title: 'Undo',
             category: 'JJ View',
-            icon: '$(arrow-up)',
+            icon: '$(discard)',
         },
         {
-            command: 'jj-view.showDetails',
-            title: 'Show Details',
+            command: 'jj-view.redo',
+            title: 'Redo',
             category: 'JJ View',
-            icon: '$(info)',
+            icon: '$(redo)',
+        },
+        {
+            command: 'jj-view.duplicate',
+            title: 'Duplicate',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.abandon',
+            title: 'Abandon',
+            category: 'JJ View',
+            icon: '$(trash)',
+        },
+        {
+            command: 'jj-view.edit',
+            title: 'Edit',
+            category: 'JJ View',
+            icon: '$(edit)',
+        },
+        {
+            command: 'jj-view.newBefore',
+            title: 'New Before',
+            category: 'JJ View',
+            icon: '$(source-control)',
+        },
+        {
+            command: 'jj-view.newAfter',
+            title: 'New After',
+            category: 'JJ View',
+            icon: '$(source-control)',
+        },
+        {
+            command: 'jj-view.squashSelectionIntoParent',
+            title: 'Squash Selection into Parent',
+            category: 'JJ View',
         },
         {
             command: 'jj-view.openMergeEditor',
@@ -127,8 +157,377 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             category: 'JJ View',
             icon: '$(git-merge)',
         },
+        {
+            command: 'jj-view.completeSquashRevision',
+            title: 'Complete Squash Revision',
+            category: 'JJ View',
+            icon: '$(check)',
+        },
+        {
+            command: 'jj-view.rebaseOntoSelected',
+            title: 'Rebase onto Selected',
+            category: 'JJ View',
+            icon: '$(git-merge)',
+        },
+        {
+            command: 'jj-view.showDetails',
+            title: 'Show Details',
+            category: 'JJ View',
+            icon: '$(list-selection)',
+        },
+        {
+            command: 'jj-view.discardChange',
+            title: 'Discard Change',
+            category: 'JJ View',
+            icon: '$(discard)',
+        },
+        {
+            command: 'jj-view.squashHunkIntoParent',
+            title: 'Squash Hunk into Parent',
+            category: 'JJ View',
+            icon: '$(repo-pull)',
+        },
+        {
+            command: 'jj-view.squashFilesIntoChild',
+            title: 'Squash File(s) into Child',
+            category: 'JJ View',
+            icon: '$(arrow-up)',
+        },
+        {
+            command: 'jj-view.squashFilesIntoParent',
+            title: 'Squash File(s) into Parent',
+            category: 'JJ View',
+            icon: '$(arrow-down)',
+        },
+        {
+            command: 'jj-view.squashFilesIntoAncestor',
+            title: 'Squash File(s) into Ancestor...',
+            category: 'JJ View',
+            icon: '$(jj-icon-squash-into)',
+        },
+        {
+            command: 'jj-view.setBookmark',
+            title: 'Set Bookmark',
+            category: 'JJ View',
+            icon: '$(bookmark)',
+        },
+        {
+            command: 'jj-view.advanceBookmark',
+            title: 'Advance Bookmark',
+            category: 'JJ View',
+            icon: '$(bookmark)',
+        },
+        {
+            command: 'jj-view.advanceBookmarkAndUpload',
+            title: 'Advance Bookmark & Upload',
+            category: 'JJ View',
+            icon: '$(cloud-upload)',
+        },
+        {
+            command: 'jj-view.deleteBookmark',
+            title: 'Delete Bookmark',
+            category: 'JJ View',
+            icon: '$(trash)',
+        },
+        {
+            command: 'jj-view.absorb',
+            title: 'Absorb',
+            category: 'JJ View',
+            icon: '$(magnet)',
+        },
+        {
+            command: 'jj-view.showMultiFileDiff',
+            title: 'Show Multi-File Diff',
+            category: 'JJ View',
+            icon: '$(diff-multiple)',
+        },
+        {
+            command: 'jj-view.workspaceAdd',
+            title: 'Add Workspace',
+            category: 'JJ View',
+            icon: '$(jj-icon-workspace-add)',
+        },
+        {
+            command: 'jj-view.workspaceForget',
+            title: 'Forget Workspace',
+            category: 'JJ View',
+            icon: '$(close)',
+        },
+        {
+            command: 'jj-view.workspaceDelete',
+            title: 'Delete Workspace Directory',
+            category: 'JJ View',
+            icon: '$(trash)',
+        },
+        {
+            command: 'jj-view.workspaceOpenInCurrentWindow',
+            title: 'Open in Current Window',
+            category: 'JJ View',
+            icon: '$(window)',
+        },
+        {
+            command: 'jj-view.workspaceOpenInNewWindow',
+            title: 'Open in New Window',
+            category: 'JJ View',
+            icon: '$(empty-window)',
+        },
+        {
+            command: 'jj-view.hideCommitAction.newChild',
+            title: "Hide 'New Child'",
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.hideCommitAction.edit',
+            title: "Hide 'Edit'",
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.hideCommitAction.squash',
+            title: "Hide 'Squash'",
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.showProcessMonitor',
+            title: 'Show Process Monitor',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.killProcess',
+            title: 'Kill Specific JJ Process',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.killAllProcesses',
+            title: 'Kill All Running JJ Processes',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.clearProcessHistory',
+            title: 'Clear Process Monitor History',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.hideCommitAction.abandon',
+            title: "Hide 'Abandon'",
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.newChild.on',
+            title: '● New Child',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.newChild.off',
+            title: '○ New Child',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.edit.on',
+            title: '● Edit',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.edit.off',
+            title: '○ Edit',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.squash.on',
+            title: '● Squash',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.squash.off',
+            title: '○ Squash',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.abandon.on',
+            title: '● Abandon',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.toggleCommitAction.abandon.off',
+            title: '○ Abandon',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.manageAuth',
+            title: 'Manage Code Forge Authentication',
+            category: 'JJ View',
+            icon: '$(key)',
+        },
+        {
+            command: 'jj-view.showComments',
+            title: 'Show Comments',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.ackComment',
+            title: 'Ack',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.doneComment',
+            title: 'Done',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.replyAndResolveComment',
+            title: 'Reply & Resolve',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.replyComment',
+            title: 'Reply',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.resolveCommentThread',
+            title: 'Resolve Thread',
+            category: 'JJ View',
+            icon: '$(check)',
+        },
+        {
+            command: 'jj-view.unresolveCommentThread',
+            title: 'Unresolve Thread',
+            category: 'JJ View',
+            icon: '$(reply)',
+        },
+        {
+            command: 'jj-view.copyUnresolvedComments',
+            title: 'Copy Unresolved Comments',
+            category: 'JJ View',
+            icon: '$(copy)',
+        },
     ],
     menus: {
+        commandPalette: [
+            {
+                command: 'jj-view.uploadStack',
+                when: "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+            },
+            {
+                command: 'jj-view.killProcess',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.killAllProcesses',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.clearProcessHistory',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.showComments',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.ackComment',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.doneComment',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.replyAndResolveComment',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.replyComment',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.resolveCommentThread',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.unresolveCommentThread',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.copyUnresolvedComments',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.squashHunkIntoParent',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.squashSelectionIntoParent',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.squashFilesIntoParent',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.squashFilesIntoAncestor',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.squashFilesIntoChild',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.completeSquashRevision',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.openMergeEditor',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.hideCommitAction.newChild',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.hideCommitAction.edit',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.hideCommitAction.squash',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.hideCommitAction.abandon',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.newChild.on',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.newChild.off',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.edit.on',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.edit.off',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.squash.on',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.squash.off',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.abandon.on',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.abandon.off',
+                when: 'false',
+            },
+        ],
         'scm/title': [
             {
                 command: 'jj-view.focusRepository',

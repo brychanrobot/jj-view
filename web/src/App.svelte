@@ -3,38 +3,173 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import path from 'pathe';
 import { onMount } from 'svelte';
+import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
+import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
+import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
-import type { JjResourceState } from '../../src/core/scm-resource-state';
-import { isWorkingCopyRevision, type Uri } from '../../src/core/uri-utils';
-import { WebCommandDispatcher } from './commands/web-command-dispatcher';
+import { createJjResourceState, type JjResourceState } from '../../src/core/scm-resource-state';
+import { encodeJjViewQuery, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
+import type { WebviewTransport } from '../../src/core/webview/transport/types';
+import { NO_OP_LOGGER } from '../../src/utils/output-channel';
+import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
+import CommitDetailsView from './details/CommitDetailsView.svelte';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
+import type { WebHostEnvironment } from './host/web-host-environment';
 import AppLayout from './layout/AppLayout.svelte';
+import LogPane from './log/LogPane.svelte';
 import { ContextKeyService } from './menu/context-key-service';
+import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from './menu/default-menus';
 import { MenuRegistry } from './menu/menu-registry';
+import { WhenEvaluator } from './menu/when-evaluator';
+import QuickInput from './quick-input/QuickInput.svelte';
+import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
 import ScmPane from './scm/ScmPane.svelte';
+import SettingsModal from './settings/SettingsModal.svelte';
 
 interface Props {
     host?: RemoteHostSystem;
+    webHostEnv?: WebHostEnvironment;
     scmModel?: ScmModel;
     initialSnapshot?: ScmSnapshot;
     workspaceRoot?: string;
+    viewFs?: JjViewFsService;
+    editFs?: JjEditFsService;
+    logTransport?: WebviewTransport;
+    quickInputService?: QuickInputService;
 }
 
-let { host, scmModel, initialSnapshot, workspaceRoot = '' }: Props = $props();
+let {
+    host,
+    webHostEnv,
+    scmModel,
+    initialSnapshot,
+    workspaceRoot = '',
+    viewFs,
+    editFs,
+    logTransport,
+    quickInputService,
+}: Props = $props();
+
+const fallbackQuickInput = new QuickInputService();
+const activeQuickInput = $derived(quickInputService ?? webHostEnv?.quickInput ?? fallbackQuickInput);
 
 const menuRegistry = new MenuRegistry();
 const rootContext = new ContextKeyService();
 
+type ActiveView =
+    | { type: 'diff'; leftUri?: Uri; rightUri?: Uri; title: string; resourceState?: JjResourceState }
+    | { type: 'commit-details'; changeId: string }
+    | { type: 'empty' };
+
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
-let activeTab: 'scm' | 'log' = $state('scm');
-let activeDiffTitle: string | null = $state(null);
-let activeDiffLeftUri: Uri | undefined = $state(undefined);
-let activeDiffRightUri: Uri | undefined = $state(undefined);
-let activeResourceState: JjResourceState | null = $state(null);
+let activeView = $state<ActiveView>({ type: 'empty' });
 let originalContent = $state('');
 let modifiedContent = $state('');
+let isSettingsOpen = $state(false);
+let activeTheme = $state('pierre-dark-soft');
+
+function openCommandPalette(): void {
+    const rawCommands = DEFAULT_PACKAGE_JSON_CONTRIBUTES.commands || [];
+    const paletteRules = DEFAULT_PACKAGE_JSON_CONTRIBUTES.menus?.commandPalette || [];
+
+    // Map rules by command
+    const ruleByCommand = new Map<string, (typeof paletteRules)[number]>();
+    for (const rule of paletteRules) {
+        ruleByCommand.set(rule.command, rule);
+    }
+
+    const commands: CommandPaletteEntry[] = [];
+    const seenIds = new Set<string>();
+
+    for (const cmd of rawCommands) {
+        // Check omission rules from package.json commandPalette menu
+        const rule = ruleByCommand.get(cmd.command);
+        if (rule) {
+            if (rule.when === 'false') {
+                continue;
+            }
+            if (rule.when && !WhenEvaluator.evaluate(rule.when, rootContext)) {
+                continue;
+            }
+        }
+
+        seenIds.add(cmd.command);
+        let iconClass: string | undefined;
+        if (cmd.icon) {
+            const iconStr = typeof cmd.icon === 'string' ? cmd.icon : cmd.icon.dark || cmd.icon.light;
+            if (iconStr) {
+                const match = /^\$\((.*?)\)$/.exec(iconStr);
+                iconClass = match ? `codicon codicon-${match[1]}` : undefined;
+            }
+        }
+        commands.push({
+            id: cmd.command,
+            title: cmd.title,
+            category: cmd.category,
+            iconClass,
+        });
+    }
+
+    const builtIns: CommandPaletteEntry[] = [
+        {
+            id: 'workbench.action.openSettings',
+            title: 'Open Settings',
+            category: 'Preferences',
+            iconClass: 'codicon codicon-settings-gear',
+        },
+    ];
+
+    for (const b of builtIns) {
+        if (!seenIds.has(b.id)) {
+            seenIds.add(b.id);
+            commands.push(b);
+        }
+    }
+
+    void activeQuickInput.openCommandPalette(commands, async (cmdId) => {
+        if (webHostEnv) {
+            await webHostEnv.commands.executeCommand(cmdId);
+        }
+    });
+}
+
+function handleWindowKeydown(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        isSettingsOpen = true;
+        return;
+    }
+
+    if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) || e.key === 'F1') {
+        e.preventDefault();
+        openCommandPalette();
+        return;
+    }
+}
+
+let commitDetailsBridge: InMemoryBridge | null = $state(null);
+let commitDetailsController: CommitDetailsController | null = null;
+
+async function resolveUriContent(uri?: Uri): Promise<string> {
+    if (!uri) {
+        return '';
+    }
+    if (uri.scheme === 'file' && host) {
+        return await host.fs.readTextFile(uri.fsPath);
+    }
+    if (uri.scheme === 'jj-view' && viewFs) {
+        const bytes = await viewFs.readFile(uri);
+        return new TextDecoder().decode(bytes);
+    }
+    if (uri.scheme === 'jj-edit' && editFs) {
+        const bytes = await editFs.readFile(uri);
+        return new TextDecoder().decode(bytes);
+    }
+    return '';
+}
 
 async function loadDiffFromUris(
     leftUri?: Uri,
@@ -42,44 +177,38 @@ async function loadDiffFromUris(
     title?: string,
     resourceState?: JjResourceState,
 ): Promise<void> {
-    activeResourceState = resourceState ?? null;
-    activeDiffLeftUri = leftUri;
-    activeDiffRightUri = rightUri;
-    activeDiffTitle = title || rightUri?.path || 'Diff';
-
-    if (!host) {
-        return;
-    }
+    const diffTitle = title || rightUri?.fsPath || leftUri?.fsPath || 'Diff';
+    activeView = {
+        type: 'diff',
+        leftUri,
+        rightUri,
+        title: diffTitle,
+        resourceState,
+    };
 
     try {
-        if (leftUri) {
-            const leftData = await host.fs.readFile(leftUri.path);
-            originalContent = typeof leftData === 'string' ? leftData : new TextDecoder().decode(leftData);
-        } else {
-            originalContent = '';
-        }
-
-        if (rightUri) {
-            const rightData = await host.fs.readFile(rightUri.path);
-            modifiedContent = typeof rightData === 'string' ? rightData : new TextDecoder().decode(rightData);
-        } else {
-            modifiedContent = '';
-        }
+        const [leftText, rightText] = await Promise.all([resolveUriContent(leftUri), resolveUriContent(rightUri)]);
+        originalContent = leftText;
+        modifiedContent = rightText;
     } catch (err) {
         console.error('Failed to load file contents for diff:', err);
     }
 }
 
 async function loadDiffContents(state: JjResourceState): Promise<void> {
-    await loadDiffFromUris(state.leftUri, state.rightUri, state.diffTitle || state.resourceUri.path, state);
+    await loadDiffFromUris(state.leftUri, state.rightUri, state.diffTitle || state.resourceUri.fsPath, state);
 }
 
 async function handleSaveFile(newContent: string): Promise<void> {
-    if (!host || !activeDiffRightUri) {
+    if (activeView.type !== 'diff' || !activeView.rightUri) {
         return;
     }
-    const encoder = new TextEncoder();
-    await host.fs.writeFile(activeDiffRightUri.path, encoder.encode(newContent));
+    const rightUri = activeView.rightUri;
+    if (rightUri.scheme === 'jj-edit' && editFs) {
+        await editFs.writeFile(rightUri, new TextEncoder().encode(newContent));
+    } else if (host) {
+        await host.fs.writeTextFile(rightUri.fsPath, newContent);
+    }
     modifiedContent = newContent;
     if (scmModel) {
         await scmModel.refresh({ reason: 'save-diff' });
@@ -87,74 +216,96 @@ async function handleSaveFile(newContent: string): Promise<void> {
 }
 
 async function handleDiscardFile(): Promise<void> {
-    if (!activeResourceState) {
+    if (activeView.type !== 'diff' || !activeView.resourceState) {
         return;
     }
-    await handleAction('jj-view.restore', activeResourceState);
+    const state = activeView.resourceState;
+    await handleAction('jj-view.restore', state);
     if (scmModel) {
         await scmModel.refresh({ reason: 'discard-file' });
     }
-    await loadDiffContents(activeResourceState);
+    activeView = { type: 'empty' };
 }
 
 async function handleResolveConflict(): Promise<void> {
-    if (!activeResourceState) {
+    if (activeView.type !== 'diff' || !activeView.resourceState) {
         return;
     }
     if (scmModel) {
         await scmModel.refresh({ reason: 'resolve-conflict' });
     }
-    await loadDiffContents(activeResourceState);
+    await loadDiffContents(activeView.resourceState);
 }
-
-const dispatcher: WebCommandDispatcher | null = $derived.by(() => {
-    if (!scmModel) {
-        return null;
-    }
-    return new WebCommandDispatcher({
-        scmModel,
-        onOpenDiff: async (leftUri, rightUri, title) => {
-            await loadDiffFromUris(leftUri, rightUri, title, activeResourceState ?? undefined);
-        },
-        onOpenFile: async (uri) => {
-            await loadDiffFromUris(undefined, uri, uri.path, activeResourceState ?? undefined);
-        },
-        onError: (err) => {
-            console.error('Command execution failed:', err);
-        },
-    });
-});
 
 $effect(() => {
     if (!scmModel) {
         return;
     }
-    const disposable = scmModel.onDidChange(() => {
-        currentSnapshot = scmModel.snapshot;
+    const disposable = scmModel.onDidChangeSnapshot((snapshot) => {
+        currentSnapshot = snapshot;
     });
     return () => {
         disposable.dispose();
     };
 });
 
-async function handleAction(command: string, payload?: unknown): Promise<void> {
-    if (payload && typeof payload === 'object' && 'resourceUri' in (payload as Record<string, unknown>)) {
-        activeResourceState = payload as JjResourceState;
+$effect(() => {
+    if (activeView.type === 'commit-details' && scmModel && webHostEnv) {
+        const changeId = activeView.changeId;
+        const bridge = createInMemoryBridge(async (msg) => {
+            if (commitDetailsController) {
+                await commitDetailsController.handleMessage(msg);
+            }
+        });
+        commitDetailsBridge = bridge;
+        commitDetailsController = new CommitDetailsController(changeId, scmModel.repo, webHostEnv, {
+            logger: NO_OP_LOGGER,
+            openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
+                const repo = scmModel?.repo;
+                if (!repo) {
+                    return;
+                }
+                const leftUri = Uri.from({
+                    scheme: 'jj-view',
+                    path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+                    fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'left' }),
+                });
+                const rightUri = isWorkingCopy
+                    ? Uri.file(path.join(workspaceRoot, file.path))
+                    : Uri.from({
+                          scheme: 'jj-view',
+                          path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+                          fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'right' }),
+                      });
+                const matchingState = createJjResourceState(file, cId, workspaceRoot, {
+                    editable: isWorkingCopy,
+                    workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                });
+                await loadDiffFromUris(leftUri, rightUri, `${file.path} (${cId.slice(0, 8)})`, matchingState);
+            },
+        });
+        const messengerSub = bridge.messenger ? commitDetailsController.addMessenger(bridge.messenger) : undefined;
+        void commitDetailsController.load();
+        return () => {
+            messengerSub?.dispose();
+            commitDetailsController?.dispose();
+            commitDetailsController = null;
+            commitDetailsBridge = null;
+        };
     }
-    if (dispatcher) {
-        await dispatcher.execute(command, payload);
-        return;
-    }
+});
 
-    if (command === 'vscode.diff' || command === 'jj-view.openChanges') {
-        const item = payload as JjResourceState | undefined;
-        if (item) {
-            await loadDiffContents(item);
-        }
+async function handleAction(command: string, payload?: unknown): Promise<void> {
+    if (webHostEnv) {
+        await webHostEnv.commands.executeCommand(command, payload);
     }
 }
 
 async function handleOpenResource(state: JjResourceState): Promise<void> {
+    if (state.leftUri && state.rightUri) {
+        await loadDiffContents(state);
+        return;
+    }
     if (state.command) {
         await handleAction(state.command.command, state);
     } else {
@@ -167,7 +318,7 @@ function handleCommit(message: string): void {
 }
 
 function handleSetDescription(message: string): void {
-    void handleAction('jj-view.describe', message);
+    void handleAction('jj-view.setDescription', message);
 }
 
 function handleRefresh(): void {
@@ -175,71 +326,187 @@ function handleRefresh(): void {
 }
 
 onMount(() => {
+    let configSub: { dispose: () => void } | undefined;
+    if (webHostEnv) {
+        const applyTheme = (themeName: string) => {
+            activeTheme = themeName;
+            if (typeof document === 'undefined') {
+                return;
+            }
+            document.documentElement.setAttribute('data-theme', themeName);
+            if (themeName.includes('light')) {
+                document.body.classList.remove('vscode-dark');
+                document.body.classList.add('vscode-light');
+            } else {
+                document.body.classList.remove('vscode-light');
+                document.body.classList.add('vscode-dark');
+            }
+        };
+
+        const initialTheme = webHostEnv.config.get<string>('appearance.theme') || 'pierre-dark-soft';
+        applyTheme(initialTheme);
+
+        configSub = webHostEnv.config.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('appearance.theme')) {
+                const newTheme = webHostEnv.config.get<string>('appearance.theme') || 'pierre-dark-soft';
+                applyTheme(newTheme);
+            }
+        });
+
+        webHostEnv.commands.setContextKeySetter(rootContext);
+        webHostEnv.ui.setQuickInputService(activeQuickInput);
+        webHostEnv.nav.setCallbacks({
+            onOpenSettings: async (_settingId) => {
+                isSettingsOpen = true;
+            },
+            onOpenDiff: async (leftUri, rightUri, title) => {
+                const normPath = rightUri?.path || leftUri?.path || '';
+                const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+                let matchingState: JjResourceState | undefined;
+                if (currentSnapshot?.conflictedPaths.some((p) => p === cleanPath || normPath.endsWith(p))) {
+                    matchingState = createJjResourceState(
+                        { path: cleanPath, status: 'modified', conflicted: true },
+                        '@',
+                        workspaceRoot,
+                        {
+                            openDiffOnClick: true,
+                            inConflictGroup: true,
+                            workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                        },
+                    );
+                } else {
+                    const change = currentSnapshot?.workingCopyChanges?.find(
+                        (c) => c.path === cleanPath || normPath.endsWith(c.path),
+                    );
+                    if (change) {
+                        matchingState = createJjResourceState(change, '@', workspaceRoot, {
+                            squashable: currentSnapshot.parentMutable,
+                            multipleAncestors: (currentSnapshot.ancestors.length ?? 0) > 1,
+                            openDiffOnClick: true,
+                            hasChild: currentSnapshot.hasChild,
+                            workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                        });
+                    }
+                }
+                await loadDiffFromUris(leftUri, rightUri, title, matchingState);
+            },
+            onOpenFile: async (uri) => {
+                await loadDiffFromUris(undefined, uri, uri.fsPath);
+            },
+            onOpenMergeEditor: async (resourceUri) => {
+                const normPath = resourceUri.path;
+                const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+                const conflictPath =
+                    currentSnapshot?.conflictedPaths.find((p) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
+                const state = createJjResourceState(
+                    { path: conflictPath, status: 'modified', conflicted: true },
+                    '@',
+                    workspaceRoot,
+                    {
+                        openDiffOnClick: true,
+                        inConflictGroup: true,
+                        workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                    },
+                );
+                await loadDiffContents(state);
+            },
+            onOpenCommitDetails: async (changeId) => {
+                activeView = { type: 'commit-details', changeId };
+            },
+            onFocusScmInput: async () => {
+                const textarea = document.querySelector<HTMLTextAreaElement>('[data-testid="scm-input-textarea"]');
+                textarea?.focus();
+            },
+        });
+    }
+
     return () => {
         rootContext.dispose();
+        configSub?.dispose();
     };
 });
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <AppLayout
     repoPath={workspaceRoot}
-    {activeTab}
-    onTabChange={(tab) => {
-        activeTab = tab;
-    }}
     onRefresh={handleRefresh}
 >
-    {#snippet sidebar()}
-        {#if activeTab === 'scm'}
-            <ScmPane
-                snapshot={currentSnapshot}
-                {workspaceRoot}
-                {menuRegistry}
-                {rootContext}
-                openDiffOnClick={true}
-                onOpenResource={handleOpenResource}
-                onCommit={handleCommit}
-                onSetDescription={handleSetDescription}
-                onAction={handleAction}
+    {#snippet scm()}
+        <ScmPane
+            snapshot={currentSnapshot}
+            {workspaceRoot}
+            {menuRegistry}
+            {rootContext}
+            openDiffOnClick={true}
+            onOpenResource={handleOpenResource}
+            onCommit={handleCommit}
+            onSetDescription={handleSetDescription}
+            onAction={handleAction}
+        />
+    {/snippet}
+
+    {#snippet log()}
+        {#if logTransport}
+            <LogPane
+                transport={logTransport}
+                onRefresh={handleRefresh}
             />
-        {:else}
-            <div class="log-placeholder" data-testid="log-pane-placeholder">
-                <p>JJ Log View</p>
-            </div>
         {/if}
     {/snippet}
 
     {#snippet main()}
         <div class="editor-main-area" data-testid="editor-main-area">
-            {#if activeDiffTitle}
-                {#key activeDiffTitle}
+            {#if activeView.type === 'diff'}
+                {#key activeView.title}
                     <PierreDiffViewer
-                        filename={activeDiffTitle}
+                        filename={activeView.title}
+                        theme={activeTheme}
                         {originalContent}
                         {modifiedContent}
-                        isWorkingCopy={activeResourceState
+                        fileStatus={activeView.resourceState?.status}
+                        isWorkingCopy={activeView.resourceState
                             ? isWorkingCopyRevision(
-                                  activeResourceState.revision,
+                                  activeView.resourceState.revision,
                                   currentSnapshot?.currentEntry?.change_id
                               )
-                            : true}
-                        isConflict={activeResourceState?.status === 'conflicted' ||
-                            (activeResourceState?.contextValue?.includes('AllowOpenMergeEditor') ?? false)}
+                            : activeView.rightUri?.scheme === 'file'}
+                        isConflict={activeView.resourceState?.status === 'conflicted' ||
+                            (activeView.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
                         onSave={handleSaveFile}
                         onDiscard={handleDiscardFile}
                         onResolveConflict={handleResolveConflict}
                     />
                 {/key}
+            {:else if activeView.type === 'commit-details' && commitDetailsBridge}
+                <CommitDetailsView
+                    transport={commitDetailsBridge.transport}
+                    onClose={() => {
+                        activeView = { type: 'empty' };
+                    }}
+                />
             {:else}
                 <div class="empty-editor-message">
                     <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>
                     <h2>Source Control (JJ View)</h2>
-                    <p>Select a changed file in the left pane to view diffs and make edits.</p>
+                    <p>Select a changed file in the left pane to view diffs and make edits, or select a commit in the log.</p>
                 </div>
             {/if}
         </div>
     {/snippet}
 </AppLayout>
+
+{#if isSettingsOpen && webHostEnv}
+    <SettingsModal
+        {webHostEnv}
+        onClose={() => {
+            isSettingsOpen = false;
+        }}
+    />
+{/if}
+
+<QuickInput service={activeQuickInput} />
 
 <style>
 .editor-main-area {
@@ -247,24 +514,9 @@ onMount(() => {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-editor-background, #1e1e1e);
-    color: var(--vscode-editor-foreground, #cccccc);
-}
-
-.editor-header {
-    height: 35px;
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    background-color: var(--vscode-editorGroupHeader-tabsBackground, #252526);
-    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, rgba(128, 128, 128, 0.2));
-    font-size: 13px;
-    font-weight: 500;
-}
-
-.diff-placeholder {
-    padding: 24px;
-    font-family: monospace;
+    background-color: var(--vscode-editor-background, #171717);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    overflow: hidden;
 }
 
 .empty-editor-message {
@@ -274,7 +526,7 @@ onMount(() => {
     justify-content: center;
     height: 100%;
     gap: 12px;
-    color: var(--vscode-descriptionForeground, #888888);
+    color: var(--vscode-descriptionForeground, #8a8a8a);
     text-align: center;
     user-select: none;
 }
@@ -283,7 +535,7 @@ onMount(() => {
     font-size: 18px;
     font-weight: 600;
     margin: 0;
-    color: var(--vscode-foreground, #ffffff);
+    color: var(--vscode-foreground, #d4d4d4);
 }
 
 .empty-editor-message p {
@@ -295,15 +547,7 @@ onMount(() => {
 
 .large-icon {
     font-size: 48px;
-    color: var(--vscode-icon-foreground, #777777);
+    color: var(--vscode-icon-foreground, #8a8a8a);
     margin-bottom: 8px;
-}
-
-.log-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--vscode-descriptionForeground, #888888);
 }
 </style>

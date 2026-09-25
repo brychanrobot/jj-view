@@ -6,6 +6,13 @@
         "rootDir": "..",
         "noEmit": true
     },
-    "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts", "../src/core/**/*.ts"],
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.svelte",
+        "test/**/*.ts",
+        "../src/core/**/*.ts",
+        "../src/test/test-repo.ts",
+        "../src/test/perf-trace.ts"
+    ],
     "exclude": ["node_modules", "dist"]
 }

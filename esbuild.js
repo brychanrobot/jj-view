@@ -12,6 +12,7 @@ const os = require('node:os');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+const webOnly = process.argv.includes('--web');
 
 /**
  * @type {import('esbuild').Plugin}
@@ -33,6 +34,30 @@ const esbuildProblemMatcherPlugin = {
     },
 };
 
+/**
+ * @type {import('esbuild').Plugin}
+ */
+const browserShimsPlugin = {
+    name: 'browser-shims',
+    setup(build) {
+        build.onResolve({ filter: /^@parcel\/watcher/ }, () => {
+            return { path: path.resolve(__dirname, 'web/src/stubs/parcel-watcher.ts') };
+        });
+        build.onResolve({ filter: /[/\\]node-host-system(?:\.[cm]?[jt]sx?)?$/ }, () => {
+            return { path: path.resolve(__dirname, 'web/src/stubs/node-host-system.ts') };
+        });
+        build.onResolve({ filter: /[/\\]binary-utils(?:\.[cm]?[jt]sx?)?$/ }, () => {
+            return { path: path.resolve(__dirname, 'web/src/stubs/binary-utils.ts') };
+        });
+        build.onResolve({ filter: /^(node:)?(fs|child_process|os|path)(\/promises)?$/ }, () => {
+            return { path: path.resolve(__dirname, 'web/src/stubs/empty-stub.ts') };
+        });
+        build.onResolve({ filter: /^detect-libc$/ }, () => {
+            return { path: path.resolve(__dirname, 'web/src/stubs/empty-stub.ts') };
+        });
+    },
+};
+
 function formatFile(filePath, { ignoreUnmatched = false } = {}) {
     try {
         const pnpmCmd = os.platform() === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -48,6 +73,46 @@ function formatFile(filePath, { ignoreUnmatched = false } = {}) {
 }
 
 async function main() {
+    const standaloneWebCtx = await esbuild.context({
+        entryPoints: {
+            app: 'web/src/main.ts',
+        },
+        bundle: true,
+        format: 'iife',
+        minify: production,
+        sourcemap: !production,
+        sourcesContent: false,
+        platform: 'browser',
+        outdir: 'web/dist',
+        logLevel: 'silent',
+        define: {
+            'process.env.NODE_ENV': production ? '"production"' : '"development"',
+        },
+        plugins: [
+            browserShimsPlugin,
+            sveltePlugin({
+                compilerOptions: {
+                    dev: !production,
+                    css: 'external',
+                },
+            }),
+            esbuildProblemMatcherPlugin,
+        ],
+        banner: {
+            js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
+        },
+    });
+
+    if (webOnly) {
+        if (watch) {
+            await standaloneWebCtx.watch();
+        } else {
+            await standaloneWebCtx.rebuild();
+            await standaloneWebCtx.dispose();
+        }
+        return;
+    }
+
     const extensionCtx = await esbuild.context({
         entryPoints: ['src/vscode/extension.ts'],
         bundle: true,
@@ -83,35 +148,6 @@ async function main() {
         sourcesContent: false,
         platform: 'browser',
         outdir: 'dist/webview',
-        logLevel: 'silent',
-        define: {
-            'process.env.NODE_ENV': production ? '"production"' : '"development"',
-        },
-        plugins: [
-            sveltePlugin({
-                compilerOptions: {
-                    dev: !production,
-                    css: 'external',
-                },
-            }),
-            esbuildProblemMatcherPlugin,
-        ],
-        banner: {
-            js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
-        },
-    });
-
-    const standaloneWebCtx = await esbuild.context({
-        entryPoints: {
-            app: 'web/src/main.ts',
-        },
-        bundle: true,
-        format: 'iife',
-        minify: production,
-        sourcemap: !production,
-        sourcesContent: false,
-        platform: 'browser',
-        outdir: 'web/dist',
         logLevel: 'silent',
         define: {
             'process.env.NODE_ENV': production ? '"production"' : '"development"',
@@ -181,7 +217,10 @@ async function copyAssets() {
         fs.copyFileSync(srcPath, destPath);
         console.log(`[build] Copied ${asset.src} to ${asset.dest}`);
 
-        if (destPath.endsWith('.css') || destPath.endsWith('.ts') || destPath.endsWith('.js')) {
+        if (
+            !destPath.includes('dist') &&
+            (destPath.endsWith('.css') || destPath.endsWith('.ts') || destPath.endsWith('.js'))
+        ) {
             formatFile(destPath, { ignoreUnmatched: true });
         }
     }
@@ -261,8 +300,14 @@ async function buildIcons() {
     execSync('pnpm run build:icons', { stdio: 'inherit' });
 }
 
+async function generateSettingsSchema() {
+    execFileSync(process.execPath, [path.join(__dirname, 'tooling/generate-settings-schema.ts')], {
+        stdio: 'inherit',
+    });
+}
+
 // Run prerequisite tasks before main build
-Promise.all([buildIcons(), copyAssets(), installNativeDeps()])
+Promise.all([generateSettingsSchema(), buildIcons(), copyAssets(), webOnly ? Promise.resolve() : installNativeDeps()])
     .then(main)
     .catch((e) => {
         console.error(e);

@@ -42,6 +42,7 @@ let contextMenuState = $state<{
     x: number;
     y: number;
     groups: ResolvedMenuItemGroup[];
+    payload?: unknown;
 }>({
     visible: false,
     x: 0,
@@ -65,7 +66,7 @@ const currentChangeId = $derived(currentEntry?.change_id || '@');
 
 const conflictItems: JjResourceState[] = $derived(
     snapshot?.conflictedPaths.map((cPath) =>
-        createJjResourceState({ path: cPath, status: 'modified', conflicted: true }, currentChangeId, workspaceRoot, {
+        createJjResourceState({ path: cPath, status: 'modified', conflicted: true }, '@', workspaceRoot, {
             openDiffOnClick,
             inConflictGroup: true,
             workingCopyChangeId: currentChangeId,
@@ -79,7 +80,7 @@ const workingCopyItems: JjResourceState[] = $derived(
     (snapshot?.workingCopyChanges ?? [])
         .filter((c) => !conflictedSet.has(c.path))
         .map((c) =>
-            createJjResourceState(c, currentChangeId, workspaceRoot, {
+            createJjResourceState(c, '@', workspaceRoot, {
                 squashable: snapshot?.parentMutable,
                 multipleAncestors: (snapshot?.ancestors.length ?? 0) > 1,
                 openDiffOnClick,
@@ -89,7 +90,12 @@ const workingCopyItems: JjResourceState[] = $derived(
         ),
 );
 
-function handleGroupContextMenu(e: MouseEvent, groupId: string, contextValue: string): void {
+function handleGroupContextMenu(
+    e: MouseEvent,
+    groupId: string,
+    contextValue: string,
+    extraPayload?: Record<string, unknown>,
+): void {
     e.preventDefault();
     const groupCtx = rootContext.createScoped({
         scmResourceGroupState: contextValue,
@@ -102,6 +108,7 @@ function handleGroupContextMenu(e: MouseEvent, groupId: string, contextValue: st
             x: e.clientX,
             y: e.clientY,
             groups,
+            payload: { groupId, ...extraPayload },
         };
     }
 }
@@ -120,22 +127,47 @@ function handleResourceContextMenu(e: MouseEvent, resourceState: JjResourceState
             x: e.clientX,
             y: e.clientY,
             groups,
+            payload: resourceState,
         };
     }
 }
+// svelte-ignore state_referenced_locally
+let currentDescription = $state(snapshot?.description || '');
+$effect(() => {
+    if (snapshot?.description !== undefined) {
+        currentDescription = snapshot.description;
+    }
+});
 </script>
 
 <div class="scm-pane" data-testid="scm-pane">
     <ScmHeader
         {menuRegistry}
         context={rootContext}
-        onAction={(cmd) => onAction(cmd)}
+        onAction={(cmd) => {
+            if (cmd === 'jj-view.commit') {
+                const msg = currentDescription;
+                currentDescription = '';
+                onCommit(msg);
+            } else if (cmd === 'jj-view.setDescription') {
+                onSetDescription(currentDescription);
+            } else {
+                onAction(cmd);
+            }
+        }}
     />
 
     <ScmInputBox
         value={snapshot?.description || ''}
-        {onCommit}
+        changeId={currentChangeId}
+        onCommit={(msg) => {
+            currentDescription = '';
+            onCommit(msg);
+        }}
         {onSetDescription}
+        onValueChange={(val) => {
+            currentDescription = val;
+        }}
     />
 
     <div class="scm-groups-list" role="tree" aria-label="Source Control Repositories">
@@ -192,10 +224,23 @@ function handleResourceContextMenu(e: MouseEvent, resourceState: JjResourceState
                     expanded={true}
                     {rootContext}
                     {menuRegistry}
-                    onGroupAction={(cmd) => onAction(cmd, { ancestor, groupId: `ancestor-${idx}` })}
+                    onGroupAction={(cmd) =>
+                        onAction(cmd, {
+                            ancestor,
+                            groupId: `ancestor-${idx}`,
+                            revision: ancestor.entry.change_id,
+                            changeId: ancestor.entry.change_id,
+                            commitId: ancestor.entry.commit_id,
+                        })}
                     onOpenResource={onOpenResource}
                     onResourceAction={(cmd, item) => onAction(cmd, item)}
-                    onGroupContextMenu={(e) => handleGroupContextMenu(e, `ancestor-${idx}`, ancestor.contextValue)}
+                    onGroupContextMenu={(e) =>
+                        handleGroupContextMenu(e, `ancestor-${idx}`, ancestor.contextValue, {
+                            ancestor,
+                            revision: ancestor.entry.change_id,
+                            changeId: ancestor.entry.change_id,
+                            commitId: ancestor.entry.commit_id,
+                        })}
                     onResourceContextMenu={handleResourceContextMenu}
                 />
             {/each}
@@ -207,9 +252,9 @@ function handleResourceContextMenu(e: MouseEvent, resourceState: JjResourceState
             x={contextMenuState.x}
             y={contextMenuState.y}
             groups={contextMenuState.groups}
-            onSelect={(cmd) => onAction(cmd)}
+            onSelect={(cmd) => onAction(cmd, contextMenuState.payload)}
             onClose={() => {
-                contextMenuState = { ...contextMenuState, visible: false };
+                contextMenuState = { ...contextMenuState, visible: false, payload: undefined };
             }}
         />
     {/if}
@@ -221,8 +266,10 @@ function handleResourceContextMenu(e: MouseEvent, resourceState: JjResourceState
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-sideBar-background, #1e1e1e);
-    color: var(--vscode-sideBar-foreground, #cccccc);
+    background-color: var(--vscode-sideBar-background, #171717);
+    color: var(--vscode-foreground, #d4d4d4);
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
+    font-size: var(--vscode-font-size, 13px);
     overflow-y: auto;
     overflow-x: hidden;
     user-select: none;

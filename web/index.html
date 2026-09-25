@@ -12,6 +12,28 @@
     <link rel="stylesheet" href="/dist/codicons/codicon.css">
     <link rel="stylesheet" href="/dist/custom-icons/jj-view-icons.css">
     <link rel="stylesheet" href="/dist/app.css">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #171717;
+            color: #d4d4d4;
+            font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
+            font-size: var(--vscode-font-size, 13px);
+            line-height: 1.4;
+        }
+        #app {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body class="vscode-dark">
     <div id="app"></div>
