@@ -101,11 +101,40 @@ async function main() {
         },
     });
 
+    const standaloneWebCtx = await esbuild.context({
+        entryPoints: {
+            app: 'src/web/main.ts',
+        },
+        bundle: true,
+        format: 'iife',
+        minify: production,
+        sourcemap: !production,
+        sourcesContent: false,
+        platform: 'browser',
+        outdir: 'web/dist',
+        logLevel: 'silent',
+        define: {
+            'process.env.NODE_ENV': production ? '"production"' : '"development"',
+        },
+        plugins: [
+            sveltePlugin({
+                compilerOptions: {
+                    dev: !production,
+                    css: 'external',
+                },
+            }),
+            esbuildProblemMatcherPlugin,
+        ],
+        banner: {
+            js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
+        },
+    });
+
     if (watch) {
-        await Promise.all([extensionCtx.watch(), webviewCtx.watch()]);
+        await Promise.all([extensionCtx.watch(), webviewCtx.watch(), standaloneWebCtx.watch()]);
     } else {
-        await Promise.all([extensionCtx.rebuild(), webviewCtx.rebuild()]);
-        await Promise.all([extensionCtx.dispose(), webviewCtx.dispose()]);
+        await Promise.all([extensionCtx.rebuild(), webviewCtx.rebuild(), standaloneWebCtx.rebuild()]);
+        await Promise.all([extensionCtx.dispose(), webviewCtx.dispose(), standaloneWebCtx.dispose()]);
     }
 }
 
@@ -120,6 +149,22 @@ async function copyAssets() {
         {
             src: 'node_modules/@vscode/codicons/dist/codicon.ttf',
             dest: 'media/codicons/codicon.ttf',
+        },
+        {
+            src: 'node_modules/@vscode/codicons/dist/codicon.css',
+            dest: 'web/dist/codicons/codicon.css',
+        },
+        {
+            src: 'node_modules/@vscode/codicons/dist/codicon.ttf',
+            dest: 'web/dist/codicons/codicon.ttf',
+        },
+        {
+            src: 'media/custom-icons/jj-view-icons.css',
+            dest: 'web/dist/custom-icons/jj-view-icons.css',
+        },
+        {
+            src: 'media/custom-icons/jj-view-icons.woff2',
+            dest: 'web/dist/custom-icons/jj-view-icons.woff2',
         },
     ];
 
