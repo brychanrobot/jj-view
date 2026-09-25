@@ -26,6 +26,7 @@ export interface JjResourceState {
     rightUri?: Uri;
     diffTitle?: string;
     revision: string;
+    status?: JjStatusEntry['status'];
 }
 
 export function createJjResourceState(
@@ -104,5 +105,6 @@ export function createJjResourceState(
         },
         contextValue,
         revision,
+        status: entry.status,
     };
 }
