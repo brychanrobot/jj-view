@@ -14,6 +14,7 @@ interface Props {
 
 let { transport, onClose }: Props = $props();
 
+// svelte-ignore state_referenced_locally
 initBridge(transport);
 </script>
 

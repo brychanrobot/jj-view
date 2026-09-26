@@ -82,6 +82,7 @@ type ActiveView =
     | { type: 'commit-details'; changeId: string }
     | { type: 'empty' };
 
+// svelte-ignore state_referenced_locally
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
 let activeView = $state<ActiveView>({ type: 'empty' });
 let originalContent = $state('');
