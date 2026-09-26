@@ -7,8 +7,6 @@ import type { ScmSnapshot } from '../../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../../src/core/scm-resource-state';
 import type { IContextKeyService } from '../menu/context-key-service';
 import type { MenuRegistry } from '../menu/menu-registry';
-import type { ResolvedMenuItemGroup } from '../menu/menu-types';
-import ScmContextMenu from './ScmContextMenu.svelte';
 import ScmHeader from './ScmHeader.svelte';
 import ScmInputBox from './ScmInputBox.svelte';
 import ScmResourceGroup from './ScmResourceGroup.svelte';
@@ -36,19 +34,6 @@ let {
     onSetDescription,
     onAction,
 }: Props = $props();
-
-let contextMenuState = $state<{
-    visible: boolean;
-    x: number;
-    y: number;
-    groups: ResolvedMenuItemGroup[];
-    payload?: unknown;
-}>({
-    visible: false,
-    x: 0,
-    y: 0,
-    groups: [],
-});
 
 // Update root context keys when snapshot changes
 $effect(() => {
@@ -90,47 +75,6 @@ const workingCopyItems: JjResourceState[] = $derived(
         ),
 );
 
-function handleGroupContextMenu(
-    e: MouseEvent,
-    groupId: string,
-    contextValue: string,
-    extraPayload?: Record<string, unknown>,
-): void {
-    e.preventDefault();
-    const groupCtx = rootContext.createScoped({
-        scmResourceGroupState: contextValue,
-        scmResourceGroupId: groupId,
-    });
-    const groups = menuRegistry.getContextActions('scm/resourceGroup/context', groupCtx);
-    if (groups.length > 0) {
-        contextMenuState = {
-            visible: true,
-            x: e.clientX,
-            y: e.clientY,
-            groups,
-            payload: { groupId, ...extraPayload },
-        };
-    }
-}
-
-function handleResourceContextMenu(e: MouseEvent, resourceState: JjResourceState): void {
-    e.preventDefault();
-    const itemCtx = rootContext.createScoped({
-        scmResourceState: resourceState.contextValue || '',
-        resourceFilename: resourceState.resourceUri.path.split('/').pop() || '',
-        resourceScheme: resourceState.resourceUri.scheme,
-    });
-    const groups = menuRegistry.getContextActions('scm/resourceState/context', itemCtx);
-    if (groups.length > 0) {
-        contextMenuState = {
-            visible: true,
-            x: e.clientX,
-            y: e.clientY,
-            groups,
-            payload: resourceState,
-        };
-    }
-}
 // svelte-ignore state_referenced_locally
 let currentDescription = $state(snapshot?.description || '');
 $effect(() => {
@@ -184,8 +128,6 @@ $effect(() => {
                 onGroupAction={(cmd) => onAction(cmd, { groupId: 'conflicts' })}
                 onOpenResource={onOpenResource}
                 onResourceAction={(cmd, item) => onAction(cmd, item)}
-                onGroupContextMenu={(e) => handleGroupContextMenu(e, 'conflicts', 'jj.group.conflict')}
-                onResourceContextMenu={handleResourceContextMenu}
             />
         {/if}
 
@@ -201,9 +143,6 @@ $effect(() => {
             onGroupAction={(cmd) => onAction(cmd, { groupId: 'working-copy' })}
             onOpenResource={onOpenResource}
             onResourceAction={(cmd, item) => onAction(cmd, item)}
-            onGroupContextMenu={(e) =>
-                handleGroupContextMenu(e, 'working-copy', snapshot?.workingCopyContextValue || 'jj.group.workingCopy')}
-            onResourceContextMenu={handleResourceContextMenu}
         />
 
         {#if snapshot?.ancestors}
@@ -235,32 +174,15 @@ $effect(() => {
                             changeId: ancestor.entry.change_id,
                             commitId: ancestor.entry.commit_id,
                         })}
+                    revision={ancestor.entry.change_id}
+                    changeId={ancestor.entry.change_id}
+                    commitId={ancestor.entry.commit_id}
                     onOpenResource={onOpenResource}
                     onResourceAction={(cmd, item) => onAction(cmd, item)}
-                    onGroupContextMenu={(e) =>
-                        handleGroupContextMenu(e, `ancestor-${idx}`, ancestor.contextValue, {
-                            ancestor,
-                            revision: ancestor.entry.change_id,
-                            changeId: ancestor.entry.change_id,
-                            commitId: ancestor.entry.commit_id,
-                        })}
-                    onResourceContextMenu={handleResourceContextMenu}
                 />
             {/each}
         {/if}
     </div>
-
-    {#if contextMenuState.visible}
-        <ScmContextMenu
-            x={contextMenuState.x}
-            y={contextMenuState.y}
-            groups={contextMenuState.groups}
-            onSelect={(cmd) => onAction(cmd, contextMenuState.payload)}
-            onClose={() => {
-                contextMenuState = { ...contextMenuState, visible: false, payload: undefined };
-            }}
-        />
-    {/if}
 </div>
 
 <style>

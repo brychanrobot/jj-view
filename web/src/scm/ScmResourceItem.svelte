@@ -15,7 +15,7 @@ interface Props {
     menuRegistry: MenuRegistry;
     onOpen: (state: JjResourceState) => void;
     onAction: (command: string, state: JjResourceState) => void;
-    onContextMenu: (event: MouseEvent, state: JjResourceState) => void;
+    onContextMenu?: (event: MouseEvent, state: JjResourceState) => void;
 }
 
 let { resourceState, workspaceRoot, context, menuRegistry, onOpen, onAction, onContextMenu }: Props = $props();
@@ -70,12 +70,24 @@ function getStatusBadge(): { letter: string; title: string; className: string } 
 }
 
 const statusBadge = $derived(getStatusBadge());
+
+const vscodeContext = $derived(
+    JSON.stringify({
+        menuId: 'scm/resourceState/context',
+        scmResourceState: resourceState.contextValue || '',
+        resourceFilename: fileName,
+        resourceScheme: resourceState.resourceUri.scheme,
+        preventDefaultContextMenuItems: true,
+        resourceState,
+    }),
+);
 </script>
 
 <div
     class="scm-resource-item"
     data-testid="scm-resource-item"
     data-path={displayPath}
+    data-vscode-context={vscodeContext}
     role="treeitem"
     aria-selected="false"
     tabindex="0"
@@ -85,7 +97,7 @@ const statusBadge = $derived(getStatusBadge());
             onOpen(resourceState);
         }
     }}
-    oncontextmenu={(e) => onContextMenu(e, resourceState)}
+    oncontextmenu={(e) => onContextMenu?.(e, resourceState)}
 >
     <div class="resource-label-container">
         <span class="file-name" class:deleted={isDeleted}>{fileName}</span>

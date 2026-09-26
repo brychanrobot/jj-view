@@ -15,14 +15,17 @@ interface Props {
     contextValue?: string;
     items: JjResourceState[];
     workspaceRoot?: string;
+    revision?: string;
+    changeId?: string;
+    commitId?: string;
     expanded?: boolean;
     rootContext: IContextKeyService;
     menuRegistry: MenuRegistry;
     onGroupAction: (command: string, groupId: string) => void;
     onOpenResource: (state: JjResourceState) => void;
     onResourceAction: (command: string, state: JjResourceState) => void;
-    onGroupContextMenu: (event: MouseEvent, groupId: string) => void;
-    onResourceContextMenu: (event: MouseEvent, state: JjResourceState) => void;
+    onGroupContextMenu?: (event: MouseEvent, groupId: string) => void;
+    onResourceContextMenu?: (event: MouseEvent, state: JjResourceState) => void;
 }
 
 let {
@@ -31,6 +34,9 @@ let {
     contextValue = '',
     items,
     workspaceRoot,
+    revision,
+    changeId,
+    commitId,
     expanded = true,
     rootContext,
     menuRegistry,
@@ -71,12 +77,26 @@ const groupActions: ResolvedMenuItem[] = $derived.by(() => {
 function toggleExpanded(): void {
     isExpanded = !isExpanded;
 }
+
+const groupVsCodeContext = $derived(
+    JSON.stringify({
+        menuId: 'scm/resourceGroup/context',
+        scmResourceGroupState: contextValue,
+        scmResourceGroupId: id,
+        preventDefaultContextMenuItems: true,
+        groupId: id,
+        ...(revision ? { revision } : {}),
+        ...(changeId ? { changeId } : {}),
+        ...(commitId ? { commitId } : {}),
+    }),
+);
 </script>
 
 <div class="scm-resource-group" data-testid={`scm-group-${id}`}>
     <div
         class="group-header"
         data-testid={`scm-group-header-${id}`}
+        data-vscode-context={groupVsCodeContext}
         role="button"
         tabindex="0"
         onclick={toggleExpanded}
@@ -85,7 +105,7 @@ function toggleExpanded(): void {
                 toggleExpanded();
             }
         }}
-        oncontextmenu={(e) => onGroupContextMenu(e, id)}
+        oncontextmenu={(e) => onGroupContextMenu?.(e, id)}
     >
         <div class="group-title-row">
             <span class="chevron-icon">
