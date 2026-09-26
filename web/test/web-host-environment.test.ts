@@ -170,6 +170,55 @@ describe('WebHostEnvironment', () => {
             const bareNav = new WebHostNavigation();
             expect(() => bareNav.highlightCommit(repoRoot, 'rev')).not.toThrow();
         });
+
+        it('routes openFolder to onOpenFolder callback when provided', async () => {
+            const onOpenFolder = vi.fn().mockResolvedValue(undefined);
+            const nav = new WebHostNavigation({ onOpenFolder });
+            const targetFolder = Uri.file('/path/to/other-workspace');
+
+            await nav.openFolder(targetFolder, true);
+            expect(onOpenFolder).toHaveBeenCalledWith(targetFolder, true);
+
+            await nav.openFolder(targetFolder, false);
+            expect(onOpenFolder).toHaveBeenCalledWith(targetFolder, false);
+        });
+
+        it('navigates browser via window.open or window.location.assign in browser environment', async () => {
+            const nav = new WebHostNavigation();
+            const targetFolder = Uri.file('/path/to/other-workspace');
+            const originalWindow = globalThis.window;
+
+            const mockWindowOpen = vi.fn();
+            const mockLocationAssign = vi.fn();
+
+            try {
+                globalThis.window = createMock<Window & typeof globalThis>({
+                    location: createMock<Location>({
+                        href: 'http://localhost:8080/?token=abc123',
+                        assign: mockLocationAssign,
+                    }),
+                    open: mockWindowOpen,
+                });
+
+                // forceNewWindow = true opens in new window/tab
+                await nav.openFolder(targetFolder, true);
+                expect(mockWindowOpen).toHaveBeenCalledWith(
+                    expect.stringContaining(`repo=${encodeURIComponent(targetFolder.fsPath)}`),
+                    '_blank',
+                );
+                expect(mockWindowOpen).toHaveBeenCalledWith(expect.stringContaining('token=abc123'), '_blank');
+                expect(mockLocationAssign).not.toHaveBeenCalled();
+
+                // forceNewWindow = false assigns to window.location
+                await nav.openFolder(targetFolder, false);
+                expect(mockLocationAssign).toHaveBeenCalledWith(
+                    expect.stringContaining(`repo=${encodeURIComponent(targetFolder.fsPath)}`),
+                );
+                expect(mockLocationAssign).toHaveBeenCalledWith(expect.stringContaining('token=abc123'));
+            } finally {
+                globalThis.window = originalWindow;
+            }
+        });
     });
 
     describe('WebHostDocuments', () => {
