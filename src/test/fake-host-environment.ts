@@ -19,6 +19,7 @@ import type {
     HostEnvironment,
     HostExtensions,
     HostNavigation,
+    HostOpenOptions,
     HostSecrets,
     HostStorage,
     HostUi,
@@ -199,8 +200,12 @@ export class FakeHostUi implements HostUi {
 }
 
 export class FakeHostNavigation implements HostNavigation {
-    public diffsOpened: { leftUri: Uri; rightUri: Uri; title: string }[] = [];
-    public multiDiffsOpened: { title: string; resources: { leftUri: Uri; rightUri: Uri; label: string }[] }[] = [];
+    public diffsOpened: { leftUri: Uri; rightUri: Uri; title: string; options?: HostOpenOptions }[] = [];
+    public multiDiffsOpened: {
+        title: string;
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[];
+        options?: HostOpenOptions;
+    }[] = [];
     public mergeEditorsOpened: Uri[] = [];
     public commitDetailsOpened: {
         repoRoot: Uri;
@@ -208,8 +213,10 @@ export class FakeHostNavigation implements HostNavigation {
         shortestChangeId?: string;
         isDivergent?: boolean;
         changeIdOffset?: number;
+        options?: HostOpenOptions;
     }[] = [];
     public filesOpened: Uri[] = [];
+    public filesOpenedWithOptions: { uri: Uri; options?: HostOpenOptions }[] = [];
     public foldersOpened: { folderUri: Uri; forceNewWindow?: boolean }[] = [];
     public externalUrisOpened: Uri[] = [];
     public clipboardText = '';
@@ -217,12 +224,16 @@ export class FakeHostNavigation implements HostNavigation {
     public closedTabs: Uri[] = [];
     public focusScmInputCallCount = 0;
 
-    async openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void> {
-        this.diffsOpened.push({ leftUri, rightUri, title });
+    async openDiff(leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions): Promise<void> {
+        this.diffsOpened.push({ leftUri, rightUri, title, options });
     }
 
-    async openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void> {
-        this.multiDiffsOpened.push({ title, resources });
+    async openMultiDiff(
+        title: string,
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        options?: HostOpenOptions,
+    ): Promise<void> {
+        this.multiDiffsOpened.push({ title, resources, options });
     }
 
     async openMergeEditor(resourceUri: Uri): Promise<void> {
@@ -235,12 +246,14 @@ export class FakeHostNavigation implements HostNavigation {
         shortestChangeId?: string,
         isDivergent?: boolean,
         changeIdOffset?: number,
+        options?: HostOpenOptions,
     ): Promise<void> {
-        this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset });
+        this.commitDetailsOpened.push({ repoRoot, changeId, shortestChangeId, isDivergent, changeIdOffset, options });
     }
 
-    async openFile(uri: Uri): Promise<void> {
+    async openFile(uri: Uri, options?: HostOpenOptions): Promise<void> {
         this.filesOpened.push(uri);
+        this.filesOpenedWithOptions.push({ uri, options });
     }
 
     async openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void> {

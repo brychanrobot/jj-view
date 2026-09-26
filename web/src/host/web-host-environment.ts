@@ -10,11 +10,13 @@ import type {
     HostCommands,
     HostConfig,
     HostConfigurationChangeEvent,
+    HostDiffTab,
     HostDisposable,
     HostDocuments,
     HostEnvironment,
     HostExtensions,
     HostNavigation,
+    HostOpenOptions,
     HostSecrets,
     HostStorage,
     HostUi,
@@ -32,10 +34,10 @@ import { QuickInputService } from '../quick-input/quick-input-service';
 import { StatusBarService } from '../status/status-bar-service';
 
 export interface WebHostNavigationCallbacks {
-    onOpenDiff?: (leftUri: Uri, rightUri: Uri, title: string) => Promise<void> | void;
-    onOpenFile?: (uri: Uri) => Promise<void> | void;
+    onOpenDiff?: (leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions) => Promise<void> | void;
+    onOpenFile?: (uri: Uri, options?: HostOpenOptions) => Promise<void> | void;
     onOpenMergeEditor?: (resourceUri: Uri) => Promise<void> | void;
-    onOpenCommitDetails?: (changeId: string) => Promise<void> | void;
+    onOpenCommitDetails?: (changeId: string, options?: HostOpenOptions) => Promise<void> | void;
     onFocusScmInput?: () => Promise<void> | void;
     onOpenSettings?: (settingId?: string) => Promise<void> | void;
     onHighlightCommit?: (repoRoot: Uri, changeId: string | undefined) => void;
@@ -43,7 +45,9 @@ export interface WebHostNavigationCallbacks {
     onOpenMultiDiff?: (
         title: string,
         resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        options?: HostOpenOptions,
     ) => Promise<void> | void;
+    onCloseTab?: (uri: Uri) => Promise<void> | void;
 }
 
 export interface ContextKeySetter {
@@ -420,23 +424,32 @@ export class WebHostNavigation implements HostNavigation {
         this._highlightDelegate = delegate;
     }
 
-    public async openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void> {
+    public async openDiff(leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions): Promise<void> {
         if (this.callbacks.onOpenDiff) {
-            await this.callbacks.onOpenDiff(leftUri, rightUri, title);
+            if (options !== undefined) {
+                await this.callbacks.onOpenDiff(leftUri, rightUri, title, options);
+            } else {
+                await this.callbacks.onOpenDiff(leftUri, rightUri, title);
+            }
         }
     }
 
     public async openMultiDiff(
         title: string,
         resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        options?: HostOpenOptions,
     ): Promise<void> {
         if (this.callbacks.onOpenMultiDiff) {
-            await this.callbacks.onOpenMultiDiff(title, resources);
+            if (options !== undefined) {
+                await this.callbacks.onOpenMultiDiff(title, resources, options);
+            } else {
+                await this.callbacks.onOpenMultiDiff(title, resources);
+            }
             return;
         }
         if (resources.length > 0) {
             const first = resources[0];
-            await this.openDiff(first.leftUri, first.rightUri, first.label || title);
+            await this.openDiff(first.leftUri, first.rightUri, first.label || title, options);
         }
     }
 
@@ -454,9 +467,14 @@ export class WebHostNavigation implements HostNavigation {
         _shortestChangeId?: string,
         _isDivergent?: boolean,
         _changeIdOffset?: number,
+        options?: HostOpenOptions,
     ): Promise<void> {
         if (this.callbacks.onOpenCommitDetails) {
-            await this.callbacks.onOpenCommitDetails(changeId);
+            if (options !== undefined) {
+                await this.callbacks.onOpenCommitDetails(changeId, options);
+            } else {
+                await this.callbacks.onOpenCommitDetails(changeId);
+            }
         }
     }
 
@@ -466,9 +484,13 @@ export class WebHostNavigation implements HostNavigation {
         }
     }
 
-    public async openFile(uri: Uri): Promise<void> {
+    public async openFile(uri: Uri, options?: HostOpenOptions): Promise<void> {
         if (this.callbacks.onOpenFile) {
-            await this.callbacks.onOpenFile(uri);
+            if (options !== undefined) {
+                await this.callbacks.onOpenFile(uri, options);
+            } else {
+                await this.callbacks.onOpenFile(uri);
+            }
         }
     }
 
@@ -507,7 +529,11 @@ export class WebHostNavigation implements HostNavigation {
         }
     }
 
-    public async closeTab(_uri: Uri): Promise<void> {}
+    public async closeTab(uri: Uri): Promise<void> {
+        if (this.callbacks.onCloseTab) {
+            await this.callbacks.onCloseTab(uri);
+        }
+    }
 
     public highlightCommit(repoRoot: Uri, changeId: string | undefined): void {
         if (this._highlightDelegate) {
@@ -518,8 +544,35 @@ export class WebHostNavigation implements HostNavigation {
     }
 }
 
+export interface WebHostDocumentsDelegate {
+    getActiveDocumentUri?: () => Uri | undefined;
+    getOpenDocumentUris?: () => Uri[];
+    getOpenDiffTabs?: () => readonly HostDiffTab[];
+    getOpenDocumentText?: (uri: Uri) => string | undefined;
+    saveIfDirty?: (uri: Uri) => Promise<void>;
+}
+
 export class WebHostDocuments implements HostDocuments {
+    private delegate?: WebHostDocumentsDelegate;
+    private readonly _onDidChangeActiveDocument = new EventEmitter<Uri | undefined>();
+    private readonly _onDidSaveDocument = new EventEmitter<Uri>();
+
+    public readonly onDidChangeActiveDocument: Event<Uri | undefined> = this._onDidChangeActiveDocument.event;
+    public readonly onDidSaveDocument: Event<Uri> = this._onDidSaveDocument.event;
+
     constructor(private readonly hostSystem: RemoteHostSystem) {}
+
+    public setDelegate(delegate: WebHostDocumentsDelegate | undefined): void {
+        this.delegate = delegate;
+    }
+
+    public notifyActiveDocumentChanged(uri: Uri | undefined): void {
+        this._onDidChangeActiveDocument.fire(uri);
+    }
+
+    public notifyDidSaveDocument(uri: Uri): void {
+        this._onDidSaveDocument.fire(uri);
+    }
 
     public async readLineRangeText(uri: Uri, startLine1Based: number, endLine1Based: number): Promise<string> {
         const text = await this.hostSystem.fs.readTextFile(uri.fsPath);
@@ -549,12 +602,32 @@ export class WebHostDocuments implements HostDocuments {
             lines.splice(start, end - start, ...replacementLines);
         }
         await this.hostSystem.fs.writeTextFile(uri.fsPath, lines.join(eol));
+        this._onDidSaveDocument.fire(uri);
     }
 
-    public async saveIfDirty(_uri: Uri): Promise<void> {}
+    public async saveIfDirty(uri: Uri): Promise<void> {
+        if (this.delegate?.saveIfDirty) {
+            await this.delegate.saveIfDirty(uri);
+        }
+    }
 
-    public getOpenDocumentText(_uri: Uri): string | undefined {
+    public getOpenDocumentText(uri: Uri): string | undefined {
+        if (this.delegate?.getOpenDocumentText) {
+            return this.delegate.getOpenDocumentText(uri);
+        }
         return undefined;
+    }
+
+    public getActiveDocumentUri(): Uri | undefined {
+        return this.delegate?.getActiveDocumentUri?.();
+    }
+
+    public getOpenDocumentUris(): Uri[] {
+        return this.delegate?.getOpenDocumentUris?.() ?? [];
+    }
+
+    public getOpenDiffTabs(): readonly HostDiffTab[] {
+        return this.delegate?.getOpenDiffTabs?.() ?? [];
     }
 }
 

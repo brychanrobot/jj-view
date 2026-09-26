@@ -251,6 +251,37 @@ describe('WebHostEnvironment', () => {
             await nav.openMultiDiff('Empty Multi Diff', []);
             expect(onOpenDiff).not.toHaveBeenCalled();
         });
+
+        it('forwards options and closeTab callbacks', async () => {
+            const onOpenDiff = vi.fn().mockResolvedValue(undefined);
+            const onOpenFile = vi.fn().mockResolvedValue(undefined);
+            const onOpenCommitDetails = vi.fn().mockResolvedValue(undefined);
+            const onCloseTab = vi.fn().mockResolvedValue(undefined);
+
+            const nav = new WebHostNavigation({
+                onOpenDiff,
+                onOpenFile,
+                onOpenCommitDetails,
+                onCloseTab,
+            });
+
+            const left = Uri.file('/left.txt');
+            const right = Uri.file('/right.txt');
+
+            await nav.openDiff(left, right, 'Title', { preview: true });
+            expect(onOpenDiff).toHaveBeenCalledWith(left, right, 'Title', { preview: true });
+
+            await nav.openFile(right, { preview: false });
+            expect(onOpenFile).toHaveBeenCalledWith(right, { preview: false });
+
+            await nav.openCommitDetails(Uri.file('/repo'), 'abc12345', undefined, undefined, undefined, {
+                preview: true,
+            });
+            expect(onOpenCommitDetails).toHaveBeenCalledWith('abc12345', { preview: true });
+
+            await nav.closeTab(right);
+            expect(onCloseTab).toHaveBeenCalledWith(right);
+        });
     });
 
     describe('WebHostDocuments', () => {
@@ -338,6 +369,64 @@ describe('WebHostEnvironment', () => {
                 expect.stringContaining('test.txt'),
                 'line 1\r\nupdated 2\r\nline 3',
             );
+        });
+
+        it('delegates active document, open document, and diff tabs queries to delegate', async () => {
+            const hostSystem = createMock<RemoteHostSystem>({
+                fs: createMock<HostFs>({ readTextFile: vi.fn(), writeTextFile: vi.fn() }),
+            });
+            const docs = new WebHostDocuments(hostSystem);
+
+            // Without delegate, returns safe empty defaults
+            expect(docs.getActiveDocumentUri()).toBeUndefined();
+            expect(docs.getOpenDocumentUris()).toEqual([]);
+            expect(docs.getOpenDiffTabs()).toEqual([]);
+            expect(docs.getOpenDocumentText(Uri.file('/test.txt'))).toBeUndefined();
+
+            const activeUri = Uri.file('/active.txt');
+            const openUris = [activeUri, Uri.file('/other.txt')];
+            const diffTabs = [{ originalUri: Uri.file('/left.txt'), modifiedUri: activeUri, close: vi.fn() }];
+            const saveIfDirty = vi.fn().mockResolvedValue(undefined);
+
+            docs.setDelegate({
+                getActiveDocumentUri: () => activeUri,
+                getOpenDocumentUris: () => openUris,
+                getOpenDiffTabs: () => diffTabs,
+                getOpenDocumentText: (uri) => (uri.fsPath === activeUri.fsPath ? 'custom text' : undefined),
+                saveIfDirty,
+            });
+
+            expect(docs.getActiveDocumentUri()).toBe(activeUri);
+            expect(docs.getOpenDocumentUris()).toEqual(openUris);
+            expect(docs.getOpenDiffTabs()).toEqual(diffTabs);
+            expect(docs.getOpenDocumentText(activeUri)).toBe('custom text');
+
+            await docs.saveIfDirty(activeUri);
+            expect(saveIfDirty).toHaveBeenCalledWith(activeUri);
+        });
+
+        it('notifies subscribers on onDidChangeActiveDocument and onDidSaveDocument', async () => {
+            const hostSystem = createMock<RemoteHostSystem>({
+                fs: createMock<HostFs>({ readTextFile: vi.fn(), writeTextFile: vi.fn() }),
+            });
+            const docs = new WebHostDocuments(hostSystem);
+
+            const activeHistory: (Uri | undefined)[] = [];
+            const saveHistory: Uri[] = [];
+
+            const subActive = docs.onDidChangeActiveDocument((uri) => activeHistory.push(uri));
+            const subSave = docs.onDidSaveDocument((uri) => saveHistory.push(uri));
+
+            const testUri = Uri.file('/doc.txt');
+            docs.notifyActiveDocumentChanged(testUri);
+            docs.notifyActiveDocumentChanged(undefined);
+            expect(activeHistory).toEqual([testUri, undefined]);
+
+            docs.notifyDidSaveDocument(testUri);
+            expect(saveHistory).toEqual([testUri]);
+
+            subActive.dispose();
+            subSave.dispose();
         });
     });
 

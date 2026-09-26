@@ -22,7 +22,7 @@ interface Props {
     rootContext: IContextKeyService;
     menuRegistry: MenuRegistry;
     onGroupAction: (command: string, groupId: string) => void;
-    onOpenResource: (state: JjResourceState) => void;
+    onOpenResource: (state: JjResourceState, options?: { preview?: boolean }) => void;
     onResourceAction: (command: string, state: JjResourceState) => void;
     onGroupContextMenu?: (event: MouseEvent, groupId: string) => void;
     onResourceContextMenu?: (event: MouseEvent, state: JjResourceState) => void;

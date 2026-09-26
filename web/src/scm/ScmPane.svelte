@@ -17,7 +17,7 @@ interface Props {
     menuRegistry: MenuRegistry;
     rootContext: IContextKeyService;
     openDiffOnClick?: boolean;
-    onOpenResource: (state: JjResourceState) => void;
+    onOpenResource: (state: JjResourceState, options?: { preview?: boolean }) => void;
     onCommit: (message: string) => void;
     onSetDescription: (message: string) => void;
     onAction: (command: string, payload?: unknown) => void;

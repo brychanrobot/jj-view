@@ -17,9 +17,12 @@ interface Props {
     isWorkingCopy?: boolean;
     isConflict?: boolean;
     theme?: string;
+    initialDirty?: boolean;
     onSave?: (newContent: string) => Promise<void> | void;
     onDiscard?: () => Promise<void> | void;
     onResolveConflict?: () => Promise<void> | void;
+    onDirtyChange?: (isDirty: boolean) => void;
+    onContentChange?: (newContent: string) => void;
 }
 
 let {
@@ -30,14 +33,18 @@ let {
     isWorkingCopy = false,
     isConflict = false,
     theme: themeProp = '',
+    initialDirty = false,
     onSave,
     onDiscard,
     onResolveConflict,
+    onDirtyChange,
+    onContentChange,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
 let diffStyle: 'split' | 'unified' = $state('split');
-let isDirty = $state(false);
+// svelte-ignore state_referenced_locally
+let isDirty = $state(initialDirty);
 let isSaving = $state(false);
 let saveMessage = $state<string | null>(null);
 let canUndo = $state(false);
@@ -87,6 +94,8 @@ async function handleSave(): Promise<void> {
         await onSave(savingContent);
         if (currentContent === savingContent) {
             isDirty = false;
+            lastLoadedModified = currentContent;
+            onDirtyChange?.(false);
         }
         saveMessage = 'Saved';
         if (saveMessageTimer) {
@@ -110,7 +119,10 @@ async function handleDiscard(): Promise<void> {
         saveDebounceTimer = null;
     }
     isDirty = false;
+    onDirtyChange?.(false);
     currentContent = originalContent;
+    lastLoadedModified = originalContent;
+    onContentChange?.(originalContent);
     if (onDiscard) {
         await onDiscard();
     }
@@ -180,10 +192,14 @@ function renderDiff(): void {
             editorInstance = new Editor<'file-diff'>('file-diff', {
                 onChange: () => {
                     if (editorInstance) {
-                        currentContent = editorInstance.getText();
+                        const text = editorInstance.getText();
+                        currentContent = text;
+                        lastLoadedModified = text;
                         isDirty = true;
                         canUndo = editorInstance.canUndo;
                         canRedo = editorInstance.canRedo;
+                        onDirtyChange?.(true);
+                        onContentChange?.(text);
                         scheduleAutoSave();
                     }
                 },
@@ -268,24 +284,45 @@ function handleKeyDown(e: KeyboardEvent): void {
     }
 }
 
-// Synchronize current content when incoming props change
+let lastRenderedFilename = '';
+// svelte-ignore state_referenced_locally
+let lastLoadedModified = modifiedContent;
+// svelte-ignore state_referenced_locally
+let lastLoadedOriginal = originalContent;
+
+// Synchronize and re-render when filename, content, or mode change
 $effect(() => {
-    currentContent = modifiedContent;
-    isDirty = false;
-    canUndo = false;
-    canRedo = false;
+    const fn = filename;
+    const orig = originalContent;
+    const mod = modifiedContent;
+    const status = fileStatus;
+    const wc = isWorkingCopy;
+
+    if (fn !== lastRenderedFilename) {
+        lastRenderedFilename = fn;
+        lastLoadedModified = mod;
+        lastLoadedOriginal = orig;
+        currentContent = mod;
+        isDirty = initialDirty;
+        canUndo = false;
+        canRedo = false;
+        onDirtyChange?.(initialDirty);
+        renderDiff();
+    } else if (!isDirty && (mod !== lastLoadedModified || orig !== lastLoadedOriginal)) {
+        lastLoadedModified = mod;
+        lastLoadedOriginal = orig;
+        currentContent = mod;
+        renderDiff();
+    } else {
+        void status;
+        void wc;
+    }
 });
 
-// Re-render when filename, content, or mode change
 $effect(() => {
-    // Explicitly track these props
-    void filename;
-    void originalContent;
-    void modifiedContent;
-    void fileStatus;
-    void isWorkingCopy;
-
-    renderDiff();
+    if (!initialDirty && isDirty && !isSaving) {
+        isDirty = false;
+    }
 });
 
 onMount(() => {

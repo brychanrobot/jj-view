@@ -17,6 +17,7 @@ import type {
     HostEnvironment,
     HostExtensions,
     HostNavigation,
+    HostOpenOptions,
     HostSecrets,
     HostStorage,
     HostUi,
@@ -248,11 +249,17 @@ export class VsCodeHostConfig implements HostConfig {
 }
 
 export class VsCodeHostNavigation implements HostNavigation {
-    async openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void> {
-        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+    async openDiff(leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions): Promise<void> {
+        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, {
+            preview: options?.preview,
+        });
     }
 
-    async openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void> {
+    async openMultiDiff(
+        title: string,
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        _options?: HostOpenOptions,
+    ): Promise<void> {
         // vscode.changes expects 3-tuples of [labelUri, leftUri, rightUri] where labelUri is the target resource URI
         const changes = resources.map((r) => [r.rightUri, r.leftUri, r.rightUri]);
         await vscode.commands.executeCommand('vscode.changes', title, changes);
@@ -301,6 +308,7 @@ export class VsCodeHostNavigation implements HostNavigation {
         shortestChangeId?: string,
         isDivergent?: boolean,
         changeIdOffset?: number,
+        options?: HostOpenOptions,
     ): Promise<void> {
         const minLength = getJjViewConfig<number>('minChangeIdLength', 1) ?? 1;
         const title = formatCommitTitle(
@@ -332,14 +340,16 @@ export class VsCodeHostNavigation implements HostNavigation {
         }
 
         await vscode.commands.executeCommand('vscode.openWith', uri, 'jj-view.commitDetailsEditor', {
-            preview: true,
+            preview: options?.preview ?? true,
             preserveFocus: true,
             viewColumn: targetViewColumn,
         });
     }
 
-    async openFile(uri: Uri): Promise<void> {
-        await vscode.commands.executeCommand('vscode.open', uri);
+    async openFile(uri: Uri, options?: HostOpenOptions): Promise<void> {
+        await vscode.commands.executeCommand('vscode.open', uri, {
+            preview: options?.preview,
+        });
     }
 
     async openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void> {
