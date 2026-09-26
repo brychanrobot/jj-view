@@ -275,5 +275,139 @@ describe('WebHostEnvironment', () => {
             expect(res).toBe(42);
             expect(statusBarService.state.progress.active).toBe(false);
         });
+
+        it('tracks active and focused window state and fires change events', () => {
+            const ui = new WebHostUi();
+            expect(ui.isActive).toBe(true);
+            expect(ui.isFocused).toBe(true);
+
+            const activeEvents: boolean[] = [];
+            const focusEvents: boolean[] = [];
+
+            const d1 = ui.onDidChangeActive((active) => activeEvents.push(active));
+            const d2 = ui.onDidChangeFocus((focused) => focusEvents.push(focused));
+
+            // Change to inactive / blurred
+            ui.setActiveState(false);
+            expect(ui.isActive).toBe(false);
+            expect(ui.isFocused).toBe(false);
+            expect(activeEvents).toEqual([false]);
+            expect(focusEvents).toEqual([false]);
+
+            // Redundant call should not emit
+            ui.setActiveState(false);
+            expect(activeEvents).toEqual([false]);
+            expect(focusEvents).toEqual([false]);
+
+            // Change back to active
+            ui.setActiveState(true);
+            expect(ui.isActive).toBe(true);
+            expect(ui.isFocused).toBe(true);
+            expect(activeEvents).toEqual([false, true]);
+            expect(focusEvents).toEqual([false, true]);
+
+            d1.dispose();
+            d2.dispose();
+            ui.dispose();
+        });
+
+        it('cleans up window and document listeners on dispose', () => {
+            const addWindowListener = vi.fn();
+            const removeWindowListener = vi.fn();
+            const addDocListener = vi.fn();
+            const removeDocListener = vi.fn();
+
+            const originalWindow = globalThis.window;
+            const originalDoc = globalThis.document;
+
+            try {
+                globalThis.window = createMock<Window & typeof globalThis>({
+                    addEventListener: addWindowListener,
+                    removeEventListener: removeWindowListener,
+                });
+                globalThis.document = createMock<Document>({
+                    hidden: false,
+                    hasFocus: () => true,
+                    addEventListener: addDocListener,
+                    removeEventListener: removeDocListener,
+                });
+
+                const ui = new WebHostUi();
+                expect(addWindowListener).toHaveBeenCalledWith('focus', expect.any(Function));
+                expect(addWindowListener).toHaveBeenCalledWith('blur', expect.any(Function));
+                expect(addDocListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+                ui.dispose();
+                expect(removeWindowListener).toHaveBeenCalledWith('focus', expect.any(Function));
+                expect(removeWindowListener).toHaveBeenCalledWith('blur', expect.any(Function));
+                expect(removeDocListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+            } finally {
+                globalThis.window = originalWindow;
+                globalThis.document = originalDoc;
+            }
+        });
+
+        it('updates active state on window and document focus, blur, and visibility events', () => {
+            const handlers = new Map<string, () => void>();
+            const addWindowListener = vi.fn((event: string, handler: EventListenerOrEventListenerObject) => {
+                if (typeof handler === 'function') {
+                    handlers.set(`window:${event}`, handler as () => void);
+                }
+            });
+            const addDocListener = vi.fn((event: string, handler: EventListenerOrEventListenerObject) => {
+                if (typeof handler === 'function') {
+                    handlers.set(`doc:${event}`, handler as () => void);
+                }
+            });
+
+            const originalWindow = globalThis.window;
+            const originalDoc = globalThis.document;
+
+            let isHidden = false;
+            let hasFocus = true;
+
+            try {
+                globalThis.window = createMock<Window & typeof globalThis>({
+                    addEventListener: addWindowListener,
+                    removeEventListener: vi.fn(),
+                });
+                globalThis.document = createMock<Document>({
+                    get hidden() {
+                        return isHidden;
+                    },
+                    hasFocus: () => hasFocus,
+                    addEventListener: addDocListener,
+                    removeEventListener: vi.fn(),
+                });
+
+                const ui = new WebHostUi();
+                expect(ui.isActive).toBe(true);
+
+                // Simulate blur
+                hasFocus = false;
+                handlers.get('window:blur')?.();
+                expect(ui.isActive).toBe(false);
+
+                // Simulate focus
+                hasFocus = true;
+                handlers.get('window:focus')?.();
+                expect(ui.isActive).toBe(true);
+
+                // Simulate tab hidden
+                isHidden = true;
+                handlers.get('doc:visibilitychange')?.();
+                expect(ui.isActive).toBe(false);
+
+                // Simulate tab visible
+                isHidden = false;
+                handlers.get('doc:visibilitychange')?.();
+                expect(ui.isActive).toBe(true);
+
+                ui.dispose();
+            } finally {
+                globalThis.window = originalWindow;
+                globalThis.document = originalDoc;
+            }
+        });
     });
 });
