@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.10.0
+
+### Features
+
+- **Commit Details Editor**:
+    - Add alternating zebra striping to the changed files list using standard VS Code theme tokens to visually separate file entries and improve horizontal scanability.
+- **Log View**:
+    - Represent draft comments and draft replies directly on commit nodes in the log graph with a consolidated status button and pencil indicator.
+- **SCM & Repository**:
+    - Automatically refresh repository state when the editor window becomes active, ensuring external repository modifications are detected promptly across desktop and web environments.
+    - Throttle window activity refreshes and defer execution while local file writes are active to avoid redundant snapshots.
+
+### Fixes
+
+- **Commit Details Editor**:
+    - Remove extra whitespace between directory path prefixes and filenames in the changed files list so file paths display seamlessly without gaps.
+- **Log View**:
+    - Unify change ID and commit ID styling in commit node hover tooltips using Mathematical Sans-Serif glyphs to prevent serif typewriter font fallbacks on macOS and Windows, and shorten dividers to prevent text wrapping.
+- **Code Forge**:
+    - Preserve cached review and change information across repository refreshes to prevent UI status badges and review details from temporarily disappearing during background updates.
+
+### Performance
+
+- **Code Forge**:
+    - Deduplicate concurrent comment requests and cache comments and drafts with a short-lived TTL to eliminate redundant network queries.
+
+### Chores & Internal
+
+- **Testing & Tooling**:
+    - Remove redundant retry wrapper around authentication button clicks in GitLab E2E tests to prevent duplicate quick pick invocations.
+
 ## 2.9.0
 
 ### Features
