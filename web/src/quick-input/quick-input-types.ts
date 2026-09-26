@@ -32,6 +32,7 @@ export interface QuickPickOptions<T = unknown> {
     matchOnDescription?: boolean;
     matchOnDetail?: boolean;
     acceptCustomValue?: boolean;
+    activeItem?: QuickPickItem<T>;
     onDidChangeActive?: (items: readonly QuickPickItem<T>[]) => void;
     onDidChangeValue?: (value: string) => void;
 }

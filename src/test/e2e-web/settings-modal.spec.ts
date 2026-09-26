@@ -332,4 +332,53 @@ test.describe('Standalone Web Settings Modal & Configuration System', () => {
         await expect(checkbox).not.toBeChecked();
         await expect(toggleItem.locator('.toggle-label')).toHaveText('Disabled');
     });
+
+    test('should dynamically preview themes on navigation, revert on escape, and display clean items', async ({
+        page,
+        server,
+    }) => {
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        // Open Color Theme quick pick via command palette
+        await page.keyboard.press('Control+Shift+P');
+        const quickInput = page.locator('[data-testid="quick-input-widget"]');
+        await expect(quickInput).toBeVisible();
+        const input = page.locator('[data-testid="quick-input-text-input"]');
+        await input.fill('Color Theme');
+        await page.locator('[data-testid="quick-pick-item-workbench.action.selectTheme"]').click();
+
+        // Theme picker is open
+        await expect(page.locator('[data-testid="quick-input-title"]')).toHaveText('Select Color Theme');
+
+        // Checkmark should be on pierre-dark-soft (initial theme)
+        const initialItem = page.locator('[data-testid="quick-pick-item-pierre-dark-soft"]');
+        await expect(initialItem.locator('.codicon-check')).toBeVisible();
+
+        // No item should have codicon-chevron-right (">")
+        await expect(page.locator('.quick-pick-item .codicon-chevron-right')).toHaveCount(0);
+
+        // Filter for dracula
+        await input.fill('dracula');
+        const draculaItem = page.locator('[data-testid="quick-pick-item-dracula"]');
+        await expect(draculaItem).toBeVisible();
+
+        // Dracula item should be active and previewed
+        await expect
+            .poll(async () => {
+                return await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+            })
+            .toBe('dracula');
+
+        // Cancel with Escape
+        await page.keyboard.press('Escape');
+        await expect(quickInput).toHaveCount(0);
+
+        // Theme should revert back to pierre-dark-soft
+        await expect
+            .poll(async () => {
+                return await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+            })
+            .toBe('pierre-dark-soft');
+    });
 });

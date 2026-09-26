@@ -113,55 +113,88 @@ function toThemeRegistration(theme: RawPierreTheme): ThemeRegistration {
  * so they are bundled into the web distribution and resolve synchronously/locally
  * without unbundled runtime HTTP dynamic imports.
  */
+interface ThemeWindow extends Window {
+    __jjRegisteredThemes?: Set<string>;
+    __jjRegisteredLanguages?: Set<string>;
+}
+
 export function ensureHighlighterRegistered(): void {
     if (isRegistered) {
         return;
     }
     isRegistered = true;
 
-    // Register all Pierre Themes normalized for Shiki
+    const globalWin = typeof window !== 'undefined' ? (window as ThemeWindow) : undefined;
+    let registeredThemes: Set<string>;
+    let registeredLanguages: Set<string>;
+    if (globalWin) {
+        if (!globalWin.__jjRegisteredThemes) {
+            globalWin.__jjRegisteredThemes = new Set<string>();
+        }
+        registeredThemes = globalWin.__jjRegisteredThemes;
+
+        if (!globalWin.__jjRegisteredLanguages) {
+            globalWin.__jjRegisteredLanguages = new Set<string>();
+        }
+        registeredLanguages = globalWin.__jjRegisteredLanguages;
+    } else {
+        registeredThemes = new Set<string>();
+        registeredLanguages = new Set<string>();
+    }
+
+    // Normalize all Pierre Themes for application CSS theming.
+    // Note: Do NOT call registerCustomTheme for Pierre themes because @pierre/diffs already has them registered built-in.
     for (const [name, raw] of Object.entries(PIERRE_RAW_THEMES)) {
         const normalized = normalizeTheme(toThemeRegistration(raw));
         normalizedPierreThemes.set(name, normalized);
-        registerCustomTheme(name, () => Promise.resolve(normalized));
     }
 
-    // Register all Shiki theme loaders with Pierre
+    // Register all Shiki theme loaders with Pierre once
     for (const [name, loader] of Object.entries(SHIKI_THEME_LOADERS)) {
-        registerCustomTheme(name, async () => {
-            const cached = normalizedShikiThemes.get(name);
-            if (cached) {
-                return cached;
-            }
-            const mod = await loader();
-            const normalized = normalizeTheme(mod.default);
-            normalizedShikiThemes.set(name, normalized);
-            return normalized;
-        });
+        if (!registeredThemes.has(name)) {
+            registeredThemes.add(name);
+            registerCustomTheme(name, async () => {
+                const cached = normalizedShikiThemes.get(name);
+                if (cached) {
+                    return cached;
+                }
+                const mod = await loader();
+                const normalized = normalizeTheme(mod.default);
+                normalizedShikiThemes.set(name, normalized);
+                return normalized;
+            });
+        }
     }
 
-    // Register Common Languages with extensions
-    registerCustomLanguage('typescript', () => import('@shikijs/langs/typescript'), ['ts', 'mts', 'cts', 'tsx']);
-    registerCustomLanguage('javascript', () => import('@shikijs/langs/javascript'), ['js', 'mjs', 'cjs', 'jsx']);
-    registerCustomLanguage('json', () => import('@shikijs/langs/json'), ['json']);
-    registerCustomLanguage('jsonc', () => import('@shikijs/langs/jsonc'), ['jsonc']);
-    registerCustomLanguage('go', () => import('@shikijs/langs/go'), ['go']);
-    registerCustomLanguage('rust', () => import('@shikijs/langs/rust'), ['rs']);
-    registerCustomLanguage('python', () => import('@shikijs/langs/python'), ['py']);
-    registerCustomLanguage('html', () => import('@shikijs/langs/html'), ['html', 'htm']);
-    registerCustomLanguage('css', () => import('@shikijs/langs/css'), ['css']);
-    registerCustomLanguage('markdown', () => import('@shikijs/langs/markdown'), ['md', 'markdown']);
-    registerCustomLanguage('yaml', () => import('@shikijs/langs/yaml'), ['yaml', 'yml']);
-    registerCustomLanguage('toml', () => import('@shikijs/langs/toml'), ['toml']);
-    registerCustomLanguage('shellscript', () => import('@shikijs/langs/shellscript'), ['sh', 'bash', 'zsh']);
-    registerCustomLanguage('diff', () => import('@shikijs/langs/diff'), ['diff', 'patch']);
-    registerCustomLanguage('c', () => import('@shikijs/langs/c'), ['c', 'h']);
-    registerCustomLanguage('cpp', () => import('@shikijs/langs/cpp'), ['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx']);
-    registerCustomLanguage('csharp', () => import('@shikijs/langs/csharp'), ['cs']);
-    registerCustomLanguage('java', () => import('@shikijs/langs/java'), ['java']);
-    registerCustomLanguage('dockerfile', () => import('@shikijs/langs/dockerfile'), ['dockerfile', 'Dockerfile']);
-    registerCustomLanguage('xml', () => import('@shikijs/langs/xml'), ['xml', 'svg']);
-    registerCustomLanguage('sql', () => import('@shikijs/langs/sql'), ['sql']);
+    // Register Common Languages with extensions once
+    const registerLangOnce = (lang: string, loader: Parameters<typeof registerCustomLanguage>[1], exts: string[]) => {
+        if (!registeredLanguages.has(lang)) {
+            registeredLanguages.add(lang);
+            registerCustomLanguage(lang, loader, exts);
+        }
+    };
+
+    registerLangOnce('typescript', () => import('@shikijs/langs/typescript'), ['ts', 'mts', 'cts', 'tsx']);
+    registerLangOnce('javascript', () => import('@shikijs/langs/javascript'), ['js', 'mjs', 'cjs', 'jsx']);
+    registerLangOnce('json', () => import('@shikijs/langs/json'), ['json']);
+    registerLangOnce('jsonc', () => import('@shikijs/langs/jsonc'), ['jsonc']);
+    registerLangOnce('go', () => import('@shikijs/langs/go'), ['go']);
+    registerLangOnce('rust', () => import('@shikijs/langs/rust'), ['rs']);
+    registerLangOnce('python', () => import('@shikijs/langs/python'), ['py']);
+    registerLangOnce('html', () => import('@shikijs/langs/html'), ['html', 'htm']);
+    registerLangOnce('css', () => import('@shikijs/langs/css'), ['css']);
+    registerLangOnce('markdown', () => import('@shikijs/langs/markdown'), ['md', 'markdown']);
+    registerLangOnce('yaml', () => import('@shikijs/langs/yaml'), ['yaml', 'yml']);
+    registerLangOnce('toml', () => import('@shikijs/langs/toml'), ['toml']);
+    registerLangOnce('shellscript', () => import('@shikijs/langs/shellscript'), ['sh', 'bash', 'zsh']);
+    registerLangOnce('diff', () => import('@shikijs/langs/diff'), ['diff', 'patch']);
+    registerLangOnce('c', () => import('@shikijs/langs/c'), ['c', 'h']);
+    registerLangOnce('cpp', () => import('@shikijs/langs/cpp'), ['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx']);
+    registerLangOnce('csharp', () => import('@shikijs/langs/csharp'), ['cs']);
+    registerLangOnce('java', () => import('@shikijs/langs/java'), ['java']);
+    registerLangOnce('dockerfile', () => import('@shikijs/langs/dockerfile'), ['dockerfile', 'Dockerfile']);
+    registerLangOnce('xml', () => import('@shikijs/langs/xml'), ['xml', 'svg']);
+    registerLangOnce('sql', () => import('@shikijs/langs/sql'), ['sql']);
 }
 
 /**
@@ -182,10 +215,23 @@ export async function loadTheme(name: string): Promise<ThemeRegistration> {
 
     const loader = SHIKI_THEME_LOADERS[name];
     if (loader) {
-        const mod = await loader();
-        const normalized = normalizeTheme(mod.default);
-        normalizedShikiThemes.set(name, normalized);
-        return normalized;
+        try {
+            const mod = await loader();
+            const normalized = normalizeTheme(mod.default);
+            normalizedShikiThemes.set(name, normalized);
+            return normalized;
+        } catch (err) {
+            console.warn(`Dynamic load of theme "${name}" failed, retrying...`, err);
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                const mod = await loader();
+                const normalized = normalizeTheme(mod.default);
+                normalizedShikiThemes.set(name, normalized);
+                return normalized;
+            } catch (retryErr) {
+                console.error(`Failed to load theme "${name}":`, retryErr);
+            }
+        }
     }
 
     const fallback = normalizedPierreThemes.get('pierre-dark-soft');
