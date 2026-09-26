@@ -22,6 +22,12 @@ import './styles/vscode-theme.css';
 import '../../media/themes.generated.css';
 import '../../media/main.css';
 
+declare global {
+    interface Window {
+        __JJ_VIEW_ENV__?: WebHostEnvironment;
+    }
+}
+
 export async function bootstrap(): Promise<void> {
     const target = document.getElementById('app');
     if (!target) {
@@ -43,6 +49,9 @@ export async function bootstrap(): Promise<void> {
             '.';
 
         const webHostEnv = new WebHostEnvironment(hostSystem, repoRoot);
+        if (typeof window !== 'undefined') {
+            window.__JJ_VIEW_ENV__ = webHostEnv;
+        }
         const codeForgeRegistry = new CodeForgeRegistry();
         const repoManager = new JjRepositoryManager(codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
 

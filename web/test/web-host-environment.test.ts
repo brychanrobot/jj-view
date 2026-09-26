@@ -21,6 +21,8 @@ import {
     WebHostViews,
     WebHostWorkspace,
 } from '../src/host/web-host-environment';
+import { NotificationService } from '../src/notifications/notification-service';
+import { StatusBarService } from '../src/status/status-bar-service';
 import { createMock } from './test-mock';
 
 describe('WebHostEnvironment', () => {
@@ -39,6 +41,8 @@ describe('WebHostEnvironment', () => {
         expect(env.workspace.workspaceFolders?.[0]?.name).toBe('my-repo');
         expect(env.workspace.workspaceFolders?.[0]?.uri.path).toBe('/path/to/my-repo/');
         expect(env.ui).toBeInstanceOf(WebHostUi);
+        expect(env.notifications).toBeInstanceOf(NotificationService);
+        expect(env.statusBar).toBeInstanceOf(StatusBarService);
         expect(env.nav).toBeInstanceOf(WebHostNavigation);
         expect(env.config).toBeInstanceOf(WebHostConfig);
         expect(env.documents).toBeInstanceOf(WebHostDocuments);
@@ -232,16 +236,44 @@ describe('WebHostEnvironment', () => {
     });
 
     describe('WebHostUi', () => {
-        it('executes withProgress task directly', async () => {
+        it('executes withProgress task directly when no service is set', async () => {
             const ui = new WebHostUi();
             const res = await ui.withProgress('Progress title', async () => 'done');
             expect(res).toBe('done');
         });
 
-        it('shows notifications without throwing', async () => {
+        it('shows notifications without throwing when no service is set', async () => {
             const ui = new WebHostUi();
             await expect(ui.showInformation('info')).resolves.toBeUndefined();
             await expect(ui.showWarning('warn')).resolves.toBeUndefined();
+        });
+
+        it('delegates notifications to NotificationService', async () => {
+            const notifService = new NotificationService();
+            const ui = new WebHostUi(undefined, notifService);
+
+            const promise = ui.showInformation('Test Info', 'Action 1');
+            expect(notifService.items).toHaveLength(1);
+            expect(notifService.items[0].message).toBe('Test Info');
+
+            notifService.triggerAction(notifService.items[0].id, 'Action 1');
+            const action = await promise;
+            expect(action).toBe('Action 1');
+        });
+
+        it('delegates status messages and progress to StatusBarService', async () => {
+            const statusBarService = new StatusBarService();
+            const ui = new WebHostUi(undefined, undefined, statusBarService);
+
+            ui.setStatusBarMessage('Working...', 5000);
+            expect(statusBarService.state.statusMessage?.text).toBe('Working...');
+
+            const res = await ui.withProgress('In Flight', async () => {
+                expect(statusBarService.state.progress.title).toBe('In Flight');
+                return 42;
+            });
+            expect(res).toBe(42);
+            expect(statusBarService.state.progress.active).toBe(false);
         });
     });
 });

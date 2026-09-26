@@ -124,6 +124,22 @@ body.vscode-dark {
     --jj-lane-5: var(--vscode-charts-red, #ff6762);
     --jj-lane-6: var(--vscode-charts-cyan, #68cdf2);
 
+    /* Status Bar (Pierre Dark Soft) */
+    --vscode-statusBar-background: #171717;
+    --vscode-statusBar-foreground: #8a8a8a;
+    --vscode-statusBar-border: #1d1d1d;
+    --vscode-statusBarItem-hoverBackground: rgba(31, 62, 94, 0.45);
+    --vscode-statusBarItem-activeBackground: #1f3e5e;
+
+    /* Notifications & Toasts (Pierre Dark Soft) */
+    --vscode-notifications-background: #262626;
+    --vscode-notifications-foreground: #d4d4d4;
+    --vscode-notifications-border: #2c2c2c;
+    --vscode-notificationToast-border: #2c2c2c;
+    --vscode-notificationsInfoIcon-foreground: #69b1ff;
+    --vscode-notificationsWarningIcon-foreground: #ffd452;
+    --vscode-notificationsErrorIcon-foreground: #ff6762;
+
     /* Scrollbars */
     --vscode-scrollbarSlider-background: rgba(121, 121, 121, 0.25);
     --vscode-scrollbarSlider-hoverBackground: rgba(121, 121, 121, 0.45);
@@ -244,6 +260,22 @@ body.vscode-light {
     --jj-lane-4: var(--vscode-charts-orange, #d97706);
     --jj-lane-5: var(--vscode-charts-red, #ff2e3f);
     --jj-lane-6: var(--vscode-charts-cyan, #08c0ef);
+
+    /* Status Bar (Pierre Light Soft) */
+    --vscode-statusBar-background: #ffffff;
+    --vscode-statusBar-foreground: #737373;
+    --vscode-statusBar-border: #ededed;
+    --vscode-statusBarItem-hoverBackground: rgba(223, 235, 255, 0.45);
+    --vscode-statusBarItem-activeBackground: #dfebff;
+
+    /* Notifications & Toasts (Pierre Light Soft) */
+    --vscode-notifications-background: #ffffff;
+    --vscode-notifications-foreground: #525252;
+    --vscode-notifications-border: #d4d4d4;
+    --vscode-notificationToast-border: #d4d4d4;
+    --vscode-notificationsInfoIcon-foreground: #009fff;
+    --vscode-notificationsWarningIcon-foreground: #ffca00;
+    --vscode-notificationsErrorIcon-foreground: #ff2e3f;
 
     /* Scrollbars */
     --vscode-scrollbarSlider-background: rgba(100, 100, 100, 0.18);

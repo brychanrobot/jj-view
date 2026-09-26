@@ -12,9 +12,10 @@ interface Props {
     scm?: Snippet;
     log?: Snippet;
     main?: Snippet;
+    statusBar?: Snippet;
 }
 
-let { scm, log, main }: Props = $props();
+let { scm, log, main, statusBar }: Props = $props();
 </script>
 
 <div class="app-shell" data-testid="app-shell">
@@ -35,6 +36,9 @@ let { scm, log, main }: Props = $props();
             {/snippet}
         </SplitPane>
     </main>
+    {#if statusBar}
+        {@render statusBar()}
+    {/if}
 </div>
 
 <style>
