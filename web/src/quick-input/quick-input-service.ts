@@ -58,6 +58,8 @@ export class QuickInputService {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly T[]) => void;
+            onDidChangeValue?: (value: string) => void;
         },
     ): Promise<T | undefined> {
         this.cancel();
@@ -79,6 +81,13 @@ export class QuickInputService {
                 matchOnDescription: options?.matchOnDescription,
                 matchOnDetail: options?.matchOnDetail,
                 acceptCustomValue: options?.acceptCustomValue,
+                onDidChangeActive: options?.onDidChangeActive
+                    ? (activeItems) => {
+                          const originalItems = activeItems.map((it) => it.value as T);
+                          options.onDidChangeActive?.(originalItems);
+                      }
+                    : undefined,
+                onDidChangeValue: options?.onDidChangeValue,
             };
 
             this.currentSession = {

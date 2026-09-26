@@ -89,6 +89,10 @@ export async function bootstrap(): Promise<void> {
             },
         });
 
+        webHostEnv.nav.setHighlightDelegate((_repoRoot, changeId) => {
+            logController?.setHighlightedCommit(changeId);
+        });
+
         registerWebCommands({
             repositoryManager: repoManager,
             hostEnvironment: webHostEnv,

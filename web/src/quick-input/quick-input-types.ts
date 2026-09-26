@@ -32,6 +32,8 @@ export interface QuickPickOptions<T = unknown> {
     matchOnDescription?: boolean;
     matchOnDetail?: boolean;
     acceptCustomValue?: boolean;
+    onDidChangeActive?: (items: readonly QuickPickItem<T>[]) => void;
+    onDidChangeValue?: (value: string) => void;
 }
 
 export type QuickInputSession =

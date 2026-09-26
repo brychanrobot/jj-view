@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test as baseTest, expect, type Page } from '@playwright/test';
+import type { HostEnvironment } from '../../core/host/host-environment';
 import { TestRepo } from '../test-repo';
 
 export { expect, type Page };
@@ -22,14 +23,7 @@ if (!fs.existsSync(ARTIFACT_DIR)) {
 
 declare global {
     interface Window {
-        __JJ_VIEW_ENV__?: {
-            ui: {
-                showInformation(message: string, ...actions: string[]): Promise<string | undefined>;
-                showWarning(message: string, ...actions: string[]): Promise<string | undefined>;
-                showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
-                setStatusBarMessage?(message: string, timeoutMs?: number): void;
-                withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
-            };
+        __JJ_VIEW_ENV__?: HostEnvironment & {
             notifications: {
                 setPosition(position: string): void;
             };
