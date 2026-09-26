@@ -239,5 +239,27 @@ describe('QuickInput SSR Component Rendering', () => {
         expect(rendered.html).toContain('Second Command');
         expect(rendered.html).toContain('jj-view.first');
         expect(rendered.html).toContain('codicon-check');
+        expect(rendered.html).toContain('item-icon-empty');
+        expect(rendered.html).not.toContain('codicon-chevron-right');
+    });
+
+    it('renders clean quick pick list without icons or spacers when no item specifies iconClass', () => {
+        const service = new QuickInputService();
+        void service.showQuickPick(
+            [
+                { id: 't1', label: 'Dark Theme' },
+                { id: 't2', label: 'Light Theme' },
+            ],
+            { title: 'Themes' },
+        );
+
+        const rendered = render(QuickInput, {
+            props: { service },
+        });
+
+        expect(rendered.html).toContain('Dark Theme');
+        expect(rendered.html).toContain('Light Theme');
+        expect(rendered.html).not.toContain('codicon-chevron-right');
+        expect(rendered.html).not.toContain('item-icon-empty');
     });
 });

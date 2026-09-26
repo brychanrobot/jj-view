@@ -58,6 +58,7 @@ export class QuickInputService {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            activeItem?: T;
             onDidChangeActive?: (items: readonly T[]) => void;
             onDidChangeValue?: (value: string) => void;
         },
@@ -73,6 +74,21 @@ export class QuickInputService {
             value: item,
         }));
 
+        let activePickItem: QuickPickItem | undefined;
+        if (options?.activeItem) {
+            const optActive = options.activeItem;
+            activePickItem = pickItems.find((it) => {
+                if (it.value === optActive) {
+                    return true;
+                }
+                const candidateId =
+                    typeof optActive === 'object' && optActive !== null && 'id' in optActive
+                        ? (optActive as { id: unknown }).id
+                        : undefined;
+                return candidateId !== undefined && it.id === String(candidateId);
+            });
+        }
+
         return new Promise<T | undefined>((resolve) => {
             const pickOptions: QuickPickOptions = {
                 title: options?.title,
@@ -81,6 +97,7 @@ export class QuickInputService {
                 matchOnDescription: options?.matchOnDescription,
                 matchOnDetail: options?.matchOnDetail,
                 acceptCustomValue: options?.acceptCustomValue,
+                activeItem: activePickItem,
                 onDidChangeActive: options?.onDidChangeActive
                     ? (activeItems) => {
                           const originalItems = activeItems.map((it) => it.value as T);

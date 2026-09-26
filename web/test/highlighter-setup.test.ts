@@ -131,4 +131,20 @@ describe('Highlighter and Theming Setup', () => {
             delete targetGlobal.document;
         }
     });
+
+    it('loads various dark and light Shiki themes without error', async () => {
+        const themesToTest = [
+            'dracula',
+            'tokyo-night',
+            'one-dark-pro',
+            'night-owl',
+            'solarized-light',
+            'catppuccin-latte',
+        ];
+        for (const name of themesToTest) {
+            const theme = await loadTheme(name);
+            expect(theme.name).toBe(name);
+            expect(theme.colors).toBeDefined();
+        }
+    });
 });

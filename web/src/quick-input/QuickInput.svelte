@@ -27,21 +27,34 @@ let listEl = $state<HTMLDivElement | null>(null);
 
 let unsubscribe: (() => void) | null = null;
 
-onMount(() => {
-    sessionState = service.activeSession;
-    const disposable = service.onDidChangeSession((newSession) => {
-        sessionState = newSession;
-        inputOverride = null;
-        if (newSession) {
-            selectedIndex = 0;
-            validationError = null;
-            tick().then(() => {
-                inputEl?.focus();
-                if (newSession.type === 'input-box' && inputValue) {
-                    inputEl?.select();
-                }
-            });
+function initSession(newSession: QuickInputSession | null): void {
+    sessionState = newSession;
+    inputOverride = null;
+    if (newSession) {
+        selectedIndex = 0;
+        if (newSession.type === 'quick-pick' && newSession.options.activeItem) {
+            const targetId = newSession.options.activeItem.id;
+            const idx = (newSession.options.items || []).findIndex((it) => it.id === targetId);
+            if (idx >= 0) {
+                selectedIndex = idx;
+            }
         }
+        validationError = null;
+        tick().then(() => {
+            inputEl?.focus();
+            if (newSession.type === 'input-box' && inputValue) {
+                inputEl?.select();
+            } else if (newSession.type === 'quick-pick') {
+                scrollToSelected(selectedIndex);
+            }
+        });
+    }
+}
+
+onMount(() => {
+    initSession(service.activeSession);
+    const disposable = service.onDidChangeSession((newSession) => {
+        initSession(newSession);
     });
     unsubscribe = disposable.dispose;
 });
@@ -82,6 +95,11 @@ const filteredItems: QuickPickItem[] = $derived.by(() => {
         return false;
     });
 });
+
+const hasAnyIcon = $derived(
+    (session?.type === 'quick-pick' || session?.type === 'multi-quick-pick') &&
+        (session.options.items || []).some((it) => Boolean(it.iconClass)),
+);
 
 $effect(() => {
     if (filteredItems.length > 0 && selectedIndex >= filteredItems.length) {
@@ -264,8 +282,8 @@ function handleKeyDown(e: KeyboardEvent): void {
                         >
                             {#if item.iconClass}
                                 <i class={`item-icon ${item.iconClass}`} aria-hidden="true"></i>
-                            {:else}
-                                <i class="item-icon codicon codicon-chevron-right" aria-hidden="true"></i>
+                            {:else if hasAnyIcon}
+                                <span class="item-icon item-icon-empty" aria-hidden="true"></span>
                             {/if}
                             <span class="item-label">{item.label}</span>
                             {#if item.description}
@@ -442,6 +460,11 @@ function handleKeyDown(e: KeyboardEvent): void {
     justify-content: center;
     flex-shrink: 0;
     color: var(--vscode-icon-foreground, #8a8a8a);
+}
+
+.item-icon-empty {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .quick-pick-item.active .item-icon {
