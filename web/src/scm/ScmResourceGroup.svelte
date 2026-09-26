@@ -14,6 +14,7 @@ interface Props {
     label: string;
     contextValue?: string;
     items: JjResourceState[];
+    workspaceRoot?: string;
     expanded?: boolean;
     rootContext: IContextKeyService;
     menuRegistry: MenuRegistry;
@@ -29,6 +30,7 @@ let {
     label,
     contextValue = '',
     items,
+    workspaceRoot,
     expanded = true,
     rootContext,
     menuRegistry,
@@ -131,6 +133,7 @@ function toggleExpanded(): void {
                 })}
                 <ScmResourceItem
                     resourceState={item}
+                    {workspaceRoot}
                     context={itemContext}
                     {menuRegistry}
                     onOpen={onOpenResource}
@@ -152,19 +155,24 @@ function toggleExpanded(): void {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 26px;
+    height: 22px;
+    min-height: 22px;
+    max-height: 22px;
     padding: 0 12px 0 8px;
-    margin: 2px 4px;
-    border-radius: 4px;
+    margin: 0;
+    border-radius: 0;
     cursor: pointer;
     user-select: none;
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--vscode-descriptionForeground, #8a8a8a);
     background-color: transparent;
-    transition: background-color 0.12s;
+    transition: background-color 0.1s ease;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .group-header:hover {
@@ -183,6 +191,7 @@ function toggleExpanded(): void {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .chevron-icon {
@@ -193,24 +202,28 @@ function toggleExpanded(): void {
     height: 16px;
     font-size: 14px;
     color: var(--vscode-icon-foreground, #8a8a8a);
+    flex-shrink: 0;
 }
 
 .group-label {
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .group-actions-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
+    height: 100%;
 }
 
 .group-hover-actions {
     display: none;
     align-items: center;
     gap: 2px;
+    height: 100%;
 }
 
 .group-header:hover .group-hover-actions,
@@ -222,15 +235,18 @@ function toggleExpanded(): void {
     background: transparent;
     color: var(--vscode-icon-foreground, #8a8a8a);
     border: none;
-    border-radius: 4px;
-    width: 20px;
-    height: 20px;
+    border-radius: 3px;
+    width: 18px;
+    height: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    font-size: 14px;
+    line-height: 1;
     transition: background-color 0.15s, color 0.15s;
+    box-sizing: border-box;
 }
 
 .group-action-button:hover {
@@ -241,14 +257,16 @@ function toggleExpanded(): void {
 .count-badge {
     background-color: color-mix(in srgb, var(--vscode-editor-foreground), transparent 90%);
     color: var(--vscode-descriptionForeground, #8a8a8a);
-    border-radius: 10px;
-    padding: 1px 6px;
+    border-radius: 8px;
+    padding: 0 5px;
     font-size: 10px;
     font-weight: 700;
     min-width: 14px;
+    height: 16px;
+    line-height: 16px;
     text-align: center;
-    line-height: 14px;
     user-select: none;
+    box-sizing: border-box;
 }
 
 .group-items-container {

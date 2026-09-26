@@ -177,6 +177,7 @@ $effect(() => {
                 label="Merge Conflicts"
                 contextValue="jj.group.conflict"
                 items={conflictItems}
+                {workspaceRoot}
                 expanded={true}
                 {rootContext}
                 {menuRegistry}
@@ -193,6 +194,7 @@ $effect(() => {
             label={snapshot?.workingCopyLabel || 'Working Copy'}
             contextValue={snapshot?.workingCopyContextValue || 'jj.group.workingCopy'}
             items={workingCopyItems}
+            {workspaceRoot}
             expanded={true}
             {rootContext}
             {menuRegistry}
@@ -221,6 +223,7 @@ $effect(() => {
                     label={ancestor.label}
                     contextValue={ancestor.contextValue}
                     items={ancestorItems}
+                    {workspaceRoot}
                     expanded={true}
                     {rootContext}
                     {menuRegistry}
@@ -279,5 +282,6 @@ $effect(() => {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
+    gap: 6px;
 }
 </style>

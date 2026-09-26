@@ -10,6 +10,7 @@ import type { ResolvedMenuItem } from '../menu/menu-types';
 
 interface Props {
     resourceState: JjResourceState;
+    workspaceRoot?: string;
     context: IContextKeyService;
     menuRegistry: MenuRegistry;
     onOpen: (state: JjResourceState) => void;
@@ -17,7 +18,7 @@ interface Props {
     onContextMenu: (event: MouseEvent, state: JjResourceState) => void;
 }
 
-let { resourceState, context, menuRegistry, onOpen, onAction, onContextMenu }: Props = $props();
+let { resourceState, workspaceRoot, context, menuRegistry, onOpen, onAction, onContextMenu }: Props = $props();
 
 let version = $state(0);
 
@@ -38,9 +39,18 @@ const inlineActions: ResolvedMenuItem[] = $derived.by(() => {
     return menuRegistry.getInlineActions('scm/resourceState/context', context);
 });
 
-const pathStr = $derived(resourceState.resourceUri.path || '');
-const segments = $derived(pathStr.split('/'));
-const fileName = $derived(segments[segments.length - 1] || pathStr);
+const displayPath = $derived.by(() => {
+    if (resourceState.relativePath) {
+        return resourceState.relativePath;
+    }
+    const fullPath = resourceState.resourceUri.path || '';
+    if (workspaceRoot && fullPath.startsWith(workspaceRoot)) {
+        return fullPath.slice(workspaceRoot.length).replace(/^[/\\]+/, '');
+    }
+    return fullPath;
+});
+const segments = $derived(displayPath.split(/[/\\]/));
+const fileName = $derived(segments[segments.length - 1] || displayPath);
 const dirName = $derived(segments.slice(0, -1).filter(Boolean).join('/'));
 
 const isDeleted = $derived(resourceState.decorations?.strikeThrough ?? false);
@@ -65,7 +75,7 @@ const statusBadge = $derived(getStatusBadge());
 <div
     class="scm-resource-item"
     data-testid="scm-resource-item"
-    data-path={pathStr}
+    data-path={displayPath}
     role="treeitem"
     aria-selected="false"
     tabindex="0"
@@ -122,16 +132,21 @@ const statusBadge = $derived(getStatusBadge());
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 26px;
-    padding: 4px 12px 4px 20px;
-    margin: 1px 4px;
-    border-radius: 4px;
+    height: 22px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 0 12px 0 20px;
+    margin: 0;
+    border-radius: 0;
     cursor: pointer;
     user-select: none;
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
     font-size: var(--vscode-font-size, 13px);
+    line-height: 22px;
     color: var(--vscode-foreground, #d4d4d4);
-    transition: background-color 0.12s;
+    transition: background-color 0.1s ease;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 .scm-resource-item:hover {
@@ -145,40 +160,52 @@ const statusBadge = $derived(getStatusBadge());
 
 .resource-label-container {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    line-height: normal;
 }
 
 .file-name {
-    font-weight: 500;
+    font-weight: normal;
     color: var(--vscode-foreground, #d4d4d4);
+    font-size: var(--vscode-font-size, 13px);
+    flex-shrink: 0;
+    line-height: normal;
 }
 
 .file-name.deleted {
     text-decoration: line-through;
-    opacity: 0.8;
+    opacity: 0.75;
 }
 
 .dir-name {
     font-size: 11px;
     color: var(--vscode-descriptionForeground, #8a8a8a);
-    margin-left: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: normal;
+    opacity: 0.8;
 }
 
 .resource-actions-container {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
+    height: 100%;
 }
 
 .hover-actions {
     display: none;
     align-items: center;
     gap: 2px;
+    height: 100%;
 }
 
 .scm-resource-item:hover .hover-actions,
@@ -190,15 +217,18 @@ const statusBadge = $derived(getStatusBadge());
     background: transparent;
     color: var(--vscode-icon-foreground, #8a8a8a);
     border: none;
-    border-radius: 4px;
-    width: 20px;
-    height: 20px;
+    border-radius: 3px;
+    width: 18px;
+    height: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    font-size: 14px;
+    line-height: 1;
     transition: background-color 0.15s, color 0.15s;
+    box-sizing: border-box;
 }
 
 .item-action-button:hover {
@@ -215,11 +245,13 @@ const statusBadge = $derived(getStatusBadge());
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 1px 6px;
-    border-radius: 10px;
-    line-height: 14px;
+    padding: 0 5px;
+    border-radius: 8px;
+    height: 16px;
+    line-height: 16px;
     min-width: 14px;
     user-select: none;
+    box-sizing: border-box;
 }
 
 .status-modified {
