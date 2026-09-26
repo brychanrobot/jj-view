@@ -39,6 +39,7 @@ export interface WebHostNavigationCallbacks {
     onFocusScmInput?: () => Promise<void> | void;
     onOpenSettings?: (settingId?: string) => Promise<void> | void;
     onHighlightCommit?: (repoRoot: Uri, changeId: string | undefined) => void;
+    onOpenFolder?: (folderUri: Uri, forceNewWindow?: boolean) => Promise<void> | void;
 }
 
 export interface ContextKeySetter {
@@ -460,7 +461,22 @@ export class WebHostNavigation implements HostNavigation {
         }
     }
 
-    public async openFolder(_folderUri: Uri, _forceNewWindow?: boolean): Promise<void> {}
+    public async openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void> {
+        if (this.callbacks.onOpenFolder) {
+            await this.callbacks.onOpenFolder(folderUri, forceNewWindow);
+            return;
+        }
+        if (typeof window === 'undefined') {
+            return;
+        }
+        const targetUrl = new URL(window.location.href);
+        targetUrl.searchParams.set('repo', folderUri.fsPath);
+        if (forceNewWindow) {
+            window.open(targetUrl.toString(), '_blank');
+            return;
+        }
+        window.location.assign(targetUrl.toString());
+    }
 
     public async openExternal(target: Uri): Promise<void> {
         if (typeof window !== 'undefined') {

@@ -43,7 +43,10 @@ export async function bootstrap(): Promise<void> {
         });
         await Promise.race([hostSystem.ready, timeoutPromise]);
 
+        const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const repoFromQuery = urlParams?.get('repo');
         const repoRoot =
+            repoFromQuery ||
             hostSystem.repoRoot ||
             (typeof window !== 'undefined' ? window.__JJ_VIEW_CONFIG__?.repoRoot : undefined) ||
             '.';
