@@ -40,6 +40,10 @@ export interface WebHostNavigationCallbacks {
     onOpenSettings?: (settingId?: string) => Promise<void> | void;
     onHighlightCommit?: (repoRoot: Uri, changeId: string | undefined) => void;
     onOpenFolder?: (folderUri: Uri, forceNewWindow?: boolean) => Promise<void> | void;
+    onOpenMultiDiff?: (
+        title: string,
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+    ) => Promise<void> | void;
 }
 
 export interface ContextKeySetter {
@@ -423,10 +427,17 @@ export class WebHostNavigation implements HostNavigation {
     }
 
     public async openMultiDiff(
-        _title: string,
-        _resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        title: string,
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
     ): Promise<void> {
-        // Multi-diff not supported in single view
+        if (this.callbacks.onOpenMultiDiff) {
+            await this.callbacks.onOpenMultiDiff(title, resources);
+            return;
+        }
+        if (resources.length > 0) {
+            const first = resources[0];
+            await this.openDiff(first.leftUri, first.rightUri, first.label || title);
+        }
     }
 
     public async openMergeEditor(resourceUri: Uri): Promise<void> {

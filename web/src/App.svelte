@@ -17,6 +17,7 @@ import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
+import PierreMultiDiffViewer, { type MultiDiffFileEntry } from './diff/PierreMultiDiffViewer.svelte';
 import type { WebHostEnvironment } from './host/web-host-environment';
 import AppLayout from './layout/AppLayout.svelte';
 import LogPane from './log/LogPane.svelte';
@@ -75,6 +76,7 @@ const rootContext = new ContextKeyService();
 
 type ActiveView =
     | { type: 'diff'; leftUri?: Uri; rightUri?: Uri; title: string; resourceState?: JjResourceState }
+    | { type: 'multi-diff'; title: string; files: MultiDiffFileEntry[] }
     | { type: 'commit-details'; changeId: string }
     | { type: 'empty' };
 
@@ -454,6 +456,37 @@ onMount(() => {
                     });
                 }
             },
+            onOpenMultiDiff: async (title, resources) => {
+                if (resources.length === 0) {
+                    activeView = { type: 'empty' };
+                    return;
+                }
+
+                const loadedFiles: MultiDiffFileEntry[] = await Promise.all(
+                    resources.map(async (r) => {
+                        const [orig, mod] = await Promise.all([
+                            resolveUriContent(r.leftUri),
+                            resolveUriContent(r.rightUri),
+                        ]);
+                        const filename = r.label || r.rightUri?.fsPath || r.leftUri?.fsPath || 'file';
+                        const isWorkingCopy = r.rightUri?.scheme === 'file';
+                        return {
+                            filename,
+                            originalContent: orig,
+                            modifiedContent: mod,
+                            leftUri: r.leftUri,
+                            rightUri: r.rightUri,
+                            isWorkingCopy,
+                        };
+                    }),
+                );
+
+                activeView = {
+                    type: 'multi-diff',
+                    title,
+                    files: loadedFiles,
+                };
+            },
         });
     }
 
@@ -514,6 +547,14 @@ onMount(() => {
                         onSave={handleSaveFile}
                         onDiscard={handleDiscardFile}
                         onResolveConflict={handleResolveConflict}
+                    />
+                {/key}
+            {:else if activeView.type === 'multi-diff'}
+                {#key activeView.title}
+                    <PierreMultiDiffViewer
+                        title={activeView.title}
+                        files={activeView.files}
+                        theme={activeTheme}
                     />
                 {/key}
             {:else if activeView.type === 'commit-details' && commitDetailsBridge}
