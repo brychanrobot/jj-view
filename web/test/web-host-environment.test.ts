@@ -219,6 +219,38 @@ describe('WebHostEnvironment', () => {
                 globalThis.window = originalWindow;
             }
         });
+
+        it('routes openMultiDiff to onOpenMultiDiff callback when provided', async () => {
+            const onOpenMultiDiff = vi.fn().mockResolvedValue(undefined);
+            const nav = new WebHostNavigation({ onOpenMultiDiff });
+            const leftUri = Uri.file('/left.txt');
+            const rightUri = Uri.file('/right.txt');
+            const resources = [{ leftUri, rightUri, label: 'Diff 1' }];
+
+            await nav.openMultiDiff('Multi Diff View', resources);
+            expect(onOpenMultiDiff).toHaveBeenCalledWith('Multi Diff View', resources);
+        });
+
+        it('falls back to openDiff with first resource when onOpenMultiDiff is not provided', async () => {
+            const onOpenDiff = vi.fn().mockResolvedValue(undefined);
+            const nav = new WebHostNavigation({ onOpenDiff });
+            const leftUri1 = Uri.file('/left1.txt');
+            const rightUri1 = Uri.file('/right1.txt');
+            const leftUri2 = Uri.file('/left2.txt');
+            const rightUri2 = Uri.file('/right2.txt');
+            const resources = [
+                { leftUri: leftUri1, rightUri: rightUri1, label: 'Diff 1' },
+                { leftUri: leftUri2, rightUri: rightUri2, label: 'Diff 2' },
+            ];
+
+            await nav.openMultiDiff('Multi Diff View', resources);
+            expect(onOpenDiff).toHaveBeenCalledWith(leftUri1, rightUri1, 'Diff 1');
+
+            // Empty resources handles gracefully without throwing
+            onOpenDiff.mockClear();
+            await nav.openMultiDiff('Empty Multi Diff', []);
+            expect(onOpenDiff).not.toHaveBeenCalled();
+        });
     });
 
     describe('WebHostDocuments', () => {
