@@ -224,6 +224,18 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(cloud-upload)',
         },
         {
+            command: 'jj-view.upload',
+            title: 'Upload',
+            category: 'JJ View',
+            icon: '$(cloud-upload)',
+        },
+        {
+            command: 'jj-view.uploadStack',
+            title: 'Upload Stack',
+            category: 'JJ View',
+            icon: '$(cloud-upload)',
+        },
+        {
             command: 'jj-view.deleteBookmark',
             title: 'Delete Bookmark',
             category: 'JJ View',
@@ -623,6 +635,173 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.squashFilesIntoChild',
                 group: 'inline@5',
                 when: 'scmResourceState =~ /\\bjj\\.resource\\.allowSquashIntoChild\\b/',
+            },
+        ],
+        'webview/context': [
+            {
+                command: 'jj-view.workspaceForget',
+                when: "webviewSection == 'workspace'",
+                group: '1_workspace@1',
+            },
+            {
+                command: 'jj-view.workspaceDelete',
+                when: "webviewSection == 'workspace'",
+                group: '1_workspace@2',
+            },
+            {
+                command: 'jj-view.workspaceOpenInCurrentWindow',
+                when: "webviewSection == 'workspace'",
+                group: '2_workspace@1',
+            },
+            {
+                command: 'jj-view.workspaceOpenInNewWindow',
+                when: "webviewSection == 'workspace'",
+                group: '2_workspace@2',
+            },
+            {
+                command: 'jj-view.showMultiFileDiff',
+                when: "webviewSection == 'commit'",
+                group: '1_diff@1',
+            },
+            {
+                command: 'jj-view.compareWithWorkingCopy',
+                when: "webviewSection == 'commit' && !jj.isCurrentWorkingCopy",
+                group: '1_diff@2',
+            },
+            {
+                command: 'jj-view.new',
+                when: "webviewSection == 'commit' && jj.canNewChild",
+                group: '2_edit@1',
+            },
+            {
+                command: 'jj-view.newBefore',
+                when: "webviewSection == 'commit' && jj.canNewBefore",
+                group: '2_edit@2',
+            },
+            {
+                command: 'jj-view.newAfter',
+                when: "webviewSection == 'commit' && jj.canNewAfter",
+                group: '2_edit@3',
+            },
+            {
+                command: 'jj-view.edit',
+                when: "webviewSection == 'commit' && jj.canEdit",
+                group: '2_edit@4',
+            },
+            {
+                command: 'jj-view.duplicate',
+                when: "webviewSection == 'commit' && jj.canDuplicate",
+                group: '4_changes@1',
+            },
+            {
+                command: 'jj-view.abandon',
+                when: "webviewSection == 'commit' && jj.canAbandon",
+                group: '4_changes@2',
+            },
+            {
+                command: 'jj-view.absorb',
+                when: "webviewSection == 'commit' && jj.canAbsorb",
+                group: '4_changes@3',
+            },
+            {
+                command: 'jj-view.upload',
+                when: "webviewSection == 'commit' && jj.canUpload",
+                group: '3_bookmark@2',
+            },
+            {
+                command: 'jj-view.uploadStack',
+                when: "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+                group: '3_bookmark@3',
+            },
+            {
+                command: 'jj-view.rebaseOntoSelected',
+                when: "webviewSection == 'commit' && jj.canRebaseOnto",
+                group: '5_rebase@1',
+            },
+            {
+                command: 'jj-view.newMergeChange',
+                when: "webviewSection == 'commit' && jj.canMerge",
+                group: '5_rebase@2',
+            },
+            {
+                command: 'jj-view.setBookmark',
+                when: "webviewSection == 'commit'",
+                group: '3_bookmark@1',
+            },
+            {
+                command: 'jj-view.advanceBookmark',
+                when: "webviewSection == 'commit'",
+                group: '3_bookmark@1.5',
+            },
+            {
+                command: 'jj-view.advanceBookmarkAndUpload',
+                when: "webviewSection == 'commit' && jj.canUpload",
+                group: '3_bookmark@1.6',
+            },
+            {
+                command: 'jj-view.deleteBookmark',
+                when: "webviewSection == 'jj.bookmark' && !isRemoteBookmark",
+                group: '3_bookmark@2',
+            },
+            {
+                command: 'jj-view.hideCommitAction.newChild',
+                when: "webviewSection == 'commitAction' && jj.actionId == 'newChild' && jj.newChildVisible",
+                group: '9_visibility_1_hide',
+            },
+            {
+                command: 'jj-view.hideCommitAction.edit',
+                when: "webviewSection == 'commitAction' && jj.actionId == 'edit' && jj.editVisible",
+                group: '9_visibility_1_hide',
+            },
+            {
+                command: 'jj-view.hideCommitAction.squash',
+                when: "webviewSection == 'commitAction' && jj.actionId == 'squash' && jj.squashVisible",
+                group: '9_visibility_1_hide',
+            },
+            {
+                command: 'jj-view.hideCommitAction.abandon',
+                when: "webviewSection == 'commitAction' && jj.actionId == 'abandon' && jj.abandonVisible",
+                group: '9_visibility_1_hide',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.newChild.on',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.newChild",
+                group: '9_visibility_2_toggle@1',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.newChild.off',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.newChild",
+                group: '9_visibility_2_toggle@1',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.edit.on',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.edit",
+                group: '9_visibility_2_toggle@2',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.edit.off',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.edit",
+                group: '9_visibility_2_toggle@2',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.squash.on',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.squash",
+                group: '9_visibility_2_toggle@3',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.squash.off',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.squash",
+                group: '9_visibility_2_toggle@3',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.abandon.on',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && jj.commitActionVisible.abandon",
+                group: '9_visibility_2_toggle@4',
+            },
+            {
+                command: 'jj-view.toggleCommitAction.abandon.off',
+                when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.abandon",
+                group: '9_visibility_2_toggle@4',
             },
         ],
     },

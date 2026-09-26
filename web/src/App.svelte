@@ -8,9 +8,15 @@ import { onMount } from 'svelte';
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
+import type { JjStatusEntry } from '../../src/core/jj-types';
 import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
-import { createJjResourceState, type JjResourceState } from '../../src/core/scm-resource-state';
+import {
+    createJjResourceState,
+    type JjResourceState,
+    type ResourceCommand,
+    type ResourceDecorations,
+} from '../../src/core/scm-resource-state';
 import { encodeJjViewQuery, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
@@ -22,9 +28,12 @@ import PierreMultiDiffViewer, { type MultiDiffFileEntry } from './diff/PierreMul
 import type { WebHostEnvironment } from './host/web-host-environment';
 import AppLayout from './layout/AppLayout.svelte';
 import LogPane from './log/LogPane.svelte';
+import ContextMenu from './menu/ContextMenu.svelte';
 import { ContextKeyService } from './menu/context-key-service';
+import { extractVsCodeContext } from './menu/context-menu-utils';
 import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from './menu/default-menus';
 import { MenuRegistry } from './menu/menu-registry';
+import type { ResolvedMenuItemGroup } from './menu/menu-types';
 import { WhenEvaluator } from './menu/when-evaluator';
 import NotificationContainer from './notifications/NotificationContainer.svelte';
 import { NotificationService } from './notifications/notification-service';
@@ -354,9 +363,121 @@ $effect(() => {
     }
 });
 
+interface ContextMenuState {
+    visible: boolean;
+    x: number;
+    y: number;
+    groups: readonly ResolvedMenuItemGroup[];
+    payload?: unknown;
+}
+
+let contextMenuState = $state<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    groups: [],
+    payload: undefined,
+});
+
+function closeContextMenu(): void {
+    contextMenuState = {
+        visible: false,
+        x: 0,
+        y: 0,
+        groups: [],
+        payload: undefined,
+    };
+}
+
+function handleWindowContextMenu(e: MouseEvent): void {
+    const target = e.target as Element | null;
+    const context = extractVsCodeContext(target);
+    if (!context) {
+        if (contextMenuState.visible) {
+            closeContextMenu();
+        }
+        return;
+    }
+
+    if (context.preventDefaultContextMenuItems) {
+        e.preventDefault();
+    }
+
+    const menuId = typeof context.menuId === 'string' ? context.menuId : 'webview/context';
+    const scopedCtx = rootContext.createScoped(context);
+    const groups = menuRegistry.getContextActions(menuId, scopedCtx);
+
+    if (groups.length === 0) {
+        if (contextMenuState.visible) {
+            closeContextMenu();
+        }
+        return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    contextMenuState = {
+        visible: true,
+        x: e.clientX,
+        y: e.clientY,
+        groups,
+        payload: context,
+    };
+}
+
+function reviveResourceState(raw: Record<string, unknown>): JjResourceState {
+    const rawUri = raw.resourceUri as Parameters<typeof Uri.revive>[0] | undefined;
+    const resourceUri = rawUri ? Uri.revive(rawUri) : Uri.file('');
+    const rawLeft = raw.leftUri as Parameters<typeof Uri.revive>[0] | undefined;
+    const leftUri = rawLeft ? Uri.revive(rawLeft) : undefined;
+    const rawRight = raw.rightUri as Parameters<typeof Uri.revive>[0] | undefined;
+    const rightUri = rawRight ? Uri.revive(rawRight) : undefined;
+    const command = raw.command as ResourceCommand | undefined;
+    const decorations = raw.decorations as ResourceDecorations | undefined;
+    const contextValue = typeof raw.contextValue === 'string' ? raw.contextValue : undefined;
+    const relativePath = typeof raw.relativePath === 'string' ? raw.relativePath : undefined;
+    const diffTitle = typeof raw.diffTitle === 'string' ? raw.diffTitle : undefined;
+    const revision = typeof raw.revision === 'string' ? raw.revision : '@';
+    const status = raw.status as JjStatusEntry['status'] | undefined;
+
+    return {
+        resourceUri,
+        relativePath,
+        command,
+        decorations,
+        contextValue,
+        leftUri,
+        rightUri,
+        diffTitle,
+        revision,
+        status,
+    };
+}
+
+function unpackContextPayload(payload: unknown): unknown {
+    if (typeof payload !== 'object' || payload === null) {
+        return payload;
+    }
+    const record = payload as Record<string, unknown>;
+    if ('resourceState' in record && record.resourceState && typeof record.resourceState === 'object') {
+        const raw = record.resourceState as Record<string, unknown>;
+        return reviveResourceState(raw);
+    }
+    if ('resourceStates' in record && Array.isArray(record.resourceStates)) {
+        return {
+            ...record,
+            resourceStates: record.resourceStates.map((s) =>
+                typeof s === 'object' && s !== null ? reviveResourceState(s as Record<string, unknown>) : s,
+            ),
+        };
+    }
+    return payload;
+}
+
 async function handleAction(command: string, payload?: unknown): Promise<void> {
     if (webHostEnv) {
-        await webHostEnv.commands.executeCommand(command, payload);
+        const resolvedPayload = unpackContextPayload(payload);
+        await webHostEnv.commands.executeCommand(command, resolvedPayload);
     }
 }
 
@@ -524,7 +645,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} oncontextmenu={handleWindowContextMenu} />
 
 <AppLayout
     repoPath={workspaceRoot}
@@ -622,6 +743,20 @@ onMount(() => {
 
 <QuickInput service={activeQuickInput} />
 <NotificationContainer service={activeNotifications} />
+
+{#if contextMenuState.visible}
+    {#key `${contextMenuState.x}:${contextMenuState.y}`}
+        <ContextMenu
+            x={contextMenuState.x}
+            y={contextMenuState.y}
+            groups={contextMenuState.groups}
+            onSelect={(cmd) => {
+                void handleAction(cmd, contextMenuState.payload);
+            }}
+            onClose={closeContextMenu}
+        />
+    {/key}
+{/if}
 
 <style>
 .editor-main-area {
