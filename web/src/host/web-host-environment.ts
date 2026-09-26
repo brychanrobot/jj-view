@@ -38,6 +38,7 @@ export interface WebHostNavigationCallbacks {
     onOpenCommitDetails?: (changeId: string) => Promise<void> | void;
     onFocusScmInput?: () => Promise<void> | void;
     onOpenSettings?: (settingId?: string) => Promise<void> | void;
+    onHighlightCommit?: (repoRoot: Uri, changeId: string | undefined) => void;
 }
 
 export interface ContextKeySetter {
@@ -168,6 +169,8 @@ export class WebHostUi implements HostUi {
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
             acceptCustomValue?: boolean;
+            onDidChangeActive?: (items: readonly T[]) => void;
+            onDidChangeValue?: (value: string) => void;
         },
     ): Promise<T | undefined> {
         if (this.quickInputService) {
@@ -398,6 +401,7 @@ export class WebHostConfig implements HostConfig {
 
 export class WebHostNavigation implements HostNavigation {
     private callbacks: WebHostNavigationCallbacks;
+    private _highlightDelegate?: (repoRoot: Uri, changeId: string | undefined) => void;
 
     constructor(callbacks: WebHostNavigationCallbacks = {}) {
         this.callbacks = callbacks;
@@ -405,6 +409,10 @@ export class WebHostNavigation implements HostNavigation {
 
     public setCallbacks(callbacks: WebHostNavigationCallbacks): void {
         this.callbacks = callbacks;
+    }
+
+    public setHighlightDelegate(delegate?: (repoRoot: Uri, changeId: string | undefined) => void): void {
+        this._highlightDelegate = delegate;
     }
 
     public async openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void> {
@@ -473,6 +481,14 @@ export class WebHostNavigation implements HostNavigation {
     }
 
     public async closeTab(_uri: Uri): Promise<void> {}
+
+    public highlightCommit(repoRoot: Uri, changeId: string | undefined): void {
+        if (this._highlightDelegate) {
+            this._highlightDelegate(repoRoot, changeId);
+        } else if (this.callbacks.onHighlightCommit) {
+            this.callbacks.onHighlightCommit(repoRoot, changeId);
+        }
+    }
 }
 
 export class WebHostDocuments implements HostDocuments {

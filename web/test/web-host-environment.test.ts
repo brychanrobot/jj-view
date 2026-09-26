@@ -145,6 +145,31 @@ describe('WebHostEnvironment', () => {
             await nav.openDiff(left, right, 'Diff Title 2');
             expect(newOpenDiff).toHaveBeenCalledWith(left, right, 'Diff Title 2');
         });
+
+        it('routes highlightCommit to onHighlightCommit callback and setHighlightDelegate', () => {
+            const onHighlightCommit = vi.fn();
+            const nav = new WebHostNavigation({ onHighlightCommit });
+            const repoRoot = Uri.file('/path/to/repo');
+
+            // Calls callback
+            nav.highlightCommit(repoRoot, 'change-abc');
+            expect(onHighlightCommit).toHaveBeenCalledWith(repoRoot, 'change-abc');
+
+            // Calls delegate when registered (priority over callbacks)
+            const delegate = vi.fn();
+            nav.setHighlightDelegate(delegate);
+            nav.highlightCommit(repoRoot, 'change-xyz');
+            expect(delegate).toHaveBeenCalledWith(repoRoot, 'change-xyz');
+            expect(onHighlightCommit).toHaveBeenCalledTimes(1);
+
+            // Clear highlight with undefined
+            nav.highlightCommit(repoRoot, undefined);
+            expect(delegate).toHaveBeenCalledWith(repoRoot, undefined);
+
+            // Does not throw when no delegate or callback is set
+            const bareNav = new WebHostNavigation();
+            expect(() => bareNav.highlightCommit(repoRoot, 'rev')).not.toThrow();
+        });
     });
 
     describe('WebHostDocuments', () => {

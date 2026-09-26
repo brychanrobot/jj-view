@@ -89,10 +89,20 @@ $effect(() => {
     }
 });
 
+$effect(() => {
+    if (session?.type === 'quick-pick' && session.options.onDidChangeActive) {
+        const activeItem = filteredItems[selectedIndex];
+        session.options.onDidChangeActive(activeItem ? [activeItem] : []);
+    }
+});
+
 async function handleInputChange(e: Event): Promise<void> {
     const target = e.currentTarget as HTMLInputElement | null;
     inputOverride = target ? target.value : '';
     selectedIndex = 0;
+    if (session?.type === 'quick-pick' && session.options.onDidChangeValue) {
+        session.options.onDidChangeValue(inputOverride || '');
+    }
     if (session?.type === 'input-box' && session.options.validateInput) {
         try {
             const err = await session.options.validateInput(inputValue);

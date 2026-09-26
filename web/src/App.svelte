@@ -446,6 +446,14 @@ onMount(() => {
                 const textarea = document.querySelector<HTMLTextAreaElement>('[data-testid="scm-input-textarea"]');
                 textarea?.focus();
             },
+            onHighlightCommit: (_repoRoot, changeId) => {
+                if (logTransport) {
+                    void logTransport.postMessage({
+                        type: 'setHighlight',
+                        payload: { changeId },
+                    });
+                }
+            },
         });
     }
 
