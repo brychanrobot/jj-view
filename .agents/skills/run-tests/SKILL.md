@@ -64,11 +64,17 @@ You MUST run individual test cases when writing a new test or debugging a broken
 
 ### 3. End-to-End (E2E) Tests (Playwright)
 
-**Purpose:** End-to-end testing of the extension's behavior in VS Code, interacting with the real UI to ensure the user perspective functions correctly.
-**Command:** `pnpm test:e2e` (also `pnpm test:screenshots` for visual regression)
-**Location Pattern:** `src/test/e2e/**/*.spec.ts`
-**Key Rules:**
+**Purpose:** End-to-end testing of extension and standalone web behavior, interacting with the real UI.
+**Commands:**
+- **VS Code Extension E2E:** `pnpm test:e2e` (also `pnpm test:screenshots` for visual regression)
+- **Standalone Web UI E2E:** `pnpm test:e2e:web` (automatically runs `pnpm build:all` beforehand)
 
+**Location Patterns:**
+- Extension: `src/test/e2e/**/*.spec.ts`
+- Standalone Web: `src/test/e2e-web/**/*.spec.ts`
+
+**Key Rules:**
+- **NEVER use raw `npx playwright test`**: Always use project `pnpm` scripts (`pnpm test:e2e:web -- <spec>`, `pnpm test:e2e -- <spec>`). Pass flags and parameters after `--`.
 - Use the `hoverAndClick` helper function to consistently handle inline action buttons.
 - Replace manual `setTimeout` calls with Playwright's native `waitForTimeout` function.
 

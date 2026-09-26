@@ -47,6 +47,7 @@ This document outlines the coding standards, testing strategies, and architectur
 - Always use `TestRepo` to set up a real temporary repository on disk.
 - Use a real `JjService` instance to operate on it.
 - Use `TestRepo` methods to verify outcomes (e.g. file content, log history), rather than spying on `JjService` calls.
+- **Never invoke raw `npx playwright test`**: Always use project `pnpm` scripts (`pnpm test:e2e:web -- <spec>`, `pnpm test:e2e -- <spec>`). Pass all flags and arguments after `--`. `pnpm test:e2e:web` guarantees `pnpm build:all` is run beforehand.
 
 Please refer to the testing skill located at `.agents/skills/run-tests/SKILL.md` for detailed instructions on writing and running tests.
 
@@ -72,3 +73,24 @@ Please refer to the testing skill located at `.agents/skills/run-tests/SKILL.md`
 - For SCM resource menu items (inline or context menu), always use **`scmResourceState`** as the context key to match `SourceControlResourceState.contextValue`.
     - Example: `"when": "scmResourceState == 'jjParent'"`
 - Avoid using `viewItem` for SCM resources as it is intended for generic tree views.
+
+## Standalone Web UI Guidelines
+
+### Theming & Styling Invariants
+- **Theme-Defined Colors Only**: Never hardcode hex color values in component styles. All backgrounds, borders, foregrounds, and focus indicators must use theme-defined CSS variables (`var(--vscode-...)`) to guarantee seamless adaptability across dark and light themes:
+  - **Surfaces & Borders**: `var(--vscode-editor-background)`, `var(--vscode-sideBar-background)`, `var(--vscode-widget-border)`.
+  - **Headers & Dividers**: `var(--vscode-editorGroupHeader-tabsBackground)`, `var(--vscode-editorGroupHeader-tabsBorder)`.
+  - **Inputs & Focus**: `var(--vscode-input-background)`, `var(--vscode-input-border)`, `var(--vscode-input-foreground)`, `var(--vscode-focusBorder)`.
+  - **Lists & Selection**: `var(--vscode-list-activeSelectionBackground)`, `var(--vscode-list-activeSelectionForeground)`, `var(--vscode-list-hoverBackground)`.
+  - **Typography**: `var(--vscode-foreground)`, `var(--vscode-descriptionForeground)`, `var(--vscode-font-family)`, `var(--vscode-font-size)`.
+- **Dimensional Consistency**: Maintain uniform header heights (`35px`) across panes and dialogs, and standard border radii (`6px` for containers/inputs, `4px` for buttons/items).
+
+### UI Presentation Hygiene
+- **No Self-Referential Branding**: In standalone mode, do not prefix items, command titles, or list labels with the application's own name (e.g. display `"Commit"` rather than `"JJ View: Commit"`).
+- **Clean User Surfaces**: Show clear, human-readable labels; do not expose internal implementation identifiers (e.g., `jj-view.*` command IDs) in primary list rows.
+- **Manifest Contribution Rules**: Strictly honor contribution manifest `when` conditions (e.g., `menus.commandPalette` entries with `when: "false"` or dynamic context conditions) to filter out hidden or inapplicable commands.
+- **Proportional Sizing**: Size modal dialogs and floating pickers proportionally to their functional content rather than spanning unnecessary width.
+
+### Visual Verification
+- For any UI additions or layout changes, write or update Playwright E2E tests to verify interactive behavior.
+- Capture visual artifacts (screenshots and animated GIFs via the `recordGifFlow` helper) and embed them directly in `walkthrough.md`.
