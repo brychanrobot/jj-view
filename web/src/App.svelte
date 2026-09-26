@@ -24,10 +24,14 @@ import { ContextKeyService } from './menu/context-key-service';
 import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from './menu/default-menus';
 import { MenuRegistry } from './menu/menu-registry';
 import { WhenEvaluator } from './menu/when-evaluator';
+import NotificationContainer from './notifications/NotificationContainer.svelte';
+import { NotificationService } from './notifications/notification-service';
 import QuickInput from './quick-input/QuickInput.svelte';
 import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
 import ScmPane from './scm/ScmPane.svelte';
 import SettingsModal from './settings/SettingsModal.svelte';
+import StatusBar from './status/StatusBar.svelte';
+import { StatusBarService } from './status/status-bar-service';
 
 interface Props {
     host?: RemoteHostSystem;
@@ -39,6 +43,8 @@ interface Props {
     editFs?: JjEditFsService;
     logTransport?: WebviewTransport;
     quickInputService?: QuickInputService;
+    notificationService?: NotificationService;
+    statusBarService?: StatusBarService;
 }
 
 let {
@@ -51,10 +57,18 @@ let {
     editFs,
     logTransport,
     quickInputService,
+    notificationService,
+    statusBarService,
 }: Props = $props();
 
 const fallbackQuickInput = new QuickInputService();
 const activeQuickInput = $derived(quickInputService ?? webHostEnv?.quickInput ?? fallbackQuickInput);
+
+const fallbackNotifications = new NotificationService();
+const activeNotifications = $derived(notificationService ?? webHostEnv?.notifications ?? fallbackNotifications);
+
+const fallbackStatusBar = new StatusBarService();
+const activeStatusBar = $derived(statusBarService ?? webHostEnv?.statusBar ?? fallbackStatusBar);
 
 const menuRegistry = new MenuRegistry();
 const rootContext = new ContextKeyService();
@@ -70,6 +84,21 @@ let originalContent = $state('');
 let modifiedContent = $state('');
 let isSettingsOpen = $state(false);
 let activeTheme = $state('pierre-dark-soft');
+
+$effect(() => {
+    if (currentSnapshot?.currentEntry) {
+        activeStatusBar.setWorkingCopy({
+            changeId: currentSnapshot.currentEntry.change_id,
+            bookmark: currentSnapshot.currentEntry.bookmarks?.[0]?.name,
+        });
+    }
+});
+
+$effect(() => {
+    if (host) {
+        activeStatusBar.setConnectionStatus('connected');
+    }
+});
 
 function openCommandPalette(): void {
     const rawCommands = DEFAULT_PACKAGE_JSON_CONTRIBUTES.commands || [];
@@ -495,6 +524,15 @@ onMount(() => {
             {/if}
         </div>
     {/snippet}
+    {#snippet statusBar()}
+        <StatusBar
+            service={activeStatusBar}
+            notificationService={activeNotifications}
+            onOpenSettings={() => {
+                isSettingsOpen = true;
+            }}
+        />
+    {/snippet}
 </AppLayout>
 
 {#if isSettingsOpen && webHostEnv}
@@ -507,6 +545,7 @@ onMount(() => {
 {/if}
 
 <QuickInput service={activeQuickInput} />
+<NotificationContainer service={activeNotifications} />
 
 <style>
 .editor-main-area {

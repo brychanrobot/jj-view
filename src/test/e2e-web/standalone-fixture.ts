@@ -20,6 +20,22 @@ if (!fs.existsSync(ARTIFACT_DIR)) {
     fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 }
 
+declare global {
+    interface Window {
+        __JJ_VIEW_ENV__?: {
+            ui: {
+                showInformation(message: string, ...actions: string[]): Promise<string | undefined>;
+                showWarning(message: string, ...actions: string[]): Promise<string | undefined>;
+                showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined>;
+                setStatusBarMessage?(message: string, timeoutMs?: number): void;
+                withProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
+            };
+            notifications: {
+                setPosition(position: string): void;
+            };
+        };
+    }
+}
 export class StandaloneServer {
     public serverUrl = '';
     public baseUrl = '';

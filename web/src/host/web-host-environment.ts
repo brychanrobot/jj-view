@@ -26,7 +26,10 @@ import type {
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { Uri } from '../../../src/core/uri-utils';
 import { Uri as UriImpl } from '../../../src/core/uri-utils';
+import { NotificationService } from '../notifications/notification-service';
+import type { NotificationPosition } from '../notifications/notification-types';
 import { QuickInputService } from '../quick-input/quick-input-service';
+import { StatusBarService } from '../status/status-bar-service';
 
 export interface WebHostNavigationCallbacks {
     onOpenDiff?: (leftUri: Uri, rightUri: Uri, title: string) => Promise<void> | void;
@@ -43,13 +46,29 @@ export interface ContextKeySetter {
 
 export class WebHostUi implements HostUi {
     private quickInputService?: QuickInputService;
+    private notificationService?: NotificationService;
+    private statusBarService?: StatusBarService;
 
-    constructor(quickInputService?: QuickInputService) {
+    constructor(
+        quickInputService?: QuickInputService,
+        notificationService?: NotificationService,
+        statusBarService?: StatusBarService,
+    ) {
         this.quickInputService = quickInputService;
+        this.notificationService = notificationService;
+        this.statusBarService = statusBarService;
     }
 
     public setQuickInputService(service: QuickInputService | undefined): void {
         this.quickInputService = service;
+    }
+
+    public setNotificationService(service: NotificationService | undefined): void {
+        this.notificationService = service;
+    }
+
+    public setStatusBarService(service: StatusBarService | undefined): void {
+        this.statusBarService = service;
     }
 
     public async showInputBox(options?: {
@@ -120,26 +139,52 @@ export class WebHostUi implements HostUi {
         return undefined;
     }
 
-    public async showInformation(message: string, ..._actions: string[]): Promise<string | undefined> {
+    public async showInformation(message: string, ...actions: string[]): Promise<string | undefined> {
         console.info('[UI Info]', message);
+        if (this.notificationService) {
+            return await this.notificationService.showInformation(message, ...actions);
+        }
         return undefined;
     }
 
-    public async showWarning(message: string, ..._actions: string[]): Promise<string | undefined> {
+    public async showWarning(message: string, ...actions: string[]): Promise<string | undefined> {
         console.warn('[UI Warning]', message);
+        if (this.notificationService) {
+            return await this.notificationService.showWarning(message, ...actions);
+        }
         return undefined;
     }
 
-    public async showErrorMessage(message: string, ..._actions: string[]): Promise<string | undefined> {
+    public async showModalWarning(message: string, ...actions: string[]): Promise<string | undefined> {
+        console.warn('[UI Modal Warning]', message);
+        if (this.notificationService) {
+            return await this.notificationService.showModalWarning(message, ...actions);
+        }
+        return undefined;
+    }
+
+    public async showErrorMessage(message: string, ...actions: string[]): Promise<string | undefined> {
         console.error('[UI Error]', message);
+        if (this.notificationService) {
+            return await this.notificationService.showErrorMessage(message, ...actions);
+        }
         if (typeof window !== 'undefined') {
             window.alert(`Error: ${message}`);
         }
         return undefined;
     }
 
-    public async withProgress<T>(_title: string, task: () => Promise<T>): Promise<T> {
-        return task();
+    public setStatusBarMessage(message: string, timeoutMs?: number): void {
+        if (this.statusBarService) {
+            this.statusBarService.setMessage(message, timeoutMs);
+        }
+    }
+
+    public async withProgress<T>(title: string, task: () => Promise<T>): Promise<T> {
+        if (this.statusBarService) {
+            return await this.statusBarService.withProgress(title, task);
+        }
+        return await task();
     }
 }
 
@@ -519,6 +564,8 @@ export class WebHostWorkspace implements HostWorkspace {
 
 export class WebHostEnvironment implements HostEnvironment {
     public readonly quickInput: QuickInputService;
+    public readonly notifications: NotificationService;
+    public readonly statusBar: StatusBarService;
     public readonly ui: WebHostUi;
     public readonly nav: WebHostNavigation;
     public readonly config: WebHostConfig;
@@ -537,13 +584,32 @@ export class WebHostEnvironment implements HostEnvironment {
         repoRoot: string,
         navCallbacks?: WebHostNavigationCallbacks,
         quickInputService?: QuickInputService,
+        notificationService?: NotificationService,
+        statusBarService?: StatusBarService,
     ) {
         this.system = hostSystem;
         this.nav = new WebHostNavigation(navCallbacks);
         this.config = new WebHostConfig(hostSystem);
         this.documents = new WebHostDocuments(hostSystem);
         this.quickInput = quickInputService ?? new QuickInputService();
-        this.ui = new WebHostUi(this.quickInput);
+        this.notifications = notificationService ?? new NotificationService();
+        this.statusBar = statusBarService ?? new StatusBarService();
+        this.ui = new WebHostUi(this.quickInput, this.notifications, this.statusBar);
+
+        // Configure notification position from settings if defined
+        const configuredPos = this.config.get<NotificationPosition>('notificationPosition');
+        if (configuredPos) {
+            this.notifications.setPosition(configuredPos);
+        }
+        this.config.onDidChangeConfiguration?.((e) => {
+            if (e.affectsConfiguration('notificationPosition')) {
+                const pos = this.config.get<NotificationPosition>('notificationPosition');
+                if (pos) {
+                    this.notifications.setPosition(pos);
+                }
+            }
+        });
+
         const folderName =
             repoRoot
                 .replace(/[/\\]+$/, '')
