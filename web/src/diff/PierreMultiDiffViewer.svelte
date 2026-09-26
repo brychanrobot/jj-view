@@ -5,17 +5,9 @@
 <script lang="ts">
 import { CodeView, type CodeViewDiffItem, type CodeViewFileItem, parseDiffFromFile } from '@pierre/diffs';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { MultiDiffFileEntry } from '../tabs/tab-types';
 import { isBinaryFile } from './binary-detection';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
-
-export interface MultiDiffFileEntry {
-    filename: string;
-    originalContent?: string;
-    modifiedContent?: string;
-    fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
-    isWorkingCopy?: boolean;
-    isConflict?: boolean;
-}
 
 interface Props {
     title: string;

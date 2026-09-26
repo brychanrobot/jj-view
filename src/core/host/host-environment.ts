@@ -59,9 +59,17 @@ export interface HostConfig {
     readonly onDidChangeConfiguration?: Event<HostConfigurationChangeEvent>;
 }
 
+export interface HostOpenOptions {
+    preview?: boolean;
+}
+
 export interface HostNavigation {
-    openDiff(leftUri: Uri, rightUri: Uri, title: string): Promise<void>;
-    openMultiDiff(title: string, resources: { leftUri: Uri; rightUri: Uri; label: string }[]): Promise<void>;
+    openDiff(leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions): Promise<void>;
+    openMultiDiff(
+        title: string,
+        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        options?: HostOpenOptions,
+    ): Promise<void>;
     openMergeEditor(resourceUri: Uri): Promise<void>;
     openCommitDetails(
         repoRoot: Uri,
@@ -69,8 +77,9 @@ export interface HostNavigation {
         shortestChangeId?: string,
         isDivergent?: boolean,
         changeIdOffset?: number,
+        options?: HostOpenOptions,
     ): Promise<void>;
-    openFile(uri: Uri): Promise<void>;
+    openFile(uri: Uri, options?: HostOpenOptions): Promise<void>;
     openFolder(folderUri: Uri, forceNewWindow?: boolean): Promise<void>;
     openExternal(target: Uri): Promise<void>;
     copyToClipboard(text: string): Promise<void>;
