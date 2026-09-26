@@ -1225,6 +1225,8 @@
         "build:web:prod": "node esbuild.js --web --production",
         "build:server": "go build -o dist/bin/jj-view ./cmd/jj-view",
         "build:all": "pnpm build:web:prod && pnpm build:server",
+        "dev": "pnpm dev:web",
+        "dev:web": "pnpm build:web && pnpm build:server && node tooling/dev-server.ts",
         "build:icons": "node tooling/build-icons.ts",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",
@@ -1284,6 +1286,7 @@
         "svelte-check": "^4.7.6",
         "svgtofont": "^6.5.1",
         "typescript": "^5.9.3",
+        "vite": "^7.3.0",
         "vitest": "^4.0.16"
     },
     "dependencies": {

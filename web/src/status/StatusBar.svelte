@@ -15,7 +15,9 @@ interface Props {
 
 let { service, notificationService, onOpenSettings }: Props = $props();
 
+// svelte-ignore state_referenced_locally
 let state = $state<StatusBarState>(service.state);
+// svelte-ignore state_referenced_locally
 let notificationCount = $state<number>(notificationService?.items.length ?? 0);
 
 let unsubscribeStatus: (() => void) | null = null;

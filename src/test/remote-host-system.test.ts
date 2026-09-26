@@ -167,6 +167,45 @@ describe('RemoteHostSystem Unit Tests', () => {
                 });
             }
         });
+
+        it('resolves session token from window.location.search when __JJ_VIEW_CONFIG__ has no token', () => {
+            const originalWindow = globalThis.window;
+            try {
+                const mockWindow = {
+                    location: {
+                        protocol: 'http:',
+                        host: '127.0.0.1:5173',
+                        hostname: '127.0.0.1',
+                        port: '5173',
+                        search: '?token=vite-dev-token&repo=%2Fsome%2Frepo',
+                    },
+                };
+                Object.defineProperty(globalThis, 'window', {
+                    value: mockWindow,
+                    configurable: true,
+                    writable: true,
+                });
+
+                let connectedUrl = '';
+                const fakeWs = new FakeWebSocket();
+                const host = new RemoteHostSystem({
+                    webSocketFactory: (url) => {
+                        connectedUrl = url;
+                        return fakeWs;
+                    },
+                    reconnect: false,
+                });
+
+                expect(connectedUrl).toBe('ws://127.0.0.1:5173/ws/system?token=vite-dev-token');
+                host.dispose();
+            } finally {
+                Object.defineProperty(globalThis, 'window', {
+                    value: originalWindow,
+                    configurable: true,
+                    writable: true,
+                });
+            }
+        });
     });
 
     describe('Process Execution (HostProcess)', () => {
