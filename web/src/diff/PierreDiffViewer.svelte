@@ -7,7 +7,7 @@ import { FileDiff } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import { isBinaryFile } from './binary-detection';
-import { ensureHighlighterRegistered } from './highlighter-setup';
+import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 
 interface Props {
     filename: string;
@@ -145,14 +145,12 @@ function renderDiff(): void {
 
     ensureHighlighterRegistered();
 
-    const isLight =
-        typeof document !== 'undefined' &&
-        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
     const effectiveTheme =
         themeProp ||
         (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
-        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
-    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
+        'pierre-dark-soft';
+    const isLight = isLightTheme(effectiveTheme);
+    const themeType = isLight ? 'light' : 'dark';
 
     fileDiffInstance = new FileDiff({
         diffStyle,

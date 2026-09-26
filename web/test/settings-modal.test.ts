@@ -19,7 +19,9 @@ describe('Settings Schema Utilities', () => {
         expect(themeSetting).toBeDefined();
         expect(themeSetting?.enum).toContain('pierre-dark-soft');
         expect(themeSetting?.enum).toContain('pierre-light-soft');
-        expect(themeSetting?.enum?.length).toBe(10);
+        expect(themeSetting?.enum).toContain('github-dark');
+        expect(themeSetting?.enum).toContain('catppuccin-mocha');
+        expect(themeSetting?.enum?.length).toBe(42);
 
         // Verify no web prefix
         expect(ALL_SETTINGS.some((s) => s.key.startsWith('web.'))).toBe(false);

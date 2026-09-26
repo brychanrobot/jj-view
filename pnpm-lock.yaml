@@ -138,6 +138,9 @@ importers:
       '@shikijs/langs':
         specifier: ^4.4.3
         version: 4.4.3
+      '@shikijs/themes':
+        specifier: ^4.4.3
+        version: 4.4.3
       shiki:
         specifier: ^4.4.3
         version: 4.4.3

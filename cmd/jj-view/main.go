@@ -28,6 +28,8 @@ func main() {
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
 	repoFlag := flag.String("repo", ".", "Path to Jujutsu repository")
+	userDataDirFlag := flag.String("user-data-dir", "", "Path to user data directory for settings and state")
+	userConfigFlag := flag.String("user-config", "", "Path to custom user configuration JSON file")
 	noOpenFlag := flag.Bool("no-open", false, "Do not open browser automatically")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 
@@ -43,11 +45,31 @@ func main() {
 		log.Fatalf("Failed to resolve repository path: %v", err)
 	}
 
+	var userConfigPath string
+	if *userConfigFlag != "" {
+		absConfig, err := filepath.Abs(*userConfigFlag)
+		if err != nil {
+			log.Fatalf("Failed to resolve user config path: %v", err)
+		}
+		userConfigPath = absConfig
+	}
+
+	var absUserDataDir string
+	if *userDataDirFlag != "" {
+		resolved, err := filepath.Abs(*userDataDirFlag)
+		if err != nil {
+			log.Fatalf("Failed to resolve user data directory: %v", err)
+		}
+		absUserDataDir = resolved
+	}
+
 	cfg := server.Config{
-		Host:     *hostFlag,
-		Port:     *portFlag,
-		RepoRoot: absRepo,
-		Version:  version,
+		Host:           *hostFlag,
+		Port:           *portFlag,
+		RepoRoot:       absRepo,
+		Version:        version,
+		UserDataDir:    absUserDataDir,
+		UserConfigPath: userConfigPath,
 	}
 
 	srv, err := server.NewServer(cfg)

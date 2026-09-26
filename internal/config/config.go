@@ -28,6 +28,7 @@ const (
 
 // Options configures the Store.
 type Options struct {
+	UserDataDir    string
 	UserConfigPath string
 	RepoRoot       string
 	OnChange       func(key string, scope string)
@@ -56,7 +57,11 @@ func NewStore(opts ...Options) (*Store, error) {
 
 	userPath := opt.UserConfigPath
 	if userPath == "" {
-		userPath = DefaultConfigPath()
+		if opt.UserDataDir != "" {
+			userPath = filepath.Join(opt.UserDataDir, "config.json")
+		} else {
+			userPath = DefaultConfigPath()
+		}
 	}
 
 	var wsPath string
