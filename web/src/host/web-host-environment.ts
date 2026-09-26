@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { EventEmitter } from '../../../src/core/host/events';
+import { type Event, EventEmitter } from '../../../src/core/host/events';
 import type {
     HostAuth,
     HostAuthSession,
@@ -48,6 +48,9 @@ export class WebHostUi implements HostUi {
     private quickInputService?: QuickInputService;
     private notificationService?: NotificationService;
     private statusBarService?: StatusBarService;
+    private _isActive: boolean;
+    private readonly _onDidChangeActive = new EventEmitter<boolean>();
+    private _cleanupListeners?: () => void;
 
     constructor(
         quickInputService?: QuickInputService,
@@ -57,6 +60,66 @@ export class WebHostUi implements HostUi {
         this.quickInputService = quickInputService;
         this.notificationService = notificationService;
         this.statusBarService = statusBarService;
+        this._isActive =
+            typeof document !== 'undefined'
+                ? !document.hidden && (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
+                : true;
+        this._setupWindowListeners();
+    }
+
+    private _setupWindowListeners(): void {
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+            return;
+        }
+
+        const handleFocus = () => this.setActiveState(true);
+        const handleBlur = () => {
+            const hasFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : false;
+            const isVisible = !document.hidden;
+            this.setActiveState(isVisible && hasFocus);
+        };
+        const handleVisibilityChange = () => {
+            const hasFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : false;
+            const isVisible = !document.hidden;
+            this.setActiveState(isVisible && hasFocus);
+        };
+
+        window.addEventListener('focus', handleFocus);
+        window.addEventListener('blur', handleBlur);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        this._cleanupListeners = () => {
+            window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('blur', handleBlur);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }
+
+    public setActiveState(active: boolean): void {
+        if (this._isActive === active) {
+            return;
+        }
+        this._isActive = active;
+        this._onDidChangeActive.fire(active);
+    }
+
+    public get isActive(): boolean {
+        return this._isActive;
+    }
+
+    public get isFocused(): boolean {
+        return this._isActive;
+    }
+
+    public readonly onDidChangeActive: Event<boolean> = this._onDidChangeActive.event;
+    public readonly onDidChangeFocus: Event<boolean> = this._onDidChangeActive.event;
+
+    public dispose(): void {
+        if (this._cleanupListeners) {
+            this._cleanupListeners();
+            this._cleanupListeners = undefined;
+        }
+        this._onDidChangeActive.dispose();
     }
 
     public setQuickInputService(service: QuickInputService | undefined): void {
@@ -621,5 +684,9 @@ export class WebHostEnvironment implements HostEnvironment {
                 name: folderName,
             },
         ]);
+    }
+
+    public dispose(): void {
+        this.ui.dispose();
     }
 }
