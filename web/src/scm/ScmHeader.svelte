@@ -76,7 +76,7 @@ const actions: ResolvedMenuItem[] = $derived.by(() => {
     align-items: center;
     justify-content: space-between;
     height: 35px;
-    padding: 0 16px;
+    padding: 0 12px 0 16px;
     background-color: var(--vscode-editorGroupHeader-tabsBackground, #171717);
     border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
     user-select: none;

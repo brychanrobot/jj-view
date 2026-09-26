@@ -19,6 +19,7 @@ export interface ResourceDecorations {
 
 export interface JjResourceState {
     resourceUri: Uri;
+    relativePath?: string;
     command?: ResourceCommand;
     decorations?: ResourceDecorations;
     contextValue?: string;
@@ -95,6 +96,7 @@ export function createJjResourceState(
 
     return {
         resourceUri,
+        relativePath: entry.path,
         command,
         leftUri,
         rightUri,
