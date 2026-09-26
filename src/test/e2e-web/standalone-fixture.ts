@@ -35,6 +35,7 @@ export class StandaloneServer {
     public baseUrl = '';
     public port = 0;
     public sessionToken = '';
+    public userDataDir = '';
 
     private _process: cp.ChildProcess | null = null;
     private _stdout = '';
@@ -51,13 +52,31 @@ export class StandaloneServer {
             throw new Error(`jj-view binary not found at ${binaryPath}. Did you run 'pnpm build:all'?`);
         }
 
+        const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-userdata-'));
+        this.userDataDir = tempUserDataDir;
+
         return new Promise<void>((resolve, reject) => {
             const proc = cp.spawn(
                 binaryPath,
-                ['-host', '127.0.0.1', '-port', '0', '-repo', this.repo.path, '-no-open'],
+                [
+                    '-host',
+                    '127.0.0.1',
+                    '-port',
+                    '0',
+                    '-repo',
+                    this.repo.path,
+                    '-user-data-dir',
+                    tempUserDataDir,
+                    '-no-open',
+                ],
                 {
                     stdio: ['ignore', 'pipe', 'pipe'],
                     windowsHide: true,
+                    env: {
+                        ...process.env,
+                        XDG_CONFIG_HOME: tempUserDataDir,
+                        APPDATA: tempUserDataDir,
+                    },
                 },
             );
 
@@ -112,6 +131,14 @@ export class StandaloneServer {
 
         if (proc.exitCode !== null || proc.killed) {
             this._process = null;
+            if (this.userDataDir) {
+                try {
+                    fs.rmSync(this.userDataDir, { recursive: true, force: true });
+                } catch {
+                    // Ignore cleanup error
+                }
+                this.userDataDir = '';
+            }
             return;
         }
 
@@ -121,6 +148,14 @@ export class StandaloneServer {
                 if (!resolved) {
                     resolved = true;
                     this._process = null;
+                    if (this.userDataDir) {
+                        try {
+                            fs.rmSync(this.userDataDir, { recursive: true, force: true });
+                        } catch {
+                            // Ignore cleanup error
+                        }
+                        this.userDataDir = '';
+                    }
                     resolve();
                 }
             };

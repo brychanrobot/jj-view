@@ -29,7 +29,6 @@ type SandboxManager struct {
 	repoRoot      string
 	daemonTempDir string
 }
-
 func appendIfMissing(slice []string, val string) []string {
 	clean := filepath.Clean(val)
 	for _, s := range slice {
@@ -55,8 +54,8 @@ func appendRoot(roots []string, r string) []string {
 	return roots
 }
 
-// NewSandboxManager initializes a filesystem sandbox with the repository root.
-func NewSandboxManager(repoRoot string) (*SandboxManager, error) {
+// NewSandboxManager initializes a filesystem sandbox with the repository root and optional extra allowed roots.
+func NewSandboxManager(repoRoot string, extraRoots ...string) (*SandboxManager, error) {
 	absRepo, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("invalid repository root: %w", err)
@@ -75,6 +74,16 @@ func NewSandboxManager(repoRoot string) (*SandboxManager, error) {
 	var roots []string
 	roots = appendRoot(roots, absRepo)
 	roots = appendRoot(roots, daemonTempDir)
+	for _, extra := range extraRoots {
+		if extra != "" {
+			roots = appendRoot(roots, extra)
+		}
+	}
+
+	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		roots = appendRoot(roots, filepath.Join(configHome, "jj-view"))
+		roots = appendRoot(roots, configHome)
+	}
 
 	userHome, err := os.UserHomeDir()
 	if err == nil {

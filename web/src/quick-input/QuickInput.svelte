@@ -194,7 +194,7 @@ function handleKeyDown(e: KeyboardEvent): void {
     >
         {#if session.options.title}
             <div class="quick-input-header">
-                <span class="quick-input-title">{session.options.title}</span>
+                <span class="quick-input-title" data-testid="quick-input-title">{session.options.title}</span>
                 <button
                     type="button"
                     class="quick-input-close"

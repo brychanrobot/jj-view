@@ -16,6 +16,7 @@ import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
+import { applyAppTheme, loadTheme } from './diff/highlighter-setup';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
 import PierreMultiDiffViewer, { type MultiDiffFileEntry } from './diff/PierreMultiDiffViewer.svelte';
 import type { WebHostEnvironment } from './host/web-host-environment';
@@ -31,6 +32,7 @@ import QuickInput from './quick-input/QuickInput.svelte';
 import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
 import ScmPane from './scm/ScmPane.svelte';
 import SettingsModal from './settings/SettingsModal.svelte';
+import { AVAILABLE_THEMES, THEME_DESCRIPTIONS } from './settings/settings-schema';
 import StatusBar from './status/StatusBar.svelte';
 import { StatusBarService } from './status/status-bar-service';
 
@@ -151,6 +153,12 @@ function openCommandPalette(): void {
             category: 'Preferences',
             iconClass: 'codicon codicon-settings-gear',
         },
+        {
+            id: 'workbench.action.selectTheme',
+            title: 'Color Theme',
+            category: 'Preferences',
+            iconClass: 'codicon codicon-color-mode',
+        },
     ];
 
     for (const b of builtIns) {
@@ -161,10 +169,29 @@ function openCommandPalette(): void {
     }
 
     void activeQuickInput.openCommandPalette(commands, async (cmdId) => {
+        if (cmdId === 'workbench.action.selectTheme') {
+            await openThemePicker();
+            return;
+        }
         if (webHostEnv) {
             await webHostEnv.commands.executeCommand(cmdId);
         }
     });
+}
+
+async function openThemePicker(): Promise<void> {
+    const items = AVAILABLE_THEMES.map((themeId, idx) => ({
+        id: themeId,
+        label: themeId,
+        description: THEME_DESCRIPTIONS[idx] ?? '',
+    }));
+    const selected = await activeQuickInput.showQuickPick(items, {
+        title: 'Select Color Theme',
+        matchOnDescription: true,
+    });
+    if (selected && webHostEnv) {
+        await webHostEnv.config.update('appearance.theme', selected.label);
+    }
 }
 
 function handleWindowKeydown(e: KeyboardEvent): void {
@@ -359,29 +386,28 @@ function handleRefresh(): void {
 onMount(() => {
     let configSub: { dispose: () => void } | undefined;
     if (webHostEnv) {
-        const applyTheme = (themeName: string) => {
+        const applyTheme = async (themeName: string) => {
             activeTheme = themeName;
-            if (typeof document === 'undefined') {
-                return;
-            }
-            document.documentElement.setAttribute('data-theme', themeName);
-            if (themeName.includes('light')) {
-                document.body.classList.remove('vscode-dark');
-                document.body.classList.add('vscode-light');
-            } else {
-                document.body.classList.remove('vscode-light');
-                document.body.classList.add('vscode-dark');
+            try {
+                const theme = await loadTheme(themeName);
+                applyAppTheme(theme);
+            } catch (err) {
+                console.error(`Failed to load theme "${themeName}":`, err);
             }
         };
 
         const initialTheme = webHostEnv.config.get<string>('appearance.theme') || 'pierre-dark-soft';
-        applyTheme(initialTheme);
+        void applyTheme(initialTheme);
 
         configSub = webHostEnv.config.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('appearance.theme')) {
                 const newTheme = webHostEnv.config.get<string>('appearance.theme') || 'pierre-dark-soft';
-                applyTheme(newTheme);
+                void applyTheme(newTheme);
             }
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.selectTheme', async () => {
+            await openThemePicker();
         });
 
         webHostEnv.commands.setContextKeySetter(rootContext);

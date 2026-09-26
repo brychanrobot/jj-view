@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ARTIFACT_DIR, expect, test, waitForScmReady } from './standalone-fixture';
+import { ARTIFACT_DIR, expect, recordGifFlow, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web Settings Modal & Configuration System', () => {
     test('should open settings modal via gear button and close with Escape', async ({ page, server }) => {
@@ -94,59 +94,176 @@ test.describe('Standalone Web Settings Modal & Configuration System', () => {
         await expect(themeRow).toBeVisible();
     });
 
-    test('should change appearance.theme and reactively switch body class and theme attribute', async ({
+    test('should change appearance.theme and reactively switch whole-app skinning without diff header picker', async ({
         page,
         server,
+        testRepo,
     }) => {
+        // Create a sample changed file in test repo so diff viewer can be viewed
+        testRepo.writeFile('welcome.ts', 'export function hello(): string {\n    return "Welcome to JJ View";\n}\n');
+
         await page.goto(server.serverUrl);
         await waitForScmReady(page);
 
-        // Default should be dark theme
-        const bodyClass = await page.evaluate(() => document.body.className);
-        expect(bodyClass).toContain('vscode-dark');
+        // Open the changed file to display the diff viewer
+        const fileItem = page.locator('[data-testid="scm-resource-item"]').filter({ hasText: 'welcome.ts' });
+        await expect(fileItem).toBeVisible();
+        await fileItem.click();
 
-        // Open settings modal
-        await page.locator('[data-testid="scm-settings-button"]').click();
-        const modal = page.locator('[data-testid="settings-modal"]');
-        await expect(modal).toBeVisible();
+        // Verify diff viewer loaded
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible();
 
-        // Locate theme select
-        const themeSelect = page.locator('[data-testid="setting-control-appearance.theme"]');
-        await expect(themeSelect).toBeVisible();
+        // Invariant check: diff toolbar MUST NOT contain any theme selector or dropdown
+        const diffToolbar = page.locator('[data-testid="diff-toolbar"]');
+        await expect(diffToolbar).toBeVisible();
+        await expect(diffToolbar.locator('select')).toHaveCount(0);
+        await expect(diffToolbar.locator('[data-testid*="theme"]')).toHaveCount(0);
 
-        // Switch to Pierre Light Soft
-        await themeSelect.selectOption('pierre-light-soft');
+        // Default theme should be dark
+        const initialStatus = await page.evaluate(() => ({
+            bodyClass: document.body.className,
+            theme: document.documentElement.getAttribute('data-theme'),
+            editorBg: getComputedStyle(document.body).getPropertyValue('--vscode-editor-background').trim(),
+        }));
+        expect(initialStatus.bodyClass).toContain('vscode-dark');
 
-        // Verify body class changed to light and data-theme changed
-        await expect
-            .poll(async () => {
-                return await page.evaluate(() => ({
-                    bodyClass: document.body.className,
-                    theme: document.documentElement.getAttribute('data-theme'),
-                }));
-            })
-            .toEqual({
-                bodyClass: expect.stringContaining('vscode-light'),
-                theme: 'pierre-light-soft',
-            });
+        const gifPath = path.join(ARTIFACT_DIR, 'app-theming-flow.gif');
+        const catppuccinPngPath = path.join(ARTIFACT_DIR, 'theme-catppuccin-mocha.png');
+        const draculaPngPath = path.join(ARTIFACT_DIR, 'theme-dracula.png');
+        const lightPngPath = path.join(ARTIFACT_DIR, 'theme-github-light.png');
+        const pierreDarkPngPath = path.join(ARTIFACT_DIR, 'theme-pierre-dark-soft.png');
 
-        // Capture Light Theme screenshot
-        const lightScreenshotPath = path.join(ARTIFACT_DIR, 'settings-modal-light.png');
-        await modal.screenshot({ path: lightScreenshotPath });
+        await recordGifFlow(
+            page,
+            async (captureFrame) => {
+                // Frame 1: Default Pierre Dark Soft state
+                await page.screenshot({ path: pierreDarkPngPath });
+                await captureFrame();
 
-        // Switch back to Pierre Dark Soft
-        await themeSelect.selectOption('pierre-dark-soft');
-        await expect
-            .poll(async () => {
-                return await page.evaluate(() => ({
-                    bodyClass: document.body.className,
-                    theme: document.documentElement.getAttribute('data-theme'),
-                }));
-            })
-            .toEqual({
-                bodyClass: expect.stringContaining('vscode-dark'),
-                theme: 'pierre-dark-soft',
-            });
+                // Frame 2: Open settings modal
+                await page.locator('[data-testid="scm-settings-button"]').click();
+                const modal = page.locator('[data-testid="settings-modal"]');
+                await expect(modal).toBeVisible();
+                await captureFrame();
+
+                // Frame 3: Switch to Catppuccin Mocha
+                const themeSelect = page.locator('[data-testid="setting-control-appearance.theme"]');
+                await themeSelect.selectOption('catppuccin-mocha');
+
+                await expect
+                    .poll(async () => {
+                        return await page.evaluate(() => ({
+                            theme: document.documentElement.getAttribute('data-theme'),
+                            editorBg: getComputedStyle(document.body)
+                                .getPropertyValue('--vscode-editor-background')
+                                .trim()
+                                .toLowerCase(),
+                        }));
+                    })
+                    .toEqual({
+                        theme: 'catppuccin-mocha',
+                        editorBg: '#1e1e2e',
+                    });
+
+                // Close settings modal to view full UI in Catppuccin Mocha
+                await page.keyboard.press('Escape');
+                await expect(modal).toHaveCount(0);
+                await page.screenshot({ path: catppuccinPngPath });
+                await captureFrame();
+
+                // Frame 4: Use Command Palette (Color Theme) to switch to Dracula
+                await page.keyboard.press('Control+Shift+P');
+                const quickInput = page.locator('[data-testid="quick-input-widget"]');
+                await expect(quickInput).toBeVisible();
+                const paletteInput = page.locator('[data-testid="quick-input-text-input"]');
+                await paletteInput.fill('Color Theme');
+                await page.locator('[data-testid="quick-pick-item-workbench.action.selectTheme"]').click();
+
+                // QuickPick with theme list is open
+                await expect(page.locator('[data-testid="quick-input-title"]')).toHaveText('Select Color Theme');
+                await paletteInput.fill('dracula');
+                await page.locator('[data-testid="quick-pick-item-dracula"]').click();
+
+                await expect
+                    .poll(async () => {
+                        return await page.evaluate(() => ({
+                            theme: document.documentElement.getAttribute('data-theme'),
+                            editorBg: getComputedStyle(document.body)
+                                .getPropertyValue('--vscode-editor-background')
+                                .trim()
+                                .toLowerCase(),
+                        }));
+                    })
+                    .toEqual({
+                        theme: 'dracula',
+                        editorBg: '#282a36',
+                    });
+                await page.screenshot({ path: draculaPngPath });
+                await captureFrame();
+
+                // Frame 5: Switch to GitHub Light
+                await page.keyboard.press('Control+Shift+P');
+                await expect(quickInput).toBeVisible();
+                await paletteInput.fill('Color Theme');
+                await page.locator('[data-testid="quick-pick-item-workbench.action.selectTheme"]').click();
+
+                await expect(page.locator('[data-testid="quick-input-title"]')).toHaveText('Select Color Theme');
+                await paletteInput.fill('github-light');
+                await page.locator('[data-testid="quick-pick-item-github-light"]').click();
+
+                await expect
+                    .poll(async () => {
+                        return await page.evaluate(() => ({
+                            bodyClass: document.body.className,
+                            theme: document.documentElement.getAttribute('data-theme'),
+                            editorBg: getComputedStyle(document.body)
+                                .getPropertyValue('--vscode-editor-background')
+                                .trim()
+                                .toLowerCase(),
+                        }));
+                    })
+                    .toEqual({
+                        bodyClass: expect.stringContaining('vscode-light'),
+                        theme: 'github-light',
+                        editorBg: '#fff',
+                    });
+                await page.screenshot({ path: lightPngPath });
+                await captureFrame();
+
+                // Frame 6: Switch back to Pierre Dark Soft
+                await page.keyboard.press('Control+Shift+P');
+                await expect(quickInput).toBeVisible();
+                await paletteInput.fill('Color Theme');
+                await page.locator('[data-testid="quick-pick-item-workbench.action.selectTheme"]').click();
+
+                await expect(page.locator('[data-testid="quick-input-title"]')).toHaveText('Select Color Theme');
+                await paletteInput.fill('pierre-dark-soft');
+                await page.locator('[data-testid="quick-pick-item-pierre-dark-soft"]').click();
+
+                await expect
+                    .poll(async () => {
+                        return await page.evaluate(() => ({
+                            bodyClass: document.body.className,
+                            theme: document.documentElement.getAttribute('data-theme'),
+                            editorBg: getComputedStyle(document.body)
+                                .getPropertyValue('--vscode-editor-background')
+                                .trim()
+                                .toLowerCase(),
+                        }));
+                    })
+                    .toEqual({
+                        bodyClass: expect.stringContaining('vscode-dark'),
+                        theme: 'pierre-dark-soft',
+                        editorBg: '#171717',
+                    });
+                await captureFrame();
+            },
+            {
+                outputPath: gifPath,
+                framerate: 1,
+            },
+        );
     });
 
     test('should reactively reload settings when .vscode/settings.json is modified on disk', async ({

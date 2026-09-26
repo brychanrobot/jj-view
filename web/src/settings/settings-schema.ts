@@ -7,7 +7,8 @@ import { PACKAGE_SETTINGS, type SettingDefinition } from './package-settings.gen
 
 export type { SettingDefinition };
 
-export const PIERRE_THEMES = [
+export const AVAILABLE_THEMES = [
+    // Pierre Themes (10)
     'pierre-dark-soft',
     'pierre-dark',
     'pierre-dark-vibrant',
@@ -18,9 +19,95 @@ export const PIERRE_THEMES = [
     'pierre-light-vibrant',
     'pierre-light-protanopia-deuteranopia',
     'pierre-light-tritanopia',
+    // Shiki Dark Themes (22)
+    'github-dark',
+    'github-dark-dimmed',
+    'catppuccin-mocha',
+    'catppuccin-macchiato',
+    'catppuccin-frappe',
+    'dracula',
+    'dracula-soft',
+    'tokyo-night',
+    'nord',
+    'one-dark-pro',
+    'solarized-dark',
+    'monokai',
+    'ayu-dark',
+    'ayu-mirage',
+    'vesper',
+    'poimandres',
+    'rose-pine',
+    'rose-pine-moon',
+    'everforest-dark',
+    'gruvbox-dark-medium',
+    'kanagawa-wave',
+    'night-owl',
+    // Shiki Light Themes (10)
+    'github-light',
+    'github-light-default',
+    'catppuccin-latte',
+    'one-light',
+    'solarized-light',
+    'rose-pine-dawn',
+    'everforest-light',
+    'gruvbox-light-medium',
+    'vitesse-light',
+    'light-plus',
 ] as const;
 
-export type PierreTheme = (typeof PIERRE_THEMES)[number];
+export type AvailableTheme = (typeof AVAILABLE_THEMES)[number];
+
+// Alias for backwards compatibility
+export const PIERRE_THEMES = AVAILABLE_THEMES;
+export type PierreTheme = AvailableTheme;
+
+export const THEME_DESCRIPTIONS: readonly string[] = [
+    // Pierre Themes
+    'Pierre Dark Soft (Recommended - softer contrast canvas)',
+    'Pierre Dark (Standard dark theme)',
+    'Pierre Dark Vibrant (Vibrant accents)',
+    'Pierre Dark Protanopia/Deuteranopia (Red-green accessible)',
+    'Pierre Dark Tritanopia (Blue-yellow accessible)',
+    'Pierre Light Soft (Softer light theme)',
+    'Pierre Light (Standard light theme)',
+    'Pierre Light Vibrant (Vibrant light accents)',
+    'Pierre Light Protanopia/Deuteranopia (Red-green accessible)',
+    'Pierre Light Tritanopia (Blue-yellow accessible)',
+    // Shiki Dark Themes
+    'GitHub Dark',
+    'GitHub Dark Dimmed',
+    'Catppuccin Mocha',
+    'Catppuccin Macchiato',
+    'Catppuccin Frappé',
+    'Dracula',
+    'Dracula Soft',
+    'Tokyo Night',
+    'Nord',
+    'One Dark Pro',
+    'Solarized Dark',
+    'Monokai',
+    'Ayu Dark',
+    'Ayu Mirage',
+    'Vesper',
+    'Poimandres',
+    'Rosé Pine',
+    'Rosé Pine Moon',
+    'Everforest Dark',
+    'Gruvbox Dark',
+    'Kanagawa Wave',
+    'Night Owl',
+    // Shiki Light Themes
+    'GitHub Light',
+    'GitHub Light Default',
+    'Catppuccin Latte',
+    'One Light',
+    'Solarized Light',
+    'Rosé Pine Dawn',
+    'Everforest Light',
+    'Gruvbox Light',
+    'Vitesse Light',
+    'Light+ (Default Light)',
+];
 
 export const WEB_ADDITIONAL_SETTINGS: readonly SettingDefinition[] = [
     {
@@ -30,19 +117,8 @@ export const WEB_ADDITIONAL_SETTINGS: readonly SettingDefinition[] = [
         category: 'Appearance',
         type: 'string',
         default: 'pierre-dark-soft',
-        enum: PIERRE_THEMES,
-        enumDescriptions: [
-            'Pierre Dark Soft (Recommended - softer contrast canvas)',
-            'Pierre Dark (Standard dark theme)',
-            'Pierre Dark Vibrant (Vibrant accents)',
-            'Pierre Dark Protanopia/Deuteranopia (Red-green accessible)',
-            'Pierre Dark Tritanopia (Blue-yellow accessible)',
-            'Pierre Light Soft (Softer light theme)',
-            'Pierre Light (Standard light theme)',
-            'Pierre Light Vibrant (Vibrant light accents)',
-            'Pierre Light Protanopia/Deuteranopia (Red-green accessible)',
-            'Pierre Light Tritanopia (Blue-yellow accessible)',
-        ],
+        enum: AVAILABLE_THEMES,
+        enumDescriptions: THEME_DESCRIPTIONS,
     },
     {
         key: 'diff.style',

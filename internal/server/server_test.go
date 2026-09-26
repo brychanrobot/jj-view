@@ -469,3 +469,40 @@ func TestIndexAndSPARouting(t *testing.T) {
 		t.Fatalf("expected SPA route to serve index.html with injected config, got: %s", string(spaBody))
 	}
 }
+
+func TestServer_UserDataDir(t *testing.T) {
+	tempRepo, err := os.MkdirTemp("", "jj-view-repo-test")
+	if err != nil {
+		t.Fatalf("failed to create temp repo: %v", err)
+	}
+	defer os.RemoveAll(tempRepo)
+
+	tempUserData, err := os.MkdirTemp("", "jj-view-userdata-test")
+	if err != nil {
+		t.Fatalf("failed to create temp user data dir: %v", err)
+	}
+	defer os.RemoveAll(tempUserData)
+
+	cfg := Config{
+		Host:        "127.0.0.1",
+		Port:        0,
+		RepoRoot:    tempRepo,
+		Version:     "test",
+		UserDataDir: tempUserData,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server with UserDataDir: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Close(ctx)
+	}()
+
+	expectedConfigPath := filepath.Join(tempUserData, "config.json")
+	if srv.cfg.UserConfigPath != expectedConfigPath {
+		t.Fatalf("expected UserConfigPath %q, got %q", expectedConfigPath, srv.cfg.UserConfigPath)
+	}
+}

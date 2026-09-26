@@ -45,6 +45,7 @@ type Config struct {
 	RepoRoot       string
 	SessionToken   string
 	Version        string
+	UserDataDir    string
 	UserConfigPath string
 }
 
@@ -82,7 +83,24 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	cfg.RepoRoot = absRepo
 
-	fsMgr, err := fs.NewSandboxManager(cfg.RepoRoot)
+	if cfg.UserDataDir != "" && cfg.UserConfigPath == "" {
+		absDataDir, err := filepath.Abs(cfg.UserDataDir)
+		if err != nil {
+			return nil, fmt.Errorf("invalid user data dir: %w", err)
+		}
+		cfg.UserDataDir = absDataDir
+		cfg.UserConfigPath = filepath.Join(absDataDir, "config.json")
+	}
+
+	var extraRoots []string
+	if cfg.UserDataDir != "" {
+		extraRoots = append(extraRoots, cfg.UserDataDir)
+	}
+	if cfg.UserConfigPath != "" {
+		extraRoots = append(extraRoots, filepath.Dir(cfg.UserConfigPath))
+	}
+
+	fsMgr, err := fs.NewSandboxManager(cfg.RepoRoot, extraRoots...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sandbox: %w", err)
 	}
@@ -98,7 +116,7 @@ func NewServer(cfg Config) (*Server, error) {
 			"github.com":     true,
 			"gitlab.com":     true,
 		},
-		fileServer:  http.FileServer(http.FS(web.FS)),
+		fileServer: http.FileServer(http.FS(web.FS)),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024 * 1024,
 			WriteBufferSize: 1024 * 1024,
@@ -107,6 +125,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	configStore, err := config.NewStore(config.Options{
+		UserDataDir:    cfg.UserDataDir,
 		UserConfigPath: cfg.UserConfigPath,
 		RepoRoot:       cfg.RepoRoot,
 		OnChange: func(key string, scope string) {
