@@ -98,6 +98,7 @@ const rootContext = new ContextKeyService();
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
 let tabs = $state<TabEntry[]>([]);
 let activeTabId = $state<string | undefined>();
+let activeTabSelection = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
 let isSettingsOpen = $state(false);
 let activeTheme = $state('pierre-dark-soft');
 
@@ -110,6 +111,7 @@ $effect(() => {
             : activeTab?.view.type === 'file'
               ? activeTab.view.uri
               : undefined;
+    activeTabSelection = undefined;
     webHostEnv?.documents.notifyActiveDocumentChanged(uri);
 });
 
@@ -502,6 +504,22 @@ async function handleResolveConflict(): Promise<void> {
     await loadDiffContents(activeTab.view.resourceState, { preview: false });
 }
 
+async function handleSquashSelection(ranges: { startLine: number; endLine: number }[]): Promise<void> {
+    if (!activeTab || activeTab.view.type !== 'diff' || !activeTab.view.rightUri) {
+        return;
+    }
+    if (activeTab.isDirty && webHostEnv?.documents) {
+        await webHostEnv.documents.saveIfDirty(activeTab.view.rightUri);
+    }
+    const uri = activeTab.view.rightUri;
+    const revision = activeTab.view.resourceState?.revision ?? '@';
+    await (webHostEnv?.commands ?? host?.commands)?.executeCommand('jj-view.squashSelectionIntoParent', {
+        uri,
+        ranges,
+        revision,
+    });
+}
+
 $effect(() => {
     if (!scmModel) {
         return;
@@ -737,6 +755,7 @@ onMount(() => {
                 }
                 return undefined;
             },
+            getActiveDocumentSelections: () => activeTabSelection,
             getOpenDocumentUris: () => {
                 const uris: Uri[] = [];
                 for (const t of tabs) {
@@ -992,6 +1011,7 @@ onMount(() => {
                                 : activeTab.view.rightUri?.scheme === 'file'}
                             isConflict={activeTab.view.resourceState?.status === 'conflicted' ||
                                 (activeTab.view.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
+                            parentMutable={currentSnapshot?.parentMutable ?? false}
                             onSave={handleSaveFile}
                             onDiscard={handleDiscardFile}
                             onResolveConflict={handleResolveConflict}
@@ -1008,6 +1028,10 @@ onMount(() => {
                                     activeTab.view.modifiedContent = text;
                                 }
                             }}
+                            onSelectionChange={(ranges) => {
+                                activeTabSelection = ranges;
+                            }}
+                            onSquashSelection={handleSquashSelection}
                         />
                     {/key}
                 {:else if activeTab && activeTab.view.type === 'multi-diff'}

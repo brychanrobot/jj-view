@@ -149,7 +149,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
 
     function registerWithPayload<TPayload, TReturn = unknown>(
         commandId: string,
-        payloadCreator: (args: unknown[]) => TPayload,
+        payloadCreator: (args: unknown[], hostEnvironment?: HostEnvironment) => TPayload,
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): void {
         hostEnvironment.commands.registerCommand(commandId, async (...args: unknown[]) => {
@@ -160,7 +160,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
                 return;
             }
             const ctx = createCmdContext(repo);
-            const payload = payloadCreator(args);
+            const payload = payloadCreator(args, hostEnvironment);
             const result = await handler(ctx, payload);
             await repo.refresh();
             return result;

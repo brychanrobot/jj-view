@@ -12,6 +12,7 @@ import type { JjService } from '../../src/core/jj-service';
 import type { ScmModel } from '../../src/core/scm-model';
 import { Uri } from '../../src/core/uri-utils';
 import type { LoggerChannel } from '../../src/utils/output-channel';
+import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
 import { WebHostEnvironment } from '../src/host/web-host-environment';
 import { createMock } from './test-mock';
@@ -183,5 +184,33 @@ describe('registerWebCommands', () => {
 
         await hostEnvironment.commands.executeCommand('jj-view.showDetails', 'my-change-id');
         expect(openedCommitDetails).toContain('my-change-id');
+    });
+
+    it('creates squashSelectionIntoParent payload from arguments or host documents fallback', () => {
+        const directPayload = createSquashSelectionIntoParentPayload([
+            {
+                uri: Uri.file('/test.txt'),
+                ranges: [{ startLine: 1, endLine: 3 }],
+                revision: '@',
+            },
+        ]);
+        expect(directPayload.uri?.toString()).toBe(Uri.file('/test.txt').toString());
+        expect(directPayload.ranges).toEqual([{ startLine: 1, endLine: 3 }]);
+
+        // With empty arguments but active host document and selections
+        const { hostEnvironment } = setupTestEnvironment();
+        const activeUri = Uri.file('/active.txt');
+        hostEnvironment.documents.setDelegate({
+            getActiveDocumentUri: () => activeUri,
+            getActiveDocumentSelections: () => [{ startLine: 10, endLine: 15 }],
+        });
+
+        const fallbackPayload = createSquashSelectionIntoParentPayload([], hostEnvironment);
+        expect(fallbackPayload.uri).toBe(activeUri);
+        expect(fallbackPayload.ranges).toEqual([{ startLine: 10, endLine: 15 }]);
+
+        // Without arguments and without selections
+        const emptyPayload = createSquashSelectionIntoParentPayload([]);
+        expect(emptyPayload).toEqual({});
     });
 });
