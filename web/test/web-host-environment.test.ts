@@ -453,17 +453,20 @@ describe('WebHostEnvironment', () => {
 
             // Without delegate, returns safe empty defaults
             expect(docs.getActiveDocumentUri()).toBeUndefined();
+            expect(docs.getActiveDocumentSelections()).toBeUndefined();
             expect(docs.getOpenDocumentUris()).toEqual([]);
             expect(docs.getOpenDiffTabs()).toEqual([]);
             expect(docs.getOpenDocumentText(Uri.file('/test.txt'))).toBeUndefined();
 
             const activeUri = Uri.file('/active.txt');
+            const activeSelections = [{ startLine: 5, endLine: 10 }];
             const openUris = [activeUri, Uri.file('/other.txt')];
             const diffTabs = [{ originalUri: Uri.file('/left.txt'), modifiedUri: activeUri, close: vi.fn() }];
             const saveIfDirty = vi.fn().mockResolvedValue(undefined);
 
             docs.setDelegate({
                 getActiveDocumentUri: () => activeUri,
+                getActiveDocumentSelections: () => activeSelections,
                 getOpenDocumentUris: () => openUris,
                 getOpenDiffTabs: () => diffTabs,
                 getOpenDocumentText: (uri) => (uri.fsPath === activeUri.fsPath ? 'custom text' : undefined),
@@ -471,6 +474,7 @@ describe('WebHostEnvironment', () => {
             });
 
             expect(docs.getActiveDocumentUri()).toBe(activeUri);
+            expect(docs.getActiveDocumentSelections()).toEqual(activeSelections);
             expect(docs.getOpenDocumentUris()).toEqual(openUris);
             expect(docs.getOpenDiffTabs()).toEqual(diffTabs);
             expect(docs.getOpenDocumentText(activeUri)).toBe('custom text');

@@ -16,6 +16,7 @@ interface Props {
     fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
     isWorkingCopy?: boolean;
     isConflict?: boolean;
+    parentMutable?: boolean;
     theme?: string;
     initialDirty?: boolean;
     onSave?: (newContent: string) => Promise<void> | void;
@@ -23,6 +24,8 @@ interface Props {
     onResolveConflict?: () => Promise<void> | void;
     onDirtyChange?: (isDirty: boolean) => void;
     onContentChange?: (newContent: string) => void;
+    onSelectionChange?: (ranges: { startLine: number; endLine: number }[] | undefined) => void;
+    onSquashSelection?: (ranges: { startLine: number; endLine: number }[]) => Promise<void> | void;
 }
 
 let {
@@ -32,6 +35,7 @@ let {
     fileStatus,
     isWorkingCopy = false,
     isConflict = false,
+    parentMutable = false,
     theme: themeProp = '',
     initialDirty = false,
     onSave,
@@ -39,6 +43,8 @@ let {
     onResolveConflict,
     onDirtyChange,
     onContentChange,
+    onSelectionChange,
+    onSquashSelection,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
@@ -50,6 +56,7 @@ let saveMessage = $state<string | null>(null);
 let canUndo = $state(false);
 let canRedo = $state(false);
 let currentContent = $state('');
+let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
 
 let fileDiffInstance: FileDiff | null = null;
 let editorInstance: Editor<'file-diff'> | null = null;
@@ -60,6 +67,8 @@ let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
 const isBinary = $derived(isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent));
 
 function cleanupInstances(): void {
+    selectedRanges = undefined;
+    onSelectionChange?.(undefined);
     if (saveDebounceTimer) {
         clearTimeout(saveDebounceTimer);
         saveDebounceTimer = null;
@@ -80,6 +89,18 @@ function cleanupInstances(): void {
         fileDiffInstance.cleanUp();
         fileDiffInstance = null;
     }
+}
+
+function handleLineSelection(range: { start?: number; end?: number } | null | undefined): void {
+    if (!range || typeof range.start !== 'number' || typeof range.end !== 'number') {
+        selectedRanges = undefined;
+        onSelectionChange?.(undefined);
+        return;
+    }
+    const startLine = Math.max(0, Math.min(range.start, range.end) - 1);
+    const endLine = Math.max(startLine, Math.max(range.start, range.end) - 1);
+    selectedRanges = [{ startLine, endLine }];
+    onSelectionChange?.(selectedRanges);
 }
 
 async function handleSave(): Promise<void> {
@@ -170,6 +191,10 @@ function renderDiff(): void {
         disableFileHeader: true,
         theme: effectiveTheme,
         themeType,
+        enableLineSelection: true,
+        onLineSelected: handleLineSelection,
+        onLineSelectionChange: handleLineSelection,
+        onLineSelectionEnd: handleLineSelection,
     });
 
     const contentToRender = untrack(() => currentContent);
@@ -232,6 +257,10 @@ function setDiffStyle(style: 'split' | 'unified'): void {
             disableFileHeader: true,
             theme: effectiveTheme,
             themeType,
+            enableLineSelection: true,
+            onLineSelected: handleLineSelection,
+            onLineSelectionChange: handleLineSelection,
+            onLineSelectionEnd: handleLineSelection,
         });
         const contentToRender = untrack(() => currentContent);
         const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
@@ -267,6 +296,10 @@ function handleRedo(): void {
 }
 
 function handleKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && selectedRanges) {
+        selectedRanges = undefined;
+        onSelectionChange?.(undefined);
+    }
     if (!isWorkingCopy || !onSave) {
         return;
     }
@@ -433,6 +466,23 @@ onDestroy(() => {
                 >
                     <i class="codicon codicon-check" aria-hidden="true"></i>
                     <span>Mark Resolved</span>
+                </button>
+            {/if}
+
+            {#if onSquashSelection && selectedRanges && selectedRanges.length > 0 && parentMutable}
+                <button
+                    type="button"
+                    class="toolbar-btn primary"
+                    onclick={() => {
+                        if (selectedRanges) {
+                            onSquashSelection(selectedRanges);
+                        }
+                    }}
+                    title="Squash selected lines into parent commit"
+                    data-testid="diff-squash-selection-btn"
+                >
+                    <i class="codicon codicon-fold-up" aria-hidden="true"></i>
+                    <span>Squash Selection</span>
                 </button>
             {/if}
         </div>

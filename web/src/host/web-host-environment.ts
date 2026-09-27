@@ -26,6 +26,7 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
+    TextSelectionRange,
 } from '../../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { Uri } from '../../../src/core/uri-utils';
@@ -534,6 +535,7 @@ export class WebHostNavigation implements HostNavigation {
 
 export interface WebHostDocumentsDelegate {
     getActiveDocumentUri?: () => Uri | undefined;
+    getActiveDocumentSelections?: () => readonly TextSelectionRange[] | undefined;
     getOpenDocumentUris?: () => Uri[];
     getOpenDiffTabs?: () => readonly HostDiffTab[];
     getOpenDocumentText?: (uri: Uri) => string | undefined;
@@ -608,6 +610,10 @@ export class WebHostDocuments implements HostDocuments {
 
     public getActiveDocumentUri(): Uri | undefined {
         return this.delegate?.getActiveDocumentUri?.();
+    }
+
+    public getActiveDocumentSelections(): readonly TextSelectionRange[] | undefined {
+        return this.delegate?.getActiveDocumentSelections?.();
     }
 
     public getOpenDocumentUris(): Uri[] {
@@ -883,9 +889,9 @@ export class WebHostEnvironment implements HostEnvironment {
     public readonly ui: WebHostUi;
     public readonly nav: WebHostNavigation;
     public readonly config: WebHostConfig;
-    public readonly documents: HostDocuments;
-    public readonly storage: HostStorage;
-    public readonly secrets: HostSecrets;
+    public readonly documents: WebHostDocuments;
+    public readonly storage: WebHostStorage;
+    public readonly secrets: WebHostSecrets;
     public readonly auth: HostAuth = new WebHostAuth();
     public readonly commands: WebHostCommands = new WebHostCommands();
     public readonly views: HostViews = new WebHostViews();
