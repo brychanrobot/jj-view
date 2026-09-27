@@ -11,9 +11,11 @@ interface Props {
     placeholder?: string;
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
+    isSidecarAvailable?: boolean;
     onCommit: (message: string) => void;
     onSetDescription: (message: string) => void;
     onValueChange?: (message: string) => void;
+    onDraftWithAgent?: () => Promise<string | undefined>;
 }
 
 let {
@@ -22,9 +24,11 @@ let {
     placeholder = 'Describe your changes... (Ctrl+Enter to commit, Ctrl+S to set description)',
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
+    isSidecarAvailable = false,
     onCommit,
     onSetDescription,
     onValueChange,
+    onDraftWithAgent,
 }: Props = $props();
 
 // svelte-ignore state_referenced_locally
@@ -34,6 +38,7 @@ let previousValue = $state(value);
 // svelte-ignore state_referenced_locally
 let previousChangeId = $state(changeId);
 let textareaEl: HTMLTextAreaElement | null = $state(null);
+let isDrafting = $state(false);
 
 $effect(() => {
     if (changeId !== previousChangeId) {
@@ -87,6 +92,23 @@ function handleInput(): void {
     onValueChange?.(description);
 }
 
+async function handleDraftWithAgent(): Promise<void> {
+    if (!onDraftWithAgent || isDrafting) {
+        return;
+    }
+    isDrafting = true;
+    try {
+        const text = await onDraftWithAgent();
+        if (text) {
+            description = text;
+            onValueChange?.(text);
+            setTimeout(() => handleInput(), 0);
+        }
+    } finally {
+        isDrafting = false;
+    }
+}
+
 onMount(() => {
     handleInput();
 });
@@ -98,6 +120,7 @@ onMount(() => {
             bind:this={textareaEl}
             bind:value={description}
             class="scm-textarea"
+            class:with-agent-btn={Boolean(onDraftWithAgent)}
             data-testid="scm-input-textarea"
             {placeholder}
             rows={3}
@@ -105,6 +128,20 @@ onMount(() => {
             oninput={handleInput}
             aria-label="Commit description"
         ></textarea>
+        {#if Boolean(onDraftWithAgent)}
+            <button
+                type="button"
+                class="agent-draft-button"
+                class:loading={isDrafting}
+                data-testid="agent-draft-button"
+                title={isDrafting ? 'Drafting description with AI agent...' : 'Draft description with AI agent'}
+                aria-label="Draft description with AI agent"
+                onclick={handleDraftWithAgent}
+                disabled={isDrafting}
+            >
+                <i class={isDrafting ? 'codicon codicon-loading codicon-modifier-spin' : 'codicon codicon-sparkle'} aria-hidden="true"></i>
+            </button>
+        {/if}
     </div>
 </div>
 
@@ -141,6 +178,10 @@ onMount(() => {
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.scm-textarea.with-agent-btn {
+    padding-right: 32px;
+}
+
 .scm-textarea:focus {
     border-color: var(--vscode-focusBorder, #69b1ff);
     box-shadow: 0 0 0 1px var(--vscode-focusBorder, #69b1ff);
@@ -148,5 +189,37 @@ onMount(() => {
 
 .scm-textarea::placeholder {
     color: var(--vscode-input-placeholderForeground, #525252);
+}
+
+.agent-draft-button {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--vscode-icon-foreground, #c5c5c5);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.agent-draft-button:hover:not(:disabled) {
+    background-color: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
+    color: var(--vscode-foreground, #ffffff);
+}
+
+.agent-draft-button:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
+.agent-draft-button:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: -1px;
 }
 </style>

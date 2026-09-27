@@ -1218,6 +1218,7 @@
     },
     "scripts": {
         "setup-jj": "node tooling/jj/setup.ts",
+        "setup:sidecar": "node tooling/setup-sidecar.ts",
         "prepare": "pnpm build:themes && pnpm build:icons",
         "vscode:prepublish": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js --production",
         "build": "pnpm prepare && pnpm check-types && pnpm lint && node esbuild.js",

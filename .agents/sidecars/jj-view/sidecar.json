@@ -1,0 +1,23 @@
+{
+    "description": "JJ View Jujutsu (jj) visual interface.",
+    "display_name": "JJ View",
+    "command": "dist/bin/jj-view",
+    "args": ["-host", "127.0.0.1", "-port", "{{.port}}", "-no-open"],
+    "restart_policy": "always",
+    "has_web_ui": true,
+    "ui_config": {
+        "display_name": "JJ View",
+        "views": [
+            {
+                "entrypoint": "SIDECAR_UI_ENTRYPOINT_FULL_PANE",
+                "path": "/",
+                "title": "JJ View Graph"
+            },
+            {
+                "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+                "path": "/",
+                "title": "JJ SCM"
+            }
+        ]
+    }
+}
