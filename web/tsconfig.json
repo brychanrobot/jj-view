@@ -12,6 +12,7 @@
         "test/**/*.ts",
         "../src/core/**/*.ts",
         "../src/test/test-repo.ts",
+        "../src/test/vitest-utils.ts",
         "../src/test/perf-trace.ts"
     ],
     "exclude": ["node_modules", "dist"]

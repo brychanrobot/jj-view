@@ -781,7 +781,74 @@ export class WebHostWorkspace implements HostWorkspace {
     private readonly _onDidChangeWorkspaceFolders = new EventEmitter<HostWorkspaceFoldersChangeEvent>();
     public readonly onDidChangeWorkspaceFolders = this._onDidChangeWorkspaceFolders.event;
 
-    constructor(public readonly workspaceFolders: readonly HostWorkspaceFolder[] = []) {}
+    constructor(
+        public readonly workspaceFolders: readonly HostWorkspaceFolder[] = [],
+        private readonly hostSystem?: RemoteHostSystem,
+        private readonly hostConfig?: HostConfig,
+    ) {}
+
+    public async findFiles(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]> {
+        if (!this.hostSystem) {
+            return [];
+        }
+
+        const baseDir = baseFolderUri?.fsPath ?? this.workspaceFolders[0]?.uri.fsPath ?? this.hostSystem.repoRoot;
+        if (!baseDir) {
+            return [];
+        }
+
+        const excludes: string[] = [];
+
+        // 1. files.exclude from config
+        const filesExclude = this.hostConfig?.get<Record<string, boolean>>('files.exclude');
+        if (filesExclude) {
+            for (const [k, v] of Object.entries(filesExclude)) {
+                if (v) {
+                    excludes.push(k);
+                }
+            }
+        }
+
+        // 2. search.exclude from config
+        const searchExclude = this.hostConfig?.get<Record<string, boolean>>('search.exclude');
+        if (searchExclude) {
+            for (const [k, v] of Object.entries(searchExclude)) {
+                if (v) {
+                    excludes.push(k);
+                }
+            }
+        }
+
+        // 3. ignoredRepositories from config
+        const ignoredRepos = this.hostConfig?.get<string[]>('ignoredRepositories');
+        if (ignoredRepos && Array.isArray(ignoredRepos)) {
+            excludes.push(...ignoredRepos);
+        }
+
+        // 4. Loosely check .gitignore in baseDir (skip when searching for repository markers like .jj)
+        const isRepoDiscovery = pattern.includes('.jj');
+        if (!isRepoDiscovery) {
+            try {
+                const gitIgnorePath = `${baseDir.replace(/[/\\]+$/, '')}/.gitignore`;
+                const content = await this.hostSystem.fs.readTextFile(gitIgnorePath);
+                const lines = content.split(/\r?\n/);
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.length > 0 && !trimmed.startsWith('#') && !trimmed.startsWith('!')) {
+                        const clean = trimmed.replace(/^\/+|\/+$/g, '');
+                        if (clean.length > 0 && !excludes.includes(clean)) {
+                            excludes.push(clean);
+                        }
+                    }
+                }
+            } catch {
+                // Ignore missing .gitignore
+            }
+        }
+
+        const files = await this.hostSystem.findFiles(pattern, baseDir, maxResults, excludes);
+        return files.map((f) => UriImpl.file(f));
+    }
 }
 
 export class WebHostEnvironment implements HostEnvironment {
@@ -839,12 +906,16 @@ export class WebHostEnvironment implements HostEnvironment {
                 .replace(/[/\\]+$/, '')
                 .split(/[/\\]/)
                 .pop() || 'Workspace';
-        this.workspace = new WebHostWorkspace([
-            {
-                uri: UriImpl.file(repoRoot),
-                name: folderName,
-            },
-        ]);
+        this.workspace = new WebHostWorkspace(
+            [
+                {
+                    uri: UriImpl.file(repoRoot),
+                    name: folderName,
+                },
+            ],
+            this.system,
+            this.config,
+        );
     }
 
     public dispose(): void {
