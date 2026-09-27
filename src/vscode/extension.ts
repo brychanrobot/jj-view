@@ -248,7 +248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             }
 
             const providerId = activeProvider.id;
-            const isSkipped = authManager.isAuthSkipped(providerId);
+            const isSkipped = await authManager.isAuthSkipped(providerId);
             const items: (vscode.QuickPickItem & { execute(): Promise<void> })[] = [];
 
             if (!(await activeProvider.hasAuth?.())) {

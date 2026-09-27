@@ -55,7 +55,7 @@ export class CodeForgeAuthManager implements Disposable {
         return this.host.secrets;
     }
 
-    public isAuthSkipped(providerId: string): boolean {
+    public async isAuthSkipped(providerId: string): Promise<boolean> {
         this.registerProvider(providerId);
         return this.host.storage.get<boolean>(`jj-view.auth.skipped.${providerId}`, false);
     }
@@ -184,7 +184,7 @@ export class CodeForgeAuthManager implements Disposable {
         }
 
         // 3. Check if auth is skipped
-        if (this.isAuthSkipped(providerId)) {
+        if (await this.isAuthSkipped(providerId)) {
             return undefined;
         }
 

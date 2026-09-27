@@ -78,11 +78,11 @@ describe('WebHostEnvironment', () => {
     describe('WebHostStorage', () => {
         it('stores, retrieves, and returns defaults', async () => {
             const storage = new WebHostStorage();
-            expect(storage.get('unknown')).toBeUndefined();
-            expect(storage.get('unknown', 'def')).toBe('def');
+            expect(await storage.get('unknown')).toBeUndefined();
+            expect(await storage.get('unknown', 'def')).toBe('def');
 
             await storage.update('myKey', { foo: 'bar' });
-            expect(storage.get('myKey')).toEqual({ foo: 'bar' });
+            expect(await storage.get('myKey')).toEqual({ foo: 'bar' });
         });
     });
 

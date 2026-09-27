@@ -203,6 +203,8 @@ export class RemoteHostSystem implements HostSystem {
     private readonly _pendingRequests = new Map<number, PendingRequest>();
     private readonly _activeSubscriptions = new Map<string, ActiveWatcherSubscription>();
     private readonly _configListeners = new Set<(key: string, scope: string) => void>();
+    private readonly _stateListeners = new Set<(key: string) => void>();
+    private readonly _secretsListeners = new Set<(key: string) => void>();
     private _isDisposed = false;
     private _reconnectAttempts = 0;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -482,6 +484,42 @@ export class RemoteHostSystem implements HostSystem {
             return;
         }
 
+        if (method === 'state/didChange') {
+            const key =
+                params &&
+                typeof params === 'object' &&
+                'key' in params &&
+                typeof (params as { key?: unknown }).key === 'string'
+                    ? (params as { key: string }).key
+                    : '';
+            for (const listener of this._stateListeners) {
+                try {
+                    listener(key);
+                } catch {
+                    // Ignore listener errors
+                }
+            }
+            return;
+        }
+
+        if (method === 'secrets/didChange') {
+            const key =
+                params &&
+                typeof params === 'object' &&
+                'key' in params &&
+                typeof (params as { key?: unknown }).key === 'string'
+                    ? (params as { key: string }).key
+                    : '';
+            for (const listener of this._secretsListeners) {
+                try {
+                    listener(key);
+                } catch {
+                    // Ignore listener errors
+                }
+            }
+            return;
+        }
+
         if (method !== 'watcher.change') {
             return;
         }
@@ -686,12 +724,62 @@ export class RemoteHostSystem implements HostSystem {
         return this.request<Record<string, unknown>>('config.getAll', { scope });
     }
 
+    public onStateDidChange(listener: (key: string) => void): { dispose: () => void } {
+        this._stateListeners.add(listener);
+        return {
+            dispose: () => {
+                this._stateListeners.delete(listener);
+            },
+        };
+    }
+
+    public onSecretsDidChange(listener: (key: string) => void): { dispose: () => void } {
+        this._secretsListeners.add(listener);
+        return {
+            dispose: () => {
+                this._secretsListeners.delete(listener);
+            },
+        };
+    }
+
+    public async getState<T = unknown>(key: string): Promise<T | undefined> {
+        const res = await this.request<{ value?: T; found: boolean }>('state.get', { key });
+        return res.found ? (res.value as T) : undefined;
+    }
+
+    public async setState(key: string, value: unknown): Promise<void> {
+        await this.request<{ success: boolean }>('state.set', { key, value });
+    }
+
+    public async deleteState(key: string): Promise<void> {
+        await this.request<{ success: boolean }>('state.delete', { key });
+    }
+
+    public async getAllState(): Promise<Record<string, unknown>> {
+        return this.request<Record<string, unknown>>('state.getAll');
+    }
+
+    public async getSecret(key: string): Promise<string | undefined> {
+        const res = await this.request<{ value?: string; found: boolean }>('secrets.get', { key });
+        return res.found ? res.value : undefined;
+    }
+
+    public async storeSecret(key: string, value: string): Promise<void> {
+        await this.request<{ success: boolean }>('secrets.store', { key, value });
+    }
+
+    public async deleteSecret(key: string): Promise<void> {
+        await this.request<{ success: boolean }>('secrets.delete', { key });
+    }
+
     public dispose(): void {
         if (this._isDisposed) {
             return;
         }
         this._isDisposed = true;
         this._configListeners.clear();
+        this._stateListeners.clear();
+        this._secretsListeners.clear();
 
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);

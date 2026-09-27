@@ -606,9 +606,9 @@ export class VsCodeHostWorkspace implements HostWorkspace {
 export class VsCodeHostStorage implements HostStorage {
     constructor(private readonly workspaceState?: vscode.Memento) {}
 
-    get<T>(key: string): T | undefined;
-    get<T>(key: string, defaultValue: T): T;
-    get<T>(key: string, defaultValue?: T): T | undefined {
+    async get<T>(key: string): Promise<T | undefined>;
+    async get<T>(key: string, defaultValue: T): Promise<T>;
+    async get<T>(key: string, defaultValue?: T): Promise<T | undefined> {
         return this.workspaceState?.get<T>(key, defaultValue as T) ?? defaultValue;
     }
 

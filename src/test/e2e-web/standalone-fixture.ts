@@ -75,7 +75,10 @@ export class StandaloneServer {
                     env: {
                         ...process.env,
                         XDG_CONFIG_HOME: tempUserDataDir,
+                        XDG_STATE_HOME: tempUserDataDir,
                         APPDATA: tempUserDataDir,
+                        LOCALAPPDATA: tempUserDataDir,
+                        HOME: tempUserDataDir,
                     },
                 },
             );

@@ -4,8 +4,11 @@
  */
 
 import { mount } from 'svelte';
+import { CodeForgeAuthManager } from '../../src/core/code-forge-auth';
 import { CodeForgeRegistry } from '../../src/core/code-forge-registry';
 import { LogViewController } from '../../src/core/controllers/log-view-controller';
+import { GitHubProvider } from '../../src/core/github-provider';
+import { GitLabProvider } from '../../src/core/gitlab-provider';
 import { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import { JjEditFsService } from '../../src/core/jj-edit-fs-service';
 import { JjRepository } from '../../src/core/jj-repository';
@@ -13,6 +16,7 @@ import { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import { ScmModel } from '../../src/core/scm-model';
 import { Uri } from '../../src/core/uri-utils';
+import { toError } from '../../src/utils/error-utils';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import App from './App.svelte';
 import { createInMemoryBridge } from './bridge/in-memory-bridge';
@@ -44,6 +48,12 @@ export async function bootstrap(): Promise<void> {
         await Promise.race([hostSystem.ready, timeoutPromise]);
 
         const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        if (typeof window !== 'undefined' && urlParams?.has('token')) {
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete('token');
+            window.history.replaceState({}, '', cleanUrl.toString());
+        }
+
         const repoFromQuery = urlParams?.get('repo');
         const repoRoot =
             repoFromQuery ||
@@ -55,9 +65,36 @@ export async function bootstrap(): Promise<void> {
         if (typeof window !== 'undefined') {
             window.__JJ_VIEW_ENV__ = webHostEnv;
         }
+
         const codeForgeRegistry = new CodeForgeRegistry();
+        const authManager = new CodeForgeAuthManager(webHostEnv, NO_OP_LOGGER);
+        codeForgeRegistry.register({
+            id: 'github',
+            create: (outputChannel) => new GitHubProvider(authManager, outputChannel),
+        });
+        codeForgeRegistry.register({
+            id: 'gitlab',
+            create: (outputChannel, host) => new GitLabProvider(authManager, outputChannel, host),
+        });
+
         const repoManager = new JjRepositoryManager(codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
 
+        authManager.onDidAuthenticate(() => {
+            for (const r of repoManager.repositories) {
+                r.codeForge
+                    .detectActiveProvider(true)
+                    .then((changed) => {
+                        if (!changed) {
+                            r.codeForge.forceRefresh();
+                        }
+                    })
+                    .catch((e: unknown) => {
+                        NO_OP_LOGGER.error('Failed to refresh after authentication', toError(e));
+                    });
+            }
+        });
+
+        await repoManager.restoreCachedRepositories();
         await repoManager.scanForRepositories();
         let repo: JjRepository | undefined = repoManager.repositories[0];
         if (!repo) {

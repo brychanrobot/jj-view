@@ -226,10 +226,11 @@ export class JjRepositoryManager implements HostDisposable {
             return;
         }
 
-        const stored = this._host.storage.get<Array<{ rootPath: string; storePath: string }>>(
-            JjRepositoryManager.DISCOVERED_REPOS_KEY,
-            [],
-        );
+        const stored =
+            (await this._host.storage.get<Array<{ rootPath: string; storePath: string }>>(
+                JjRepositoryManager.DISCOVERED_REPOS_KEY,
+                [],
+            )) ?? [];
 
         if (!Array.isArray(stored) || stored.length === 0) {
             return;
@@ -271,7 +272,7 @@ export class JjRepositoryManager implements HostDisposable {
 
         this.registerRepositories(loaded);
 
-        const lastPath = this._host.storage.get<string>(JjRepositoryManager.LAST_FOCUSED_REPO_KEY);
+        const lastPath = await this._host.storage.get<string>(JjRepositoryManager.LAST_FOCUSED_REPO_KEY);
         const matched =
             (lastPath ? loaded.find((r) => this.isSamePath(r.rootUri.fsPath, lastPath)) : undefined) || loaded[0];
         this.setFocusedRepository(matched);
