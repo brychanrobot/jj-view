@@ -18,7 +18,9 @@ import type {
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
+    HostSecretsChangeEvent,
     HostStorage,
+    HostStorageChangeEvent,
     HostUi,
     HostViews,
     HostWorkspace,
@@ -619,8 +621,24 @@ export class WebHostDocuments implements HostDocuments {
 
 export class WebHostStorage implements HostStorage {
     private readonly inMemoryStore = new Map<string, unknown>();
+    private readonly _onDidChange = new EventEmitter<HostStorageChangeEvent>();
 
-    constructor(private readonly _hostSystem?: RemoteHostSystem) {}
+    private readonly _listenerDisposable?: { dispose: () => void };
+
+    public readonly onDidChange: Event<HostStorageChangeEvent> = this._onDidChange.event;
+
+    constructor(private readonly _hostSystem?: RemoteHostSystem) {
+        if (this._hostSystem && typeof this._hostSystem.onStateDidChange === 'function') {
+            this._listenerDisposable = this._hostSystem.onStateDidChange((key) => {
+                this._onDidChange.fire({ key });
+            });
+        }
+    }
+
+    public dispose(): void {
+        this._listenerDisposable?.dispose();
+        this._onDidChange.dispose();
+    }
 
     public async get<T>(key: string): Promise<T | undefined>;
     public async get<T>(key: string, defaultValue: T): Promise<T>;
@@ -649,6 +667,7 @@ export class WebHostStorage implements HostStorage {
             } else {
                 await this._hostSystem.setState(key, value);
             }
+            this._onDidChange.fire({ key });
             return;
         }
         if (value === undefined) {
@@ -656,13 +675,29 @@ export class WebHostStorage implements HostStorage {
         } else {
             this.inMemoryStore.set(key, value);
         }
+        this._onDidChange.fire({ key });
     }
 }
 
 export class WebHostSecrets implements HostSecrets {
     private readonly inMemorySecrets = new Map<string, string>();
+    private readonly _onDidChange = new EventEmitter<HostSecretsChangeEvent>();
+    private readonly _listenerDisposable?: { dispose: () => void };
 
-    constructor(private readonly _hostSystem?: RemoteHostSystem) {}
+    public readonly onDidChange: Event<HostSecretsChangeEvent> = this._onDidChange.event;
+
+    constructor(private readonly _hostSystem?: RemoteHostSystem) {
+        if (this._hostSystem && typeof this._hostSystem.onSecretsDidChange === 'function') {
+            this._listenerDisposable = this._hostSystem.onSecretsDidChange((key) => {
+                this._onDidChange.fire({ key });
+            });
+        }
+    }
+
+    public dispose(): void {
+        this._listenerDisposable?.dispose();
+        this._onDidChange.dispose();
+    }
 
     public async get(key: string): Promise<string | undefined> {
         if (this._hostSystem) {
@@ -679,17 +714,21 @@ export class WebHostSecrets implements HostSecrets {
     public async store(key: string, value: string): Promise<void> {
         if (this._hostSystem) {
             await this._hostSystem.storeSecret(key, value);
+            this._onDidChange.fire({ key });
             return;
         }
         this.inMemorySecrets.set(key, value);
+        this._onDidChange.fire({ key });
     }
 
     public async delete(key: string): Promise<void> {
         if (this._hostSystem) {
             await this._hostSystem.deleteSecret(key);
+            this._onDidChange.fire({ key });
             return;
         }
         this.inMemorySecrets.delete(key);
+        this._onDidChange.fire({ key });
     }
 }
 
@@ -905,6 +944,8 @@ export class WebHostEnvironment implements HostEnvironment {
     }
 
     public dispose(): void {
+        this.storage.dispose?.();
+        this.secrets.dispose?.();
         this.ui.dispose();
     }
 }

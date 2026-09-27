@@ -21,7 +21,9 @@ import type {
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
+    HostSecretsChangeEvent,
     HostStorage,
+    HostStorageChangeEvent,
     HostUi,
     HostViews,
     HostWorkspace,
@@ -473,6 +475,9 @@ export class FakeHostWorkspace implements HostWorkspace {
 
 export class FakeHostStorage implements HostStorage {
     private readonly storage = new Map<string, unknown>();
+    private readonly _onDidChange = new EventEmitter<HostStorageChangeEvent>();
+
+    public readonly onDidChange: Event<HostStorageChangeEvent> = this._onDidChange.event;
 
     async get<T>(key: string): Promise<T | undefined>;
     async get<T>(key: string, defaultValue: T): Promise<T>;
@@ -489,11 +494,19 @@ export class FakeHostStorage implements HostStorage {
         } else {
             this.storage.set(key, value);
         }
+        this._onDidChange.fire({ key });
+    }
+
+    dispose(): void {
+        this._onDidChange.dispose();
     }
 }
 
 export class FakeHostSecrets implements HostSecrets {
     private readonly secrets = new Map<string, string>();
+    private readonly _onDidChange = new EventEmitter<HostSecretsChangeEvent>();
+
+    public readonly onDidChange: Event<HostSecretsChangeEvent> = this._onDidChange.event;
 
     async get(key: string): Promise<string | undefined> {
         return this.secrets.get(key);
@@ -501,10 +514,16 @@ export class FakeHostSecrets implements HostSecrets {
 
     async store(key: string, value: string): Promise<void> {
         this.secrets.set(key, value);
+        this._onDidChange.fire({ key });
     }
 
     async delete(key: string): Promise<void> {
         this.secrets.delete(key);
+        this._onDidChange.fire({ key });
+    }
+
+    dispose(): void {
+        this._onDidChange.dispose();
     }
 }
 

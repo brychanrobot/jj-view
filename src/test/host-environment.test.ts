@@ -168,16 +168,24 @@ describe('FakeHostEnvironment', () => {
     describe('FakeHostStorage, FakeHostSecrets, FakeHostAuth, FakeHostCommands, FakeHostViews', () => {
         it('manages storage and secrets', async () => {
             const storage = new FakeHostStorage();
+            const storageEvents: string[] = [];
+            storage.onDidChange?.((e) => storageEvents.push(e.key));
+
             expect(await storage.get('item', 'def')).toBe('def');
             await storage.update('item', 'val');
             expect(await storage.get('item')).toBe('val');
+            expect(storageEvents).toEqual(['item']);
 
             const secrets = new FakeHostSecrets();
+            const secretEvents: string[] = [];
+            secrets.onDidChange?.((e) => secretEvents.push(e.key));
+
             expect(await secrets.get('token')).toBeUndefined();
             await secrets.store('token', 'secret123');
             expect(await secrets.get('token')).toBe('secret123');
             await secrets.delete('token');
             expect(await secrets.get('token')).toBeUndefined();
+            expect(secretEvents).toEqual(['token', 'token']);
         });
 
         it('manages auth sessions', async () => {

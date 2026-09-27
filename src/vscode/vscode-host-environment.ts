@@ -19,7 +19,9 @@ import type {
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
+    HostSecretsChangeEvent,
     HostStorage,
+    HostStorageChangeEvent,
     HostUi,
     HostViews,
     HostWorkspace,
@@ -604,6 +606,9 @@ export class VsCodeHostWorkspace implements HostWorkspace {
 }
 
 export class VsCodeHostStorage implements HostStorage {
+    private readonly _onDidChange = new vscode.EventEmitter<HostStorageChangeEvent>();
+    public readonly onDidChange: vscode.Event<HostStorageChangeEvent> = this._onDidChange.event;
+
     constructor(private readonly workspaceState?: vscode.Memento) {}
 
     async get<T>(key: string): Promise<T | undefined>;
@@ -614,11 +619,20 @@ export class VsCodeHostStorage implements HostStorage {
 
     async update(key: string, value: unknown): Promise<void> {
         await this.workspaceState?.update(key, value);
+        this._onDidChange.fire({ key });
+    }
+
+    dispose(): void {
+        this._onDidChange.dispose();
     }
 }
 
 export class VsCodeHostSecrets implements HostSecrets {
-    constructor(private readonly secrets?: vscode.SecretStorage) {}
+    public readonly onDidChange?: vscode.Event<HostSecretsChangeEvent>;
+
+    constructor(private readonly secrets?: vscode.SecretStorage) {
+        this.onDidChange = secrets?.onDidChange;
+    }
 
     async get(key: string): Promise<string | undefined> {
         return await this.secrets?.get(key);

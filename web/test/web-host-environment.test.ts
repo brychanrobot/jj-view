@@ -85,6 +85,41 @@ describe('WebHostEnvironment', () => {
             await storage.update('myKey', { foo: 'bar' });
             expect(await storage.get('myKey')).toEqual({ foo: 'bar' });
         });
+
+        it('notifies onDidChange on local updates and remote host state changes', async () => {
+            let stateListener: ((key: string) => void) | undefined;
+            const mockHost = createMock<RemoteHostSystem>({
+                onStateDidChange: vi.fn((fn: (key: string) => void) => {
+                    stateListener = fn;
+                    return { dispose: vi.fn() };
+                }),
+                setState: vi.fn().mockResolvedValue(undefined),
+                deleteState: vi.fn().mockResolvedValue(undefined),
+                getState: vi.fn().mockResolvedValue('val'),
+            });
+
+            const storage = new WebHostStorage(mockHost);
+            const events: string[] = [];
+            storage.onDidChange?.((e) => events.push(e.key));
+
+            await storage.update('testKey', 'value');
+            expect(events).toContain('testKey');
+
+            // Trigger from remote host notification
+            stateListener?.('remoteKey');
+            expect(events).toContain('remoteKey');
+        });
+
+        it('disposes remote host subscription on dispose', () => {
+            const disposeMock = vi.fn();
+            const mockHost = createMock<RemoteHostSystem>({
+                onStateDidChange: vi.fn().mockReturnValue({ dispose: disposeMock }),
+            });
+
+            const storage = new WebHostStorage(mockHost);
+            storage.dispose();
+            expect(disposeMock).toHaveBeenCalled();
+        });
     });
 
     describe('WebHostSecrets', () => {
@@ -97,6 +132,44 @@ describe('WebHostEnvironment', () => {
 
             await secrets.delete('token');
             expect(await secrets.get('token')).toBeUndefined();
+        });
+
+        it('notifies onDidChange on local updates and remote host secrets changes', async () => {
+            let secretsListener: ((key: string) => void) | undefined;
+            const mockHost = createMock<RemoteHostSystem>({
+                onSecretsDidChange: vi.fn((fn: (key: string) => void) => {
+                    secretsListener = fn;
+                    return { dispose: vi.fn() };
+                }),
+                storeSecret: vi.fn().mockResolvedValue(undefined),
+                deleteSecret: vi.fn().mockResolvedValue(undefined),
+                getSecret: vi.fn().mockResolvedValue('sec'),
+            });
+
+            const secrets = new WebHostSecrets(mockHost);
+            const events: string[] = [];
+            secrets.onDidChange?.((e) => events.push(e.key));
+
+            await secrets.store('tok', 'val');
+            expect(events).toContain('tok');
+
+            await secrets.delete('tok');
+            expect(events).toEqual(['tok', 'tok']);
+
+            // Trigger from remote host notification
+            secretsListener?.('remoteTok');
+            expect(events).toContain('remoteTok');
+        });
+
+        it('disposes remote host subscription on dispose', () => {
+            const disposeMock = vi.fn();
+            const mockHost = createMock<RemoteHostSystem>({
+                onSecretsDidChange: vi.fn().mockReturnValue({ dispose: disposeMock }),
+            });
+
+            const secrets = new WebHostSecrets(mockHost);
+            secrets.dispose();
+            expect(disposeMock).toHaveBeenCalled();
         });
     });
 

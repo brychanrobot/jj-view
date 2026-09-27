@@ -133,16 +133,28 @@ export interface HostWorkspace {
     findFiles?(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]>;
 }
 
+export interface HostStorageChangeEvent {
+    readonly key: string;
+}
+
 export interface HostStorage {
     get<T>(key: string): Promise<T | undefined>;
     get<T>(key: string, defaultValue: T): Promise<T>;
     update(key: string, value: unknown): Promise<void>;
+    readonly onDidChange?: Event<HostStorageChangeEvent>;
+    dispose?(): void;
+}
+
+export interface HostSecretsChangeEvent {
+    readonly key: string;
 }
 
 export interface HostSecrets {
     get(key: string): Promise<string | undefined>;
     store(key: string, value: string): Promise<void>;
     delete(key: string): Promise<void>;
+    readonly onDidChange?: Event<HostSecretsChangeEvent>;
+    dispose?(): void;
 }
 
 export interface HostAuthSession {
