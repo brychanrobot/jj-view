@@ -130,6 +130,10 @@ $effect(() => {
     }
 });
 
+$effect(() => {
+    rootContext.set('ag.isSidecar', webHostEnv?.sidecar.isAvailable ?? false);
+});
+
 function openCommandPalette(): void {
     const rawCommands = DEFAULT_PACKAGE_JSON_CONTRIBUTES.commands || [];
     const paletteRules = DEFAULT_PACKAGE_JSON_CONTRIBUTES.menus?.commandPalette || [];
@@ -999,6 +1003,16 @@ onMount(() => {
                 closeTabByUri(uri);
             },
         });
+
+        if (webHostEnv.sidecar.isAvailable) {
+            void webHostEnv.sidecar.getMetadata().then((meta) => {
+                if (meta?.theme === 'light') {
+                    void applyTheme('pierre-light');
+                } else if (meta?.theme === 'high-contrast') {
+                    void applyTheme('hc-black');
+                }
+            });
+        }
     } else {
         void applyTheme('pierre-dark-soft');
     }
@@ -1016,6 +1030,7 @@ onMount(() => {
 <AppLayout
     repoPath={workspaceRoot}
     onRefresh={handleRefresh}
+    {activeTabId}
 >
     {#snippet scm()}
         <ScmPane
@@ -1024,6 +1039,24 @@ onMount(() => {
             {menuRegistry}
             {rootContext}
             openDiffOnClick={true}
+            isSidecarAvailable={Boolean(webHostEnv?.sidecar.isAvailable)}
+            onDraftWithAgent={webHostEnv?.sidecar.isAvailable
+                ? async () => {
+                      try {
+                          const res = await webHostEnv.sidecar.sendMessage(
+                              'Please draft a concise and conventional commit message for the current working copy changes.',
+                          );
+                          if (res?.error) {
+                              webHostEnv.ui.showErrorMessage(`Agent drafting failed: ${res.error}`);
+                              return undefined;
+                          }
+                          return res?.response?.trim();
+                      } catch (err) {
+                          webHostEnv.ui.showErrorMessage(`Agent drafting error: ${toError(err).message}`);
+                          return undefined;
+                      }
+                  }
+                : undefined}
             onOpenResource={handleOpenResource}
             onCommit={handleCommit}
             onSetDescription={handleSetDescription}

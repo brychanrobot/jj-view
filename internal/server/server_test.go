@@ -690,3 +690,150 @@ func TestServerFindFilesRPC(t *testing.T) {
 		t.Fatalf("expected to find %s, but results were: %+v", typeFile, filesRaw)
 	}
 }
+
+func TestSidecarTokenAndOriginValidation(t *testing.T) {
+	tempRepo := t.TempDir()
+	srv, err := NewServer(Config{
+		Host:         "127.0.0.1",
+		Port:         0,
+		RepoRoot:     tempRepo,
+		SidecarToken: "test-sidecar-token-xyz",
+	})
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	if err := srv.Listen(); err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Close(ctx)
+	}()
+	go func() { _ = srv.Start() }()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	// 1. Health check with sidecar token in header
+	healthReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/api/health", srv.Port()), nil)
+	healthReq.Header.Set("X-Sidecar-Token", "test-sidecar-token-xyz")
+	resp, err := client.Do(healthReq)
+	if err != nil {
+		t.Fatalf("health check failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+	var healthData map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&healthData)
+	resp.Body.Close()
+	if healthData["sidecar"] != true {
+		t.Fatalf("expected sidecar=true in health response: %+v", healthData)
+	}
+
+	// 2. Index with X-Sidecar-Token header and Origin: antigravity-webview://test
+	indexReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()), nil)
+	indexReq.Header.Set("X-Sidecar-Token", "test-sidecar-token-xyz")
+	indexReq.Header.Set("Origin", "antigravity-webview://app")
+	respIndex, err := client.Do(indexReq)
+	if err != nil {
+		t.Fatalf("index request failed: %v", err)
+	}
+	if respIndex.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for index with sidecar token, got %d", respIndex.StatusCode)
+	}
+	if allowOrigin := respIndex.Header.Get("Access-Control-Allow-Origin"); allowOrigin != "antigravity-webview://app" {
+		t.Fatalf("expected Access-Control-Allow-Origin antigravity-webview://app, got %q", allowOrigin)
+	}
+	respIndex.Body.Close()
+
+	// 3. Reject invalid sidecar token
+	badReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()), nil)
+	badReq.Header.Set("X-Sidecar-Token", "invalid-token")
+	badResp, err := client.Do(badReq)
+	if err != nil {
+		t.Fatalf("bad req failed: %v", err)
+	}
+	if badResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for bad token, got %d", badResp.StatusCode)
+	}
+	badResp.Body.Close()
+
+	// 4. Dial dual endpoint /api/ws with ?sidecar_token=... and Origin: null
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/ws?sidecar_token=test-sidecar-token-xyz", srv.Port())
+	header := http.Header{}
+	header.Set("Origin", "null")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("failed to dial /api/ws with sidecar token: %v", err)
+	}
+	_ = conn.Close()
+}
+
+func TestWorkspaceAddAllowedRootRPC(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	authURL := fmt.Sprintf("ws://127.0.0.1:%d/api/ws?token=%s", srv.Port(), srv.SessionToken())
+	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// External directory outside repository
+	outsideDir := t.TempDir()
+	testFile := filepath.Join(outsideDir, "hello.txt")
+	if err := os.WriteFile(testFile, []byte("outside content"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	callRPC := func(id int, method string, params any) protocol.Response {
+		rawParams, _ := json.Marshal(params)
+		rawID := json.RawMessage(fmt.Sprintf("%d", id))
+		req := protocol.Request{
+			JSONRPC: "2.0",
+			ID:      &rawID,
+			Method:  method,
+			Params:  rawParams,
+		}
+		if err := conn.WriteJSON(req); err != nil {
+			t.Fatalf("failed to send RPC: %v", err)
+		}
+		for {
+			var raw map[string]json.RawMessage
+			if err := conn.ReadJSON(&raw); err != nil {
+				t.Fatalf("failed to read RPC: %v", err)
+			}
+			idRaw, hasID := raw["id"]
+			if !hasID || len(idRaw) == 0 || string(idRaw) == "null" {
+				continue
+			}
+			var res protocol.Response
+			data, _ := json.Marshal(raw)
+			_ = json.Unmarshal(data, &res)
+			return res
+		}
+	}
+
+	// 1. Initial stat should fail because outsideDir is not allowed
+	res1 := callRPC(1, "fs.stat", map[string]string{"path": testFile})
+	if res1.Error == nil {
+		t.Fatalf("expected fs.stat to fail on outside file before addAllowedRoot")
+	}
+
+	// 2. Call workspace.addAllowedRoot
+	addRes := callRPC(2, "workspace.addAllowedRoot", map[string]string{"path": outsideDir})
+	if addRes.Error != nil {
+		t.Fatalf("workspace.addAllowedRoot failed: %+v", addRes.Error)
+	}
+
+	// 3. Now stat should succeed
+	res2 := callRPC(3, "fs.stat", map[string]string{"path": testFile})
+	if res2.Error != nil {
+		t.Fatalf("expected fs.stat to succeed after addAllowedRoot, got: %+v", res2.Error)
+	}
+	statMap := res2.Result.(map[string]any)
+	if statMap["isFile"] != true {
+		t.Fatalf("expected isFile=true, got %+v", statMap)
+	}
+}

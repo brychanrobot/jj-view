@@ -34,6 +34,7 @@ import { Uri as UriImpl } from '../../../src/core/uri-utils';
 import { NotificationService } from '../notifications/notification-service';
 import type { NotificationPosition } from '../notifications/notification-types';
 import { QuickInputService } from '../quick-input/quick-input-service';
+import { SidecarService } from '../sidecar/sidecar-service';
 import { StatusBarService } from '../status/status-bar-service';
 
 export interface WebHostNavigationCallbacks {
@@ -811,12 +812,33 @@ export class WebHostViews implements HostViews {
 export class WebHostWorkspace implements HostWorkspace {
     private readonly _onDidChangeWorkspaceFolders = new EventEmitter<HostWorkspaceFoldersChangeEvent>();
     public readonly onDidChangeWorkspaceFolders = this._onDidChangeWorkspaceFolders.event;
+    private _workspaceFolders: readonly HostWorkspaceFolder[];
 
     constructor(
-        public readonly workspaceFolders: readonly HostWorkspaceFolder[] = [],
+        workspaceFolders: readonly HostWorkspaceFolder[] = [],
         private readonly hostSystem?: RemoteHostSystem,
         private readonly hostConfig?: HostConfig,
-    ) {}
+    ) {
+        this._workspaceFolders = [...workspaceFolders];
+    }
+
+    public get workspaceFolders(): readonly HostWorkspaceFolder[] {
+        return this._workspaceFolders;
+    }
+
+    public setWorkspaceFolders(folders: readonly HostWorkspaceFolder[]): void {
+        const oldFolders = this._workspaceFolders;
+        const newFolders = [...folders];
+        const added = newFolders.filter((nf) => !oldFolders.some((of) => of.uri.fsPath === nf.uri.fsPath));
+        const removed = oldFolders.filter((of) => !newFolders.some((nf) => nf.uri.fsPath === of.uri.fsPath));
+        this._workspaceFolders = newFolders;
+        if (added.length > 0 || removed.length > 0) {
+            this._onDidChangeWorkspaceFolders.fire({
+                added,
+                removed,
+            });
+        }
+    }
 
     public async findFiles(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]> {
         if (!this.hostSystem) {
@@ -895,9 +917,10 @@ export class WebHostEnvironment implements HostEnvironment {
     public readonly auth: HostAuth = new WebHostAuth();
     public readonly commands: WebHostCommands = new WebHostCommands();
     public readonly views: HostViews = new WebHostViews();
-    public readonly workspace: HostWorkspace;
+    public readonly workspace: WebHostWorkspace;
     public readonly extensions: HostExtensions = { hasExtension: () => false };
     public readonly system: RemoteHostSystem;
+    public readonly sidecar: SidecarService;
 
     constructor(
         hostSystem: RemoteHostSystem,
@@ -908,6 +931,7 @@ export class WebHostEnvironment implements HostEnvironment {
         statusBarService?: StatusBarService,
     ) {
         this.system = hostSystem;
+        this.sidecar = new SidecarService();
         this.storage = new WebHostStorage(hostSystem);
         this.secrets = new WebHostSecrets(hostSystem);
         this.nav = new WebHostNavigation(navCallbacks);
@@ -952,6 +976,7 @@ export class WebHostEnvironment implements HostEnvironment {
     public dispose(): void {
         this.storage.dispose?.();
         this.secrets.dispose?.();
+        this.sidecar.dispose();
         this.ui.dispose();
     }
 }

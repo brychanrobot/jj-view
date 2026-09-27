@@ -74,6 +74,13 @@ func NewSandboxManager(repoRoot string, extraRoots ...string) (*SandboxManager, 
 	var roots []string
 	roots = appendRoot(roots, absRepo)
 	roots = appendRoot(roots, daemonTempDir)
+	if agyData := os.Getenv("ANTIGRAVITY_EXECUTABLE_DATA_DIR"); agyData != "" {
+		if absAgy, err := filepath.Abs(agyData); err == nil {
+			roots = appendRoot(roots, absAgy)
+		} else {
+			roots = appendRoot(roots, agyData)
+		}
+	}
 	for _, extra := range extraRoots {
 		if extra != "" {
 			roots = appendRoot(roots, extra)

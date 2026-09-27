@@ -55,14 +55,61 @@ export async function bootstrap(): Promise<void> {
             window.history.replaceState({}, '', cleanUrl.toString());
         }
 
+        function getFsPathFromUriString(uriStr: string): string {
+            if (uriStr.startsWith('file://')) {
+                return Uri.parse(uriStr).fsPath;
+            }
+            return uriStr;
+        }
+
         const repoFromQuery = urlParams?.get('repo');
-        const repoRoot =
+        let repoRoot =
             repoFromQuery ||
             hostSystem.repoRoot ||
             (typeof window !== 'undefined' ? window.__JJ_VIEW_CONFIG__?.repoRoot : undefined) ||
             '.';
 
+        let initialFolders: { uri: Uri; name: string }[] | undefined;
+        if (typeof window !== 'undefined' && window.sidecar?.getWorkspaceUris) {
+            try {
+                const uris = await window.sidecar.getWorkspaceUris();
+                if (uris.length > 0) {
+                    initialFolders = uris.map((rawUri) => {
+                        const fsPath = getFsPathFromUriString(rawUri);
+                        return {
+                            uri: Uri.file(fsPath),
+                            name:
+                                fsPath
+                                    .replace(/[/\\]+$/, '')
+                                    .split(/[/\\]/)
+                                    .pop() || 'Workspace',
+                        };
+                    });
+                    for (const folder of initialFolders) {
+                        try {
+                            await hostSystem.request('workspace.addAllowedRoot', { path: folder.uri.fsPath });
+                        } catch (err) {
+                            NO_OP_LOGGER.warn(
+                                `Failed to add allowed root for sidecar workspace: ${toError(err).message}`,
+                            );
+                        }
+                    }
+                    if (!repoFromQuery) {
+                        const firstPath = getFsPathFromUriString(uris[0]);
+                        if (firstPath) {
+                            repoRoot = firstPath;
+                        }
+                    }
+                }
+            } catch (err) {
+                NO_OP_LOGGER.warn(`Failed to get initial workspace URIs from sidecar: ${toError(err).message}`);
+            }
+        }
+
         const webHostEnv = new WebHostEnvironment(hostSystem, repoRoot);
+        if (initialFolders && initialFolders.length > 0) {
+            webHostEnv.workspace.setWorkspaceFolders(initialFolders);
+        }
         if (typeof window !== 'undefined') {
             window.__JJ_VIEW_ENV__ = webHostEnv;
         }
@@ -97,6 +144,40 @@ export async function bootstrap(): Promise<void> {
                     });
             }
         });
+
+        if (webHostEnv.sidecar.isAvailable) {
+            webHostEnv.sidecar.onDidChangeWorkspace(async (uris) => {
+                if (uris.length === 0) {
+                    return;
+                }
+                const folders = uris.map((rawUri) => {
+                    const fsPath = getFsPathFromUriString(rawUri);
+                    return {
+                        uri: Uri.file(fsPath),
+                        name:
+                            fsPath
+                                .replace(/[/\\]+$/, '')
+                                .split(/[/\\]/)
+                                .pop() || 'Workspace',
+                    };
+                });
+                for (const folder of folders) {
+                    try {
+                        await hostSystem.request('workspace.addAllowedRoot', { path: folder.uri.fsPath });
+                    } catch (e) {
+                        NO_OP_LOGGER.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
+                    }
+                    await repoManager.maybeRegisterRepositoryContainingUri(folder.uri);
+                }
+                webHostEnv.workspace.setWorkspaceFolders(folders);
+                const matchedRepo = repoManager.repositories.find((r) =>
+                    folders.some((f) => r.rootUri.fsPath === f.uri.fsPath || f.uri.fsPath.startsWith(r.rootUri.fsPath)),
+                );
+                if (matchedRepo) {
+                    repoManager.setFocusedRepository(matchedRepo);
+                }
+            });
+        }
 
         await repoManager.restoreCachedRepositories();
         await repoManager.scanForRepositories();

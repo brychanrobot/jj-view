@@ -21,6 +21,8 @@ interface Props {
     onCommit: (message: string) => void;
     onSetDescription: (message: string) => void;
     onAction: (command: string, payload?: unknown) => void;
+    isSidecarAvailable?: boolean;
+    onDraftWithAgent?: () => Promise<string | undefined>;
 }
 
 let {
@@ -33,6 +35,8 @@ let {
     onCommit,
     onSetDescription,
     onAction,
+    isSidecarAvailable = false,
+    onDraftWithAgent,
 }: Props = $props();
 
 // Update root context keys when snapshot changes
@@ -104,6 +108,8 @@ $effect(() => {
     <ScmInputBox
         value={snapshot?.description || ''}
         changeId={currentChangeId}
+        {isSidecarAvailable}
+        {onDraftWithAgent}
         onCommit={(msg) => {
             currentDescription = '';
             onCommit(msg);

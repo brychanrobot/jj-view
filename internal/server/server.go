@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -46,6 +47,8 @@ type Config struct {
 	Port           int
 	RepoRoot       string
 	SessionToken   string
+	SidecarToken   string
+	CSRFToken      string
 	Version        string
 	UserDataDir    string
 	UserConfigPath string
@@ -81,6 +84,13 @@ func NewServer(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("failed to generate session token: %w", err)
 		}
 		cfg.SessionToken = hex.EncodeToString(tokenBytes)
+	}
+
+	if cfg.SidecarToken == "" {
+		cfg.SidecarToken = os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN")
+	}
+	if cfg.CSRFToken == "" {
+		cfg.CSRFToken = os.Getenv("ANTIGRAVITY_CSRF_TOKEN")
 	}
 
 	absRepo, err := filepath.Abs(cfg.RepoRoot)
@@ -242,6 +252,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/forge-proxy", s.handleForgeProxy)
 	mux.HandleFunc("/ws/system", s.handleWebSocket)
+	mux.HandleFunc("/api/ws", s.handleWebSocket)
 
 	s.httpServer = &http.Server{
 		Handler:      mux,
@@ -322,11 +333,21 @@ func (s *Server) broadcastConfigChange(key string, scope string) {
 }
 
 func (s *Server) authenticateRequest(r *http.Request) bool {
-	token := r.URL.Query().Get("token")
+	var token string
+	if sidecarHeader := r.Header.Get("X-Sidecar-Token"); sidecarHeader != "" {
+		token = strings.TrimSpace(sidecarHeader)
+	}
 	if token == "" {
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
+			token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		}
+	}
+	if token == "" {
+		if qToken := r.URL.Query().Get("token"); qToken != "" {
+			token = qToken
+		} else if qSidecar := r.URL.Query().Get("sidecar_token"); qSidecar != "" {
+			token = qSidecar
 		}
 	}
 	if token == "" {
@@ -334,19 +355,88 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 			token = cookie.Value
 		}
 	}
-	return token == s.cfg.SessionToken
+	if token == "" {
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.SessionToken)) == 1 {
+		return true
+	}
+	if s.cfg.SidecarToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.SidecarToken)) == 1 {
+		return true
+	}
+	return false
+}
+
+func (s *Server) verifyCSRF(r *http.Request) bool {
+	if s.cfg.CSRFToken == "" {
+		return true
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		return true
+	}
+	csrf := r.Header.Get("X-CSRF-Token")
+	if csrf == "" {
+		csrf = r.Header.Get("X-Antigravity-CSRF-Token")
+	}
+	return subtle.ConstantTimeCompare([]byte(csrf), []byte(s.cfg.CSRFToken)) == 1
+}
+
+func (s *Server) isOriginAllowed(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	if origin == "null" {
+		return s.cfg.SidecarToken != ""
+	}
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(parsedOrigin.Scheme)
+	if scheme == "vscode-webview" || scheme == "antigravity-webview" || scheme == "antigravity" {
+		return true
+	}
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	host := parsedOrigin.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == s.cfg.Host
+}
+
+func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if s.isOriginAllowed(origin) {
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Sidecar-Token, X-CSRF-Token, X-Antigravity-CSRF-Token, Cache-Control")
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "ok",
 		"version": s.cfg.Version,
 		"repo":    s.cfg.RepoRoot,
+		"sidecar": s.cfg.SidecarToken != "",
 	})
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	cleanPath := path.Clean(r.URL.Path)
 
 	// If the path is not root or index.html, check if it's an existing static file in web.FS
@@ -375,11 +465,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configJSON, _ := json.Marshal(map[string]any{
+	configPayload := map[string]any{
 		"token":    s.cfg.SessionToken,
 		"port":     s.cfg.Port,
 		"repoRoot": s.cfg.RepoRoot,
-	})
+	}
+	if s.cfg.SidecarToken != "" {
+		configPayload["sidecarToken"] = s.cfg.SidecarToken
+	}
+	if s.cfg.CSRFToken != "" {
+		configPayload["csrfToken"] = s.cfg.CSRFToken
+	}
+	configJSON, _ := json.Marshal(configPayload)
 
 	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n</head>", string(configJSON))
 	html := strings.Replace(string(content), "</head>", injected, 1)
@@ -389,7 +486,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Value:    s.cfg.SessionToken,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -397,6 +494,16 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleForgeProxy(w http.ResponseWriter, r *http.Request) {
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if !s.verifyCSRF(r) {
+		http.Error(w, "Forbidden: invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
 	// Authenticate proxy endpoint
 	if !s.authenticateRequest(r) {
 		http.Error(w, "Unauthorized: invalid session token", http.StatusUnauthorized)
@@ -480,21 +587,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Validate Origin to prevent Cross-Site WebSocket Hijacking (CSWSH)
 	origin := r.Header.Get("Origin")
-	if origin != "" {
-		if origin == "null" {
-			http.Error(w, "forbidden origin", http.StatusForbidden)
-			return
-		}
-		parsedOrigin, err := url.Parse(origin)
-		if err != nil || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https" && parsedOrigin.Scheme != "vscode-webview") {
-			http.Error(w, "forbidden origin", http.StatusForbidden)
-			return
-		}
-		host := parsedOrigin.Hostname()
-		if host != "localhost" && host != "127.0.0.1" && host != s.cfg.Host {
-			http.Error(w, "forbidden origin", http.StatusForbidden)
-			return
-		}
+	if origin != "" && !s.isOriginAllowed(origin) {
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
 	}
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
@@ -1053,6 +1148,34 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
+
+	case "workspace.addAllowedRoot":
+		var params struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		if params.Path == "" {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: "path is required"}
+		}
+		absPath, err := filepath.Abs(params.Path)
+		if err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		fi, err := os.Stat(absPath)
+		if err != nil || !fi.IsDir() {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: "path does not exist or is not a directory"}
+		}
+		resolvedPath, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			resolvedPath = absPath
+		}
+		c.server.fsMgr.AddAllowedRoot(absPath)
+		if resolvedPath != absPath {
+			c.server.fsMgr.AddAllowedRoot(resolvedPath)
+		}
+		return map[string]any{"success": true, "path": resolvedPath}, nil
 
 	default:
 		return nil, &protocol.RPCError{

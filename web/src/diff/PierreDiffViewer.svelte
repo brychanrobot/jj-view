@@ -361,6 +361,27 @@ $effect(() => {
     }
 });
 
+let wasNarrow = false;
+$effect(() => {
+    if (!containerEl) {
+        return;
+    }
+    const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            const isNarrow = entry.contentRect.width > 0 && entry.contentRect.width < 600;
+            if (isNarrow && !wasNarrow) {
+                if (untrack(() => diffStyle) === 'split') {
+                    setDiffStyle('unified');
+                }
+            }
+            wasNarrow = isNarrow;
+        }
+    });
+    observer.observe(containerEl);
+    return () => {
+        observer.disconnect();
+    };
+});
 onMount(() => {
     if (typeof window !== 'undefined') {
         window.addEventListener('keydown', handleKeyDown);
@@ -396,6 +417,7 @@ onDestroy(() => {
                     onclick={() => setDiffStyle('split')}
                     title="Side-by-side split diff"
                     data-testid="toggle-split-diff"
+                    data-style="split"
                 >
                     Split
                 </button>
@@ -406,6 +428,7 @@ onDestroy(() => {
                     onclick={() => setDiffStyle('unified')}
                     title="Inline unified diff"
                     data-testid="toggle-unified-diff"
+                    data-style="unified"
                 >
                     Unified
                 </button>
