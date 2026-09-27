@@ -1048,8 +1048,10 @@ onMount(() => {
     {/snippet}
 </AppLayout>
 
-{#if isSettingsOpen && webHostEnv}
+{#if isSettingsOpen}
     <SettingsModal
+        hostSystem={host ?? webHostEnv?.system}
+        hostConfig={webHostEnv?.config}
         {webHostEnv}
         onClose={() => {
             isSettingsOpen = false;

@@ -392,20 +392,6 @@ export class WebHostConfig implements HostConfig {
                 section === 'jj-view',
         });
     }
-
-    public async getScoped<T>(key: string, scope: 'user' | 'workspace'): Promise<T | undefined> {
-        if (!this._hostSystem || typeof this._hostSystem.getConfig !== 'function') {
-            return this.get<T>(key);
-        }
-        return this._hostSystem.getConfig<T>(key, scope);
-    }
-
-    public async getAllScoped(scope: 'user' | 'workspace'): Promise<Record<string, unknown>> {
-        if (!this._hostSystem || typeof this._hostSystem.getAllConfig !== 'function') {
-            return Object.fromEntries(this.values.entries());
-        }
-        return this._hostSystem.getAllConfig(scope);
-    }
 }
 
 export class WebHostNavigation implements HostNavigation {
