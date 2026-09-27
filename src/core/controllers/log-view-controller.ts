@@ -79,8 +79,7 @@ export class LogViewController implements Disposable {
             this._receiver.setMessenger(_options.messenger);
         }
 
-        const storedHidden = this._host.storage.get<string[]>(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, []) ?? [];
-        this.setHiddenActions(storedHidden);
+        void this._loadStoredHiddenActions();
 
         this.bindRepo(this._repo);
 
@@ -333,6 +332,14 @@ export class LogViewController implements Disposable {
         }
 
         this._receiver.sender.setHighlight({ changeId });
+    }
+
+    private async _loadStoredHiddenActions(): Promise<void> {
+        const storedHidden =
+            (await this._host.storage.get<string[]>(LogViewController.HIDDEN_ACTIONS_STORAGE_KEY, [])) ?? [];
+        if (!this._disposed) {
+            this.setHiddenActions(storedHidden);
+        }
     }
 
     public setHiddenActions(hiddenActions: readonly string[]): void {

@@ -134,8 +134,8 @@ export interface HostWorkspace {
 }
 
 export interface HostStorage {
-    get<T>(key: string): T | undefined;
-    get<T>(key: string, defaultValue: T): T;
+    get<T>(key: string): Promise<T | undefined>;
+    get<T>(key: string, defaultValue: T): Promise<T>;
     update(key: string, value: unknown): Promise<void>;
 }
 

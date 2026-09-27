@@ -28,13 +28,18 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	}
 
 	_ = os.MkdirAll(filepath.Join(tempRepo, ".vscode"), 0755)
+	tempDataDir := filepath.Join(tempRepo, "user-data")
+	_ = os.MkdirAll(tempDataDir, 0700)
 
 	cfg := Config{
 		Host:           "127.0.0.1",
 		Port:           0, // random port
 		RepoRoot:       tempRepo,
 		Version:        "test-version",
-		UserConfigPath: filepath.Join(tempRepo, "user-config.json"),
+		UserDataDir:    tempDataDir,
+		UserConfigPath: filepath.Join(tempDataDir, "user-config.json"),
+		UserStatePath:  filepath.Join(tempDataDir, "state.json"),
+		UserSecretPath: filepath.Join(tempDataDir, "credentials.json"),
 	}
 
 	srv, err := NewServer(cfg)
@@ -504,5 +509,123 @@ func TestServer_UserDataDir(t *testing.T) {
 	expectedConfigPath := filepath.Join(tempUserData, "config.json")
 	if srv.cfg.UserConfigPath != expectedConfigPath {
 		t.Fatalf("expected UserConfigPath %q, got %q", expectedConfigPath, srv.cfg.UserConfigPath)
+	}
+	expectedStatePath := filepath.Join(tempUserData, "state.json")
+	if srv.cfg.UserStatePath != expectedStatePath {
+		t.Fatalf("expected UserStatePath %q, got %q", expectedStatePath, srv.cfg.UserStatePath)
+	}
+	expectedSecretPath := filepath.Join(tempUserData, "credentials.json")
+	if srv.cfg.UserSecretPath != expectedSecretPath {
+		t.Fatalf("expected UserSecretPath %q, got %q", expectedSecretPath, srv.cfg.UserSecretPath)
+	}
+}
+
+func TestServerStateAndSecretsRPC(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
+	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	callRPC := func(id int, method string, params any) protocol.Response {
+		rawParams, _ := json.Marshal(params)
+		rawID := json.RawMessage(fmt.Sprintf("%d", id))
+		req := protocol.Request{
+			JSONRPC: "2.0",
+			ID:      &rawID,
+			Method:  method,
+			Params:  rawParams,
+		}
+		if err := conn.WriteJSON(req); err != nil {
+			t.Fatalf("failed to send RPC: %v", err)
+		}
+		for {
+			var raw map[string]json.RawMessage
+			if err := conn.ReadJSON(&raw); err != nil {
+				t.Fatalf("failed to read RPC: %v", err)
+			}
+			// Notifications do not have an ID
+			idRaw, hasID := raw["id"]
+			if !hasID || len(idRaw) == 0 || string(idRaw) == "null" {
+				continue
+			}
+			var res protocol.Response
+			data, _ := json.Marshal(raw)
+			_ = json.Unmarshal(data, &res)
+			return res
+		}
+	}
+
+	// 1. state.set
+	setRes := callRPC(1, "state.set", map[string]any{
+		"key":   "lastFocusedRepo",
+		"value": "/path/to/my/repo",
+	})
+	if setRes.Error != nil {
+		t.Fatalf("state.set error: %+v", setRes.Error)
+	}
+
+	// 2. state.get
+	getRes := callRPC(2, "state.get", map[string]string{"key": "lastFocusedRepo"})
+	if getRes.Error != nil {
+		t.Fatalf("state.get error: %+v", getRes.Error)
+	}
+	getMap := getRes.Result.(map[string]any)
+	if getMap["value"] != "/path/to/my/repo" || getMap["found"] != true {
+		t.Fatalf("unexpected state.get: %+v", getMap)
+	}
+
+	// 3. state.getAll
+	getAllRes := callRPC(3, "state.getAll", map[string]any{})
+	if getAllRes.Error != nil {
+		t.Fatalf("state.getAll error: %+v", getAllRes.Error)
+	}
+	allMap := getAllRes.Result.(map[string]any)
+	if allMap["lastFocusedRepo"] != "/path/to/my/repo" {
+		t.Fatalf("expected lastFocusedRepo in getAll: %+v", allMap)
+	}
+
+	// 4. state.delete
+	delRes := callRPC(4, "state.delete", map[string]string{"key": "lastFocusedRepo"})
+	if delRes.Error != nil {
+		t.Fatalf("state.delete error: %+v", delRes.Error)
+	}
+	getAfterDel := callRPC(5, "state.get", map[string]string{"key": "lastFocusedRepo"})
+	afterDelMap := getAfterDel.Result.(map[string]any)
+	if afterDelMap["found"] == true {
+		t.Fatalf("expected found=false after delete")
+	}
+
+	// 5. secrets.store
+	storeRes := callRPC(6, "secrets.store", map[string]string{
+		"key":   "github_token",
+		"value": "ghp_super_secret_pat",
+	})
+	if storeRes.Error != nil {
+		t.Fatalf("secrets.store error: %+v", storeRes.Error)
+	}
+
+	// 6. secrets.get
+	getSecRes := callRPC(7, "secrets.get", map[string]string{"key": "github_token"})
+	if getSecRes.Error != nil {
+		t.Fatalf("secrets.get error: %+v", getSecRes.Error)
+	}
+	secMap := getSecRes.Result.(map[string]any)
+	if secMap["value"] != "ghp_super_secret_pat" || secMap["found"] != true {
+		t.Fatalf("unexpected secrets.get: %+v", secMap)
+	}
+
+	// 7. secrets.delete
+	delSecRes := callRPC(8, "secrets.delete", map[string]string{"key": "github_token"})
+	if delSecRes.Error != nil {
+		t.Fatalf("secrets.delete error: %+v", delSecRes.Error)
+	}
+	getSecAfterDel := callRPC(9, "secrets.get", map[string]string{"key": "github_token"})
+	secAfterDelMap := getSecAfterDel.Result.(map[string]any)
+	if secAfterDelMap["found"] == true {
+		t.Fatalf("expected found=false after delete")
 	}
 }

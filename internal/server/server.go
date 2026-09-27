@@ -30,6 +30,8 @@ import (
 	"github.com/brychanrobot/jj-view/internal/fs"
 	"github.com/brychanrobot/jj-view/internal/process"
 	"github.com/brychanrobot/jj-view/internal/protocol"
+	"github.com/brychanrobot/jj-view/internal/secret"
+	"github.com/brychanrobot/jj-view/internal/state"
 	"github.com/brychanrobot/jj-view/internal/watcher"
 	"github.com/brychanrobot/jj-view/web"
 )
@@ -47,6 +49,8 @@ type Config struct {
 	Version        string
 	UserDataDir    string
 	UserConfigPath string
+	UserStatePath  string
+	UserSecretPath string
 }
 
 // Server provides HTTP and WebSocket services for the JJ View web UI.
@@ -56,6 +60,8 @@ type Server struct {
 	fsMgr        *fs.SandboxManager
 	watcherHub   *watcher.Hub
 	configStore  *config.Store
+	stateStore   *state.Store
+	secretStore  *secret.Store
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
@@ -83,13 +89,21 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	cfg.RepoRoot = absRepo
 
-	if cfg.UserDataDir != "" && cfg.UserConfigPath == "" {
+	if cfg.UserDataDir != "" {
 		absDataDir, err := filepath.Abs(cfg.UserDataDir)
 		if err != nil {
 			return nil, fmt.Errorf("invalid user data dir: %w", err)
 		}
 		cfg.UserDataDir = absDataDir
-		cfg.UserConfigPath = filepath.Join(absDataDir, "config.json")
+		if cfg.UserConfigPath == "" {
+			cfg.UserConfigPath = filepath.Join(absDataDir, "config.json")
+		}
+		if cfg.UserStatePath == "" {
+			cfg.UserStatePath = filepath.Join(absDataDir, "state.json")
+		}
+		if cfg.UserSecretPath == "" {
+			cfg.UserSecretPath = filepath.Join(absDataDir, "credentials.json")
+		}
 	}
 
 	var extraRoots []string
@@ -98,6 +112,12 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if cfg.UserConfigPath != "" {
 		extraRoots = append(extraRoots, filepath.Dir(cfg.UserConfigPath))
+	}
+	if cfg.UserStatePath != "" {
+		extraRoots = append(extraRoots, filepath.Dir(cfg.UserStatePath))
+	}
+	if cfg.UserSecretPath != "" {
+		extraRoots = append(extraRoots, filepath.Dir(cfg.UserSecretPath))
 	}
 
 	fsMgr, err := fs.NewSandboxManager(cfg.RepoRoot, extraRoots...)
@@ -136,6 +156,34 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize config store: %w", err)
 	}
 	s.configStore = configStore
+
+	stateStore, err := state.NewStore(state.Options{
+		Path: cfg.UserStatePath,
+		OnChange: func(key string, value json.RawMessage) {
+			s.broadcastNotification("state/didChange", map[string]any{
+				"key":   key,
+				"value": value,
+			})
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize state store: %w", err)
+	}
+	s.stateStore = stateStore
+
+	secretStore, err := secret.NewStore(secret.Options{
+		Path: cfg.UserSecretPath,
+		OnChange: func(key string, action string) {
+			s.broadcastNotification("secrets/didChange", map[string]any{
+				"key":    key,
+				"action": action,
+			})
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize secret store: %w", err)
+	}
+	s.secretStore = secretStore
 	s.procMgr = process.NewManager(filepath.Join(fsMgr.DaemonTempDir(), "scripts"))
 
 	_ = mime.AddExtensionType(".woff2", "font/woff2")
@@ -232,6 +280,12 @@ func (s *Server) Close(ctx context.Context) error {
 	if s.configStore != nil {
 		_ = s.configStore.Close()
 	}
+	if s.stateStore != nil {
+		_ = s.stateStore.Close()
+	}
+	if s.secretStore != nil {
+		_ = s.secretStore.Close()
+	}
 
 	s.clientsMu.Lock()
 	for client := range s.clients {
@@ -246,7 +300,7 @@ func (s *Server) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) broadcastConfigChange(key string, scope string) {
+func (s *Server) broadcastNotification(method string, params any) {
 	s.clientsMu.Lock()
 	clients := make([]*wsClient, 0, len(s.clients))
 	for client := range s.clients {
@@ -254,15 +308,17 @@ func (s *Server) broadcastConfigChange(key string, scope string) {
 	}
 	s.clientsMu.Unlock()
 
-	params := map[string]any{
-		"key":   key,
-		"scope": scope,
-	}
-	notification := protocol.NewNotification("config/didChange", params)
-
+	notification := protocol.NewNotification(method, params)
 	for _, client := range clients {
 		_ = client.send(notification)
 	}
+}
+
+func (s *Server) broadcastConfigChange(key string, scope string) {
+	s.broadcastNotification("config/didChange", map[string]any{
+		"key":   key,
+		"scope": scope,
+	})
 }
 
 func (s *Server) authenticateRequest(r *http.Request) bool {
@@ -271,6 +327,11 @@ func (s *Server) authenticateRequest(r *http.Request) bool {
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+	if token == "" {
+		if cookie, err := r.Cookie("jj_view_token"); err == nil {
+			token = cookie.Value
 		}
 	}
 	return token == s.cfg.SessionToken
@@ -323,6 +384,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n</head>", string(configJSON))
 	html := strings.Replace(string(content), "</head>", injected, 1)
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "jj_view_token",
+		Value:    s.cfg.SessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	_, _ = w.Write([]byte(html))
@@ -885,6 +953,85 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 			_ = json.Unmarshal(req.Params, &params)
 		}
 		return c.server.configStore.GetAllScoped(params.Scope), nil
+
+	case "state.get":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		val, ok := c.server.stateStore.Get(params.Key)
+		if !ok {
+			return map[string]any{"found": false}, nil
+		}
+		return map[string]any{"value": val, "found": true}, nil
+
+	case "state.set":
+		var params struct {
+			Key   string          `json:"key"`
+			Value json.RawMessage `json:"value"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		if err := c.server.stateStore.Set(params.Key, params.Value); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string]bool{"success": true}, nil
+
+	case "state.delete":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		if err := c.server.stateStore.Delete(params.Key); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string]bool{"success": true}, nil
+
+	case "state.getAll":
+		return c.server.stateStore.GetAll(), nil
+
+	case "secrets.get":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		val, ok := c.server.secretStore.Get(params.Key)
+		if !ok {
+			return map[string]any{"found": false}, nil
+		}
+		return map[string]any{"value": val, "found": true}, nil
+
+	case "secrets.store":
+		var params struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		if err := c.server.secretStore.Store(params.Key, params.Value); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string]bool{"success": true}, nil
+
+	case "secrets.delete":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		if err := c.server.secretStore.Delete(params.Key); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string]bool{"success": true}, nil
 
 	default:
 		return nil, &protocol.RPCError{

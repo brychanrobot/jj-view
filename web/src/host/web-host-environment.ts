@@ -632,35 +632,78 @@ export class WebHostDocuments implements HostDocuments {
 }
 
 export class WebHostStorage implements HostStorage {
-    private readonly store = new Map<string, unknown>();
+    private readonly inMemoryStore = new Map<string, unknown>();
 
-    public get<T>(key: string): T | undefined;
-    public get<T>(key: string, defaultValue: T): T;
-    public get<T>(key: string, defaultValue?: T): T | undefined {
-        if (this.store.has(key)) {
-            return this.store.get(key) as T;
+    constructor(private readonly _hostSystem?: RemoteHostSystem) {}
+
+    public async get<T>(key: string): Promise<T | undefined>;
+    public async get<T>(key: string, defaultValue: T): Promise<T>;
+    public async get<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+        if (this._hostSystem) {
+            try {
+                const val = await this._hostSystem.getState<T>(key);
+                if (val !== undefined) {
+                    return val;
+                }
+            } catch (err) {
+                console.warn(`[WebHostStorage] Failed to read state key '${key}':`, err);
+            }
+            return defaultValue;
+        }
+        if (this.inMemoryStore.has(key)) {
+            return this.inMemoryStore.get(key) as T;
         }
         return defaultValue;
     }
 
     public async update(key: string, value: unknown): Promise<void> {
-        this.store.set(key, value);
+        if (this._hostSystem) {
+            if (value === undefined) {
+                await this._hostSystem.deleteState(key);
+            } else {
+                await this._hostSystem.setState(key, value);
+            }
+            return;
+        }
+        if (value === undefined) {
+            this.inMemoryStore.delete(key);
+        } else {
+            this.inMemoryStore.set(key, value);
+        }
     }
 }
 
 export class WebHostSecrets implements HostSecrets {
-    private readonly secrets = new Map<string, string>();
+    private readonly inMemorySecrets = new Map<string, string>();
+
+    constructor(private readonly _hostSystem?: RemoteHostSystem) {}
 
     public async get(key: string): Promise<string | undefined> {
-        return this.secrets.get(key);
+        if (this._hostSystem) {
+            try {
+                return await this._hostSystem.getSecret(key);
+            } catch (err) {
+                console.warn(`[WebHostSecrets] Failed to get secret '${key}':`, err);
+                return undefined;
+            }
+        }
+        return this.inMemorySecrets.get(key);
     }
 
     public async store(key: string, value: string): Promise<void> {
-        this.secrets.set(key, value);
+        if (this._hostSystem) {
+            await this._hostSystem.storeSecret(key, value);
+            return;
+        }
+        this.inMemorySecrets.set(key, value);
     }
 
     public async delete(key: string): Promise<void> {
-        this.secrets.delete(key);
+        if (this._hostSystem) {
+            await this._hostSystem.deleteSecret(key);
+            return;
+        }
+        this.inMemorySecrets.delete(key);
     }
 }
 
@@ -749,8 +792,8 @@ export class WebHostEnvironment implements HostEnvironment {
     public readonly nav: WebHostNavigation;
     public readonly config: WebHostConfig;
     public readonly documents: HostDocuments;
-    public readonly storage: HostStorage = new WebHostStorage();
-    public readonly secrets: HostSecrets = new WebHostSecrets();
+    public readonly storage: HostStorage;
+    public readonly secrets: HostSecrets;
     public readonly auth: HostAuth = new WebHostAuth();
     public readonly commands: WebHostCommands = new WebHostCommands();
     public readonly views: HostViews = new WebHostViews();
@@ -767,6 +810,8 @@ export class WebHostEnvironment implements HostEnvironment {
         statusBarService?: StatusBarService,
     ) {
         this.system = hostSystem;
+        this.storage = new WebHostStorage(hostSystem);
+        this.secrets = new WebHostSecrets(hostSystem);
         this.nav = new WebHostNavigation(navCallbacks);
         this.config = new WebHostConfig(hostSystem);
         this.documents = new WebHostDocuments(hostSystem);

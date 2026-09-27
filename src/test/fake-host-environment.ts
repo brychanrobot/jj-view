@@ -474,9 +474,9 @@ export class FakeHostWorkspace implements HostWorkspace {
 export class FakeHostStorage implements HostStorage {
     private readonly storage = new Map<string, unknown>();
 
-    get<T>(key: string): T | undefined;
-    get<T>(key: string, defaultValue: T): T;
-    get<T>(key: string, defaultValue?: T): T | undefined {
+    async get<T>(key: string): Promise<T | undefined>;
+    async get<T>(key: string, defaultValue: T): Promise<T>;
+    async get<T>(key: string, defaultValue?: T): Promise<T | undefined> {
         if (this.storage.has(key)) {
             return this.storage.get(key) as T;
         }

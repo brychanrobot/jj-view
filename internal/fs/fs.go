@@ -84,6 +84,9 @@ func NewSandboxManager(repoRoot string, extraRoots ...string) (*SandboxManager, 
 		roots = appendRoot(roots, filepath.Join(configHome, "jj-view"))
 		roots = appendRoot(roots, configHome)
 	}
+	if stateHome := os.Getenv("XDG_STATE_HOME"); stateHome != "" {
+		roots = appendRoot(roots, filepath.Join(stateHome, "jj-view"))
+	}
 
 	userHome, err := os.UserHomeDir()
 	if err == nil {
@@ -94,6 +97,10 @@ func NewSandboxManager(repoRoot string, extraRoots ...string) (*SandboxManager, 
 			if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
 				roots = appendRoot(roots, filepath.Join(localAppData, "jj-view"))
 			}
+		} else if runtime.GOOS == "darwin" {
+			roots = appendRoot(roots,
+				filepath.Join(userHome, "Library", "Application Support", "jj-view"),
+			)
 		} else {
 			roots = appendRoot(roots,
 				filepath.Join(userHome, ".config", "jj-view"))

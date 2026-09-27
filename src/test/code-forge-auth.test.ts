@@ -29,13 +29,13 @@ describe('CodeForgeAuthManager', () => {
     });
 
     test('isAuthSkipped and setAuthSkipped persistent states', async () => {
-        expect(authManager.isAuthSkipped('github')).toBe(false);
+        expect(await authManager.isAuthSkipped('github')).toBe(false);
         await authManager.setAuthSkipped('github', true);
-        expect(authManager.isAuthSkipped('github')).toBe(true);
+        expect(await authManager.isAuthSkipped('github')).toBe(true);
 
-        expect(authManager.isAuthSkipped('gitlab')).toBe(false);
+        expect(await authManager.isAuthSkipped('gitlab')).toBe(false);
         await authManager.setAuthSkipped('gitlab', true);
-        expect(authManager.isAuthSkipped('gitlab')).toBe(true);
+        expect(await authManager.isAuthSkipped('gitlab')).toBe(true);
     });
 
     test('prompt session tracking and resetAllChoices', async () => {
@@ -49,7 +49,7 @@ describe('CodeForgeAuthManager', () => {
         await authManager.resetAllChoices();
         expect(authManager.hasPromptedThisSession('github')).toBe(false);
         expect(authManager.isProviderUnavailable('github')).toBe(false);
-        expect(authManager.isAuthSkipped('github')).toBe(false);
+        expect(await authManager.isAuthSkipped('github')).toBe(false);
     });
 
     test('getSessionToken checks environment variables first', async () => {
@@ -232,7 +232,7 @@ describe('CodeForgeAuthManager', () => {
         });
 
         expect(token).toBeUndefined();
-        expect(authManager.isAuthSkipped('github')).toBe(true);
+        expect(await authManager.isAuthSkipped('github')).toBe(true);
     });
 
     test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension installer prompts to install extension', async () => {

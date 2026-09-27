@@ -168,9 +168,9 @@ describe('FakeHostEnvironment', () => {
     describe('FakeHostStorage, FakeHostSecrets, FakeHostAuth, FakeHostCommands, FakeHostViews', () => {
         it('manages storage and secrets', async () => {
             const storage = new FakeHostStorage();
-            expect(storage.get('item', 'def')).toBe('def');
+            expect(await storage.get('item', 'def')).toBe('def');
             await storage.update('item', 'val');
-            expect(storage.get('item')).toBe('val');
+            expect(await storage.get('item')).toBe('val');
 
             const secrets = new FakeHostSecrets();
             expect(await secrets.get('token')).toBeUndefined();
