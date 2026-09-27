@@ -4,15 +4,23 @@
 -->
 <script lang="ts">
 import { onDestroy, onMount } from 'svelte';
+import type { HostConfig } from '../../../src/core/host/host-environment';
+import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { WebHostEnvironment } from '../host/web-host-environment';
+import { loadScopedSettings, saveScopedSetting } from './settings-helpers';
 import { ALL_SETTINGS, filterSettings, getCategories, type SettingDefinition } from './settings-schema';
 
 interface Props {
-    webHostEnv: WebHostEnvironment;
+    hostSystem?: RemoteHostSystem | null;
+    hostConfig?: HostConfig | null;
+    webHostEnv?: WebHostEnvironment | null;
     onClose: () => void;
 }
 
-let { webHostEnv, onClose }: Props = $props();
+let { hostSystem, hostConfig, webHostEnv, onClose }: Props = $props();
+
+const activeHostSystem = $derived(hostSystem ?? webHostEnv?.system);
+const activeHostConfig = $derived(hostConfig ?? webHostEnv?.config);
 
 type Scope = 'user' | 'workspace';
 
@@ -30,8 +38,8 @@ const filteredSettings = $derived(filterSettings(ALL_SETTINGS, searchQuery, sele
 async function loadConfigs(): Promise<void> {
     try {
         const [user, ws] = await Promise.all([
-            webHostEnv.config.getAllScoped('user'),
-            webHostEnv.config.getAllScoped('workspace'),
+            loadScopedSettings(activeHostSystem, 'user'),
+            loadScopedSettings(activeHostSystem, 'workspace'),
         ]);
         userConfig = user;
         workspaceConfig = ws;
@@ -48,7 +56,7 @@ onMount(() => {
         searchInputEl.focus();
     }
 
-    const disposable = webHostEnv.config.onDidChangeConfiguration?.(() => {
+    const disposable = activeHostConfig?.onDidChangeConfiguration?.(() => {
         loadConfigs();
     });
 
@@ -89,8 +97,16 @@ function getEffectiveValue(setting: SettingDefinition): unknown {
     if (scopedVal !== undefined) {
         return scopedVal;
     }
-    // Fall back to the other scope or effective config
-    const effective = webHostEnv.config.get(setting.key, undefined);
+    // If viewing workspace scope, fall back to userConfig before effective config / default
+    if (activeScope === 'workspace') {
+        const norm = normalizeKey(setting.key);
+        const userVal = userConfig[setting.key] ?? userConfig[norm] ?? userConfig[`jj-view.${norm}`];
+        if (userVal !== undefined) {
+            return userVal;
+        }
+    }
+    // Fall back to effective config or schema default
+    const effective = activeHostConfig?.get(setting.key, undefined);
     if (effective !== undefined) {
         return effective;
     }
@@ -102,12 +118,12 @@ function isModifiedInActiveScope(setting: SettingDefinition): boolean {
 }
 
 async function handleChange(setting: SettingDefinition, newValue: unknown): Promise<void> {
-    await webHostEnv.config.update(setting.key, newValue, activeScope);
+    await saveScopedSetting(activeHostSystem, activeHostConfig, setting.key, newValue, activeScope);
     await loadConfigs();
 }
 
 async function handleReset(setting: SettingDefinition): Promise<void> {
-    await webHostEnv.config.update(setting.key, null, activeScope);
+    await saveScopedSetting(activeHostSystem, activeHostConfig, setting.key, null, activeScope);
     await loadConfigs();
 }
 </script>
