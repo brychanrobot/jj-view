@@ -485,13 +485,13 @@ export class RemoteHostSystem implements HostSystem {
         }
 
         if (method === 'state/didChange') {
-            const key =
-                params &&
-                typeof params === 'object' &&
-                'key' in params &&
-                typeof (params as { key?: unknown }).key === 'string'
-                    ? (params as { key: string }).key
-                    : '';
+            if (!params || typeof params !== 'object' || !('key' in params)) {
+                return;
+            }
+            const key = (params as { key?: unknown }).key;
+            if (typeof key !== 'string' || key.length === 0) {
+                return;
+            }
             for (const listener of this._stateListeners) {
                 try {
                     listener(key);
@@ -503,13 +503,13 @@ export class RemoteHostSystem implements HostSystem {
         }
 
         if (method === 'secrets/didChange') {
-            const key =
-                params &&
-                typeof params === 'object' &&
-                'key' in params &&
-                typeof (params as { key?: unknown }).key === 'string'
-                    ? (params as { key: string }).key
-                    : '';
+            if (!params || typeof params !== 'object' || !('key' in params)) {
+                return;
+            }
+            const key = (params as { key?: unknown }).key;
+            if (typeof key !== 'string' || key.length === 0) {
+                return;
+            }
             for (const listener of this._secretsListeners) {
                 try {
                     listener(key);
@@ -740,6 +740,10 @@ export class RemoteHostSystem implements HostSystem {
                 this._secretsListeners.delete(listener);
             },
         };
+    }
+
+    public onSecretDidChange(listener: (key: string) => void): { dispose: () => void } {
+        return this.onSecretsDidChange(listener);
     }
 
     public async getState<T = unknown>(key: string): Promise<T | undefined> {
