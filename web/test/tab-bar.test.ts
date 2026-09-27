@@ -147,4 +147,22 @@ describe('TabBar Component (SSR & Rendering)', () => {
         expect(html).toContain('data-testid="tab-bar-container"');
         expect(html).not.toContain('role="tab"');
     });
+
+    it('attaches data-vscode-context with editor/title/context menuId and tab info', () => {
+        const result = render(TabBar, {
+            props: {
+                tabs: mockTabs,
+                activeTabId: 'tab-1',
+                onSelectTab: vi.fn(),
+                onCloseTab: vi.fn(),
+                onPinTab: vi.fn(),
+                onReorderTabs: vi.fn(),
+            },
+        });
+        const html = result.body;
+
+        expect(html).toContain('data-vscode-context=');
+        expect(html).toContain('&quot;menuId&quot;:&quot;editor/title/context&quot;');
+        expect(html).toContain('&quot;tabId&quot;:&quot;tab-1&quot;');
+    });
 });

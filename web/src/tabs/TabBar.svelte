@@ -125,6 +125,13 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
         {@const isActive = tab.id === activeTabId}
         {@const isDropBefore = dropTarget?.tabId === tab.id && dropTarget?.position === 'before'}
         {@const isDropAfter = dropTarget?.tabId === tab.id && dropTarget?.position === 'after'}
+        {@const resourceUri = tab.view.type === 'diff'
+            ? (tab.view.rightUri ?? tab.view.leftUri)
+            : tab.view.type === 'file'
+              ? tab.view.uri
+              : undefined}
+        {@const resourceScheme = resourceUri?.scheme}
+        {@const resourceFilename = tab.title.replace(/\s*\([^)]*\)$/, '').trim()}
         <div
             class="tab"
             class:active={isActive}
@@ -135,6 +142,23 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
             class:drop-after={isDropAfter}
             data-testid={`tab-${tab.id}`}
             data-tab-id={tab.id}
+            data-vscode-context={JSON.stringify({
+                menuId: 'editor/title/context',
+                resourceScheme,
+                resourceFilename,
+                resourceUri: resourceUri
+                    ? {
+                          scheme: resourceUri.scheme,
+                          path: resourceUri.path,
+                          fsPath: resourceUri.fsPath,
+                          authority: resourceUri.authority,
+                          query: resourceUri.query,
+                          fragment: resourceUri.fragment,
+                      }
+                    : undefined,
+                tabId: tab.id,
+                preventDefaultContextMenuItems: true,
+            })}
             role="tab"
             aria-selected={isActive}
             tabindex={isActive ? 0 : -1}

@@ -163,6 +163,62 @@ describe('Generalized Context Menu System', () => {
             expect(allCommands).toContain('jj-view.restore');
             expect(allCommands).toContain('jj-view.openFile');
         });
+
+        it('returns tab context actions when menuId is editor/title/context', () => {
+            // For a working copy file tab
+            const fileContext = rootContext.createScoped({
+                menuId: 'editor/title/context',
+                resourceScheme: 'file',
+                resourceFilename: 'main.go',
+            });
+            const fileGroups = menuRegistry.getContextActions('editor/title/context', fileContext);
+            expect(fileGroups.length).toBeGreaterThan(0);
+            const fileCommands = fileGroups.flatMap((g) => g.items.map((i) => i.command));
+            expect(fileCommands).toContain('workbench.action.closeActiveEditor');
+            expect(fileCommands).toContain('workbench.action.closeOtherEditors');
+            expect(fileCommands).toContain('workbench.action.closeEditorsToTheRight');
+            expect(fileCommands).toContain('workbench.action.closeAllEditors');
+            expect(fileCommands).toContain('jj-view.compareFileWith');
+            expect(fileCommands).toContain('jj-view.viewFileAtRevision');
+            expect(fileCommands).not.toContain('jj-view.openFile');
+
+            // For a virtual jj-view diff tab
+            const jjViewContext = rootContext.createScoped({
+                menuId: 'editor/title/context',
+                resourceScheme: 'jj-view',
+                resourceFilename: 'main.go',
+            });
+            const jjViewGroups = menuRegistry.getContextActions('editor/title/context', jjViewContext);
+            const jjViewCommands = jjViewGroups.flatMap((g) => g.items.map((i) => i.command));
+            expect(jjViewCommands).toContain('jj-view.openFile');
+            expect(jjViewCommands).not.toContain('jj-view.compareFileWith');
+        });
+
+        it('returns editor context actions when menuId is editor/context', () => {
+            const diffEditorContext = rootContext.createScoped({
+                menuId: 'editor/context',
+                isInDiffEditor: true,
+                'jj.parentMutable': true,
+                resourceScheme: 'file',
+            });
+            const groups = menuRegistry.getContextActions('editor/context', diffEditorContext);
+            expect(groups.length).toBeGreaterThan(0);
+            const commands = groups.flatMap((g) => g.items.map((i) => i.command));
+            expect(commands).toContain('jj-view.squashSelectionIntoParent');
+            expect(commands).toContain('jj-view.compareFileWith');
+            expect(commands).toContain('jj-view.viewFileAtRevision');
+
+            // When parent is not mutable
+            const immutableParentContext = rootContext.createScoped({
+                menuId: 'editor/context',
+                isInDiffEditor: true,
+                'jj.parentMutable': false,
+                resourceScheme: 'file',
+            });
+            const immutableGroups = menuRegistry.getContextActions('editor/context', immutableParentContext);
+            const immutableCommands = immutableGroups.flatMap((g) => g.items.map((i) => i.command));
+            expect(immutableCommands).not.toContain('jj-view.squashSelectionIntoParent');
+        });
     });
 
     describe('ContextMenu Component (SSR)', () => {

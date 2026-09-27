@@ -6,11 +6,13 @@
 import { FileDiff } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { Uri } from '../../../src/core/uri-utils';
 import { isBinaryFile } from './binary-detection';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 
 interface Props {
     filename: string;
+    resourceUri?: Uri;
     originalContent?: string;
     modifiedContent?: string;
     fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
@@ -30,6 +32,7 @@ interface Props {
 
 let {
     filename,
+    resourceUri,
     originalContent = '',
     modifiedContent = '',
     fileStatus,
@@ -502,6 +505,24 @@ onDestroy(() => {
             bind:this={containerEl}
             class="diff-content-container"
             data-testid="diff-content-container"
+            data-vscode-context={JSON.stringify({
+                menuId: 'editor/context',
+                isInDiffEditor: true,
+                'jj.parentMutable': parentMutable,
+                resourceScheme: resourceUri?.scheme ?? (isWorkingCopy ? 'file' : 'jj-view'),
+                resourceFilename: filename.replace(/\s*\([^)]*\)$/, '').trim(),
+                resourceUri: resourceUri
+                    ? {
+                          scheme: resourceUri.scheme,
+                          path: resourceUri.path,
+                          fsPath: resourceUri.fsPath,
+                          authority: resourceUri.authority,
+                          query: resourceUri.query,
+                          fragment: resourceUri.fragment,
+                      }
+                    : undefined,
+                preventDefaultContextMenuItems: true,
+            })}
         ></div>
     {/if}
 </div>

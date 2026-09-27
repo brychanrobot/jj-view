@@ -412,6 +412,22 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             category: 'JJ View',
             icon: '$(copy)',
         },
+        {
+            command: 'workbench.action.closeActiveEditor',
+            title: 'Close',
+        },
+        {
+            command: 'workbench.action.closeOtherEditors',
+            title: 'Close Others',
+        },
+        {
+            command: 'workbench.action.closeEditorsToTheRight',
+            title: 'Close to the Right',
+        },
+        {
+            command: 'workbench.action.closeAllEditors',
+            title: 'Close All',
+        },
     ],
     menus: {
         commandPalette: [
@@ -802,6 +818,56 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.toggleCommitAction.abandon.off',
                 when: "(webviewSection == 'commitAction' || webviewSection == 'commitActions') && !jj.commitActionVisible.abandon",
                 group: '9_visibility_2_toggle@4',
+            },
+        ],
+        'editor/title/context': [
+            {
+                command: 'workbench.action.closeActiveEditor',
+                group: '1_close@1',
+            },
+            {
+                command: 'workbench.action.closeOtherEditors',
+                group: '1_close@2',
+            },
+            {
+                command: 'workbench.action.closeEditorsToTheRight',
+                group: '1_close@3',
+            },
+            {
+                command: 'workbench.action.closeAllEditors',
+                group: '1_close@4',
+            },
+            {
+                command: 'jj-view.compareFileWith',
+                group: 'jj-view@1',
+                when: "resourceScheme == 'file'",
+            },
+            {
+                command: 'jj-view.openFile',
+                group: 'jj-view@2',
+                when: "resourceScheme == 'jj-view' || resourceScheme == 'jj-edit'",
+            },
+            {
+                command: 'jj-view.viewFileAtRevision',
+                group: 'jj-view@3',
+                when: "resourceScheme == 'file'",
+            },
+        ],
+        'editor/context': [
+            {
+                command: 'jj-view.squashSelectionIntoParent',
+                group: 'jj-view@1',
+                when: 'isInDiffEditor && jj.parentMutable',
+            },
+            {
+                command: 'jj-view.compareFileWith',
+                group: 'jj-view@2',
+                when: "resourceScheme == 'file'",
+            },
+            {
+                command: 'jj-view.viewFileAtRevision',
+                group: 'jj-view@3',
+                when: "resourceScheme == 'file'",
             },
         ],
     },

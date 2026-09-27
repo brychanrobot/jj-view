@@ -381,6 +381,30 @@ function closeTabByUri(uri: Uri): void {
     }
 }
 
+function closeOtherTabs(targetTabId: string): void {
+    if (!tabs.some((t) => t.id === targetTabId)) {
+        return;
+    }
+    tabs = tabs.filter((t) => t.id === targetTabId);
+    activeTabId = targetTabId;
+}
+
+function closeTabsToTheRight(targetTabId: string): void {
+    const idx = tabs.findIndex((t) => t.id === targetTabId);
+    if (idx === -1) {
+        return;
+    }
+    tabs = tabs.slice(0, idx + 1);
+    if (!tabs.some((t) => t.id === activeTabId)) {
+        activeTabId = targetTabId;
+    }
+}
+
+function closeAllTabs(): void {
+    tabs = [];
+    activeTabId = undefined;
+}
+
 function pinTab(tabId: string): void {
     const tab = tabs.find((t) => t.id === tabId);
     if (tab) {
@@ -688,6 +712,13 @@ function unpackContextPayload(payload: unknown): unknown {
             ),
         };
     }
+    if ('resourceUri' in record && record.resourceUri && typeof record.resourceUri === 'object') {
+        const rawUri = record.resourceUri as Parameters<typeof Uri.revive>[0];
+        return {
+            ...record,
+            resourceUri: Uri.revive(rawUri),
+        };
+    }
     return payload;
 }
 
@@ -737,6 +768,41 @@ onMount(() => {
 
         webHostEnv.commands.registerCommand('workbench.action.selectTheme', async () => {
             await openThemePicker();
+        });
+
+        const extractTargetId = (payload?: unknown): string | undefined => {
+            if (typeof payload === 'object' && payload !== null && 'tabId' in payload) {
+                const rawId = (payload as { tabId: unknown }).tabId;
+                if (typeof rawId === 'string' && rawId.length > 0) {
+                    return rawId;
+                }
+            }
+            return activeTabId;
+        };
+
+        webHostEnv.commands.registerCommand('workbench.action.closeActiveEditor', async (payload?: unknown) => {
+            const targetId = extractTargetId(payload);
+            if (targetId) {
+                closeTabById(targetId);
+            }
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.closeOtherEditors', async (payload?: unknown) => {
+            const targetId = extractTargetId(payload);
+            if (targetId) {
+                closeOtherTabs(targetId);
+            }
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.closeEditorsToTheRight', async (payload?: unknown) => {
+            const targetId = extractTargetId(payload);
+            if (targetId) {
+                closeTabsToTheRight(targetId);
+            }
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.closeAllEditors', async () => {
+            closeAllTabs();
         });
 
         webHostEnv.commands.setContextKeySetter(rootContext);
@@ -998,6 +1064,7 @@ onMount(() => {
                     {#key activeTab.id}
                         <PierreDiffViewer
                             filename={activeTab.title}
+                            resourceUri={activeTab.view.rightUri ?? activeTab.view.resourceState?.resourceUri}
                             theme={activeTheme}
                             initialDirty={activeTab.isDirty ?? false}
                             originalContent={activeTab.view.originalContent ?? ''}
