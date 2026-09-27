@@ -885,6 +885,27 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		}
 		return map[string]bool{"success": true}, nil
 
+	case "fs.findFiles":
+		var params struct {
+			BaseDir    string   `json:"baseDir"`
+			Pattern    string   `json:"pattern"`
+			MaxResults int      `json:"maxResults,omitempty"`
+			Excludes   []string `json:"excludes,omitempty"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		files, err := c.server.fsMgr.FindFiles(fs.FindFilesOptions{
+			BaseDir:    params.BaseDir,
+			Pattern:    params.Pattern,
+			MaxResults: params.MaxResults,
+			Excludes:   params.Excludes,
+		})
+		if err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string][]string{"files": files}, nil
+
 	case "watcher.watch":
 		var params struct {
 			DirPath string   `json:"dirPath"`

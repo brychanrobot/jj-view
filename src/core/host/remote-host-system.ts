@@ -772,6 +772,21 @@ export class RemoteHostSystem implements HostSystem {
         await this.request<{ success: boolean }>('secrets.delete', { key });
     }
 
+    public async findFiles(
+        pattern: string,
+        baseDir?: string,
+        maxResults?: number,
+        excludes?: string[],
+    ): Promise<string[]> {
+        const res = await this.request<{ files: string[] }>('fs.findFiles', {
+            baseDir: baseDir ?? this.repoRoot,
+            pattern,
+            maxResults,
+            excludes,
+        });
+        return res.files ?? [];
+    }
+
     public dispose(): void {
         if (this._isDisposed) {
             return;

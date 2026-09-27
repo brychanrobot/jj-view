@@ -29,6 +29,7 @@ import '../../media/main.css';
 declare global {
     interface Window {
         __JJ_VIEW_ENV__?: WebHostEnvironment;
+        __JJ_VIEW_REPO_MANAGER__?: JjRepositoryManager;
     }
 }
 
@@ -78,6 +79,9 @@ export async function bootstrap(): Promise<void> {
         });
 
         const repoManager = new JjRepositoryManager(codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
+        if (typeof window !== 'undefined') {
+            window.__JJ_VIEW_REPO_MANAGER__ = repoManager;
+        }
 
         authManager.onDidAuthenticate(() => {
             for (const r of repoManager.repositories) {

@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import '../../src/test/vitest-utils';
 import type { HostFs } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import { Uri } from '../../src/core/uri-utils';
@@ -603,6 +604,68 @@ describe('WebHostEnvironment', () => {
                 globalThis.window = originalWindow;
                 globalThis.document = originalDoc;
             }
+        });
+    });
+
+    describe('WebHostWorkspace', () => {
+        it('findFiles delegates to hostSystem.findFiles and maps results to Uri array', async () => {
+            const findFilesMock = vi.fn().mockResolvedValue(['/workspace/repo1/.jj/working_copy/type']);
+            const mockFs = createMock<HostFs>({
+                readTextFile: vi.fn().mockRejectedValue(new Error('no .gitignore')),
+            });
+            const mockHost = createMock<RemoteHostSystem>({
+                repoRoot: '/workspace',
+                findFiles: findFilesMock,
+                fs: mockFs,
+            });
+            const mockConfig = new WebHostConfig();
+            mockConfig.update('files.exclude', { '**/.git': true });
+            mockConfig.update('ignoredRepositories', ['/workspace/ignored-repo']);
+
+            const workspaceUri = Uri.file('/workspace');
+            const workspace = new WebHostWorkspace([{ uri: workspaceUri, name: 'workspace' }], mockHost, mockConfig);
+
+            const results = await workspace.findFiles('**/.jj/working_copy/type', undefined, 100);
+
+            expect(findFilesMock).toHaveBeenCalledWith(
+                '**/.jj/working_copy/type',
+                workspaceUri.fsPath,
+                100,
+                expect.arrayContaining(['**/.git', '/workspace/ignored-repo']),
+            );
+            expect(results.length).toBe(1);
+            expect(results[0]?.fsPath).toBeSameFsPath('/workspace/repo1/.jj/working_copy/type');
+        });
+
+        it('findFiles loosely parses .gitignore from baseDir', async () => {
+            const findFilesMock = vi.fn().mockResolvedValue([]);
+            const mockFs = createMock<HostFs>({
+                readTextFile: vi.fn().mockResolvedValue('node_modules/\n# comment\nbuild\n!not_ignored\n'),
+            });
+            const mockHost = createMock<RemoteHostSystem>({
+                repoRoot: '/workspace',
+                findFiles: findFilesMock,
+                fs: mockFs,
+            });
+
+            const workspace = new WebHostWorkspace([{ uri: Uri.file('/workspace'), name: 'workspace' }], mockHost);
+            const subUri = Uri.file('/workspace/sub');
+
+            await workspace.findFiles('**/*.ts', subUri);
+
+            expect(mockFs.readTextFile).toHaveBeenCalledWith(`${subUri.fsPath.replace(/[/\\]+$/, '')}/.gitignore`);
+            expect(findFilesMock).toHaveBeenCalledWith(
+                '**/*.ts',
+                subUri.fsPath,
+                undefined,
+                expect.arrayContaining(['node_modules', 'build']),
+            );
+        });
+
+        it('returns empty array when hostSystem is missing', async () => {
+            const workspace = new WebHostWorkspace();
+            const results = await workspace.findFiles('**/*');
+            expect(results).toEqual([]);
         });
     });
 });

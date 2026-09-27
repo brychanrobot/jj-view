@@ -28,6 +28,11 @@ declare global {
                 setPosition(position: string): void;
             };
         };
+        __JJ_VIEW_REPO_MANAGER__?: {
+            readonly repositories: readonly {
+                readonly rootUri: { readonly fsPath: string };
+            }[];
+        };
     }
 }
 export class StandaloneServer {

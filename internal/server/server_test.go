@@ -629,3 +629,64 @@ func TestServerStateAndSecretsRPC(t *testing.T) {
 		t.Fatalf("expected found=false after delete")
 	}
 }
+
+func TestServerFindFilesRPC(t *testing.T) {
+	srv, tempRepo := setupTestServer(t)
+
+	// Create test files inside repo root
+	subRepo := filepath.Join(tempRepo, "subproject1", ".jj", "working_copy")
+	if err := os.MkdirAll(subRepo, 0755); err != nil {
+		t.Fatalf("failed to create subRepo dir: %v", err)
+	}
+	typeFile := filepath.Join(subRepo, "type")
+	if err := os.WriteFile(typeFile, []byte("type content"), 0644); err != nil {
+		t.Fatalf("failed to write type file: %v", err)
+	}
+
+	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
+	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	rawParams, _ := json.Marshal(map[string]any{
+		"baseDir": tempRepo,
+		"pattern": "**/.jj/working_copy/type",
+	})
+	rawID := json.RawMessage("1")
+	req := protocol.Request{
+		JSONRPC: "2.0",
+		ID:      &rawID,
+		Method:  "fs.findFiles",
+		Params:  rawParams,
+	}
+	if err := conn.WriteJSON(req); err != nil {
+		t.Fatalf("failed to send RPC: %v", err)
+	}
+
+	var res protocol.Response
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	if res.Error != nil {
+		t.Fatalf("fs.findFiles RPC error: %+v", res.Error)
+	}
+
+	resMap := res.Result.(map[string]any)
+	filesRaw, ok := resMap["files"].([]any)
+	if !ok || len(filesRaw) == 0 {
+		t.Fatalf("expected non-empty files array, got %+v", resMap)
+	}
+
+	found := false
+	for _, f := range filesRaw {
+		if f == typeFile {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected to find %s, but results were: %+v", typeFile, filesRaw)
+	}
+}
