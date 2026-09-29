@@ -1225,6 +1225,7 @@
         "build:web": "node esbuild.js --web",
         "build:web:prod": "node esbuild.js --web --production",
         "build:server": "go build -o dist/bin/jj-view ./cmd/jj-view",
+        "build:server:all": "node tooling/build-web-binaries.ts",
         "build:all": "pnpm build:web:prod && pnpm build:server",
         "dev": "pnpm dev:web",
         "dev:web": "pnpm build:web && pnpm build:server && node tooling/dev-server.ts",
