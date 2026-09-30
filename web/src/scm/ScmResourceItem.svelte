@@ -8,6 +8,7 @@ import type { JjResourceState } from '../../../src/core/scm-resource-state';
 import type { IContextKeyService } from '../menu/context-key-service';
 import type { MenuRegistry } from '../menu/menu-registry';
 import type { ResolvedMenuItem } from '../menu/menu-types';
+import FileIcon from './FileIcon.svelte';
 
 interface Props {
     resourceState: JjResourceState;
@@ -133,6 +134,7 @@ onDestroy(() => {
     oncontextmenu={(e) => onContextMenu?.(e, resourceState)}
 >
     <div class="resource-label-container">
+        <FileIcon filename={fileName} />
         <span class="file-name" class:deleted={isDeleted}>{fileName}</span>
         {#if dirName}
             <span class="dir-name">{dirName}</span>
@@ -185,7 +187,7 @@ onDestroy(() => {
     border-radius: 0;
     cursor: pointer;
     user-select: none;
-    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
+    font-family: var(--vscode-font-family, system-ui, Ubuntu, "Droid Sans", sans-serif);
     font-size: var(--vscode-font-size, 13px);
     line-height: 22px;
     color: var(--vscode-foreground, #d4d4d4);
@@ -212,7 +214,7 @@ onDestroy(() => {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    line-height: normal;
+    line-height: 22px;
 }
 
 .file-name {
@@ -220,7 +222,7 @@ onDestroy(() => {
     color: var(--vscode-foreground, #d4d4d4);
     font-size: var(--vscode-font-size, 13px);
     flex-shrink: 0;
-    line-height: normal;
+    line-height: 22px;
 }
 
 .file-name.deleted {
@@ -234,8 +236,8 @@ onDestroy(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    line-height: normal;
-    opacity: 0.8;
+    line-height: 22px;
+    opacity: 0.85;
 }
 
 .resource-actions-container {

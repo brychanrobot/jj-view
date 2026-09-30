@@ -213,4 +213,48 @@ test.describe('Standalone Web SCM Resources', () => {
             },
         );
     });
+
+    test('should render language file icons and status colors accurately', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('committed.txt', 'hello\n');
+        testRepo.describe('initial commit');
+        testRepo.new();
+
+        // Create working copy with different language file types
+        testRepo.writeFile('src/App.svelte', '<script>let name = "world";</script>\n<h1>Hello {name}</h1>\n');
+        testRepo.writeFile('src/main.ts', 'console.log("hello");\n');
+        testRepo.writeFile('src/test/menu-registry.test.ts', 'test("it works", () => {});\n');
+        testRepo.writeFile('package.json', '{\n  "name": "app"\n}\n');
+        testRepo.writeFile('src/styles/app.css', 'body { color: red; }\n');
+        testRepo.writeFile('.github/workflows/ci.yml', 'name: CI\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const workingCopyGroup = page.locator('[data-testid="scm-group-working-copy"]');
+        await expect(workingCopyGroup).toBeVisible();
+
+        // Verify items are rendered
+        const svelteItem = workingCopyGroup
+            .locator('[data-testid="scm-resource-item"]')
+            .filter({ hasText: 'App.svelte' });
+        await expect(svelteItem).toBeVisible();
+        await expect(svelteItem.locator('[data-testid="file-icon-App.svelte"] svg')).toBeVisible();
+
+        const testItem = workingCopyGroup
+            .locator('[data-testid="scm-resource-item"]')
+            .filter({ hasText: 'menu-registry.test.ts' });
+        await expect(testItem).toBeVisible();
+        await expect(testItem.locator('.file-icon-badge')).toHaveText('TS');
+
+        // Capture screenshot of language file icons in SCM pane
+        const scmPane = page.locator('[data-testid="scm-pane"]');
+        await scmPane.screenshot({
+            path: path.join(ARTIFACT_DIR, 'scm-language-icons.png'),
+        });
+
+        // Capture screenshot of full view
+        await page.screenshot({
+            path: path.join(ARTIFACT_DIR, 'jj-view-full-view.png'),
+        });
+    });
 });
