@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { getFiletypeFromFileName, RegisteredCustomLanguages } from '@pierre/diffs';
 import { describe, expect, it } from 'vitest';
-import { applyAppTheme, isLightTheme, loadTheme } from '../src/diff/highlighter-setup';
+import { applyAppTheme, ensureHighlighterRegistered, isLightTheme, loadTheme } from '../src/diff/highlighter-setup';
 
 interface FakeElement {
     id: string;
@@ -146,5 +147,81 @@ describe('Highlighter and Theming Setup', () => {
             expect(theme.name).toBe(name);
             expect(theme.colors).toBeDefined();
         }
+    });
+
+    it('registers svelte, vue, gn, mojom, bazel, proto, textproto, and android/flutter languages with loadable grammars', async () => {
+        ensureHighlighterRegistered();
+
+        const languages = [
+            'svelte',
+            'vue',
+            'gn',
+            'mojom',
+            'bazel',
+            'starlark',
+            'bzl',
+            'protobuf',
+            'proto',
+            'textproto',
+            'pbtxt',
+            'kotlin',
+            'dart',
+            'groovy',
+            'properties',
+            'proguard',
+        ];
+        for (const lang of languages) {
+            expect(RegisteredCustomLanguages.has(lang)).toBe(true);
+            const loader = RegisteredCustomLanguages.get(lang);
+            expect(loader).toBeDefined();
+            if (loader) {
+                const grammar = await loader();
+                expect(grammar).toBeDefined();
+            }
+        }
+    });
+
+    it('correctly maps file extensions and names to custom languages via getFiletypeFromFileName', () => {
+        ensureHighlighterRegistered();
+
+        expect(getFiletypeFromFileName('App.svelte')).toBe('svelte');
+        expect(getFiletypeFromFileName('Component.vue')).toBe('vue');
+        expect(getFiletypeFromFileName('BUILD.gn')).toBe('gn');
+        expect(getFiletypeFromFileName('args.gn')).toBe('gn');
+        expect(getFiletypeFromFileName('toolchain.gni')).toBe('gn');
+        expect(getFiletypeFromFileName('service.mojom')).toBe('mojom');
+        expect(getFiletypeFromFileName('BUILD')).toBe('bazel');
+        expect(getFiletypeFromFileName('BUILD.bazel')).toBe('bazel');
+        expect(getFiletypeFromFileName('WORKSPACE')).toBe('bazel');
+        expect(getFiletypeFromFileName('WORKSPACE.bazel')).toBe('bazel');
+        expect(getFiletypeFromFileName('MODULE.bazel')).toBe('bazel');
+        expect(getFiletypeFromFileName('rules.bzl')).toBe('bazel');
+        expect(getFiletypeFromFileName('defs.star')).toBe('bazel');
+        expect(getFiletypeFromFileName('script.starlark')).toBe('bazel');
+        expect(getFiletypeFromFileName('person.proto')).toBe('protobuf');
+        expect(getFiletypeFromFileName('config.textproto')).toBe('textproto');
+        expect(getFiletypeFromFileName('data.pbtxt')).toBe('textproto');
+
+        // Android and Flutter
+        expect(getFiletypeFromFileName('MainActivity.kt')).toBe('kotlin');
+        expect(getFiletypeFromFileName('script.kts')).toBe('kotlin');
+        expect(getFiletypeFromFileName('build.gradle.kts')).toBe('kotlin');
+        expect(getFiletypeFromFileName('settings.gradle.kts')).toBe('kotlin');
+        expect(getFiletypeFromFileName('main.dart')).toBe('dart');
+        expect(getFiletypeFromFileName('build.gradle')).toBe('groovy');
+        expect(getFiletypeFromFileName('settings.gradle')).toBe('groovy');
+        expect(getFiletypeFromFileName('Script.groovy')).toBe('groovy');
+        expect(getFiletypeFromFileName('gradle.properties')).toBe('properties');
+        expect(getFiletypeFromFileName('local.properties')).toBe('properties');
+        expect(getFiletypeFromFileName('gradle-wrapper.properties')).toBe('properties');
+        expect(getFiletypeFromFileName('proguard-rules.pro')).toBe('proguard');
+        expect(getFiletypeFromFileName('consumer-rules.pro')).toBe('proguard');
+        expect(getFiletypeFromFileName('rules.pro')).toBe('proguard');
+        expect(getFiletypeFromFileName('app_en.arb')).toBe('json');
+        expect(getFiletypeFromFileName('IRemoteService.aidl')).toBe('java');
+        expect(getFiletypeFromFileName('AndroidManifest.xml')).toBe('xml');
+        expect(getFiletypeFromFileName('pubspec.lock')).toBe('yaml');
+        expect(getFiletypeFromFileName('gradlew')).toBe('shellscript');
+        expect(getFiletypeFromFileName('gradlew.bat')).toBe('bat');
     });
 });
