@@ -528,6 +528,7 @@ export class FakeHostSecrets implements HostSecrets {
 }
 
 export class FakeHostAuth implements HostAuth {
+    public supportsOAuth = true;
     private readonly sessions = new Map<string, HostAuthSession>();
 
     setSession(providerId: string, session: HostAuthSession): void {

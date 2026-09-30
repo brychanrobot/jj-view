@@ -69,6 +69,9 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(resolveIconClass('$(plus)')).toBe('codicon codicon-plus');
         expect(resolveIconClass('$(check)')).toBe('codicon codicon-check');
         expect(resolveIconClass('$(jj-icon-squash-into)')).toBe('codicon jj-icon-squash-into');
+        expect(resolveIconClass('$(jj-icon-workspace-add)')).toBe(
+            'codicon codicon-new-collection codicon-jj-icon-workspace-add jj-icon-workspace-add',
+        );
         expect(resolveIconClass(undefined)).toBeUndefined();
     });
 
@@ -192,5 +195,23 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(allCommands).toContain('jj-view.openFile');
         expect(allCommands).toContain('jj-view.restore');
         expect(allCommands).toContain('jj-view.squashFilesIntoParent');
+    });
+
+    it('resolves view/title inline actions for log view including workspaceAdd', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+        const logContext = rootContext.createScoped({ view: 'jj-view.logView' });
+
+        const actions = registry.getInlineActions('view/title', logContext);
+        const commands = actions.map((a) => a.command);
+
+        expect(commands).toContain('jj-view.undo');
+        expect(commands).toContain('jj-view.redo');
+        expect(commands).toContain('jj-view.workspaceAdd');
+
+        const wsAction = actions.find((a) => a.command === 'jj-view.workspaceAdd');
+        expect(wsAction?.title).toBe('Add Workspace');
+        expect(wsAction?.iconClass).toContain('jj-icon-workspace-add');
+        expect(wsAction?.iconClass).toContain('codicon-new-collection');
     });
 });

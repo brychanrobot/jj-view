@@ -640,6 +640,41 @@ describe('CodeForgeAuthManager', () => {
             expect(showInfoSpy).toHaveBeenCalledWith('Successfully cleared stored TestProvider Personal Access Token.');
             expect(clearCacheMock).toHaveBeenCalled();
         });
+
+        test('omits OAuth item when host.auth.supportsOAuth is false', async () => {
+            host.auth.supportsOAuth = false;
+            const items = await authManager.getAuthManageItems('test-provider', {
+                displayName: 'TestProvider',
+                scopes: ['test-scope'],
+                envTokenKey: 'JJ_VIEW_TEST_TOKEN',
+                secretTokenKey: 'test_token',
+                hasAuth: hasAuthMock,
+                clearCache: clearCacheMock,
+                promptForPat: promptForPatMock,
+            });
+
+            expect(items.some((i) => i.label.includes('OAuth'))).toBe(false);
+            expect(items[0].label).toBe('$(key) Enter Personal Access Token (PAT)');
+            host.auth.supportsOAuth = true;
+        });
+
+        test('omits OAuth from prompt choices when host.auth.supportsOAuth is false', async () => {
+            host.auth.supportsOAuth = false;
+            const showWarningSpy = vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Enter PAT');
+            await authManager.getSessionToken('unsupported-oauth-provider', {
+                scopes: ['test-scope'],
+                envTokenKey: 'UNSUPPORTED_ENV_KEY',
+                promptMessage: 'Please authenticate',
+                signInLabel: 'Sign In (OAuth)',
+                alternativeChoice: {
+                    label: 'Enter PAT',
+                    execute: promptForPatMock,
+                },
+            });
+
+            expect(showWarningSpy).toHaveBeenCalledWith('Please authenticate', 'Enter PAT', "Don't Sign In (Skip)");
+            host.auth.supportsOAuth = true;
+        });
     });
 
     describe('promptForPat', () => {

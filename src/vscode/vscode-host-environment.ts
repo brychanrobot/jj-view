@@ -648,6 +648,8 @@ export class VsCodeHostSecrets implements HostSecrets {
 }
 
 export class VsCodeHostAuth implements HostAuth {
+    public readonly supportsOAuth = true;
+
     async getSession(
         providerId: string,
         scopes: string[],

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { CodeForgeAuthManager } from '../../../src/core/code-forge-auth';
 import { abandonCommand } from '../../../src/core/commands/abandon';
 import { absorbCommand } from '../../../src/core/commands/absorb';
 import { setBookmarkCommand } from '../../../src/core/commands/bookmark';
@@ -134,10 +135,11 @@ export interface RegisterWebCommandsOptions {
     logger: LoggerChannel;
     scmModel: ScmModel;
     logViewController?: LogViewController;
+    authManager?: CodeForgeAuthManager;
 }
 
 export function registerWebCommands(options: RegisterWebCommandsOptions): void {
-    const { repositoryManager, hostEnvironment, logger, scmModel, logViewController } = options;
+    const { repositoryManager, hostEnvironment, logger, scmModel, logViewController, authManager } = options;
 
     function getActiveRepo(): JjRepository | undefined {
         return repositoryManager.focusedRepository ?? repositoryManager.repositories[0] ?? scmModel.repo;
@@ -361,7 +363,71 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     hostEnvironment.commands.registerCommand('jj-view.killProcess', async () => {});
     hostEnvironment.commands.registerCommand('jj-view.killAllProcesses', async () => {});
     hostEnvironment.commands.registerCommand('jj-view.clearProcessHistory', async () => {});
-    hostEnvironment.commands.registerCommand('jj-view.manageAuth', async () => {});
+    hostEnvironment.commands.registerCommand('jj-view.manageAuth', async () => {
+        const repo = getActiveRepo();
+        const activeProvider = repo?.codeForge.activeProvider;
+        if (!activeProvider) {
+            await hostEnvironment.ui.showErrorMessage('No active code forge provider detected.');
+            return;
+        }
+        if (!activeProvider.isAuthManageable) {
+            await hostEnvironment.ui.showInformation(
+                `Authentication management is not supported for ${activeProvider.displayName}.`,
+            );
+            return;
+        }
+
+        const providerId = activeProvider.id;
+        const isSkipped = authManager ? await authManager.isAuthSkipped(providerId) : false;
+        const items: { label: string; description?: string; detail?: string; execute: () => Promise<void> }[] = [];
+
+        if (authManager && !(await activeProvider.hasAuth?.())) {
+            items.push({
+                label: isSkipped
+                    ? '$(pass) Enable Authentication Prompts'
+                    : '$(circle-slash) Disable Authentication Prompts',
+                description: `Currently ${isSkipped ? 'disabled (skipped)' : 'enabled'} for ${activeProvider.displayName}`,
+                execute: async () => {
+                    await authManager.setAuthSkipped(providerId, !isSkipped);
+                    void hostEnvironment.ui.showInformation(
+                        `Authentication prompts for ${activeProvider.displayName} have been ${!isSkipped ? 'disabled' : 'enabled'}.`,
+                    );
+                    repo?.codeForge.forceRefresh();
+                },
+            });
+        }
+
+        for (const item of (await activeProvider.getAuthManageItems?.()) ?? []) {
+            items.push({
+                label: item.label,
+                description: item.description,
+                detail: item.detail,
+                execute: () => item.execute(),
+            });
+        }
+
+        if (authManager) {
+            items.push({
+                label: '$(refresh) Reset All Preferences',
+                description: 'Reset auth preferences for all code forge providers',
+                execute: async () => {
+                    await authManager.resetAllChoices();
+                    void hostEnvironment.ui.showInformation('Authentication preferences have been reset.');
+                    repo?.codeForge.forceRefresh();
+                },
+            });
+        }
+
+        const choice = await hostEnvironment.ui.showQuickPick(items, {
+            placeHolder: `Manage Authentication for ${activeProvider.displayName}`,
+        });
+
+        if (!choice) {
+            return;
+        }
+
+        await choice.execute();
+    });
 
     // 12. Log & Graph Actions
     if (logViewController) {

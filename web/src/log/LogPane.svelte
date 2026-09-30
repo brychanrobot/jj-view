@@ -6,31 +6,65 @@
 import LogApp from '../../../src/core/webview/log/LogApp.svelte';
 import { initBridge } from '../../../src/core/webview/transport/bridge.svelte';
 import type { WebviewTransport } from '../../../src/core/webview/transport/types';
+import { ContextKeyService, type IContextKeyService } from '../menu/context-key-service';
+import type { MenuRegistry } from '../menu/menu-registry';
+import type { ResolvedMenuItem } from '../menu/menu-types';
 
 interface Props {
     transport: WebviewTransport;
-    onRefresh?: () => void;
+    menuRegistry?: MenuRegistry;
+    rootContext?: IContextKeyService;
+    onAction?: (command: string, payload?: unknown) => void;
 }
 
-let { transport, onRefresh }: Props = $props();
+let { transport, menuRegistry, rootContext, onAction }: Props = $props();
 
 // svelte-ignore state_referenced_locally
 initBridge(transport);
+
+let version = $state(0);
+let logContext = $state<IContextKeyService | undefined>();
+
+$effect(() => {
+    const parent = rootContext ?? new ContextKeyService();
+    const scoped = parent.createScoped({ view: 'jj-view.logView' });
+    logContext = scoped;
+    const disposable = scoped.onDidChangeContext(() => {
+        version++;
+    });
+    return () => {
+        disposable.dispose();
+    };
+});
+
+const actions: ResolvedMenuItem[] = $derived.by(() => {
+    if (version < 0 || !menuRegistry || !logContext) {
+        return [];
+    }
+    return menuRegistry.getInlineActions('view/title', logContext);
+});
 </script>
 
 <div class="log-pane" data-testid="log-pane">
     <header class="log-header" data-testid="log-header">
         <span class="log-title">JJ LOG</span>
         <div class="log-toolbar" role="toolbar" aria-label="Log Actions">
-            <button
-                type="button"
-                class="icon-button toolbar-button"
-                data-testid="log-refresh-button"
-                title="Refresh JJ Log"
-                onclick={() => onRefresh?.()}
-            >
-                <i class="codicon codicon-refresh" aria-hidden="true"></i>
-            </button>
+            {#each actions as action (action.command)}
+                <button
+                    type="button"
+                    class="icon-button toolbar-button"
+                    data-testid={`log-title-action-${action.command}`}
+                    title={action.title}
+                    aria-label={action.title}
+                    onclick={() => onAction?.(action.command)}
+                >
+                    {#if action.iconClass}
+                        <i class={action.iconClass} aria-hidden="true"></i>
+                    {:else}
+                        <span>{action.title}</span>
+                    {/if}
+                </button>
+            {/each}
         </div>
     </header>
 
