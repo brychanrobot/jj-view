@@ -5,6 +5,7 @@
 
 import { mount } from 'svelte';
 import { CodeForgeAuthManager } from '../../src/core/code-forge-auth';
+import type { CodeForgeProvider } from '../../src/core/code-forge-provider';
 import { CodeForgeRegistry } from '../../src/core/code-forge-registry';
 import { LogViewController } from '../../src/core/controllers/log-view-controller';
 import { GitHubProvider } from '../../src/core/github-provider';
@@ -224,7 +225,40 @@ export async function bootstrap(): Promise<void> {
             logger: NO_OP_LOGGER,
             scmModel,
             logViewController: logController,
+            authManager,
         });
+
+        const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
+            void webHostEnv.commands.setContextKey('jj.codeForgeActive', !!provider);
+            void webHostEnv.commands.setContextKey('jj.codeForgeProvider', provider?.id);
+            const manageable = !!provider?.isAuthManageable;
+            void webHostEnv.commands.setContextKey('jj.codeForgeAuthManageable', manageable);
+            void webHostEnv.commands.setContextKey('jj.codeForgeTerm', provider?.changeTerm?.toLowerCase() || 'change');
+        };
+
+        let activeProviderSub: { dispose: () => void } | undefined;
+        const updateCodeForgeContext = (activeRepo: JjRepository | undefined) => {
+            activeProviderSub?.dispose();
+            if (activeRepo) {
+                activeProviderSub = activeRepo.codeForge.onDidActiveProviderChange((provider) => {
+                    updateContextKeys(provider);
+                });
+                activeRepo.codeForge
+                    .detectActiveProvider(true)
+                    .then(() => {
+                        updateContextKeys(activeRepo.codeForge.activeProvider);
+                    })
+                    .catch(() => {});
+            } else {
+                activeProviderSub = undefined;
+                updateContextKeys(undefined);
+            }
+        };
+
+        repoManager.onDidChangeFocusedRepository((r) => {
+            updateCodeForgeContext(r);
+        });
+        updateCodeForgeContext(repo);
 
         mount(App, {
             target,

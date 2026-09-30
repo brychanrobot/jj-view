@@ -112,7 +112,7 @@ export class CodeForgeAuthManager implements Disposable {
     }
 
     public async hasOAuthSession(providerId: string, scopes: string[]): Promise<boolean> {
-        if (this.isProviderUnavailable(providerId)) {
+        if (this.host.auth.supportsOAuth === false || this.isProviderUnavailable(providerId)) {
             return false;
         }
         try {
@@ -190,31 +190,33 @@ export class CodeForgeAuthManager implements Disposable {
 
         const prompt = options.prompt ?? true;
 
-        // Always try silently first to see if an active session exists
-        try {
-            const silentPromise = this.host.auth.getSession(providerId, options.scopes, { silent: true });
-            const session = await this.withTimeout(
-                silentPromise,
-                5000,
-                `${providerId} authentication silent check timed out`,
-            );
-            this.setProviderUnavailable(providerId, false);
-            if (session) {
-                return session.accessToken;
-            }
-        } catch (e) {
-            const errorStr = String(e);
+        // Always try silently first to see if an active session exists (if OAuth is supported)
+        if (this.host.auth.supportsOAuth !== false) {
+            try {
+                const silentPromise = this.host.auth.getSession(providerId, options.scopes, { silent: true });
+                const session = await this.withTimeout(
+                    silentPromise,
+                    5000,
+                    `${providerId} authentication silent check timed out`,
+                );
+                this.setProviderUnavailable(providerId, false);
+                if (session) {
+                    return session.accessToken;
+                }
+            } catch (e) {
+                const errorStr = String(e);
 
-            if (this.isProviderUnavailableError(e)) {
-                this.setProviderUnavailable(providerId, true);
-                this.outputChannel?.info(
-                    `[CodeForgeAuthManager] ${providerId} authentication provider is not available in host. Using unauthenticated requests only.`,
-                );
-                return undefined;
-            } else {
-                this.outputChannel?.error(
-                    `[CodeForgeAuthManager] Failed to get OAuth token silently for ${providerId}: ${errorStr}`,
-                );
+                if (this.isProviderUnavailableError(e)) {
+                    this.setProviderUnavailable(providerId, true);
+                    this.outputChannel?.info(
+                        `[CodeForgeAuthManager] ${providerId} authentication provider is not available in host. Using unauthenticated requests only.`,
+                    );
+                    return undefined;
+                } else {
+                    this.outputChannel?.error(
+                        `[CodeForgeAuthManager] Failed to get OAuth token silently for ${providerId}: ${errorStr}`,
+                    );
+                }
             }
         }
 
@@ -251,11 +253,18 @@ export class CodeForgeAuthManager implements Disposable {
             alternativeChoice?: AlternativeChoice;
         },
     ): Promise<void> {
+        const supportsOAuth = this.host.auth.supportsOAuth !== false;
         const signInLabel = options.signInLabel ?? 'Sign In';
         const skipLabel = "Don't Sign In (Skip)";
-        const choices = [signInLabel];
+        const choices: string[] = [];
+        if (supportsOAuth) {
+            choices.push(signInLabel);
+        }
         if (options.alternativeChoice) {
             choices.push(options.alternativeChoice.label);
+        }
+        if (choices.length === 0) {
+            return;
         }
         choices.push(skipLabel);
 
@@ -420,31 +429,34 @@ export class CodeForgeAuthManager implements Disposable {
             extensionInstaller?: ExtensionInstaller;
         },
     ): Promise<AuthManageItem[]> {
+        const supportsOAuth = this.host.auth.supportsOAuth !== false;
         let hasPat = false;
         try {
             hasPat = !!(await this.secrets.get(options.secretTokenKey));
         } catch {}
         const hasEnv = !!process.env[options.envTokenKey];
-        const hasOAuth = !hasPat && !hasEnv && (await options.hasAuth());
+        const hasOAuth = supportsOAuth && !hasPat && !hasEnv && (await options.hasAuth());
         const items: AuthManageItem[] = [];
 
-        items.push({
-            label: hasOAuth ? '$(sign-in) Sign In Again (OAuth)' : '$(sign-in) Sign In (OAuth)',
-            description: hasOAuth
-                ? `Authenticate again or switch ${options.displayName} accounts`
-                : `Authenticate with ${options.displayName} using OAuth`,
-            execute: async () => {
-                await this.performOAuthSignIn(providerId, options.scopes, {
-                    hasOAuth,
-                    clearCache: options.clearCache,
-                    extensionInstaller: options.extensionInstaller,
-                    alternativeChoice: {
-                        label: 'Enter PAT',
-                        execute: options.promptForPat,
-                    },
-                });
-            },
-        });
+        if (supportsOAuth) {
+            items.push({
+                label: hasOAuth ? '$(sign-in) Sign In Again (OAuth)' : '$(sign-in) Sign In (OAuth)',
+                description: hasOAuth
+                    ? `Authenticate again or switch ${options.displayName} accounts`
+                    : `Authenticate with ${options.displayName} using OAuth`,
+                execute: async () => {
+                    await this.performOAuthSignIn(providerId, options.scopes, {
+                        hasOAuth,
+                        clearCache: options.clearCache,
+                        extensionInstaller: options.extensionInstaller,
+                        alternativeChoice: {
+                            label: 'Enter PAT',
+                            execute: options.promptForPat,
+                        },
+                    });
+                },
+            });
+        }
 
         items.push({
             label: hasPat ? '$(key) Update Personal Access Token (PAT)' : '$(key) Enter Personal Access Token (PAT)',

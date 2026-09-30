@@ -556,6 +556,43 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 when: 'false',
             },
         ],
+        'view/title': [
+            {
+                command: 'jj-view.undo',
+                group: 'navigation@1',
+                when: 'view == jj-view.logView',
+            },
+            {
+                command: 'jj-view.redo',
+                group: 'navigation@2',
+                when: 'view == jj-view.logView',
+            },
+            {
+                command: 'jj-view.abandon',
+                group: 'navigation@3',
+                when: 'view == jj-view.logView && jj.selection.allowAbandon',
+            },
+            {
+                command: 'jj-view.newMergeChange',
+                group: 'navigation@4',
+                when: 'view == jj-view.logView && jj.selection.allowMerge',
+            },
+            {
+                command: 'jj-view.newBefore',
+                group: 'navigation@5',
+                when: 'view == jj-view.logView && jj.selection.allowNewBefore',
+            },
+            {
+                command: 'jj-view.workspaceAdd',
+                group: 'navigation@10',
+                when: 'view == jj-view.logView',
+            },
+            {
+                command: 'jj-view.copyUnresolvedComments',
+                group: 'navigation',
+                when: 'view == workbench.panel.comments && jj.codeForgeActive',
+            },
+        ],
         'scm/title': [
             {
                 command: 'jj-view.focusRepository',

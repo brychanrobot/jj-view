@@ -29,6 +29,9 @@ export function resolveIconClass(icon: string | { light?: string; dark?: string 
     }
 
     const name = match[1];
+    if (name === 'jj-icon-workspace-add') {
+        return 'codicon codicon-new-collection codicon-jj-icon-workspace-add jj-icon-workspace-add';
+    }
     if (name.startsWith('jj-icon-')) {
         return `codicon ${name}`;
     }

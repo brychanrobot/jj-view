@@ -326,3 +326,21 @@ body.vscode-light {
 ::-webkit-scrollbar-corner {
     background: transparent;
 }
+
+/* Custom contributed icons */
+.codicon.jj-icon-workspace-add,
+.codicon.codicon-jj-icon-workspace-add,
+.jj-icon-workspace-add,
+.codicon-jj-icon-workspace-add {
+    font-family: "codicon", sans-serif !important;
+    font-style: normal;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.codicon.jj-icon-workspace-add::before,
+.codicon.codicon-jj-icon-workspace-add::before,
+.jj-icon-workspace-add::before,
+.codicon-jj-icon-workspace-add::before {
+    content: "\ec58";
+}

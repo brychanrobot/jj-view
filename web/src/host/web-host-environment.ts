@@ -740,6 +740,8 @@ export class WebHostSecrets implements HostSecrets {
 }
 
 export class WebHostAuth implements HostAuth {
+    public readonly supportsOAuth = false;
+
     public async getSession(
         _providerId: string,
         _scopes: string[],

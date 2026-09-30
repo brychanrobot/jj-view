@@ -165,6 +165,7 @@ export interface HostAuthSession {
 }
 
 export interface HostAuth {
+    readonly supportsOAuth?: boolean;
     getSession(
         providerId: string,
         scopes: string[],

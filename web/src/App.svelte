@@ -1068,7 +1068,9 @@ onMount(() => {
         {#if logTransport}
             <LogPane
                 transport={logTransport}
-                onRefresh={handleRefresh}
+                {menuRegistry}
+                {rootContext}
+                onAction={handleAction}
             />
         {/if}
     {/snippet}
