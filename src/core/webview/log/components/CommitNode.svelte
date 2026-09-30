@@ -335,11 +335,11 @@ const hasActiveBookmarkAlready = $derived(
                 title={commitTooltip}
                 style:font-weight={isCurrentWorkingCopy ? 'bold' : 'normal'}
                 style:color={isImmutable
-                    ? 'var(--vscode-descriptionForeground)'
+                    ? 'var(--vscode-descriptionForeground, #8a8a8a)'
                     : isEmpty
-                      ? 'var(--vscode-testing-iconPassed)'
+                      ? 'var(--vscode-testing-iconPassed, #73c991)'
                       : !commit.description
-                        ? 'var(--vscode-editorWarning-foreground)'
+                        ? 'var(--vscode-editorWarning-foreground, #cca700)'
                         : 'inherit'}
                 style:font-style={fontStyle}
             >

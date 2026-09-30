@@ -340,6 +340,19 @@ export function applyAppTheme(theme: ThemeRegistration): void {
         'statusBar.foreground': statusBarFg,
         'statusBar.border': statusBarBorder,
         'widget.border': sideBarBorder,
+        'editorWarning.foreground': colors['editorWarning.foreground'] || (isLight ? '#bf8803' : '#cca700'),
+        'editorError.foreground': colors['editorError.foreground'] || (isLight ? '#e51400' : '#f14c4c'),
+        'editorInfo.foreground': colors['editorInfo.foreground'] || (isLight ? '#1a85ff' : '#3794ff'),
+        'testing.iconPassed':
+            colors['testing.iconPassed'] ||
+            colors['gitDecoration.addedResourceForeground'] ||
+            (isLight ? '#388a34' : '#73c991'),
+        'testing.iconFailed':
+            colors['testing.iconFailed'] ||
+            colors['gitDecoration.deletedResourceForeground'] ||
+            (isLight ? '#e51400' : '#f14c4c'),
+        'textLink.foreground': colors['textLink.foreground'] || (isLight ? '#006ab1' : '#69b1ff'),
+        errorForeground: colors.errorForeground || (isLight ? '#e51400' : '#ff6762'),
     };
 
     for (const [key, fallbackVal] of Object.entries(defaultColorMappings)) {

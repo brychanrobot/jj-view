@@ -183,12 +183,12 @@ const groupVsCodeContext = $derived(
     border-radius: 0;
     cursor: pointer;
     user-select: none;
-    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    font-family: var(--vscode-font-family, system-ui, Ubuntu, "Droid Sans", sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--vscode-sideBarTitle-foreground, var(--vscode-foreground, #d4d4d4));
     background-color: transparent;
     transition: background-color 0.1s ease;
     box-sizing: border-box;
@@ -220,8 +220,8 @@ const groupVsCodeContext = $derived(
     justify-content: center;
     width: 16px;
     height: 16px;
-    font-size: 14px;
-    color: var(--vscode-icon-foreground, #8a8a8a);
+    font-size: 16px;
+    color: var(--vscode-icon-foreground, #c5c5c5);
     flex-shrink: 0;
 }
 
@@ -275,18 +275,21 @@ const groupVsCodeContext = $derived(
 }
 
 .count-badge {
-    background-color: color-mix(in srgb, var(--vscode-editor-foreground), transparent 90%);
-    color: var(--vscode-descriptionForeground, #8a8a8a);
-    border-radius: 8px;
-    padding: 0 5px;
-    font-size: 10px;
-    font-weight: 700;
-    min-width: 14px;
-    height: 16px;
-    line-height: 16px;
+    background-color: var(--vscode-badge-background, #007acc);
+    color: var(--vscode-badge-foreground, #ffffff);
+    border-radius: 11px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
     text-align: center;
     user-select: none;
     box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .group-items-container {
