@@ -460,11 +460,10 @@ export class WebHostNavigation implements HostNavigation {
         options?: HostOpenOptions,
     ): Promise<void> {
         if (this.callbacks.onOpenCommitDetails) {
-            if (options !== undefined) {
-                await this.callbacks.onOpenCommitDetails(changeId, options);
-            } else {
-                await this.callbacks.onOpenCommitDetails(changeId);
-            }
+            const effectiveOptions: HostOpenOptions = {
+                preview: options?.preview ?? true,
+            };
+            await this.callbacks.onOpenCommitDetails(changeId, effectiveOptions);
         }
     }
 

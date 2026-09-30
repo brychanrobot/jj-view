@@ -85,14 +85,13 @@ describe('PierreDiffViewer Component', () => {
         const html = result.body;
 
         expect(html).toContain('pierre-diff-viewer');
-        expect(html).toContain('diff-toolbar');
-        expect(html).toContain('src/main.ts');
+        expect(html).not.toContain('diff-toolbar');
         expect(html).toContain('toggle-split-diff');
         expect(html).toContain('toggle-unified-diff');
         expect(html).toContain('diff-content-container');
     });
 
-    it('renders edit toolbar actions when isWorkingCopy is true', () => {
+    it('does not render toolbar buttons even when isWorkingCopy is true', () => {
         const result = render(PierreDiffViewer, {
             props: {
                 filename: 'src/editable.ts',
@@ -105,27 +104,10 @@ describe('PierreDiffViewer Component', () => {
         });
         const html = result.body;
 
-        expect(html).toContain('diff-undo-btn');
-        expect(html).toContain('diff-redo-btn');
-        expect(html).toContain('diff-save-btn');
-        expect(html).toContain('diff-discard-btn');
-    });
-
-    it('renders resolve conflict button when isConflict is true', () => {
-        const result = render(PierreDiffViewer, {
-            props: {
-                filename: 'conflict.ts',
-                originalContent: 'base line',
-                modifiedContent: '<<<<<<< HEAD\nleft\n=======\nright\n>>>>>>>',
-                isWorkingCopy: true,
-                isConflict: true,
-                onResolveConflict: vi.fn(),
-            },
-        });
-        const html = result.body;
-
-        expect(html).toContain('diff-resolve-conflict-btn');
-        expect(html).toContain('Mark Resolved');
+        expect(html).not.toContain('diff-undo-btn');
+        expect(html).not.toContain('diff-redo-btn');
+        expect(html).not.toContain('diff-save-btn');
+        expect(html).not.toContain('diff-discard-btn');
     });
 
     it('renders cleanly for added files without errors', () => {

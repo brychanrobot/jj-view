@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import PierreMultiDiffViewer from '../src/diff/PierreMultiDiffViewer.svelte';
 
 describe('PierreMultiDiffViewer Component', () => {
-    it('renders multi-diff viewer toolbar and file count badge for single file', () => {
+    it('renders multi-diff viewer with floating toggle for single file', () => {
         const result = render(PierreMultiDiffViewer, {
             props: {
                 title: 'Review Single Change',
@@ -24,15 +24,13 @@ describe('PierreMultiDiffViewer Component', () => {
         const html = result.body;
 
         expect(html).toContain('pierre-multi-diff-viewer');
-        expect(html).toContain('multi-diff-toolbar');
-        expect(html).toContain('Review Single Change');
-        expect(html).toContain('1 file');
+        expect(html).not.toContain('multi-diff-toolbar');
         expect(html).toContain('toggle-split-diff');
         expect(html).toContain('toggle-unified-diff');
         expect(html).toContain('multi-diff-content-container');
     });
 
-    it('renders multi-diff viewer toolbar and file count badge for multiple files', () => {
+    it('renders multi-diff viewer with floating toggle for multiple files', () => {
         const result = render(PierreMultiDiffViewer, {
             props: {
                 title: 'Working Copy Changes',
@@ -59,9 +57,7 @@ describe('PierreMultiDiffViewer Component', () => {
         const html = result.body;
 
         expect(html).toContain('pierre-multi-diff-viewer');
-        expect(html).toContain('multi-diff-toolbar');
-        expect(html).toContain('Working Copy Changes');
-        expect(html).toContain('3 files');
+        expect(html).not.toContain('multi-diff-toolbar');
         expect(html).toContain('toggle-split-diff');
         expect(html).toContain('toggle-unified-diff');
         expect(html).toContain('multi-diff-content-container');
@@ -77,7 +73,6 @@ describe('PierreMultiDiffViewer Component', () => {
         const html = result.body;
 
         expect(html).toContain('pierre-multi-diff-viewer');
-        expect(html).toContain('Empty Changes');
-        expect(html).toContain('0 files');
+        expect(html).not.toContain('multi-diff-toolbar');
     });
 });

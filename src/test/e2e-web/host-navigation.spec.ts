@@ -88,8 +88,8 @@ test.describe('Standalone Web Host Navigation & Multi-Diff', () => {
 
                 const multiDiffViewer = page.locator('[data-testid="pierre-multi-diff-viewer"]');
                 await expect(multiDiffViewer).toBeVisible({ timeout: 10000 });
-                const fileCountBadge = multiDiffViewer.locator('[data-testid="multi-diff-file-count"]');
-                await expect(fileCountBadge).toContainText('2 files');
+                const activeTab = page.locator('[data-testid="tab-bar-container"] .tab.active');
+                await expect(activeTab).toContainText('Multi-Diff Set');
 
                 const diffContainer = multiDiffViewer.locator('[data-testid="multi-diff-content-container"]');
                 await expect(diffContainer).toBeVisible({ timeout: 10000 });

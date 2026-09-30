@@ -254,4 +254,83 @@ test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
 
         expect(page.locator('[data-testid="tab-bar-container"]')).toBeDefined();
     });
+
+    test('should open file in editable file viewer without diff markers when triggering Open File', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('single-file.txt', 'clean file line 1\nclean file line 2\n');
+        testRepo.describe('initial commit');
+        testRepo.new();
+        testRepo.writeFile('single-file.txt', 'clean file line 1\nclean file line 2 modified\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const resourceItem = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'single-file.txt' });
+        await expect(resourceItem).toBeVisible();
+
+        const fileViewer = page.locator('[data-testid="pierre-file-viewer"]');
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+
+        await recordGifFlow(
+            page,
+            async (captureFrame) => {
+                await captureFrame();
+
+                // Hover over resource item to expose inline actions
+                await resourceItem.hover();
+                await page.waitForTimeout(200);
+                await captureFrame();
+
+                const openFileAction = resourceItem.locator('[data-testid="scm-resource-action-jj-view.openFile"]');
+                await expect(openFileAction).toBeVisible();
+                await openFileAction.click();
+
+                // Verify File Viewer mounts instead of Diff Viewer
+                await expect(fileViewer).toBeVisible({ timeout: 10000 });
+                await expect(diffViewer).toHaveCount(0);
+
+                // Verify diff toggles (split / unified) are NOT present
+                await expect(page.locator('[data-testid="toggle-split-diff"]')).toHaveCount(0);
+                await expect(page.locator('[data-testid="toggle-unified-diff"]')).toHaveCount(0);
+
+                // Verify toolbar is NOT present (clean Pierre tab without redundant header)
+                await expect(page.locator('[data-testid="file-toolbar"]')).toHaveCount(0);
+
+                await page.waitForTimeout(300);
+                await captureFrame();
+
+                // Screenshot file viewer
+                await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'file-viewer.png') });
+
+                // Focus editor and edit
+                const editorTextbox = fileViewer.getByRole('textbox');
+                if (await editorTextbox.isVisible().catch(() => false)) {
+                    await editorTextbox.click();
+                    await page.waitForTimeout(200);
+                    await page.keyboard.type('\nline 3 newly added', { delay: 50 });
+                    await page.waitForTimeout(200);
+                    await captureFrame();
+
+                    // Save file via keyboard shortcut
+                    await page.keyboard.press('ControlOrMeta+s');
+                    await page.waitForTimeout(300);
+                    await captureFrame();
+                }
+            },
+            { outputPath: path.join(ARTIFACTS_DIR, 'open-file-flow.gif'), framerate: 1.0, scale: 960 },
+        );
+
+        // Verify tab is created with file title
+        const tab = page.locator('[data-testid="tab-bar-container"] .tab').first();
+        await expect(tab).toBeVisible();
+        await expect(tab.locator('.tab-label')).toContainText('single-file.txt');
+
+        const diskContent = testRepo.getFileContent('@', 'single-file.txt');
+        expect(diskContent).toContain('clean file line 1');
+    });
 });

@@ -353,6 +353,9 @@ describe('WebHostEnvironment', () => {
             });
             expect(onOpenCommitDetails).toHaveBeenCalledWith('abc12345', { preview: true });
 
+            await nav.openCommitDetails(Uri.file('/repo'), 'def67890');
+            expect(onOpenCommitDetails).toHaveBeenCalledWith('def67890', { preview: true });
+
             await nav.closeTab(right);
             expect(onCloseTab).toHaveBeenCalledWith(right);
         });

@@ -155,40 +155,29 @@ $effect(() => {
 </script>
 
 <div class="pierre-multi-diff-viewer" data-testid="pierre-multi-diff-viewer">
-    <div class="multi-diff-toolbar" data-testid="multi-diff-toolbar">
-        <div class="toolbar-title-section">
-            <span class="toolbar-icon codicon codicon-diff-multiple"></span>
-            <span class="toolbar-title" data-testid="multi-diff-title">{title}</span>
-            <span class="file-count-badge" data-testid="multi-diff-file-count">
-                {files.length} {files.length === 1 ? 'file' : 'files'}
-            </span>
-        </div>
-        <div class="toolbar-actions">
-            <div class="toggle-group" role="group" aria-label="Diff display style">
-                <button
-                    type="button"
-                    class="toggle-btn"
-                    class:active={diffStyle === 'split'}
-                    onclick={() => setDiffStyle('split')}
-                    title="Side-by-side Diff"
-                    data-testid="toggle-split-diff"
-                >
-                    <span class="codicon codicon-split-horizontal"></span>
-                    <span>Split</span>
-                </button>
-                <button
-                    type="button"
-                    class="toggle-btn"
-                    class:active={diffStyle === 'unified'}
-                    onclick={() => setDiffStyle('unified')}
-                    title="Inline / Unified Diff"
-                    data-testid="toggle-unified-diff"
-                >
-                    <span class="codicon codicon-split-vertical"></span>
-                    <span>Unified</span>
-                </button>
-            </div>
-        </div>
+    <div class="diff-style-toggle-floating" role="group" aria-label="Diff style">
+        <button
+            type="button"
+            class="toggle-btn"
+            class:active={diffStyle === 'split'}
+            onclick={() => setDiffStyle('split')}
+            title="Side-by-side Diff"
+            data-testid="toggle-split-diff"
+            data-style="split"
+        >
+            Split
+        </button>
+        <button
+            type="button"
+            class="toggle-btn"
+            class:active={diffStyle === 'unified'}
+            onclick={() => setDiffStyle('unified')}
+            title="Inline / Unified Diff"
+            data-testid="toggle-unified-diff"
+            data-style="unified"
+        >
+            Unified
+        </button>
     </div>
 
     <div
@@ -200,6 +189,7 @@ $effect(() => {
 
 <style>
 .pierre-multi-diff-viewer {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -210,66 +200,18 @@ $effect(() => {
     font-family: var(--vscode-font-family);
 }
 
-.multi-diff-toolbar {
-    display: flex;
+.diff-style-toggle-floating {
+    position: absolute;
+    top: 8px;
+    right: 16px;
+    z-index: 10;
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    height: 35px;
-    min-height: 35px;
-    padding: 0 12px;
-    background: var(--vscode-editorGroupHeader-tabsBackground);
-    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder);
-    user-select: none;
-    gap: 12px;
-    box-sizing: border-box;
-}
-
-.toolbar-title-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.toolbar-icon {
-    font-size: 14px;
-    color: var(--vscode-descriptionForeground);
-    flex-shrink: 0;
-}
-
-.toolbar-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--vscode-foreground);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.file-count-badge {
-    font-size: 11px;
-    padding: 1px 7px;
-    border-radius: 10px;
-    background: var(--vscode-badge-background, rgba(255, 255, 255, 0.08));
-    color: var(--vscode-badge-foreground, var(--vscode-foreground));
-    font-weight: 500;
-    flex-shrink: 0;
-}
-
-.toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-}
-
-.toggle-group {
-    display: flex;
-    align-items: center;
-    border: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.1));
     border-radius: 4px;
-    overflow: hidden;
+    border: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border, #454545));
+    background: var(--vscode-editor-background);
+    padding: 2px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .toggle-btn {
@@ -277,9 +219,9 @@ $effect(() => {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    height: 24px;
+    height: 22px;
     border: none;
-    border-right: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.1));
+    border-radius: 3px;
     background: transparent;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
@@ -290,10 +232,6 @@ $effect(() => {
     white-space: nowrap;
     outline: none;
     user-select: none;
-}
-
-.toggle-btn:last-child {
-    border-right: none;
 }
 
 .toggle-btn:hover:not(.active) {

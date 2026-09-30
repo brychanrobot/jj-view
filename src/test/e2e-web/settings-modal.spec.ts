@@ -114,11 +114,9 @@ test.describe('Standalone Web Settings Modal & Configuration System', () => {
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible();
 
-        // Invariant check: diff toolbar MUST NOT contain any theme selector or dropdown
-        const diffToolbar = page.locator('[data-testid="diff-toolbar"]');
-        await expect(diffToolbar).toBeVisible();
-        await expect(diffToolbar.locator('select')).toHaveCount(0);
-        await expect(diffToolbar.locator('[data-testid*="theme"]')).toHaveCount(0);
+        // Invariant check: diff viewer MUST NOT contain any theme selector or dropdown
+        await expect(diffViewer.locator('select')).toHaveCount(0);
+        await expect(diffViewer.locator('[data-testid*="theme"]')).toHaveCount(0);
 
         // Default theme should be dark
         const initialStatus = await page.evaluate(() => ({
