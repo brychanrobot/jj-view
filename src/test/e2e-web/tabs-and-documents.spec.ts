@@ -56,21 +56,22 @@ test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
         await expect(currentTab).toHaveClass(/preview/);
         await expect(currentTab.locator('.tab-label')).toContainText('file2.txt');
 
-        // 3. Double-click file1.txt -> opens pinned (preview: false)
-        await item1.dblclick();
-        // Now there should be 2 tabs: file2.txt (preview) and file1.txt (pinned)
+        // Pin file2.txt via double-clicking its tab header
+        await currentTab.dblclick();
+        await expect(currentTab).not.toHaveClass(/preview/);
+
+        // 3. Single click file1.txt -> opens as preview tab alongside pinned file2.txt
+        await item1.click();
         await expect(tabs).toHaveCount(2);
 
-        const pinnedTab = tabs.filter({ hasText: 'file1.txt' });
-        await expect(pinnedTab).toBeVisible();
-        await expect(pinnedTab).not.toHaveClass(/preview/);
-        await expect(pinnedTab).toHaveClass(/active/);
+        const previewTab = tabs.filter({ hasText: 'file1.txt' });
+        await expect(previewTab).toBeVisible();
+        await expect(previewTab).toHaveClass(/preview/);
+        await expect(previewTab).toHaveClass(/active/);
 
-        // 4. Double-click file2.txt tab header -> pins file2.txt tab as well
-        const file2Tab = tabs.filter({ hasText: 'file2.txt' });
-        await expect(file2Tab).toHaveClass(/preview/);
-        await file2Tab.dblclick();
-        await expect(file2Tab).not.toHaveClass(/preview/);
+        // 4. Double click item1 in SCM -> pins file1.txt tab as well
+        await item1.dblclick();
+        await expect(previewTab).not.toHaveClass(/preview/);
     });
 
     test('should pin tab on edit and show dirty dot with hover close button', async ({ page, server, testRepo }) => {
@@ -332,5 +333,60 @@ test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
 
         const diskContent = testRepo.getFileContent('@', 'single-file.txt');
         expect(diskContent).toContain('clean file line 1');
+    });
+
+    test('should pin preview tab via Keep Open context menu item and keyboard shortcut', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('alpha.txt', 'alpha original\n');
+        testRepo.writeFile('beta.txt', 'beta original\n');
+        testRepo.describe('initial commit');
+        testRepo.new();
+
+        testRepo.writeFile('alpha.txt', 'alpha modified\n');
+        testRepo.writeFile('beta.txt', 'beta modified\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const itemAlpha = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'alpha.txt' });
+        const itemBeta = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'beta.txt' });
+
+        // 1. Click alpha.txt -> opens preview
+        await itemAlpha.click();
+        const tabAlpha = page.locator('[data-testid="tab-bar-container"] .tab').filter({ hasText: 'alpha.txt' });
+        await expect(tabAlpha).toBeVisible();
+        await expect(tabAlpha).toHaveClass(/preview/);
+
+        // 2. Right-click alpha.txt tab -> context menu shows "Keep Open"
+        await tabAlpha.click({ button: 'right' });
+        const keepOpenItem = page.locator('[data-testid="menu-item-workbench.action.keepEditor"]');
+        await expect(keepOpenItem).toBeVisible();
+        await expect(keepOpenItem).toContainText('Keep Open');
+        await keepOpenItem.click();
+
+        // Verify alpha.txt is now pinned
+        await expect(tabAlpha).not.toHaveClass(/preview/);
+
+        // 3. Click beta.txt -> opens beta.txt in preview alongside pinned alpha.txt
+        await itemBeta.click();
+        const tabBeta = page.locator('[data-testid="tab-bar-container"] .tab').filter({ hasText: 'beta.txt' });
+        await expect(tabBeta).toBeVisible();
+        await expect(tabBeta).toHaveClass(/preview/);
+
+        // 4. Pin beta.txt via Ctrl+k then Enter
+        await page.keyboard.press('ControlOrMeta+k');
+        await page.keyboard.press('Enter');
+        await expect(tabBeta).not.toHaveClass(/preview/);
+
+        // Verify both tabs remain open and pinned
+        const allTabs = page.locator('[data-testid="tab-bar-container"] .tab');
+        await expect(allTabs).toHaveCount(2);
     });
 });

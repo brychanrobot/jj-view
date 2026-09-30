@@ -28,6 +28,7 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
             file: JjStatusEntrySchema,
             changeId: z.string(),
             isImmutable: z.boolean().optional(),
+            preview: z.boolean().optional(),
         }),
     }),
     z.object({

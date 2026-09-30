@@ -31,6 +31,7 @@ export interface CommitDetailsControllerOptions {
         changeId: string;
         isImmutable?: boolean;
         isWorkingCopy?: boolean;
+        preview?: boolean;
     }) => Promise<void> | void;
 }
 
@@ -481,13 +482,14 @@ export class CommitDetailsController implements Disposable {
                     await this._host.commands.executeCommand('workbench.action.files.save');
                 },
                 openDiff: async (payload) => {
-                    const { file, changeId, isImmutable } = payload;
+                    const { file, changeId, isImmutable, preview } = payload;
                     if (this._options?.openDiff) {
                         await this._options.openDiff({
                             file,
                             changeId,
                             isImmutable,
                             isWorkingCopy: this._logEntry?.is_current_working_copy,
+                            preview,
                         });
                     }
                 },

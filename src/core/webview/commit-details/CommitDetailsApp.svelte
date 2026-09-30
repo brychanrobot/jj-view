@@ -96,9 +96,14 @@ $effect(() => {
                 void sender.saveDescription({ changeId: detailsCommit.changeId, description });
             }
         }}
-        onOpenDiff={(file, isImmutable) => {
+        onOpenDiff={(file, isImmutable, options) => {
             if (detailsCommit?.changeId) {
-                void sender.openDiff({ changeId: detailsCommit.changeId, file, isImmutable });
+                void sender.openDiff({
+                    changeId: detailsCommit.changeId,
+                    file,
+                    isImmutable,
+                    preview: options?.preview,
+                });
             }
         }}
         onOpenMultiDiff={() => {

@@ -157,6 +157,7 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
                       }
                     : undefined,
                 tabId: tab.id,
+                tabIsPreview: tab.preview,
                 preventDefaultContextMenuItems: true,
             })}
             role="tab"

@@ -269,6 +269,22 @@ describe('IPC Schemas Unit Tests', () => {
                         },
                         changeId: 'kkmpptxz',
                         isImmutable: false,
+                        preview: true,
+                    },
+                }).success,
+            ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'openDiff',
+                    payload: {
+                        file: {
+                            status: 'modified',
+                            path: 'src/index.ts',
+                            conflicted: false,
+                        },
+                        changeId: 'kkmpptxz',
+                        isImmutable: false,
+                        preview: false,
                     },
                 }).success,
             ).toBe(true);

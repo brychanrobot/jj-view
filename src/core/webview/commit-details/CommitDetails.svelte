@@ -33,7 +33,7 @@ interface Props {
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
     onSave: (description: string) => void;
-    onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
+    onOpenDiff: (file: JjStatusEntry, isImmutable: boolean, options?: { preview?: boolean }) => void;
     onOpenMultiDiff: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
 }
@@ -597,11 +597,15 @@ function getFileColor(status: string, conflicted?: boolean): string {
                         <button
                             type="button"
                             class="file-row"
-                            onclick={() => onOpenDiff($state.snapshot(file), isImmutable)}
+                            onclick={() => onOpenDiff($state.snapshot(file), isImmutable, { preview: true })}
+                            ondblclick={() => onOpenDiff($state.snapshot(file), isImmutable, { preview: false })}
                             onkeydown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
+                                if (e.key === 'Enter') {
                                     e.preventDefault();
-                                    onOpenDiff($state.snapshot(file), isImmutable);
+                                    onOpenDiff($state.snapshot(file), isImmutable, { preview: false });
+                                } else if (e.key === ' ') {
+                                    e.preventDefault();
+                                    onOpenDiff($state.snapshot(file), isImmutable, { preview: true });
                                 }
                             }}
                         >

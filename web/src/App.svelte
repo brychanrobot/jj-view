@@ -259,23 +259,45 @@ async function openThemePicker(): Promise<void> {
     }
 }
 
+let chordCtrlK = false;
+
 function handleWindowKeydown(e: KeyboardEvent): void {
     if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
+        chordCtrlK = false;
         isSettingsOpen = true;
         return;
     }
 
     if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) || e.key === 'F1') {
         e.preventDefault();
+        chordCtrlK = false;
         openCommandPalette();
         return;
     }
 
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
+        chordCtrlK = false;
         if (activeTabId) {
             e.preventDefault();
             closeTabById(activeTabId);
+            return;
+        }
+    }
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        chordCtrlK = true;
+        return;
+    }
+
+    if (chordCtrlK) {
+        chordCtrlK = false;
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeTabId) {
+                pinTab(activeTabId);
+            }
             return;
         }
     }
@@ -293,8 +315,10 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         const existingTab = tabs[existingIndex];
         if (existingTab && view.type === 'diff' && existingTab.view.type === 'diff') {
             if (!existingTab.isDirty) {
-                existingTab.view.originalContent = view.originalContent;
-                existingTab.view.modifiedContent = view.modifiedContent;
+                if (view.originalContent !== '' || view.modifiedContent !== '') {
+                    existingTab.view.originalContent = view.originalContent;
+                    existingTab.view.modifiedContent = view.modifiedContent;
+                }
             }
         }
         if (existingTab && view.type === 'multi-diff' && existingTab.view.type === 'multi-diff') {
@@ -343,6 +367,13 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         const previewIndex = tabs.findIndex((t) => t.preview && !t.isDirty);
         if (previewIndex >= 0) {
             tabs[previewIndex] = newTab;
+            activeTabId = newTab.id;
+            return;
+        }
+    } else if (activeTab?.preview && !activeTab.isDirty) {
+        const activeIndex = tabs.findIndex((t) => t.id === activeTab.id);
+        if (activeIndex >= 0) {
+            tabs[activeIndex] = newTab;
             activeTabId = newTab.id;
             return;
         }
@@ -642,7 +673,7 @@ $effect(() => {
         commitDetailsBridge = bridge;
         commitDetailsController = new CommitDetailsController(changeId, scmModel.repo, webHostEnv, {
             logger: NO_OP_LOGGER,
-            openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
+            openDiff: async ({ file, changeId: cId, isWorkingCopy, preview }) => {
                 const repo = scmModel?.repo;
                 if (!repo) {
                     return;
@@ -664,7 +695,7 @@ $effect(() => {
                     workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
                 });
                 await loadDiffFromUris(leftUri, rightUri, `${file.path} (${cId.slice(0, 8)})`, matchingState, {
-                    preview: true,
+                    preview: preview ?? true,
                 });
             },
         });
@@ -854,6 +885,13 @@ onMount(() => {
             }
             return activeTabId;
         };
+
+        webHostEnv.commands.registerCommand('workbench.action.keepEditor', async (payload?: unknown) => {
+            const targetId = extractTargetId(payload);
+            if (targetId) {
+                pinTab(targetId);
+            }
+        });
 
         webHostEnv.commands.registerCommand('workbench.action.closeActiveEditor', async (payload?: unknown) => {
             const targetId = extractTargetId(payload);

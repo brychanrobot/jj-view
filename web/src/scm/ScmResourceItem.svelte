@@ -3,7 +3,6 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { onDestroy } from 'svelte';
 import type { JjResourceState } from '../../../src/core/scm-resource-state';
 import type { IContextKeyService } from '../menu/context-key-service';
 import type { MenuRegistry } from '../menu/menu-registry';
@@ -83,33 +82,14 @@ const vscodeContext = $derived(
         resourceState,
     }),
 );
-let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
 function handleClick(): void {
-    if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-    }
-    clickTimer = setTimeout(() => {
-        onOpen(resourceState, { preview: true });
-        clickTimer = null;
-    }, 200);
+    onOpen(resourceState, { preview: true });
 }
 
 function handleDblClick(): void {
-    if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-    }
     onOpen(resourceState, { preview: false });
 }
-
-onDestroy(() => {
-    if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-    }
-});
 </script>
 
 <div
@@ -124,11 +104,10 @@ onDestroy(() => {
     ondblclick={handleDblClick}
     onkeydown={(e) => {
         if (e.key === 'Enter') {
-            if (clickTimer) {
-                clearTimeout(clickTimer);
-                clickTimer = null;
-            }
             onOpen(resourceState, { preview: false });
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            onOpen(resourceState, { preview: true });
         }
     }}
     oncontextmenu={(e) => onContextMenu?.(e, resourceState)}

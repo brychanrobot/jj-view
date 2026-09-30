@@ -413,6 +413,10 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(copy)',
         },
         {
+            command: 'workbench.action.keepEditor',
+            title: 'Keep Open',
+        },
+        {
             command: 'workbench.action.closeActiveEditor',
             title: 'Close',
         },
@@ -431,6 +435,9 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
     ],
     menus: {
         commandPalette: [
+            {
+                command: 'workbench.action.keepEditor',
+            },
             {
                 command: 'jj-view.uploadStack',
                 when: "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
@@ -858,6 +865,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             },
         ],
         'editor/title/context': [
+            {
+                command: 'workbench.action.keepEditor',
+                group: '0_keep',
+                when: 'tabIsPreview',
+            },
             {
                 command: 'workbench.action.closeActiveEditor',
                 group: '1_close@1',

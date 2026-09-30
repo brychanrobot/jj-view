@@ -164,5 +164,7 @@ describe('TabBar Component (SSR & Rendering)', () => {
         expect(html).toContain('data-vscode-context=');
         expect(html).toContain('&quot;menuId&quot;:&quot;editor/title/context&quot;');
         expect(html).toContain('&quot;tabId&quot;:&quot;tab-1&quot;');
+        expect(html).toContain('&quot;tabIsPreview&quot;:false');
+        expect(html).toContain('&quot;tabIsPreview&quot;:true');
     });
 });
