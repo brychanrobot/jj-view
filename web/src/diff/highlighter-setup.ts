@@ -15,6 +15,20 @@ import pierreLightSoftRaw from '@pierre/theme/pierre-light-soft';
 import pierreLightTritanopiaRaw from '@pierre/theme/pierre-light-tritanopia';
 import pierreLightVibrantRaw from '@pierre/theme/pierre-light-vibrant';
 import { normalizeTheme, type ThemeRegistration } from 'shiki';
+import { loadBazelGrammar } from './grammars/bazel';
+import { loadMojomGrammar, mojomGrammar } from './grammars/mojom';
+import { loadProguardGrammar, proguardGrammar } from './grammars/proguard';
+import { loadTextprotoGrammar, textprotoGrammar } from './grammars/textproto';
+
+export {
+    loadBazelGrammar,
+    loadMojomGrammar,
+    loadProguardGrammar,
+    loadTextprotoGrammar,
+    mojomGrammar,
+    proguardGrammar,
+    textprotoGrammar,
+};
 
 interface RawPierreTheme {
     name: string;
@@ -176,7 +190,7 @@ export function ensureHighlighterRegistered(): void {
 
     registerLangOnce('typescript', () => import('@shikijs/langs/typescript'), ['ts', 'mts', 'cts', 'tsx']);
     registerLangOnce('javascript', () => import('@shikijs/langs/javascript'), ['js', 'mjs', 'cjs', 'jsx']);
-    registerLangOnce('json', () => import('@shikijs/langs/json'), ['json']);
+    registerLangOnce('json', () => import('@shikijs/langs/json'), ['json', 'arb']);
     registerLangOnce('jsonc', () => import('@shikijs/langs/jsonc'), ['jsonc']);
     registerLangOnce('go', () => import('@shikijs/langs/go'), ['go']);
     registerLangOnce('rust', () => import('@shikijs/langs/rust'), ['rs']);
@@ -184,17 +198,70 @@ export function ensureHighlighterRegistered(): void {
     registerLangOnce('html', () => import('@shikijs/langs/html'), ['html', 'htm']);
     registerLangOnce('css', () => import('@shikijs/langs/css'), ['css']);
     registerLangOnce('markdown', () => import('@shikijs/langs/markdown'), ['md', 'markdown']);
-    registerLangOnce('yaml', () => import('@shikijs/langs/yaml'), ['yaml', 'yml']);
+    registerLangOnce('yaml', () => import('@shikijs/langs/yaml'), ['yaml', 'yml', 'pubspec.lock']);
     registerLangOnce('toml', () => import('@shikijs/langs/toml'), ['toml']);
-    registerLangOnce('shellscript', () => import('@shikijs/langs/shellscript'), ['sh', 'bash', 'zsh']);
+    registerLangOnce('shellscript', () => import('@shikijs/langs/shellscript'), ['sh', 'bash', 'zsh', 'gradlew']);
+    registerLangOnce('bat', () => import('@shikijs/langs/bat'), ['bat', 'cmd', 'gradlew.bat']);
     registerLangOnce('diff', () => import('@shikijs/langs/diff'), ['diff', 'patch']);
     registerLangOnce('c', () => import('@shikijs/langs/c'), ['c', 'h']);
     registerLangOnce('cpp', () => import('@shikijs/langs/cpp'), ['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx']);
     registerLangOnce('csharp', () => import('@shikijs/langs/csharp'), ['cs']);
-    registerLangOnce('java', () => import('@shikijs/langs/java'), ['java']);
+    registerLangOnce('java', () => import('@shikijs/langs/java'), ['java', 'aidl']);
     registerLangOnce('dockerfile', () => import('@shikijs/langs/dockerfile'), ['dockerfile', 'Dockerfile']);
-    registerLangOnce('xml', () => import('@shikijs/langs/xml'), ['xml', 'svg']);
+    registerLangOnce('xml', () => import('@shikijs/langs/xml'), ['xml', 'svg', 'AndroidManifest.xml']);
     registerLangOnce('sql', () => import('@shikijs/langs/sql'), ['sql']);
+    registerLangOnce('svelte', () => import('@shikijs/langs/svelte'), ['svelte']);
+    registerLangOnce('vue', () => import('@shikijs/langs/vue'), ['vue']);
+    registerLangOnce('gn', () => import('@shikijs/langs/gn'), ['gn', 'gni', '.gn', 'BUILD.gn']);
+    registerLangOnce('mojom', loadMojomGrammar, ['mojom']);
+
+    registerLangOnce('bazel', loadBazelGrammar, [
+        'bzl',
+        'bazel',
+        'star',
+        'starlark',
+        'BUILD',
+        'BUILD.bazel',
+        'WORKSPACE',
+        'WORKSPACE.bazel',
+        'WORKSPACE.bzlmod',
+        'MODULE.bazel',
+        'REPO.bazel',
+    ]);
+    registerLangOnce('starlark', loadBazelGrammar, []);
+    registerLangOnce('bzl', loadBazelGrammar, []);
+
+    registerLangOnce('protobuf', () => import('@shikijs/langs/proto'), ['proto', 'protobuf']);
+    registerLangOnce('proto', () => import('@shikijs/langs/proto'), []);
+
+    registerLangOnce('textproto', loadTextprotoGrammar, ['textproto', 'pbtxt', 'prototxt']);
+    registerLangOnce(
+        'pbtxt',
+        async () => ({ default: [{ ...textprotoGrammar, name: 'pbtxt', aliases: ['textproto'] }] }),
+        [],
+    );
+
+    registerLangOnce('kotlin', () => import('@shikijs/langs/kotlin'), [
+        'kt',
+        'kts',
+        'build.gradle.kts',
+        'settings.gradle.kts',
+    ]);
+    registerLangOnce('dart', () => import('@shikijs/langs/dart'), ['dart']);
+    registerLangOnce('groovy', () => import('@shikijs/langs/groovy'), [
+        'groovy',
+        'gvy',
+        'gradle',
+        'build.gradle',
+        'settings.gradle',
+    ]);
+    registerLangOnce('properties', () => import('@shikijs/langs/properties'), [
+        'properties',
+        'gradle.properties',
+        'local.properties',
+        'gradle-wrapper.properties',
+    ]);
+    registerLangOnce('proguard', loadProguardGrammar, ['pro', 'proguard-rules.pro', 'consumer-rules.pro']);
 }
 
 /**
