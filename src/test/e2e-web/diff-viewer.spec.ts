@@ -31,9 +31,11 @@ test.describe('Standalone Web Diff Viewer', () => {
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible({ timeout: 5000 });
 
-        // Verify toolbar displays the file name
-        const fileNameHeader = diffViewer.locator('.file-name');
-        await expect(fileNameHeader).toContainText('feature.txt');
+        // Verify tab displays the file name and toolbar header is removed
+        const tab = page.locator('[data-testid="tab-bar-container"] .tab').first();
+        await expect(tab).toBeVisible();
+        await expect(tab.locator('.tab-label')).toContainText('feature.txt');
+        await expect(diffViewer.locator('.diff-toolbar')).toHaveCount(0);
 
         // Verify diff content is rendered
         const diffContainer = diffViewer.locator('[data-testid="diff-content-container"]');

@@ -3,7 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { FileDiff } from '@pierre/diffs';
+import { File } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
@@ -14,45 +14,32 @@ import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 interface Props {
     filename: string;
     resourceUri?: Uri;
-    originalContent?: string;
-    modifiedContent?: string;
-    fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
+    content?: string;
     isWorkingCopy?: boolean;
-    isConflict?: boolean;
-    parentMutable?: boolean;
     theme?: string;
     initialDirty?: boolean;
     onSave?: (newContent: string) => Promise<void> | void;
     onDiscard?: () => Promise<void> | void;
-    onResolveConflict?: () => Promise<void> | void;
     onDirtyChange?: (isDirty: boolean) => void;
     onContentChange?: (newContent: string) => void;
     onSelectionChange?: (ranges: { startLine: number; endLine: number }[] | undefined) => void;
-    onSquashSelection?: (ranges: { startLine: number; endLine: number }[]) => Promise<void> | void;
 }
 
 let {
     filename,
     resourceUri,
-    originalContent = '',
-    modifiedContent = '',
-    fileStatus,
+    content = '',
     isWorkingCopy = false,
-    isConflict = false,
-    parentMutable = false,
     theme: themeProp = '',
     initialDirty = false,
     onSave,
     onDiscard,
-    onResolveConflict,
     onDirtyChange,
     onContentChange,
     onSelectionChange,
-    onSquashSelection,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
-let diffStyle: 'split' | 'unified' = $state('split');
 // svelte-ignore state_referenced_locally
 let isDirty = $state(initialDirty);
 let isSaving = $state(false);
@@ -62,13 +49,13 @@ let canRedo = $state(false);
 let currentContent = $state('');
 let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
 
-let fileDiffInstance: FileDiff | null = null;
-let editorInstance: Editor<'file-diff'> | null = null;
+let fileInstance: File | null = null;
+let editorInstance: Editor<'file'> | null = null;
 let detachEditor: (() => void) | null = null;
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
 
-const isBinary = $derived(isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent));
+const isBinary = $derived(isBinaryFile(filename, content));
 
 function cleanupInstances(): void {
     selectedRanges = undefined;
@@ -89,9 +76,9 @@ function cleanupInstances(): void {
         detachEditor = null;
     }
     editorInstance = null;
-    if (fileDiffInstance) {
-        fileDiffInstance.cleanUp();
-        fileDiffInstance = null;
+    if (fileInstance) {
+        fileInstance.cleanUp();
+        fileInstance = null;
     }
 }
 
@@ -119,7 +106,7 @@ async function handleSave(): Promise<void> {
         await onSave(savingContent);
         if (currentContent === savingContent) {
             isDirty = false;
-            lastLoadedModified = currentContent;
+            lastLoadedContent = currentContent;
             onDirtyChange?.(false);
         }
         saveMessage = 'Saved';
@@ -145,22 +132,13 @@ async function handleDiscard(): Promise<void> {
     }
     isDirty = false;
     onDirtyChange?.(false);
-    currentContent = originalContent;
-    lastLoadedModified = originalContent;
-    onContentChange?.(originalContent);
+    currentContent = content;
+    lastLoadedContent = content;
+    onContentChange?.(content);
     if (onDiscard) {
         await onDiscard();
     }
-    renderDiff();
-}
-
-async function handleResolveConflict(): Promise<void> {
-    if (isDirty) {
-        await handleSave();
-    }
-    if (onResolveConflict) {
-        await onResolveConflict();
-    }
+    renderFile();
 }
 
 function scheduleAutoSave(): void {
@@ -168,11 +146,11 @@ function scheduleAutoSave(): void {
         clearTimeout(saveDebounceTimer);
     }
     saveDebounceTimer = setTimeout(() => {
-        handleSave();
+        void handleSave();
     }, 750);
 }
 
-function renderDiff(): void {
+function renderFile(): void {
     if (!containerEl || isBinary || typeof window === 'undefined') {
         return;
     }
@@ -189,9 +167,7 @@ function renderDiff(): void {
     const isLight = isLightTheme(effectiveTheme);
     const themeType = isLight ? 'light' : 'dark';
 
-    fileDiffInstance = new FileDiff({
-        diffStyle,
-        expandUnchanged: false,
+    fileInstance = new File({
         disableFileHeader: true,
         theme: effectiveTheme,
         themeType,
@@ -202,28 +178,21 @@ function renderDiff(): void {
     });
 
     const contentToRender = untrack(() => currentContent);
-
     const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
 
-    const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
-    const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
-    const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
-    const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
-
-    fileDiffInstance.render({
+    fileInstance.render({
         containerWrapper: containerEl,
-        oldFile,
-        newFile,
+        file: { name: cleanName, contents: contentToRender },
     });
 
     if (isWorkingCopy) {
         try {
-            editorInstance = new Editor<'file-diff'>('file-diff', {
+            editorInstance = new Editor<'file'>('file', {
                 onChange: () => {
                     if (editorInstance) {
                         const text = editorInstance.getText();
                         currentContent = text;
-                        lastLoadedModified = text;
+                        lastLoadedContent = text;
                         isDirty = true;
                         canUndo = editorInstance.canUndo;
                         canRedo = editorInstance.canRedo;
@@ -233,54 +202,11 @@ function renderDiff(): void {
                     }
                 },
             });
-            detachEditor = editorInstance.edit(fileDiffInstance);
+            detachEditor = editorInstance.edit(fileInstance);
         } catch {
             // Fallback gracefully in testing or headless environments
         }
     }
-}
-
-function setDiffStyle(style: 'split' | 'unified'): void {
-    if (diffStyle === style) {
-        return;
-    }
-    diffStyle = style;
-    const isLight =
-        typeof document !== 'undefined' &&
-        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
-    const effectiveTheme =
-        themeProp ||
-        (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
-        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
-    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
-
-    if (fileDiffInstance) {
-        fileDiffInstance.setOptions({
-            diffStyle,
-            expandUnchanged: false,
-            disableFileHeader: true,
-            theme: effectiveTheme,
-            themeType,
-            enableLineSelection: true,
-            onLineSelected: handleLineSelection,
-            onLineSelectionChange: handleLineSelection,
-            onLineSelectionEnd: handleLineSelection,
-        });
-        const contentToRender = untrack(() => currentContent);
-        const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
-        const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
-        const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
-        const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
-        const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
-        fileDiffInstance.render({
-            containerWrapper: containerEl,
-            forceRender: true,
-            oldFile,
-            newFile,
-        });
-        return;
-    }
-    renderDiff();
 }
 
 function handleUndo(): void {
@@ -318,64 +244,37 @@ function handleKeyDown(e: KeyboardEvent): void {
 
 let lastRenderedFilename = '';
 // svelte-ignore state_referenced_locally
-let lastLoadedModified = modifiedContent;
-// svelte-ignore state_referenced_locally
-let lastLoadedOriginal = originalContent;
+let lastLoadedContent = content;
 
-// Synchronize and re-render when filename, content, or mode change
+// Synchronize and re-render when filename or content changes
 $effect(() => {
     const fn = filename;
-    const orig = originalContent;
-    const mod = modifiedContent;
-    const status = fileStatus;
+    const c = content;
     const wc = isWorkingCopy;
 
     if (fn !== lastRenderedFilename) {
         lastRenderedFilename = fn;
-        lastLoadedModified = mod;
-        lastLoadedOriginal = orig;
-        currentContent = mod;
+        lastLoadedContent = c;
+        currentContent = c;
         isDirty = initialDirty;
         canUndo = false;
         canRedo = false;
         onDirtyChange?.(initialDirty);
-        renderDiff();
-    } else if (!isDirty && (mod !== lastLoadedModified || orig !== lastLoadedOriginal)) {
-        lastLoadedModified = mod;
-        lastLoadedOriginal = orig;
-        currentContent = mod;
-        renderDiff();
+        renderFile();
+    } else if (!isDirty && c !== lastLoadedContent) {
+        lastLoadedContent = c;
+        currentContent = c;
+        renderFile();
     } else {
-        void status;
         void wc;
     }
 });
 
-let wasNarrow = false;
-$effect(() => {
-    if (!containerEl) {
-        return;
-    }
-    const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            const isNarrow = entry.contentRect.width > 0 && entry.contentRect.width < 600;
-            if (isNarrow && !wasNarrow) {
-                if (untrack(() => diffStyle) === 'split') {
-                    setDiffStyle('unified');
-                }
-            }
-            wasNarrow = isNarrow;
-        }
-    });
-    observer.observe(containerEl);
-    return () => {
-        observer.disconnect();
-    };
-});
 onMount(() => {
     if (typeof window !== 'undefined') {
         window.addEventListener('keydown', handleKeyDown, true);
     }
+    renderFile();
 });
 
 onDestroy(() => {
@@ -386,65 +285,24 @@ onDestroy(() => {
 });
 </script>
 
-<div class="pierre-diff-viewer" data-testid="pierre-diff-viewer">
-    <div class="diff-style-toggle-floating" role="group" aria-label="Diff style">
-        <button
-            type="button"
-            class="toggle-btn"
-            class:active={diffStyle === 'split'}
-            onclick={() => setDiffStyle('split')}
-            title="Side-by-side split diff"
-            data-testid="toggle-split-diff"
-            data-style="split"
-        >
-            Split
-        </button>
-        <button
-            type="button"
-            class="toggle-btn"
-            class:active={diffStyle === 'unified'}
-            onclick={() => setDiffStyle('unified')}
-            title="Inline unified diff"
-            data-testid="toggle-unified-diff"
-            data-style="unified"
-        >
-            Unified
-        </button>
-    </div>
-
-    {#if isConflict && onResolveConflict}
-        <div class="diff-conflict-floating">
-            <button
-                type="button"
-                class="resolve-btn"
-                onclick={handleResolveConflict}
-                title="Mark conflict as resolved"
-                data-testid="diff-resolve-conflict-btn"
-            >
-                <i class="codicon codicon-check" aria-hidden="true"></i>
-                <span>Mark Resolved</span>
-            </button>
-        </div>
-    {/if}
-
+<div class="pierre-file-viewer" data-testid="pierre-file-viewer">
     {#if isBinary}
-        <div class="binary-card" data-testid="binary-diff-card">
+        <div class="binary-card" data-testid="binary-file-card">
             <i class="codicon codicon-file-binary binary-icon" aria-hidden="true"></i>
             <h3>Binary file not shown</h3>
             <p class="binary-filename">{filename}</p>
             <p class="binary-description">
-                The file cannot be displayed in the text diff viewer.
+                The file cannot be displayed in the text editor.
             </p>
         </div>
     {:else}
         <div
             bind:this={containerEl}
-            class="diff-content-container"
-            data-testid="diff-content-container"
+            class="file-content-container"
+            data-testid="file-content-container"
             data-vscode-context={JSON.stringify({
                 menuId: 'editor/context',
-                isInDiffEditor: true,
-                'jj.parentMutable': parentMutable,
+                isInDiffEditor: false,
                 resourceScheme: resourceUri?.scheme ?? (isWorkingCopy ? 'file' : 'jj-view'),
                 resourceFilename: filename.replace(/\s*\([^)]*\)$/, '').trim(),
                 resourceUri: resourceUri
@@ -469,9 +327,10 @@ onDestroy(() => {
     width: 100%;
     height: 100%;
     min-height: 0;
+    overflow: auto;
 }
 
-.pierre-diff-viewer {
+.pierre-file-viewer {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -479,100 +338,17 @@ onDestroy(() => {
     background-color: var(--vscode-editor-background, #171717);
     color: var(--vscode-editor-foreground, #d4d4d4);
     overflow: hidden;
-    position: relative;
     --diffs-font-family: var(--vscode-editor-font-family, monospace);
     --diffs-font-size: var(--vscode-editor-font-size, 12px);
     --diffs-line-height: var(--vscode-editor-line-height, 19px);
 }
 
-.diff-style-toggle-floating {
-    position: absolute;
-    top: 8px;
-    right: 16px;
-    z-index: 10;
-    display: inline-flex;
-    align-items: stretch;
-    height: 24px;
-    border: 1px solid var(--vscode-input-border, #2c2c2c);
-    border-radius: 6px;
-    background: var(--vscode-input-background, #262626);
-    overflow: hidden;
-    box-sizing: border-box;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-}
-
-.diff-conflict-floating {
-    position: absolute;
-    top: 8px;
-    right: 136px;
-    z-index: 10;
-    display: inline-flex;
-    align-items: center;
-}
-
-.resolve-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 10px;
-    border-radius: 4px;
-    border: 1px solid var(--vscode-button-border, transparent);
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-    font-family: inherit;
-    transition: background 0.15s ease;
-}
-
-.resolve-btn:hover {
-    background: var(--vscode-button-hoverBackground);
-}
-
-.toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 10px;
-    border: none;
-    border-right: 1px solid var(--vscode-input-border, #2c2c2c);
-    background: transparent;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 0.15s ease, color 0.15s ease;
-    white-space: nowrap;
-    outline: none;
-    user-select: none;
-}
-
-.toggle-btn:last-child {
-    border-right: none;
-}
-
-.toggle-btn:hover:not(.active) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
-    color: var(--vscode-foreground, #d4d4d4);
-}
-
-.toggle-btn.active {
-    background: var(--vscode-button-background, #69b1ff);
-    color: var(--vscode-button-foreground, #171717);
-    font-weight: 600;
-}
-
-.diff-content-container {
-    flex: 1 1 0;
+.file-content-container {
+    flex: 1;
     min-height: 0;
-    min-width: 0;
-    overflow: auto;
-    position: relative;
     width: 100%;
+    height: 100%;
+    overflow: auto;
 }
 
 .binary-card {
@@ -580,30 +356,30 @@ onDestroy(() => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    gap: 8px;
-    padding: 32px;
+    flex: 1;
+    padding: 40px;
     text-align: center;
     color: var(--vscode-descriptionForeground, #8a8a8a);
 }
 
 .binary-icon {
     font-size: 48px;
-    color: var(--vscode-icon-foreground, #8a8a8a);
-    margin-bottom: 8px;
+    margin-bottom: 16px;
+    color: var(--vscode-disabledForeground, #5a5a5a);
 }
 
 .binary-card h3 {
-    margin: 0;
+    margin: 0 0 8px 0;
     font-size: 16px;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--vscode-foreground, #d4d4d4);
 }
 
 .binary-filename {
-    margin: 0;
+    margin: 0 0 4px 0;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 13px;
+    color: var(--vscode-editor-foreground, #d4d4d4);
 }
 
 .binary-description {

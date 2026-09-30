@@ -7,7 +7,7 @@ import { buildGraph } from '../test-repo';
 import { expect, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
-    test('should show editing toolbar for working copy files and discard changes on demand', async ({
+    test('should allow editing working copy files and discarding changes via SCM', async ({
         page,
         server,
         testRepo,
@@ -32,18 +32,10 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible({ timeout: 5000 });
 
-        // Verify editing action buttons exist in working copy mode
-        const saveBtn = diffViewer.locator('[data-testid="diff-save-btn"]');
-        const discardBtn = diffViewer.locator('[data-testid="diff-discard-btn"]');
-        const undoBtn = diffViewer.locator('[data-testid="diff-undo-btn"]');
-        const redoBtn = diffViewer.locator('[data-testid="diff-redo-btn"]');
-
-        await expect(saveBtn).toBeVisible();
+        // Discard changes via SCM resource action
+        await resourceItem.hover();
+        const discardBtn = resourceItem.locator('[data-testid="scm-resource-action-jj-view.restore"]');
         await expect(discardBtn).toBeVisible();
-        await expect(undoBtn).toBeVisible();
-        await expect(redoBtn).toBeVisible();
-
-        // Discard changes
         await discardBtn.click();
 
         // Working copy should now be clean and file restored on disk
@@ -105,7 +97,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await expect(resolveBtn).toContainText('Mark Resolved');
     });
 
-    test('should allow saving edits to disk via Save button', async ({ page, server, testRepo }) => {
+    test('should allow saving edits to disk via keyboard shortcut', async ({ page, server, testRepo }) => {
         testRepo.writeFile('editable.txt', 'line 1\nline 2\n');
         testRepo.describe('initial commit');
         testRepo.new();
@@ -123,21 +115,16 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible();
 
-        const diffContainer = diffViewer.locator('[data-testid="diff-content-container"]');
-        await expect(diffContainer).toBeVisible();
+        const editor = diffViewer.getByRole('textbox');
+        await expect(editor).toBeVisible();
+        await editor.click();
+        await page.waitForTimeout(200);
+        await page.keyboard.type('\nappended edit', { delay: 50 });
+        await page.waitForTimeout(200);
 
-        await diffContainer.click();
-        await page.keyboard.type('\nappended edit');
+        // Save via keyboard shortcut
+        await page.keyboard.press('ControlOrMeta+s');
 
-        const saveBtn = diffViewer.locator('[data-testid="diff-save-btn"]');
-        const dirtyIndicator = diffViewer.locator('.dirty-indicator');
-
-        if (await dirtyIndicator.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await expect(saveBtn).toBeEnabled();
-            await saveBtn.click();
-            await expect(diffViewer.locator('.save-status')).toHaveText('Saved', { timeout: 5000 });
-            const diskContent = testRepo.getFileContent('@', 'editable.txt');
-            expect(diskContent).toContain('appended edit');
-        }
+        await expect.poll(() => testRepo.getFileContent('@', 'editable.txt'), { timeout: 5000 }).toContain('edit');
     });
 });

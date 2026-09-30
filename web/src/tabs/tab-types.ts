@@ -42,6 +42,7 @@ export type TabViewData =
           uri: Uri;
           title: string;
           content?: string;
+          resourceState?: JjResourceState;
       };
 
 export interface TabEntry {

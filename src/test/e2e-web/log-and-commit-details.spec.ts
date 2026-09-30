@@ -90,7 +90,8 @@ test.describe('Standalone Web Log and Commit Details', () => {
         // Verify Pierre Diff Viewer opens
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible({ timeout: 5000 });
-        await expect(diffViewer.locator('.file-name')).toContainText('file2.txt');
+        const activeTab = page.locator('[data-testid="tab-bar-container"] .tab.active');
+        await expect(activeTab).toContainText('file2.txt');
 
         // Verify diff content contains the file content
         const diffContainer = diffViewer.locator('[data-testid="diff-content-container"]');

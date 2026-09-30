@@ -25,6 +25,7 @@ import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-br
 import CommitDetailsView from './details/CommitDetailsView.svelte';
 import { applyAppTheme, loadTheme } from './diff/highlighter-setup';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
+import PierreFileViewer from './diff/PierreFileViewer.svelte';
 import PierreMultiDiffViewer from './diff/PierreMultiDiffViewer.svelte';
 import type { WebHostEnvironment } from './host/web-host-environment';
 import AppLayout from './layout/AppLayout.svelte';
@@ -327,7 +328,7 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         iconClass = 'codicon codicon-file';
     }
 
-    const isPreview = options?.preview ?? false;
+    const isPreview = options?.preview ?? view.type === 'commit-details';
     const newTab: TabEntry = {
         id: tabId,
         title,
@@ -492,34 +493,104 @@ async function loadDiffContents(state: JjResourceState, options?: HostOpenOption
     await loadDiffFromUris(state.leftUri, state.rightUri, state.diffTitle || state.resourceUri.fsPath, state, options);
 }
 
+async function loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<void> {
+    const normPath = uri.path || uri.fsPath || '';
+    const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+    const fileName = cleanPath.split('/').filter(Boolean).pop() || cleanPath || 'file';
+
+    let matchingState: JjResourceState | undefined;
+    const change = currentSnapshot?.workingCopyChanges?.find((c) => c.path === cleanPath || normPath.endsWith(c.path));
+    if (change) {
+        matchingState = createJjResourceState(change, '@', workspaceRoot, {
+            squashable: currentSnapshot?.parentMutable ?? false,
+            multipleAncestors: (currentSnapshot?.ancestors.length ?? 0) > 1,
+            openDiffOnClick: true,
+            hasChild: currentSnapshot?.hasChild ?? false,
+            workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+        });
+    }
+
+    openOrActivateTab(
+        {
+            type: 'file',
+            uri,
+            title: fileName,
+            content: '',
+            resourceState: matchingState,
+        },
+        options,
+    );
+
+    try {
+        const content = await resolveUriContent(uri);
+        const tabId = getTabId({ type: 'file', uri, title: fileName });
+        const targetTab = tabs.find((t) => t.id === tabId);
+        if (targetTab && targetTab.view.type === 'file') {
+            if (!targetTab.isDirty) {
+                targetTab.view.content = content;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load file contents for file viewer:', err);
+    }
+}
+
 async function handleSaveFile(newContent: string): Promise<void> {
-    if (!activeTab || activeTab.view.type !== 'diff' || !activeTab.view.rightUri) {
+    if (!activeTab) {
         return;
     }
-    const rightUri = activeTab.view.rightUri;
-    if (rightUri.scheme === 'jj-edit' && editFs) {
-        await editFs.writeFile(rightUri, new TextEncoder().encode(newContent));
-    } else if (host) {
-        await host.fs.writeTextFile(rightUri.fsPath, newContent);
+    let targetUri: Uri | undefined;
+    if (activeTab.view.type === 'diff') {
+        targetUri = activeTab.view.rightUri;
+    } else if (activeTab.view.type === 'file') {
+        targetUri = activeTab.view.uri;
     }
-    activeTab.view.modifiedContent = newContent;
+    if (!targetUri) {
+        return;
+    }
+    if (targetUri.scheme === 'jj-edit' && editFs) {
+        await editFs.writeFile(targetUri, new TextEncoder().encode(newContent));
+    } else if (host) {
+        await host.fs.writeTextFile(targetUri.fsPath, newContent);
+    }
+    if (activeTab.view.type === 'diff') {
+        activeTab.view.modifiedContent = newContent;
+    } else if (activeTab.view.type === 'file') {
+        activeTab.view.content = newContent;
+    }
     activeTab.isDirty = false;
-    webHostEnv?.documents.notifyDidSaveDocument(rightUri);
+    webHostEnv?.documents.notifyDidSaveDocument(targetUri);
     if (scmModel) {
-        await scmModel.refresh({ reason: 'save-diff' });
+        await scmModel.refresh({ reason: 'save-file' });
     }
 }
 
 async function handleDiscardFile(): Promise<void> {
-    if (!activeTab || activeTab.view.type !== 'diff' || !activeTab.view.resourceState) {
+    if (!activeTab) {
         return;
     }
-    const state = activeTab.view.resourceState;
-    await handleAction('jj-view.restore', state);
-    if (scmModel) {
-        await scmModel.refresh({ reason: 'discard-file' });
+    if (activeTab.view.type === 'diff' && activeTab.view.resourceState) {
+        const state = activeTab.view.resourceState;
+        await handleAction('jj-view.restore', state);
+        if (scmModel) {
+            await scmModel.refresh({ reason: 'discard-file' });
+        }
+        closeTabById(activeTab.id);
+        return;
     }
-    closeTabById(activeTab.id);
+    if (activeTab.view.type === 'file') {
+        if (activeTab.view.resourceState) {
+            await handleAction('jj-view.restore', activeTab.view.resourceState);
+            if (scmModel) {
+                await scmModel.refresh({ reason: 'discard-file' });
+            }
+        } else if (activeTab.view.uri.scheme === 'file' && host) {
+            const content = await host.fs.readTextFile(activeTab.view.uri.fsPath);
+            activeTab.view.content = content;
+        }
+        activeTab.isDirty = false;
+        closeTabById(activeTab.id);
+    }
 }
 
 async function handleResolveConflict(): Promise<void> {
@@ -877,20 +948,32 @@ onMount(() => {
             saveIfDirty: async (uri: Uri) => {
                 const uriStr = uri.toString();
                 const targetTab = tabs.find(
-                    (t) => t.isDirty && t.view.type === 'diff' && t.view.rightUri?.toString() === uriStr,
+                    (t) =>
+                        t.isDirty &&
+                        ((t.view.type === 'diff' && t.view.rightUri?.toString() === uriStr) ||
+                            (t.view.type === 'file' && t.view.uri.toString() === uriStr)),
                 );
-                if (targetTab && targetTab.view.type === 'diff' && targetTab.view.rightUri) {
-                    const content = targetTab.view.modifiedContent ?? '';
-                    const rightUri = targetTab.view.rightUri;
-                    if (rightUri.scheme === 'jj-edit' && editFs) {
-                        await editFs.writeFile(rightUri, new TextEncoder().encode(content));
-                    } else if (host) {
-                        await host.fs.writeTextFile(rightUri.fsPath, content);
+                if (targetTab) {
+                    let content = '';
+                    let targetUri: Uri | undefined;
+                    if (targetTab.view.type === 'diff' && targetTab.view.rightUri) {
+                        content = targetTab.view.modifiedContent ?? '';
+                        targetUri = targetTab.view.rightUri;
+                    } else if (targetTab.view.type === 'file') {
+                        content = targetTab.view.content ?? '';
+                        targetUri = targetTab.view.uri;
                     }
-                    targetTab.isDirty = false;
-                    webHostEnv?.documents.notifyDidSaveDocument(rightUri);
-                    if (scmModel) {
-                        await scmModel.refresh({ reason: 'save-diff' });
+                    if (targetUri) {
+                        if (targetUri.scheme === 'jj-edit' && editFs) {
+                            await editFs.writeFile(targetUri, new TextEncoder().encode(content));
+                        } else if (host) {
+                            await host.fs.writeTextFile(targetUri.fsPath, content);
+                        }
+                        targetTab.isDirty = false;
+                        webHostEnv?.documents.notifyDidSaveDocument(targetUri);
+                        if (scmModel) {
+                            await scmModel.refresh({ reason: 'save-file' });
+                        }
                     }
                 }
             },
@@ -932,7 +1015,7 @@ onMount(() => {
                 await loadDiffFromUris(leftUri, rightUri, title, matchingState, options);
             },
             onOpenFile: async (uri, options) => {
-                await loadDiffFromUris(undefined, uri, uri.fsPath, undefined, options);
+                await loadFileFromUri(uri, options);
             },
             onOpenMergeEditor: async (resourceUri) => {
                 const normPath = resourceUri.path;
@@ -1142,6 +1225,35 @@ onMount(() => {
                             title={activeTab.title}
                             files={activeTab.view.files}
                             theme={activeTheme}
+                        />
+                    {/key}
+                {:else if activeTab && activeTab.view.type === 'file'}
+                    {#key activeTab.id}
+                        <PierreFileViewer
+                            filename={activeTab.title}
+                            resourceUri={activeTab.view.uri}
+                            content={activeTab.view.content ?? ''}
+                            theme={activeTheme}
+                            initialDirty={activeTab.isDirty ?? false}
+                            isWorkingCopy={activeTab.view.uri.scheme === 'file' || activeTab.view.uri.scheme === 'jj-edit'}
+                            onSave={handleSaveFile}
+                            onDiscard={handleDiscardFile}
+                            onDirtyChange={(d) => {
+                                if (activeTab) {
+                                    activeTab.isDirty = d;
+                                    if (d) {
+                                        activeTab.preview = false;
+                                    }
+                                }
+                            }}
+                            onContentChange={(text) => {
+                                if (activeTab && activeTab.view.type === 'file') {
+                                    activeTab.view.content = text;
+                                }
+                            }}
+                            onSelectionChange={(ranges) => {
+                                activeTabSelection = ranges;
+                            }}
                         />
                     {/key}
                 {:else if activeTab && activeTab.view.type === 'commit-details' && commitDetailsBridge}
