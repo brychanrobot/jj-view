@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CodeForgeProvider } from '../core/code-forge-provider';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { MANUAL_REFRESH_REASON } from '../core/code-forge-service';
 import { LogViewController } from '../core/controllers/log-view-controller';
 import { EventEmitter } from '../core/host/events';
 import { JjContextKey } from '../core/jj-context-keys';
@@ -54,6 +55,7 @@ describe('LogViewController Domain Unit Tests', () => {
     });
 
     afterEach(async () => {
+        vi.useRealTimers();
         controller.dispose();
         await repositoryManager.dispose();
     });
@@ -450,5 +452,220 @@ describe('LogViewController Domain Unit Tests', () => {
         resolveFetch2(false);
         await refreshPromise;
         expect(ensureFreshSpy).toHaveBeenCalledTimes(2);
+    });
+
+    describe('code forge fetch throttling (codeForge.minRefreshIntervalSeconds)', () => {
+        async function setUpCodeForge() {
+            const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+            if (!repo) {
+                throw new Error('Repository not registered in test');
+            }
+            const fetchStatuses = vi.fn().mockResolvedValue(false);
+            const mockProvider = createMock<CodeForgeProvider>({
+                id: 'mock-provider-throttle',
+                detect: async () => true,
+                onDidUpdate: new EventEmitter<void>().event,
+                getCachedChangeInfo: () => undefined,
+                fetchStatuses,
+                clearCache: () => {},
+                activate: () => {},
+                deactivate: () => {},
+            });
+            registry.register({ id: 'mock-provider-throttle', create: () => mockProvider });
+            await repo.codeForge.detectActiveProvider(true);
+            return { repo, fetchStatuses };
+        }
+
+        /** Waits for the fire-and-forget code forge fetch started by a log refresh to finish. */
+        async function waitForFetchCount(fetchStatuses: ReturnType<typeof vi.fn>, count: number) {
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(count));
+            await vi.waitFor(() => {
+                // The service stamps the fetch time once the provider call settles.
+                expect(fetchStatuses.mock.settledResults.length).toBe(count);
+            });
+        }
+
+        test('fetches on every log refresh when unset', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('skips the fetch for log refreshes inside the window', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            expect(repo.codeForge.isWithinMinRefreshInterval()).toBe(true);
+
+            await controller.refresh('fileChange');
+            await controller.refresh('mutationComplete');
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+        });
+
+        test('fetches the throttled changes once the window ends', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Fake only the clock and timeouts; jj subprocesses still run on real I/O.
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+            // Two throttled refreshes inside the window coalesce into one trailing fetch.
+            await controller.refresh('fileChange');
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            await waitForFetchCount(fetchStatuses, 2);
+            await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('a deferred refresh is not swallowed by a fetch that began with older commits', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+
+            // A poller tick starts a slow fetch with the current commits.
+            let finishFetch!: (changed: boolean) => void;
+            fetchStatuses.mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finishFetch = resolve;
+                    }),
+            );
+            repo.codeForge.forceRefresh();
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(2));
+
+            // A throttled log refresh brings in a new commit meanwhile.
+            const jj = controller.jj;
+            if (!jj) {
+                throw new Error('Controller has no jj service');
+            }
+            vi.spyOn(jj, 'getLog').mockResolvedValueOnce([
+                createMock<JjLogEntry>({
+                    change_id: 'newer-change',
+                    commit_id: 'newer-commit',
+                    description: 'newer',
+                    is_immutable: false,
+                    is_empty: false,
+                    conflict: false,
+                    bookmarks: [],
+                    tags: [],
+                    parents: [],
+                }),
+            ]);
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+
+            // The deferred refresh fires while the slow fetch runs; a further fetch must then cover the new commit.
+            await vi.advanceTimersByTimeAsync(30_000);
+            finishFetch(false);
+            await waitForFetchCount(fetchStatuses, 3);
+
+            const lastChanges = fetchStatuses.mock.calls[2][0] as { changeId: string }[];
+            expect(lastChanges.map((c) => c.changeId)).toContain('newer-change');
+        });
+
+        test('still refreshes the log itself when the fetch is skipped', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            const setCommitsSpy = vi.spyOn(controller, 'setCommits');
+            await controller.refresh('fileChange');
+
+            expect(setCommitsSpy).toHaveBeenCalledTimes(1);
+        });
+
+        test('manual refreshes bypass the throttle once', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            await controller.refresh(MANUAL_REFRESH_REASON);
+            await waitForFetchCount(fetchStatuses, 2);
+
+            // The manual fetch restarted the window, and the bypass is not sticky.
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('manual refreshes are recognised among combined reasons', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            await controller.refresh(`fileChange, ${MANUAL_REFRESH_REASON}`);
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('a manual refresh that fails before the fetch keeps its bypass for the retry', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            const jj = controller.jj;
+            if (!jj) {
+                throw new Error('Controller has no jj service');
+            }
+            vi.spyOn(jj, 'getLog').mockRejectedValueOnce(new Error('transient jj failure'));
+            await controller.refresh(MANUAL_REFRESH_REASON);
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+            expect(repo.codeForge.isWithinMinRefreshInterval()).toBe(true);
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('a throttled log refresh does not make an in-flight fetch run again', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Start a fetch that is not throttled (a poller tick) and hold it open.
+            let finishFetch!: (changed: boolean) => void;
+            fetchStatuses.mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finishFetch = resolve;
+                    }),
+            );
+            repo.codeForge.forceRefresh();
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(2));
+
+            // A throttled refresh mid-fetch must not make the running refresh fetch again.
+            await controller.refresh('fileChange');
+            finishFetch(false);
+            await waitForFetchCount(fetchStatuses, 2);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('explicit code forge refresh requests are never throttled', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Poller ticks, post-upload backoffs and auth changes all go through forceRefresh.
+            repo.codeForge.forceRefresh();
+            await waitForFetchCount(fetchStatuses, 2);
+        });
     });
 });

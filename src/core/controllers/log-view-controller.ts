@@ -7,7 +7,7 @@ import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import { canAbsorbCommit } from '../../utils/jj-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
-import type { CodeForgeService } from '../code-forge-service';
+import { type CodeForgeService, MANUAL_REFRESH_REASON } from '../code-forge-service';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
 import type { HostEnvironment } from '../host/host-environment';
 import {
@@ -42,6 +42,10 @@ export class LogViewController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
     private _codeForgeRefreshPromise: Promise<void> | undefined;
+    /** Set by a manual refresh so the next log refresh skips the fetch throttle. */
+    private _bypassCodeForgeThrottle = false;
+    /** Commits changed but their fetch was throttled; the next requested refresh must cover them. */
+    private _commitsChangedWhileThrottled = false;
     private readonly _logger?: LoggerChannel;
     private readonly _receiver: WebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     private readonly _refreshQueue: CoalescingQueue;
@@ -183,6 +187,11 @@ export class LogViewController implements Disposable {
             }
         });
         const refreshDisposable = cf.onRequestRefresh(() => {
+            if (this._commitsChangedWhileThrottled) {
+                // A fetch already in flight used older commits and would otherwise absorb this request.
+                this._commitsChangedWhileThrottled = false;
+                this._codeForgeFetchVersion++;
+            }
             this.refreshCodeForge().catch((e) => {
                 this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
             });
@@ -212,6 +221,9 @@ export class LogViewController implements Disposable {
         }
         const reasonStr = reason ? ` (reason: ${reason})` : '';
         this._logger?.info?.(`[LogViewController] Queuing refresh${reasonStr}...`);
+        if (reason?.includes(MANUAL_REFRESH_REASON)) {
+            this._bypassCodeForgeThrottle = true;
+        }
         await this._refreshQueue.run();
     }
 
@@ -227,6 +239,7 @@ export class LogViewController implements Disposable {
         const jj = this._repo.jj;
         const targetRepoPath = this._repo.rootUri.fsPath;
 
+        let codeForgeThrottled = false;
         try {
             const start = performance.now();
             const commits = await jj.getLog({
@@ -241,7 +254,11 @@ export class LogViewController implements Disposable {
                 return;
             }
 
-            this.setCommits(commits);
+            // Decided before setCommits() so a throttled refresh doesn't bump the fetch version. Consumed here, not
+            // on entry, so a manual refresh that bails out earlier keeps its bypass.
+            codeForgeThrottled = !this._bypassCodeForgeThrottle && this._repo.codeForge.isWithinMinRefreshInterval();
+            this._bypassCodeForgeThrottle = false;
+            this.setCommits(commits, { codeForgeThrottled });
 
             const duration = performance.now() - start;
             this._logger?.info?.(
@@ -252,13 +269,24 @@ export class LogViewController implements Disposable {
             return;
         }
 
+        if (codeForgeThrottled) {
+            this._logger?.info?.(
+                '[LogViewController] Deferring code forge fetch until codeForge.minRefreshIntervalSeconds elapses',
+            );
+            this._commitsChangedWhileThrottled = true;
+            this._repo?.codeForge.scheduleDeferredRefresh();
+            return;
+        }
+        this._commitsChangedWhileThrottled = false;
+
         this.refreshCodeForge().catch((e) => {
             this._logger?.error('[LogViewController] Background refreshCodeForge failed', toError(e));
         });
     }
 
-    public setCommits(commits: readonly JjLogEntry[]): void {
-        if (commits !== this._commits) {
+    /** `codeForgeThrottled`: don't make an in-flight refreshCodeForge() run again for these commits. */
+    public setCommits(commits: readonly JjLogEntry[], options?: { codeForgeThrottled?: boolean }): void {
+        if (commits !== this._commits && !options?.codeForgeThrottled) {
             this._codeForgeFetchVersion++;
         }
         const enrichedCommits = [...commits];
