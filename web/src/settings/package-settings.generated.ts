@@ -74,6 +74,24 @@ export const PACKAGE_SETTINGS: readonly SettingDefinition[] = [
         enum: ['github', 'gitlab', 'gerrit'],
     },
     {
+        key: 'codeForge.pollIntervalSeconds',
+        title: 'Code Forge Poll Interval Seconds',
+        description:
+            'How often (in seconds) to re-fetch pull request, merge request and review status from the code forge (GitHub, GitLab or Gerrit) while the window is focused. Set to 0 to disable background polling. Positive values below 10 are treated as 10.',
+        category: 'Performance',
+        type: 'number',
+        default: 60,
+    },
+    {
+        key: 'codeForge.minRefreshIntervalSeconds',
+        title: 'Code Forge Min Refresh Interval Seconds',
+        description:
+            "Minimum time (in seconds) between code forge status fetches that are prompted by local repository changes or the window regaining focus, such as file edits and jj operations. Changes that arrive inside the window are fetched once, when it ends. Raise this to reduce API usage, for example to stay under GitHub's rate limit. Background polling, uploads and manual refreshes are not throttled. 0 disables throttling.",
+        category: 'Performance',
+        type: 'number',
+        default: 0,
+    },
+    {
         key: 'gerrit.host',
         title: 'Gerrit Host',
         description:

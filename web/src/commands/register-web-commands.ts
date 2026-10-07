@@ -4,6 +4,7 @@
  */
 
 import type { CodeForgeAuthManager } from '../../../src/core/code-forge-auth';
+import { MANUAL_REFRESH_REASON } from '../../../src/core/code-forge-service';
 import { abandonCommand } from '../../../src/core/commands/abandon';
 import { absorbCommand } from '../../../src/core/commands/absorb';
 import { setBookmarkCommand } from '../../../src/core/commands/bookmark';
@@ -445,11 +446,11 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     }
 
     hostEnvironment.commands.registerCommand('jj-view.refreshGraph', async () => {
-        await logViewController?.refresh();
+        await logViewController?.refresh(MANUAL_REFRESH_REASON);
         const repo = getActiveRepo();
         await repo?.refresh();
     });
     hostEnvironment.commands.registerCommand('jj-view.refreshLog', async () => {
-        await logViewController?.refresh();
+        await logViewController?.refresh(MANUAL_REFRESH_REASON);
     });
 }

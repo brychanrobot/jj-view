@@ -46,7 +46,7 @@ function deriveCategory(key: string): string {
     if (norm.includes('Repositories') || norm.includes('Repository') || norm.includes('workspaces')) {
         return 'Repositories';
     }
-    if (norm.includes('watcher') || norm.includes('timeout') || norm.includes('poll')) {
+    if (norm.includes('watcher') || norm.includes('timeout') || norm.includes('poll') || norm.includes('minRefresh')) {
         return 'Performance';
     }
     return 'General';

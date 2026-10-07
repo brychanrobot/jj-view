@@ -95,6 +95,18 @@
                     ],
                     "description": "Force the active Code Forge provider to a specific service. If not set, it is auto-detected from git remotes."
                 },
+                "jj-view.codeForge.pollIntervalSeconds": {
+                    "type": "number",
+                    "default": 60,
+                    "minimum": 0,
+                    "description": "How often (in seconds) to re-fetch pull request, merge request and review status from the code forge (GitHub, GitLab or Gerrit) while the window is focused. Set to 0 to disable background polling. Positive values below 10 are treated as 10."
+                },
+                "jj-view.codeForge.minRefreshIntervalSeconds": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Minimum time (in seconds) between code forge status fetches that are prompted by local repository changes or the window regaining focus, such as file edits and jj operations. Changes that arrive inside the window are fetched once, when it ends. Raise this to reduce API usage, for example to stay under GitHub's rate limit. Background polling, uploads and manual refreshes are not throttled. 0 disables throttling."
+                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."
