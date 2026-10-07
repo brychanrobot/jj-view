@@ -4,6 +4,7 @@
  */
 
 import type { CodeForgeAuthManager } from '../../../src/core/code-forge-auth';
+import { MANUAL_REFRESH_REASON } from '../../../src/core/code-forge-service';
 import { abandonCommand } from '../../../src/core/commands/abandon';
 import { absorbCommand } from '../../../src/core/commands/absorb';
 import { setBookmarkCommand } from '../../../src/core/commands/bookmark';
@@ -214,6 +215,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     function registerDirect<TReturn = unknown>(
         commandId: string,
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
+        commandOptions?: { refresh?: boolean },
     ): void {
         hostEnvironment.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const repo = getActiveRepo(args);
@@ -225,7 +227,9 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
             repositoryManager.setFocusedRepository?.(repo);
             const ctx = createCmdContext(repo);
             const result = await handler(ctx, ...args);
-            await repo.refresh();
+            if (commandOptions?.refresh !== false) {
+                await repo.refresh();
+            }
             return result;
         });
     }
@@ -278,7 +282,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     );
 
     // 3. Status, Refresh, Undo, Redo, Prev, Next
-    registerDirect('jj-view.refresh', refreshCommand);
+    registerDirect('jj-view.refresh', refreshCommand, { refresh: false });
     registerDirect('jj-view.undo', undoCommand);
     registerDirect('jj-view.redo', redoCommand);
     registerDirect('jj-view.prev', prevCommand);
@@ -532,11 +536,14 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     }
 
     hostEnvironment.commands.registerCommand('jj-view.refreshGraph', async () => {
-        await logViewController?.refresh();
+        if (logViewController) {
+            await logViewController.refresh(MANUAL_REFRESH_REASON);
+            return;
+        }
         const repo = getActiveRepo();
-        await repo?.refresh();
+        await repo?.refresh({ reason: MANUAL_REFRESH_REASON });
     });
     hostEnvironment.commands.registerCommand('jj-view.refreshLog', async () => {
-        await logViewController?.refresh();
+        await logViewController?.refresh(MANUAL_REFRESH_REASON);
     });
 }

@@ -7,7 +7,7 @@ import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import { canAbsorbCommit } from '../../utils/jj-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
-import type { CodeForgeService } from '../code-forge-service';
+import { type CodeForgeService, MANUAL_REFRESH_REASON } from '../code-forge-service';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
 import type { HostEnvironment } from '../host/host-environment';
 import {
@@ -42,6 +42,8 @@ export class LogViewController implements Disposable {
     private readonly _disposables: Disposable[] = [];
     private _codeForgeDisposable: Disposable | undefined;
     private _codeForgeRefreshPromise: Promise<void> | undefined;
+    /** Set by a manual refresh so the next log refresh skips the fetch throttle. */
+    private _bypassCodeForgeThrottle = false;
     private readonly _logger?: LoggerChannel;
     private readonly _receiver: WebviewRpcReceiver<LogViewToHostMessage, LogViewHostToWebviewMessage>;
     private readonly _refreshQueue: CoalescingQueue;
@@ -153,6 +155,9 @@ export class LogViewController implements Disposable {
             return;
         }
         this._repo = repo;
+        this._commits = [];
+        this._codeForgeRefreshPromise = undefined;
+        this._bypassCodeForgeThrottle = false;
         this._selectedCommitIds = [];
         this._highlightedCommitId = undefined;
         this._updateSelectionContextKeys(this._selectedCommitIds);
@@ -217,11 +222,22 @@ export class LogViewController implements Disposable {
         }
         const reasonStr = reason ? ` (reason: ${reason})` : '';
         this._logger?.info?.(`[LogViewController] Queuing refresh${reasonStr}...`);
+        if (reason?.includes(MANUAL_REFRESH_REASON)) {
+            this._bypassCodeForgeThrottle = true;
+        }
         await this._refreshQueue.run();
     }
 
     private async _doRefresh(): Promise<void> {
+        // Consume the manual bypass up front so a concurrently queued manual refresh isn't
+        // swallowed by an in-flight run, and restore it on any early exit before setCommits.
+        const bypassThrottle = this._bypassCodeForgeThrottle;
+        this._bypassCodeForgeThrottle = false;
+
         if (!this._repo || !(await this._repo.isValid())) {
+            if (bypassThrottle) {
+                this._bypassCodeForgeThrottle = true;
+            }
             this._logger?.info?.(
                 `[LogViewController] ${this._repo ? this._repo.rootUri.fsPath : 'No repository'} is not valid. Clearing commits.`,
             );
@@ -232,6 +248,7 @@ export class LogViewController implements Disposable {
         const jj = this._repo.jj;
         const targetRepoPath = this._repo.rootUri.fsPath;
 
+        let codeForgeThrottled = false;
         try {
             const start = performance.now();
             const commits = await jj.getLog({
@@ -240,20 +257,36 @@ export class LogViewController implements Disposable {
             });
 
             if (this._repo?.rootUri.fsPath !== targetRepoPath || this._disposed) {
+                if (bypassThrottle) {
+                    this._bypassCodeForgeThrottle = true;
+                }
                 this._logger?.info?.(
                     `[LogViewController] Repository changed during fetch (was ${targetRepoPath}). Discarding stale log.`,
                 );
                 return;
             }
 
-            this.setCommits(commits);
+            // Decided before setCommits() so a throttled refresh doesn't bump the fetch version.
+            codeForgeThrottled = !bypassThrottle && this._repo.codeForge.isWithinMinRefreshInterval();
+            this.setCommits(commits, { codeForgeThrottled });
 
             const duration = performance.now() - start;
             this._logger?.info?.(
                 `[timing] [LogView] refresh took ${duration.toFixed(0)}ms (${commits.length} commits)`,
             );
         } catch (e) {
+            if (bypassThrottle) {
+                this._bypassCodeForgeThrottle = true;
+            }
             this._logger?.error('[LogViewController] Failed to fetch log', toError(e));
+            return;
+        }
+
+        if (codeForgeThrottled) {
+            this._logger?.info?.(
+                '[LogViewController] Deferring code forge fetch until codeForge.minRefreshIntervalSeconds elapses',
+            );
+            this._repo.codeForge.scheduleDeferredRefresh();
             return;
         }
 
@@ -262,8 +295,9 @@ export class LogViewController implements Disposable {
         });
     }
 
-    public setCommits(commits: readonly JjLogEntry[]): void {
-        if (commits !== this._commits) {
+    /** `codeForgeThrottled`: don't make an in-flight refreshCodeForge() run again for these commits. */
+    public setCommits(commits: readonly JjLogEntry[], options?: { codeForgeThrottled?: boolean }): void {
+        if (commits !== this._commits && !options?.codeForgeThrottled) {
             this._codeForgeFetchVersion++;
         }
         const enrichedCommits = commits.map((c) => ({ ...c }));
@@ -489,15 +523,20 @@ export class LogViewController implements Disposable {
             return;
         }
 
-        this._codeForgeRefreshPromise = (async () => {
+        const promise = (async () => {
             let lastRunVersion = -1;
             let iterations = 0;
             const maxIterations = 3;
-            while (!this._disposed && iterations < maxIterations && lastRunVersion !== this._codeForgeFetchVersion) {
+            while (
+                !this._disposed &&
+                this._repo?.codeForge === cf &&
+                iterations < maxIterations &&
+                lastRunVersion !== this._codeForgeFetchVersion
+            ) {
                 iterations++;
                 if (!cf.isEnabled) {
                     await cf.detectActiveProvider(true);
-                    if (!cf.isEnabled || this._disposed) {
+                    if (!cf.isEnabled || this._disposed || this._repo?.codeForge !== cf) {
                         return;
                     }
                 }
@@ -505,12 +544,18 @@ export class LogViewController implements Disposable {
                 await this._executeCodeForgeRefresh(cf);
             }
         })().finally(() => {
-            this._codeForgeRefreshPromise = undefined;
+            if (this._codeForgeRefreshPromise === promise) {
+                this._codeForgeRefreshPromise = undefined;
+            }
         });
-        return this._codeForgeRefreshPromise;
+        this._codeForgeRefreshPromise = promise;
+        return promise;
     }
 
     private async _executeCodeForgeRefresh(cf: CodeForgeService): Promise<void> {
+        if (this._disposed || this._repo?.codeForge !== cf || this._commits.length === 0) {
+            return;
+        }
         try {
             cf.startPolling();
             const start = performance.now();
@@ -560,7 +605,7 @@ export class LogViewController implements Disposable {
                 await operation(jj);
             });
             await this.refresh('mutationComplete');
-            await this._host.commands.executeCommand('jj-view.refresh');
+            await this._repo?.refresh({ reason: 'mutationComplete' });
         } catch (err) {
             await showJjError(this._host.ui, err, failureMessage, jj, this._logger);
         }
