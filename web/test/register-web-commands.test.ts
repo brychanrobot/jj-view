@@ -4,6 +4,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { MANUAL_REFRESH_REASON } from '../../src/core/code-forge-service';
+import type { LogViewController } from '../../src/core/controllers/log-view-controller';
 import type { HostFs } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjRepository } from '../../src/core/jj-repository';
@@ -24,7 +26,7 @@ import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from '../src/menu/default-menus';
 import { createMock } from './test-mock';
 
 describe('registerWebCommands', () => {
-    function setupTestEnvironment() {
+    function setupTestEnvironment(options?: { logViewController?: LogViewController }) {
         const openedCommitDetails: string[] = [];
         const mockRemoteHost = createMock<RemoteHostSystem>({
             fs: createMock<HostFs>({
@@ -140,6 +142,7 @@ describe('registerWebCommands', () => {
             hostEnvironment,
             logger: mockLogger,
             scmModel: mockScmModel,
+            logViewController: options?.logViewController,
         });
 
         return {
@@ -210,11 +213,32 @@ describe('registerWebCommands', () => {
         });
     });
 
-    it('executes jj-view.refresh through commands.executeCommand', async () => {
+    it('executes jj-view.refresh through commands.executeCommand without duplicate un-reasoned refresh', async () => {
         const { hostEnvironment, mockRepo } = setupTestEnvironment();
 
         await hostEnvironment.commands.executeCommand('jj-view.refresh');
-        expect(mockRepo.refresh).toHaveBeenCalled();
+        expect(mockRepo.refresh).toHaveBeenCalledTimes(1);
+        expect(mockRepo.refresh).toHaveBeenCalledWith({ reason: MANUAL_REFRESH_REASON, forceSnapshot: true });
+    });
+
+    it('executes jj-view.refreshGraph via logViewController without trailing un-reasoned repo.refresh', async () => {
+        const logViewController = createMock<LogViewController>({
+            refresh: vi.fn(async () => {}),
+        });
+        const { hostEnvironment, mockRepo } = setupTestEnvironment({ logViewController });
+
+        await hostEnvironment.commands.executeCommand('jj-view.refreshGraph');
+        expect(logViewController.refresh).toHaveBeenCalledTimes(1);
+        expect(logViewController.refresh).toHaveBeenCalledWith(MANUAL_REFRESH_REASON);
+        expect(mockRepo.refresh).not.toHaveBeenCalled();
+    });
+
+    it('executes jj-view.refreshGraph fallback with MANUAL_REFRESH_REASON when logViewController is absent', async () => {
+        const { hostEnvironment, mockRepo } = setupTestEnvironment();
+
+        await hostEnvironment.commands.executeCommand('jj-view.refreshGraph');
+        expect(mockRepo.refresh).toHaveBeenCalledTimes(1);
+        expect(mockRepo.refresh).toHaveBeenCalledWith({ reason: MANUAL_REFRESH_REASON });
     });
 
     it('executes jj-view.commit with passed message', async () => {

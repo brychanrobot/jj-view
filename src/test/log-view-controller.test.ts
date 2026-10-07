@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import type { CodeForgeProvider } from '../core/code-forge-provider';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { MANUAL_REFRESH_REASON } from '../core/code-forge-service';
 import { LogViewController } from '../core/controllers/log-view-controller';
 import { EventEmitter } from '../core/host/events';
+import { NodeHostSystem } from '../core/host/node-host-system';
 import { JjContextKey } from '../core/jj-context-keys';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import type { JjLogEntry } from '../core/jj-types';
@@ -35,7 +37,15 @@ describe('LogViewController Domain Unit Tests', () => {
             appendLine: () => {},
         });
 
-        fakeHost = new FakeHostEnvironment();
+        fakeHost = new FakeHostEnvironment(
+            new NodeHostSystem({
+                watcher: {
+                    watch: async () => ({
+                        unsubscribe: async () => {},
+                    }),
+                },
+            }),
+        );
         fakeHost.workspace.addFolder(Uri.file(testRepo.path));
         fakeHost.storage.update('jj-view.hiddenCommitActions', ['squash']);
 
@@ -45,6 +55,8 @@ describe('LogViewController Domain Unit Tests', () => {
         if (!repo) {
             throw new Error('Failed to register repo in test');
         }
+        await repo.watcher.dispose();
+        await repo.activeRefresh;
 
         controller = new LogViewController(repo, fakeHost, {
             messenger: {
@@ -54,8 +66,11 @@ describe('LogViewController Domain Unit Tests', () => {
     });
 
     afterEach(async () => {
-        controller.dispose();
-        await repositoryManager.dispose();
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+        controller?.dispose();
+        await repositoryManager?.dispose();
+        await testRepo?.dispose();
     });
 
     test('manages commits and fires onDidUpdateCommits', () => {
@@ -473,5 +488,274 @@ describe('LogViewController Domain Unit Tests', () => {
 
         expect(handled).toBe(true);
         expect(executeSpy).toHaveBeenCalledWith('jj-view.compareWithUploaded', 'test-change-cl');
+    });
+
+    describe('code forge fetch throttling (codeForge.minRefreshIntervalSeconds)', () => {
+        async function setUpCodeForge() {
+            const repo = repositoryManager.getRepositoryForUri(Uri.file(testRepo.path));
+            if (!repo) {
+                throw new Error('Repository not registered in test');
+            }
+            const fetchStatuses = vi.fn<CodeForgeProvider['fetchStatuses']>().mockResolvedValue(false);
+            const mockProvider = createMock<CodeForgeProvider>({
+                id: 'mock-provider-throttle',
+                detect: async () => true,
+                onDidUpdate: new EventEmitter<void>().event,
+                getCachedChangeInfo: () => undefined,
+                fetchStatuses,
+                clearCache: () => {},
+                activate: () => {},
+                deactivate: () => {},
+            });
+            registry.register({ id: 'mock-provider-throttle', create: () => mockProvider });
+            await repo.codeForge.detectActiveProvider(true);
+            return { repo, fetchStatuses };
+        }
+
+        /** Waits for the fire-and-forget code forge fetch started by a log refresh to finish. */
+        async function waitForFetchCount(fetchStatuses: Mock<CodeForgeProvider['fetchStatuses']>, count: number) {
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(count));
+            await vi.waitFor(() => {
+                // The service stamps the fetch time once the provider call settles.
+                expect(fetchStatuses.mock.settledResults.length).toBe(count);
+            });
+        }
+
+        test('fetches on every log refresh when unset', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('skips the fetch for log refreshes inside the window', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            expect(repo.codeForge.isWithinMinRefreshInterval()).toBe(true);
+
+            await controller.refresh('fileChange');
+            await controller.refresh('mutationComplete');
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+        });
+
+        test('fetches the throttled changes once the window ends', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Fake only the clock and timeouts; jj subprocesses still run on real I/O.
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+            // Two throttled refreshes inside the window coalesce into one trailing fetch.
+            await controller.refresh('fileChange');
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            await waitForFetchCount(fetchStatuses, 2);
+            await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('a deferred refresh is not swallowed by a fetch that began with older commits', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+
+            // A poller tick starts a slow fetch with the current commits.
+            let finishFetch!: (changed: boolean) => void;
+            fetchStatuses.mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finishFetch = resolve;
+                    }),
+            );
+            repo.codeForge.forceRefresh();
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(2));
+
+            // A throttled log refresh brings in a new commit meanwhile.
+            testRepo.new(undefined, 'newer');
+            const newerChangeId = testRepo.getChangeId('@');
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+
+            // The deferred refresh fires while the slow fetch runs; a further fetch must then cover the new commit.
+            await vi.advanceTimersByTimeAsync(30_000);
+            finishFetch(false);
+            await waitForFetchCount(fetchStatuses, 3);
+
+            const lastChanges = fetchStatuses.mock.calls[2][0];
+            expect(lastChanges.map((c) => c.changeId)).toContain(newerChangeId);
+        });
+
+        test('still refreshes the log itself when the fetch is skipped', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            const setCommitsSpy = vi.spyOn(controller, 'setCommits');
+            await controller.refresh('fileChange');
+
+            expect(setCommitsSpy).toHaveBeenCalledTimes(1);
+        });
+
+        test('manual refreshes bypass the throttle once', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            await controller.refresh(MANUAL_REFRESH_REASON);
+            await waitForFetchCount(fetchStatuses, 2);
+
+            // The manual fetch restarted the window, and the bypass is not sticky.
+            await controller.refresh('fileChange');
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('manual refreshes are recognised among combined reasons', async () => {
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            await controller.refresh(`fileChange, ${MANUAL_REFRESH_REASON}`);
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('a manual refresh that fails before the fetch keeps its bypass for the retry', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // `jj log` fails on an invalid default revset.
+            testRepo.config('revsets.log', '(((');
+            try {
+                await controller.refresh(MANUAL_REFRESH_REASON);
+            } finally {
+                testRepo.removeConfig('revsets.log');
+            }
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+            expect(repo.codeForge.isWithinMinRefreshInterval()).toBe(true);
+
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('a throttled log refresh does not make an in-flight fetch run again', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Start a fetch that is not throttled (a poller tick) and hold it open.
+            let finishFetch!: (changed: boolean) => void;
+            fetchStatuses.mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finishFetch = resolve;
+                    }),
+            );
+            repo.codeForge.forceRefresh();
+            await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(2));
+
+            // A throttled refresh mid-fetch must not make the running refresh fetch again.
+            await controller.refresh('fileChange');
+            finishFetch(false);
+            await waitForFetchCount(fetchStatuses, 2);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(fetchStatuses).toHaveBeenCalledTimes(2);
+        });
+
+        test('explicit code forge refresh requests are never throttled', async () => {
+            const { repo, fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            // Poller ticks, post-upload backoffs and auth changes all go through forceRefresh.
+            repo.codeForge.forceRefresh();
+            await waitForFetchCount(fetchStatuses, 2);
+        });
+
+        test('graph mutations do not bypass minRefreshIntervalSeconds via jj-view.refresh', async () => {
+            testRepo.writeFile('bm.txt', 'content\n');
+            testRepo.bookmark('bm', '@');
+            testRepo.new(undefined, 'child');
+
+            const { fetchStatuses } = await setUpCodeForge();
+            fakeHost.config.set('codeForge.minRefreshIntervalSeconds', 3600);
+            await controller.refresh('fileChange');
+            await waitForFetchCount(fetchStatuses, 1);
+
+            const executeSpy = vi.spyOn(fakeHost.commands, 'executeCommand');
+            await controller.handleMessage({
+                type: 'moveBookmark',
+                payload: { bookmark: 'bm', targetChangeId: '@' },
+            });
+
+            expect(executeSpy).not.toHaveBeenCalledWith('jj-view.refresh');
+            expect(fetchStatuses).toHaveBeenCalledTimes(1);
+        });
+
+        test('switching repository isolates in-flight refreshCodeForge from the new repository', async () => {
+            const { repo: repo1, fetchStatuses: repo1Fetch } = await setUpCodeForge();
+            const repo2Temp = new TestRepo();
+            try {
+                repo2Temp.init();
+                repo2Temp.writeFile('other.txt', 'hello\n');
+                repo2Temp.describe('second repo commit');
+                fakeHost.workspace.addFolder(Uri.file(repo2Temp.path));
+                const repo2 = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(repo2Temp.path));
+                if (!repo2) {
+                    throw new Error('Second repository not registered in test');
+                }
+                await repo2.watcher.dispose();
+                await repo2.activeRefresh;
+
+                const repo1EnsureSpy = vi.spyOn(repo1.codeForge, 'ensureFreshStatuses');
+                const repo2EnsureSpy = vi.spyOn(repo2.codeForge, 'ensureFreshStatuses');
+
+                await controller.refresh('fileChange');
+                await waitForFetchCount(repo1Fetch, 1);
+
+                let finishRepo1Fetch!: (changed: boolean) => void;
+                repo1Fetch.mockImplementationOnce(
+                    () =>
+                        new Promise<boolean>((resolve) => {
+                            finishRepo1Fetch = resolve;
+                        }),
+                );
+
+                // Start an in-flight refreshCodeForge on repo1, then switch to repo2 before it finishes.
+                const inFlightRepo1 = controller.refreshCodeForge();
+                await vi.waitFor(() => expect(repo1EnsureSpy).toHaveBeenCalledTimes(2));
+
+                controller.repository = repo2;
+                await vi.waitFor(() => expect(repo2EnsureSpy).toHaveBeenCalledTimes(1));
+
+                // Settling repo1's in-flight fetch must not trigger another repo1 fetch using repo2's commits.
+                finishRepo1Fetch(false);
+                await inFlightRepo1;
+                await new Promise((resolve) => setTimeout(resolve, 0));
+
+                expect(repo1EnsureSpy).toHaveBeenCalledTimes(2);
+                expect(repo2EnsureSpy).toHaveBeenCalledTimes(1);
+            } finally {
+                await repo2Temp.dispose();
+            }
+        });
     });
 });
