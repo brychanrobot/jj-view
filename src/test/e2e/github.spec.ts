@@ -371,6 +371,90 @@ test.describe('GitHub Integration E2E', () => {
         await expectBadgeLink(row, 'PR #99', 'https://github.com/mainline-owner/mainline-repo/pull/99');
     });
 
+    test('Detects PR in the parent repo when origin is a fork', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        // Only the fork is a remote, so it is the repo that gets queried; its PRs live in the parent.
+        repo.addRemote('origin', 'https://github.com/fork-owner/fork-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            { label: 'fork-commit', parents: ['base'], description: 'Fork Commit', bookmarks: ['my-fork-branch'] },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.isFork = true;
+        github.registerParentPR('my-fork-branch', {
+            id: 'pr_node_id_parent',
+            number: 77,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/mainline-owner/mainline-repo/pull/77',
+            currentRevision: commits['fork-commit'].commitId,
+            headOwner: 'fork-owner',
+        });
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row = await waitForLogCommitRow(page, 'Fork Commit');
+
+        await expectBadgeLink(row, 'PR #77', 'https://github.com/mainline-owner/mainline-repo/pull/77');
+    });
+
+    test('Does not query the parent repo when origin is not a fork', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        repo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+
+        const graph: CommitDefinition[] = [
+            { label: 'base', description: 'base' },
+            { label: 'pr-commit', parents: ['base'], description: 'Plain PR Commit', bookmarks: ['plain-branch'] },
+        ];
+
+        const commits = await buildGraph(repo, graph);
+
+        github.registerPR('plain-branch', {
+            id: 'pr_node_id_plain',
+            number: 55,
+            state: 'OPEN',
+            mergeable: 'MERGEABLE',
+            url: 'https://github.com/test-owner/test-repo/pull/55',
+            currentRevision: commits['pr-commit'].commitId,
+        });
+
+        const { page } = await vscode.openWorkspace(
+            repo,
+            {
+                'jj-view.codeForge.provider': 'github',
+            },
+            {
+                JJ_VIEW_GITHUB_API_URL: github.url,
+                JJ_VIEW_GITHUB_TOKEN: 'test-token',
+            },
+        );
+
+        await focusJJLog(page);
+
+        const row = await waitForLogCommitRow(page, 'Plain PR Commit');
+        await expectBadgeLink(row, 'PR #55', 'https://github.com/test-owner/test-repo/pull/55');
+
+        const statusQueries = github.requests.map((r) => r.body).filter((b) => b.includes('plain-branch'));
+        expect(statusQueries.length).toBeGreaterThan(0);
+        expect(statusQueries.every((b) => !b.includes('parent {'))).toBe(true);
+    });
+
     test('Clicks unresolved comments bubble and fetches comments', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();

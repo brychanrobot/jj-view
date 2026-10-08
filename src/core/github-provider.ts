@@ -178,6 +178,16 @@ export const GitHubRepoMetadataSchema = z.object({
 });
 export type GitHubRepoMetadataGql = z.infer<typeof GitHubRepoMetadataSchema>;
 
+export const GitHubForkCheckSchema = z.object({
+    data: z
+        .object({
+            repository: z.object({ isFork: z.boolean() }).nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+    errors: z.array(z.unknown()).nullable().optional(),
+});
+
 export const GitHubStackedPrNodeSchema = z.object({
     id: z.string(),
     number: z.number(),
@@ -279,6 +289,7 @@ export class GitHubProvider implements CodeForgeProvider {
     private owner: string | undefined;
     private repo: string | undefined;
     private allowedOwners = new Set<string>();
+    private forkCheck: { key: string; isFork: Promise<boolean> } | undefined;
 
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
@@ -443,9 +454,14 @@ export class GitHubProvider implements CodeForgeProvider {
         if (!token) {
             return results;
         }
-        if (!this.owner || !this.repo) {
+        // Snapshot: detect() can switch repos while the fork check is awaited.
+        const { owner, repo } = this;
+        if (!owner || !repo) {
             return results;
         }
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const includeParent = await this.isForkRepo(apiUrl, token, owner, repo);
 
         const aliasQueries = bookmarkNames.map((name, index) => {
             const alias = `pr_${index}`;
@@ -491,18 +507,17 @@ export class GitHubProvider implements CodeForgeProvider {
             }`;
         });
 
+        // GitHub prices a query from its text, so a `parent` block costs the same when it resolves to null.
+        const parentBlock = includeParent ? `parent {\n${aliasQueries.join('\n')}\n}` : '';
         const query = `
         query($owner: String!, $name: String!) {
             repository(owner: $owner, name: $name) {
-                parent {
-                    ${aliasQueries.join('\n')}
-                }
+                ${parentBlock}
                 ${aliasQueries.join('\n')}
             }
         }
         `;
 
-        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
         const response = await fetchWithTimeout(apiUrl, 15000, {
             method: 'POST',
             headers: {
@@ -513,8 +528,8 @@ export class GitHubProvider implements CodeForgeProvider {
             body: JSON.stringify({
                 query,
                 variables: {
-                    owner: this.owner,
-                    name: this.repo,
+                    owner,
+                    name: repo,
                 },
             }),
         });
@@ -767,6 +782,61 @@ export class GitHubProvider implements CodeForgeProvider {
         }
 
         return result;
+    }
+
+    /**
+     * Whether the repo is a fork, so PRs may live in its parent. Cached per owner/repo; on any failure
+     * returns true (without caching) so fork PRs are never missed.
+     */
+    private isForkRepo(apiUrl: string, token: string, owner: string, repo: string): Promise<boolean> {
+        const key = `${apiUrl} ${owner}/${repo}`;
+        if (this.forkCheck?.key !== key) {
+            const entry = {
+                key,
+                isFork: this.fetchIsFork(apiUrl, token, owner, repo).catch((err: unknown) => {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.outputChannel?.warn(
+                        `[GitHubProvider] Fork check failed, querying the parent repo too: ${msg}`,
+                    );
+                    if (this.forkCheck === entry) {
+                        this.forkCheck = undefined;
+                    }
+                    return true;
+                }),
+            };
+            this.forkCheck = entry;
+        }
+        return this.forkCheck.isFork;
+    }
+
+    private async fetchIsFork(apiUrl: string, token: string, owner: string, repo: string): Promise<boolean> {
+        const response = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: JSON.stringify({
+                query: 'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { isFork } }',
+                variables: { owner, name: repo },
+            }),
+        });
+        if (!response.ok) {
+            throw new Error(`Fork check failed with status: ${response.statusText}`);
+        }
+        const parsed = GitHubForkCheckSchema.safeParse(await response.json());
+        if (!parsed.success) {
+            throw new Error(`Failed to parse fork check: ${parsed.error.message}`);
+        }
+        if (parsed.data.errors && parsed.data.errors.length > 0) {
+            throw new Error(`GraphQL errors: ${JSON.stringify(parsed.data.errors)}`);
+        }
+        const isFork = parsed.data.data?.repository?.isFork;
+        if (isFork === undefined) {
+            throw new Error('Repository not found');
+        }
+        return isFork;
     }
 
     private async fetchRepositoryMetadata(
@@ -1393,6 +1463,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.forkCheck = undefined;
         this._onDidUpdate.fire();
     }
 

@@ -69,8 +69,38 @@ interface GqlPrNode {
     };
 }
 
+/** Splits the `parent { ... }` block (PRs in the parent repo of a fork) out of a batch status query. */
+function splitParentBlock(query: string): { own: string; parent: string | undefined } {
+    const match = /\bparent\s*\{/.exec(query);
+    if (!match) {
+        return { own: query, parent: undefined };
+    }
+    let depth = 0;
+    let inString = false;
+    let end = query.length - 1;
+    for (let i = match.index + match[0].length - 1; i < query.length; i++) {
+        const ch = query[i];
+        if (inString) {
+            if (ch === '\\') {
+                i++;
+            } else if (ch === '"') {
+                inString = false;
+            }
+        } else if (ch === '"') {
+            inString = true;
+        } else if (ch === '{') {
+            depth++;
+        } else if (ch === '}' && --depth === 0) {
+            end = i;
+            break;
+        }
+    }
+    return { own: query.slice(0, match.index) + query.slice(end + 1), parent: query.slice(match.index, end + 1) };
+}
+
 export class FakeGitHubServer {
     private prs = new Map<string, FakePrInfo[]>();
+    private parentPrs = new Map<string, FakePrInfo[]>(); // PRs in the parent repo, visible only when isFork
     private threads = new Map<string, FakeReviewThread[]>(); // prId -> FakeReviewThread[]
     private server: http.Server | undefined;
     public url = '';
@@ -89,11 +119,20 @@ export class FakeGitHubServer {
     public stacks: Array<{ id: number; number: number; pull_requests: Array<{ number: number }> }> = [];
     public stacksResponseStatus = 201;
     public defaultBranch = 'main';
+    /** Whether the queried repository is a fork. Only then are `parent` aliases resolved, as on GitHub. */
+    public isFork = false;
 
     public registerPR(bookmark: string, pr: FakePrInfo) {
         const list = this.prs.get(bookmark) ?? [];
         list.push(pr);
         this.prs.set(bookmark, list);
+    }
+
+    /** Registers a PR that lives in the parent repository of the (fork) repo being queried. */
+    public registerParentPR(bookmark: string, pr: FakePrInfo) {
+        const list = this.parentPrs.get(bookmark) ?? [];
+        list.push(pr);
+        this.parentPrs.set(bookmark, list);
     }
 
     public registerReviewThreads(prId: string, threads: FakeReviewThread[]) {
@@ -109,7 +148,9 @@ export class FakeGitHubServer {
         this.stacks = [];
         this.stacksResponseStatus = 201;
         this.defaultBranch = 'main';
+        this.isFork = false;
         this.prs.clear();
+        this.parentPrs.clear();
         this.threads.clear();
     }
 
@@ -312,6 +353,12 @@ export class FakeGitHubServer {
                             return;
                         }
 
+                        if (query.includes('isFork') && !query.includes('pullRequests')) {
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ data: { repository: { isFork: this.isFork } } }));
+                            return;
+                        }
+
                         if (query.includes('defaultBranchRef')) {
                             res.writeHead(200, { 'Content-Type': 'application/json' });
                             res.end(
@@ -425,68 +472,24 @@ export class FakeGitHubServer {
 
                         // Parse queries in the format:
                         // pr_0: pullRequests(first: 10, headRefName: "some-bookmark"...) {
-                        const regex = /(\w+):\s*pullRequests\s*\([^)]*headRefName:\s*"([^"]+)"[^)]*\)/g;
-                        let match = regex.exec(query);
-                        const repositoryData: Record<string, { nodes: GqlPrNode[] } | null> = {};
+                        const isStatesOpenOnly = query.includes('states: [OPEN]');
+                        const resolveAliases = (text: string, source: Map<string, FakePrInfo[]>) => {
+                            const regex = /(\w+):\s*pullRequests\s*\([^)]*headRefName:\s*"([^"]+)"[^)]*\)/g;
+                            const data: Record<string, { nodes: GqlPrNode[] }> = {};
+                            for (let match = regex.exec(text); match !== null; match = regex.exec(text)) {
+                                const bookmarkName = match[2];
+                                const prList = source.get(bookmarkName) ?? [];
+                                const matchingPrs = prList.filter((p) => !isStatesOpenOnly || p.state === 'OPEN');
+                                data[match[1]] = { nodes: matchingPrs.map((pr) => this.toPrNode(pr, bookmarkName)) };
+                            }
+                            return data;
+                        };
 
-                        while (match !== null) {
-                            const alias = match[1];
-                            const bookmarkName = match[2];
-
-                            const prList = this.prs.get(bookmarkName) ?? [];
-                            const isStatesOpenOnly = query.includes('states: [OPEN]');
-                            const matchingPrs = prList.filter((p) => !isStatesOpenOnly || p.state === 'OPEN');
-                            const prNodes: GqlPrNode[] = matchingPrs.map((pr) => {
-                                const prNode: GqlPrNode = {
-                                    id: pr.id,
-                                    number: pr.number,
-                                    state: pr.state,
-                                    mergeable: pr.mergeable,
-                                    url: pr.url,
-                                    baseRefName: pr.baseRefName || 'main',
-                                    headRefName: bookmarkName,
-                                    headRepository: {
-                                        owner: {
-                                            login: pr.headOwner || 'test-owner',
-                                        },
-                                    },
-                                };
-
-                                if (pr.unresolvedComments !== undefined) {
-                                    const nodes = [];
-                                    for (let i = 0; i < pr.unresolvedComments; i++) {
-                                        nodes.push({ isResolved: false });
-                                    }
-                                    prNode.reviewThreads = { nodes };
-                                }
-
-                                if (pr.currentRevision) {
-                                    const parentNodes = pr.remoteParents
-                                        ? pr.remoteParents.map((oid) => ({ oid }))
-                                        : [];
-                                    prNode.commits = {
-                                        nodes: [
-                                            {
-                                                commit: {
-                                                    oid: pr.currentRevision,
-                                                    message: 'Mock PR Commit Description',
-                                                    parents: {
-                                                        nodes: parentNodes,
-                                                    },
-                                                },
-                                            },
-                                        ],
-                                    };
-                                }
-
-                                return prNode;
-                            });
-
-                            repositoryData[alias] = {
-                                nodes: prNodes,
-                            };
-
-                            match = regex.exec(query);
+                        const { own, parent } = splitParentBlock(query);
+                        const repositoryData: Record<string, unknown> = resolveAliases(own, this.prs);
+                        if (parent !== undefined) {
+                            // GitHub returns null for `parent` on a repository that is not a fork.
+                            repositoryData.parent = this.isFork ? resolveAliases(parent, this.parentPrs) : null;
                         }
 
                         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -518,6 +521,50 @@ export class FakeGitHubServer {
                 resolve(this.url);
             });
         });
+    }
+
+    private toPrNode(pr: FakePrInfo, bookmarkName: string): GqlPrNode {
+        const prNode: GqlPrNode = {
+            id: pr.id,
+            number: pr.number,
+            state: pr.state,
+            mergeable: pr.mergeable,
+            url: pr.url,
+            baseRefName: pr.baseRefName || 'main',
+            headRefName: bookmarkName,
+            headRepository: {
+                owner: {
+                    login: pr.headOwner || 'test-owner',
+                },
+            },
+        };
+
+        if (pr.unresolvedComments !== undefined) {
+            const nodes = [];
+            for (let i = 0; i < pr.unresolvedComments; i++) {
+                nodes.push({ isResolved: false });
+            }
+            prNode.reviewThreads = { nodes };
+        }
+
+        if (pr.currentRevision) {
+            const parentNodes = pr.remoteParents ? pr.remoteParents.map((oid) => ({ oid })) : [];
+            prNode.commits = {
+                nodes: [
+                    {
+                        commit: {
+                            oid: pr.currentRevision,
+                            message: 'Mock PR Commit Description',
+                            parents: {
+                                nodes: parentNodes,
+                            },
+                        },
+                    },
+                ],
+            };
+        }
+
+        return prNode;
     }
 
     public async stop(): Promise<void> {
