@@ -8,7 +8,7 @@ import type { CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
 import { GitHubProvider } from '../core/github-provider';
 import type { HostSecrets } from '../core/host/host-environment';
-import { JjService } from '../core/jj-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
@@ -49,6 +49,17 @@ vi.mock('vscode', () => ({
     },
 }));
 
+/** Wraps a fetch mock for batch queries so the fork check, which precedes them, gets its own answer. */
+function withForkCheck(batchMock: (url: string, init?: { body?: string }) => Promise<unknown>, isFork: boolean) {
+    return vi.fn().mockImplementation(async (url: string, init?: { body?: string }) => {
+        const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+        if (query.includes('isFork') && !query.includes('pullRequests')) {
+            return { ok: true, status: 200, json: async () => ({ data: { repository: { isFork } } }) };
+        }
+        return batchMock(url, init);
+    });
+}
+
 describe('GitHubProvider', () => {
     let provider: GitHubProvider;
     let mockOutputChannel: vscode.LogOutputChannel;
@@ -67,6 +78,7 @@ describe('GitHubProvider', () => {
             setAuthSkipped: vi.fn(),
             registerProvider: vi.fn(),
             getSessionToken: vi.fn().mockResolvedValue('test-token'),
+            clearInvalidToken: vi.fn().mockResolvedValue(undefined),
             hasOAuthSession: vi.fn().mockResolvedValue(false),
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
@@ -483,7 +495,7 @@ describe('GitHubProvider', () => {
         setPrivate(provider, 'owner', 'fork-owner');
         setPrivate(provider, 'repo', 'fork-repo');
 
-        const fetchMock = vi.fn().mockResolvedValue({
+        const batchMock = vi.fn().mockResolvedValue({
             ok: true,
             status: 200,
             json: async () => ({
@@ -519,7 +531,7 @@ describe('GitHubProvider', () => {
                 },
             }),
         });
-        global.fetch = fetchMock;
+        global.fetch = withForkCheck(batchMock, true);
 
         const fetchBatch = exposePrivate<{
             fetchBatchFromNetwork(
@@ -536,8 +548,8 @@ describe('GitHubProvider', () => {
         expect(pr?.number).toBe(42);
         expect(pr?.url).toBe('https://github.com/parent-owner/parent-repo/pull/42');
 
-        expect(fetchMock).toHaveBeenCalledTimes(1);
-        const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+        expect(batchMock).toHaveBeenCalledTimes(1);
+        const requestBody = JSON.parse(batchMock.mock.calls[0][1]?.body as string);
         expect(requestBody.query).toContain('parent {');
     });
 
@@ -550,7 +562,7 @@ describe('GitHubProvider', () => {
 
         const origFetch = global.fetch;
         try {
-            const fetchMock = vi.fn().mockResolvedValue({
+            const batchMock = vi.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
                 json: async () => ({
@@ -586,7 +598,7 @@ describe('GitHubProvider', () => {
                     },
                 }),
             });
-            global.fetch = fetchMock;
+            global.fetch = withForkCheck(batchMock, false);
 
             const fetchBatch = exposePrivate<{
                 fetchBatchFromNetwork(
@@ -604,7 +616,7 @@ describe('GitHubProvider', () => {
             expect(pr?.status).toBe('NEW');
             expect(pr?.displayLabel).toBe('PR #4');
 
-            const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+            const requestBody = JSON.parse(batchMock.mock.calls[0][1]?.body as string);
             expect(requestBody.query).toContain('orderBy: { field: CREATED_AT, direction: DESC }');
         } finally {
             global.fetch = origFetch;
@@ -1323,6 +1335,248 @@ describe('GitHubProvider', () => {
             } finally {
                 testRepo.dispose();
             }
+        });
+    });
+
+    describe('fork check', () => {
+        let server: FakeGitHubServer;
+        let originalApiUrl: string | undefined;
+        let testRepo: TestRepo;
+        let jj: JjService;
+
+        const forkChecks = () => server.requests.filter((r) => r.body.includes('isFork')).length;
+        const batchQueries = () =>
+            server.requests
+                .map((r) => (JSON.parse(r.body) as { query?: string }).query ?? '')
+                .filter((q) => q.includes('pullRequests'));
+        const pr = (number: number, headOwner: string) => ({
+            id: `pr_node_${number}`,
+            number,
+            state: 'OPEN' as const,
+            mergeable: 'MERGEABLE' as const,
+            url: `https://github.com/mainline/repo/pull/${number}`,
+            headOwner,
+        });
+
+        beforeEach(async () => {
+            testRepo = new TestRepo();
+            testRepo.init();
+            jj = new JjService(testRepo.path, NO_OP_LOGGER);
+            server = new FakeGitHubServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITHUB_API_URL;
+            process.env.JJ_VIEW_GITHUB_API_URL = server.url;
+            setPrivate(provider, 'owner', 'me');
+            setPrivate(provider, 'repo', 'repo');
+            accessPrivate<Set<string>>(provider, 'allowedOwners').add('me');
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            await testRepo.dispose();
+            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+        });
+
+        test('omits the parent block for a repo that is not a fork', async () => {
+            server.registerPR('feature', pr(1, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(1);
+            expect(batchQueries()).toHaveLength(1);
+            expect(batchQueries()[0]).not.toContain('parent {');
+        });
+
+        test('finds PRs in the parent repo when the repo is a fork', async () => {
+            server.isFork = true;
+            server.registerParentPR('feature', pr(7, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(7);
+            expect(batchQueries()[0]).toContain('parent {');
+        });
+
+        test('still finds PRs in the fork itself when the repo is a fork', async () => {
+            server.isFork = true;
+            server.registerPR('feature', pr(3, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(3);
+        });
+
+        test('does not resolve a parent PR when the repo is not a fork', async () => {
+            server.registerParentPR('feature', pr(7, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])).toBeUndefined();
+        });
+
+        test('checks once per repo, even across parallel batches and later refreshes', async () => {
+            const bookmarks = Array.from({ length: 45 }, (_, i) => `bm-${i}`);
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+
+            expect(batchQueries()).toHaveLength(6);
+            expect(forkChecks()).toBe(1);
+        });
+
+        test('checks again after the cache is cleared', async () => {
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+            provider.clearCache();
+            server.isFork = true;
+            server.registerParentPR('feature', pr(7, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(forkChecks()).toBe(2);
+            expect(batchQueries()[1]).toContain('parent {');
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(7);
+        });
+
+        test('checks again when detect() resolves a different repo', async () => {
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            await provider.detect('/ws', [{ name: 'origin', url: 'https://github.com/me/other-repo.git' }]);
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(forkChecks()).toBe(2);
+        });
+
+        test('checks again when the API host changes', async () => {
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+            const other = new FakeGitHubServer();
+            await other.start();
+            try {
+                process.env.JJ_VIEW_GITHUB_API_URL = other.url;
+
+                await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+                expect(other.requests.filter((r) => r.body.includes('isFork'))).toHaveLength(1);
+            } finally {
+                await other.stop();
+            }
+        });
+
+        test('sends the batch to the repo the fork check was for when detect() switches repos mid-check', async () => {
+            const realFetch = global.fetch;
+            let releaseCheck!: () => void;
+            const checkGate = new Promise<void>((resolve) => {
+                releaseCheck = resolve;
+            });
+            let checkSeen!: () => void;
+            const checkStarted = new Promise<void>((resolve) => {
+                checkSeen = resolve;
+            });
+            global.fetch = vi.fn().mockImplementation(async (url: string, init?: { body?: string }) => {
+                const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+                if (query.includes('isFork')) {
+                    checkSeen();
+                    await checkGate;
+                }
+                return realFetch(url, init as RequestInit);
+            });
+
+            const fetching = provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+            await checkStarted;
+            await provider.detect('/ws', [{ name: 'origin', url: 'https://github.com/me/other-repo.git' }]);
+            releaseCheck();
+            await fetching;
+
+            const batch = server.requests.map((r) => JSON.parse(r.body) as { query?: string; variables?: unknown });
+            const batchVariables = batch.find((b) => b.query?.includes('pullRequests'))?.variables;
+            expect(batchVariables).toEqual({ owner: 'me', name: 'repo' });
+        });
+
+        test('clears the token and sends no batch query when the fork check gets a 401', async () => {
+            const realFetch = global.fetch;
+            let unauthorized = true;
+            const fetchMock = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
+                const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+                if (unauthorized && query.includes('isFork')) {
+                    return Promise.resolve(new Response('{}', { status: 401, statusText: 'Unauthorized' }));
+                }
+                return realFetch(url, init as RequestInit);
+            });
+            global.fetch = fetchMock;
+            server.registerPR('feature', pr(1, 'me'));
+            const bookmarks = ['feature', ...Array.from({ length: 44 }, (_, i) => `bm-${i}`)];
+
+            const changed = await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+
+            expect(changed).toBe(false);
+            expect(batchQueries()).toHaveLength(0);
+            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledTimes(1);
+            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledWith(
+                expect.objectContaining({ providerId: 'github', currentToken: 'test-token' }),
+            );
+
+            // Once the token has been replaced the check runs again, and the batches go out.
+            unauthorized = false;
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+
+            const checkRequests = fetchMock.mock.calls.filter((call) => String(call[1]?.body).includes('isFork'));
+            expect(checkRequests).toHaveLength(2);
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(1);
+        });
+
+        test('falls back to querying the parent, and retries the check, when the check fails', async () => {
+            const realFetch = global.fetch;
+            let failChecks = true;
+            global.fetch = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
+                const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+                if (failChecks && query.includes('isFork')) {
+                    return Promise.reject(new Error('network down'));
+                }
+                return realFetch(url, init as RequestInit);
+            });
+            server.registerParentPR('feature', pr(7, 'me'));
+            server.isFork = true;
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(7);
+            expect(batchQueries()[0]).toContain('parent {');
+
+            failChecks = false;
+            server.isFork = false;
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            expect(batchQueries()[1]).not.toContain('parent {');
+        });
+
+        test('falls back to querying the parent when the check reports GraphQL errors', async () => {
+            const realFetch = global.fetch;
+            global.fetch = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
+                const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+                if (query.includes('isFork')) {
+                    return Promise.resolve(
+                        new Response(JSON.stringify({ errors: [{ type: 'RATE_LIMIT' }] }), { status: 200 }),
+                    );
+                }
+                return realFetch(url, init as RequestInit);
+            });
+
+            server.registerPR('feature', pr(1, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['feature'] }], jj);
+
+            // The server is not a fork here, so it answers `parent: null` and the repo's own PR is used.
+            expect(batchQueries()[0]).toContain('parent {');
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(1);
+        });
+
+        test('resolves parent PRs for bookmark names containing braces', async () => {
+            server.isFork = true;
+            server.registerParentPR('a}b', pr(4, 'me'));
+            server.registerParentPR('c{d', pr(5, 'me'));
+
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks: ['plain', 'a}b', 'c{d'] }], jj);
+
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['a}b'])?.number).toBe(4);
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['c{d'])?.number).toBe(5);
         });
     });
 });
