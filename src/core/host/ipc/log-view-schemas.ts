@@ -71,9 +71,10 @@ export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('rebaseCommit'),
         payload: z.object({
-            sourceChangeId: z.string(),
-            targetChangeId: z.string(),
+            sourceChangeId: z.string().trim().min(1),
+            targetChangeId: z.string().trim().min(1),
             mode: z.enum(['revision', 'source']),
+            placement: z.enum(['onto', 'before', 'after']).optional(),
         }),
     }),
     z.object({

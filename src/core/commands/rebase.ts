@@ -23,20 +23,28 @@ export async function rebaseOntoSelectedCommand(
         repo,
         host: { ui },
     } = ctx;
-    const sourceId = payload?.sourceId;
+    const sourceId = payload?.sourceId?.trim();
     if (!sourceId) {
         return;
     }
 
-    const destinations = payload?.destinations ?? [];
+    const destinations = Array.from(
+        new Set((payload?.destinations ?? []).map((id) => id.trim()).filter((id) => id.length > 0 && id !== sourceId)),
+    );
     if (destinations.length === 0) {
-        await showJjError(ui, new Error('No commits selected to rebase onto.'), 'Rebase Error', repo.jj, ctx.log);
+        await showJjError(
+            ui,
+            new Error('No valid destination commits selected to rebase onto.'),
+            'Rebase Error',
+            repo.jj,
+            ctx.log,
+        );
         return;
     }
 
     try {
         await ui.withProgress(`Rebasing ${sourceId.substring(0, 8)} onto ${destinations.length} dest(s)...`, () =>
-            repo.jj.rebase(sourceId, destinations, 'source'),
+            repo.jj.rebase(sourceId, { target: destinations, mode: 'source' }),
         );
         await repo.refresh();
     } catch (err: unknown) {

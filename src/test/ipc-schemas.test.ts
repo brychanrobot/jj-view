@@ -102,6 +102,36 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 LogViewToHostMessageSchema.safeParse({
                     type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'revision', placement: 'onto' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'revision', placement: 'after' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'revision', placement: 'before' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'source', placement: 'after' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'source', placement: 'before' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
                     payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'source' },
                 }).success,
             ).toBe(true);
@@ -173,6 +203,36 @@ describe('IPC Schemas Unit Tests', () => {
                 LogViewToHostMessageSchema.safeParse({
                     type: 'rebaseCommit',
                     payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'invalid_mode' },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: 'b', mode: 'revision', placement: 'invalid' },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: '', targetChangeId: 'b', mode: 'revision' },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: '   ', targetChangeId: 'b', mode: 'revision' },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: '', mode: 'revision' },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'rebaseCommit',
+                    payload: { sourceChangeId: 'a', targetChangeId: '   ', mode: 'revision' },
                 }).success,
             ).toBe(false);
             expect(

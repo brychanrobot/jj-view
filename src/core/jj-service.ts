@@ -42,6 +42,26 @@ export interface JjLogOptions {
     includeNearestVisibleAncestors?: boolean;
 }
 
+/**
+ * Target placement strategy when rebasing commits:
+ * - 'onto': Rebase onto target destination(s) using canonical `-o` (`--onto`).
+ * - 'after': Insert after target commit(s) using `-A` (`--insert-after`).
+ * - 'before': Insert before target commit(s) using `-B` (`--insert-before`).
+ */
+export type RebasePlacement = 'onto' | 'before' | 'after';
+
+/**
+ * Options configuring a rebase operation.
+ */
+export interface RebaseOptions {
+    /** Target revision(s) or revsets. */
+    target: string | string[];
+    /** Placement relative to target. Defaults to 'onto'. */
+    placement?: RebasePlacement;
+    /** Whether to rebase a single revision ('revision' / `-r`) or the source and its descendants ('source' / `-s`). Defaults to 'source'. */
+    mode?: 'source' | 'revision';
+}
+
 // Safety timeout: if a mutation takes longer than this, unblock file watcher
 const ONE_MINUTE = 60_000;
 const MUTATION_TIMEOUT_MS = ONE_MINUTE;
@@ -952,23 +972,34 @@ export class JjService {
         await this.run('squash', args, { isMutation: true, label: 'squashRevision' });
     }
 
-    async rebase(
-        source: string,
-        destination: string | string[],
-        mode: 'source' | 'revision' = 'source',
-    ): Promise<string> {
+    async rebase(source: string, options: RebaseOptions): Promise<string> {
+        const cleanSource = source.trim();
+        if (cleanSource.length === 0) {
+            throw new Error('Rebase source must not be empty');
+        }
+
+        const rawTargets = Array.isArray(options.target) ? options.target : [options.target];
+        const targets = Array.from(new Set(rawTargets.map((t) => t.trim()).filter((t) => t.length > 0)));
+        if (targets.length === 0) {
+            throw new Error('Rebase target must not be empty');
+        }
+        if (targets.includes(cleanSource)) {
+            throw new Error('Cannot rebase a revision onto or around itself');
+        }
+
         const args: string[] = [];
-        const destinations = Array.isArray(destination) ? destination : [destination];
-        destinations.forEach((d) => {
-            args.push('-d', d);
+        const placement = options.placement ?? 'onto';
+        const flag = placement === 'after' ? '-A' : placement === 'before' ? '-B' : '-o';
+        targets.forEach((t) => {
+            args.push(flag, t);
         });
 
-        if (mode === 'source') {
-            // Rebase set (source and descendants)
-            args.push('-s', source);
-        } else {
+        if (options.mode === 'revision') {
             // Rebase revision (cherry-pick like behavior)
-            args.push('-r', source);
+            args.push('-r', cleanSource);
+        } else {
+            // Rebase set (source and descendants)
+            args.push('-s', cleanSource);
         }
         return this.run('rebase', args, { isMutation: true, label: 'rebase' });
     }

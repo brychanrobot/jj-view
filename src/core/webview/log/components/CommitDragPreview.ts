@@ -6,6 +6,7 @@ export interface CommitDragData {
     changeId: string;
     change_id_shortest?: string;
     description?: string;
+    descendantCount?: number;
 }
 
 export { default as CommitDragPreview } from './CommitDragPreview.svelte';
