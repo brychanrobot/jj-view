@@ -8,7 +8,7 @@ import type { CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
 import { GitHubProvider } from '../core/github-provider';
 import type { HostSecrets } from '../core/host/host-environment';
-import { JjService } from '../core/jj-service';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
@@ -78,6 +78,7 @@ describe('GitHubProvider', () => {
             setAuthSkipped: vi.fn(),
             registerProvider: vi.fn(),
             getSessionToken: vi.fn().mockResolvedValue('test-token'),
+            clearInvalidToken: vi.fn().mockResolvedValue(undefined),
             hasOAuthSession: vi.fn().mockResolvedValue(false),
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
@@ -1340,7 +1341,8 @@ describe('GitHubProvider', () => {
     describe('fork check', () => {
         let server: FakeGitHubServer;
         let originalApiUrl: string | undefined;
-        const jj = createMock<JjService>({});
+        let testRepo: TestRepo;
+        let jj: JjService;
 
         const forkChecks = () => server.requests.filter((r) => r.body.includes('isFork')).length;
         const batchQueries = () =>
@@ -1357,6 +1359,9 @@ describe('GitHubProvider', () => {
         });
 
         beforeEach(async () => {
+            testRepo = new TestRepo();
+            testRepo.init();
+            jj = new JjService(testRepo.path, NO_OP_LOGGER);
             server = new FakeGitHubServer();
             await server.start();
             originalApiUrl = process.env.JJ_VIEW_GITHUB_API_URL;
@@ -1368,6 +1373,7 @@ describe('GitHubProvider', () => {
 
         afterEach(async () => {
             await server.stop();
+            await testRepo.dispose();
             process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
         });
 
@@ -1483,6 +1489,38 @@ describe('GitHubProvider', () => {
             const batch = server.requests.map((r) => JSON.parse(r.body) as { query?: string; variables?: unknown });
             const batchVariables = batch.find((b) => b.query?.includes('pullRequests'))?.variables;
             expect(batchVariables).toEqual({ owner: 'me', name: 'repo' });
+        });
+
+        test('clears the token and sends no batch query when the fork check gets a 401', async () => {
+            const realFetch = global.fetch;
+            let unauthorized = true;
+            const fetchMock = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
+                const query = (JSON.parse(init?.body ?? '{}') as { query?: string }).query ?? '';
+                if (unauthorized && query.includes('isFork')) {
+                    return Promise.resolve(new Response('{}', { status: 401, statusText: 'Unauthorized' }));
+                }
+                return realFetch(url, init as RequestInit);
+            });
+            global.fetch = fetchMock;
+            server.registerPR('feature', pr(1, 'me'));
+            const bookmarks = ['feature', ...Array.from({ length: 44 }, (_, i) => `bm-${i}`)];
+
+            const changed = await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+
+            expect(changed).toBe(false);
+            expect(batchQueries()).toHaveLength(0);
+            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledTimes(1);
+            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledWith(
+                expect.objectContaining({ providerId: 'github', currentToken: 'test-token' }),
+            );
+
+            // Once the token has been replaced the check runs again, and the batches go out.
+            unauthorized = false;
+            await provider.fetchStatuses([{ commitId: 'c1', bookmarks }], jj);
+
+            const checkRequests = fetchMock.mock.calls.filter((call) => String(call[1]?.body).includes('isFork'));
+            expect(checkRequests).toHaveLength(2);
+            expect(provider.getCachedChangeInfo(undefined, undefined, ['feature'])?.number).toBe(1);
         });
 
         test('falls back to querying the parent, and retries the check, when the check fails', async () => {

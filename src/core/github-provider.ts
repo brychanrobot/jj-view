@@ -178,6 +178,8 @@ export const GitHubRepoMetadataSchema = z.object({
 });
 export type GitHubRepoMetadataGql = z.infer<typeof GitHubRepoMetadataSchema>;
 
+class GitHubUnauthorizedError extends Error { }
+
 export const GitHubForkCheckSchema = z.object({
     data: z
         .object({
@@ -535,15 +537,7 @@ export class GitHubProvider implements CodeForgeProvider {
         });
 
         if (response.status === 401 && token) {
-            this.outputChannel?.error(
-                `[GitHubProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
-            );
-            await this.authManager.clearInvalidToken({
-                providerId: 'github',
-                secretTokenKey: 'github_token',
-                currentToken: token,
-                envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
-            });
+            await this.clearInvalidToken(token);
         }
 
         if (!response.ok) {
@@ -784,9 +778,21 @@ export class GitHubProvider implements CodeForgeProvider {
         return result;
     }
 
+    private async clearInvalidToken(token: string): Promise<void> {
+        this.outputChannel?.error(
+            `[GitHubProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
+        );
+        await this.authManager.clearInvalidToken({
+            providerId: 'github',
+            secretTokenKey: 'github_token',
+            currentToken: token,
+            envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+        });
+    }
+
     /**
-     * Whether the repo is a fork, so PRs may live in its parent. Cached per owner/repo; on any failure
-     * returns true (without caching) so fork PRs are never missed.
+     * Whether the repo is a fork, so PRs may live in its parent. Cached per owner/repo; on failure returns
+     * true (without caching) so fork PRs are never missed. A 401 clears the token and rejects instead.
      */
     private isForkRepo(apiUrl: string, token: string, owner: string, repo: string): Promise<boolean> {
         const key = `${apiUrl} ${owner}/${repo}`;
@@ -794,13 +800,16 @@ export class GitHubProvider implements CodeForgeProvider {
             const entry = {
                 key,
                 isFork: this.fetchIsFork(apiUrl, token, owner, repo).catch((err: unknown) => {
+                    if (this.forkCheck === entry) {
+                        this.forkCheck = undefined;
+                    }
+                    if (err instanceof GitHubUnauthorizedError) {
+                        throw err;
+                    }
                     const msg = err instanceof Error ? err.message : String(err);
                     this.outputChannel?.warn(
                         `[GitHubProvider] Fork check failed, querying the parent repo too: ${msg}`,
                     );
-                    if (this.forkCheck === entry) {
-                        this.forkCheck = undefined;
-                    }
                     return true;
                 }),
             };
@@ -822,6 +831,10 @@ export class GitHubProvider implements CodeForgeProvider {
                 variables: { owner, name: repo },
             }),
         });
+        if (response.status === 401) {
+            await this.clearInvalidToken(token);
+            throw new Error('Fork check failed: 401 Unauthorized');
+        }
         if (!response.ok) {
             throw new Error(`Fork check failed with status: ${response.statusText}`);
         }
