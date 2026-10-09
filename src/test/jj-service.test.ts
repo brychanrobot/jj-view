@@ -1856,8 +1856,13 @@ log = "none()"
 
     describe('upload', () => {
         test('upload with revision includes -r flag', async () => {
+            using remoteRepo = new ScopedTestRepo();
+            remoteRepo.init();
+            repo.addRemote('origin', remoteRepo.path);
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+
             try {
-                // In a test repo without remotes, jj git push -r <bad-rev> should fail with a revision error
+                // In a test repo with origin remote, jj git push -r <bad-rev> should fail with a revision error
                 await jjService.upload('non-existent-rev', 'git', 'push');
                 expect.fail('Should have failed due to non-existent revision');
             } catch (e: unknown) {
@@ -1871,8 +1876,12 @@ log = "none()"
         });
 
         test('upload without revision omits -r flag', async () => {
-            // In a test repo, jj git push (without remotes) should naturally succeed or fail
-            // without a revision-specific error if our change successfully omitted the -r flag.
+            using remoteRepo = new ScopedTestRepo();
+            remoteRepo.init();
+            repo.addRemote('origin', remoteRepo.path);
+            repo.config('remotes.origin.auto-track-bookmarks', '"*"');
+
+            // In a test repo with origin remote, jj git push should succeed without a revision error
             await jjService.upload(undefined, 'git', 'push');
         });
     });
