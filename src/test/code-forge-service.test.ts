@@ -556,7 +556,7 @@ describe('CodeForgeService polling and throttling', () => {
         });
 
         test('falls back to the default for values that are not numbers', () => {
-            host.config.set('codeForge.pollIntervalSeconds', 'soon' as unknown as number);
+            host.config.set<unknown>('codeForge.pollIntervalSeconds', 'soon');
             service.startPolling();
 
             vi.advanceTimersByTime(59_999);
@@ -731,8 +731,8 @@ describe('CodeForgeService polling and throttling', () => {
             multiService.dispose();
         });
 
-        test.each([0, -5, Number.NaN, 'abc' as unknown as number])('treats %s as no throttling', async (value) => {
-            host.config.set('codeForge.minRefreshIntervalSeconds', value);
+        test.each<unknown>([0, -5, Number.NaN, 'abc'])('treats %s as no throttling', async (value) => {
+            host.config.set<unknown>('codeForge.minRefreshIntervalSeconds', value);
             await service.ensureFreshStatuses([]);
 
             expect(service.isWithinMinRefreshInterval()).toBe(false);

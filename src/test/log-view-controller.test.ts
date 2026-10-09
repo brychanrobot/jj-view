@@ -547,23 +547,8 @@ describe('LogViewController Domain Unit Tests', () => {
             await vi.waitFor(() => expect(fetchStatuses).toHaveBeenCalledTimes(2));
 
             // A throttled log refresh brings in a new commit meanwhile.
-            const jj = controller.jj;
-            if (!jj) {
-                throw new Error('Controller has no jj service');
-            }
-            vi.spyOn(jj, 'getLog').mockResolvedValueOnce([
-                createMock<JjLogEntry>({
-                    change_id: 'newer-change',
-                    commit_id: 'newer-commit',
-                    description: 'newer',
-                    is_immutable: false,
-                    is_empty: false,
-                    conflict: false,
-                    bookmarks: [],
-                    tags: [],
-                    parents: [],
-                }),
-            ]);
+            testRepo.new(undefined, 'newer');
+            const newerChangeId = testRepo.getChangeId('@');
             await controller.refresh('fileChange');
             expect(fetchStatuses).toHaveBeenCalledTimes(2);
 
@@ -573,7 +558,7 @@ describe('LogViewController Domain Unit Tests', () => {
             await waitForFetchCount(fetchStatuses, 3);
 
             const lastChanges = fetchStatuses.mock.calls[2][0] as { changeId: string }[];
-            expect(lastChanges.map((c) => c.changeId)).toContain('newer-change');
+            expect(lastChanges.map((c) => c.changeId)).toContain(newerChangeId);
         });
 
         test('still refreshes the log itself when the fetch is skipped', async () => {
@@ -618,12 +603,10 @@ describe('LogViewController Domain Unit Tests', () => {
             await controller.refresh('fileChange');
             await waitForFetchCount(fetchStatuses, 1);
 
-            const jj = controller.jj;
-            if (!jj) {
-                throw new Error('Controller has no jj service');
-            }
-            vi.spyOn(jj, 'getLog').mockRejectedValueOnce(new Error('transient jj failure'));
+            // `jj log` fails on an invalid default revset.
+            testRepo.config('revsets.log', '(((');
             await controller.refresh(MANUAL_REFRESH_REASON);
+            testRepo.removeConfig('revsets.log');
             expect(fetchStatuses).toHaveBeenCalledTimes(1);
             expect(repo.codeForge.isWithinMinRefreshInterval()).toBe(true);
 
