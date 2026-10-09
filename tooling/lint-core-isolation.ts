@@ -50,7 +50,7 @@ const bufferImportPattern =
     /(from\s+['"](node:buffer|buffer)['"]|require\s*\(\s*['"](node:buffer|buffer)['"]\s*\)|import\s*\(?\s*['"](node:buffer|buffer)['"])/;
 
 for (const filePath of sourceFiles) {
-    const isNodeHostAdapter = filePath.endsWith('src/core/host/node-host-system.ts');
+    const isNodeHostAdapter = filePath === path.join(coreDir, 'host', 'node-host-system.ts');
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
 
