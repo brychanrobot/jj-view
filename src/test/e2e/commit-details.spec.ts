@@ -191,8 +191,12 @@ test.describe('Commit Details E2E', () => {
 
             const details = await getDetailsWebview(page);
 
+            const saveButton = details.locator('button', { hasText: /^Saved/ });
+            await expect(saveButton).toBeDisabled({ timeout: 15000 });
+
             // Edit the description
             const textarea = details.locator('textarea');
+            await expect(textarea).toHaveValue('add feature', { timeout: 15000 });
             await textarea.fill('saved via keyboard');
 
             // Verify dirty state

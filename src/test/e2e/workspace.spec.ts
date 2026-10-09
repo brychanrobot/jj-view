@@ -115,9 +115,11 @@ test.describe('Workspace Management E2E', () => {
         // 1. Click Add Workspace and input name
         await expect(async () => {
             await clickLogTitleButton(page, 'Add Workspace');
-            const input = await waitForQuickInput(page, 2000);
+            const input = await waitForQuickInput(page, 5000);
+            await input.focus();
             await input.fill(workspaceName, { timeout: 2000 });
-            await page.keyboard.press('Enter');
+            await input.press('Enter');
+            await expect(input).toBeHidden({ timeout: 5000 });
         }, 'Failed to add workspace via title bar').toPass({ timeout: 20000 });
 
         // 3. Verify workspace pill appears in webview

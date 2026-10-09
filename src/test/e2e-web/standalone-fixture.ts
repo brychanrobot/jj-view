@@ -252,6 +252,13 @@ export async function waitForScmReady(page: Page): Promise<void> {
     await expect(page.locator('[data-testid="scm-pane"]')).toBeVisible({ timeout: 15000 });
 }
 
+export const isMac = process.platform === 'darwin';
+
+/** Helper to trigger Save across platforms (Meta+s on Mac, Control+s otherwise) */
+export async function save(page: Page): Promise<void> {
+    await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+}
+
 export interface RecordGifOptions {
     outputPath: string;
     framerate?: number; // default 1.2 fps

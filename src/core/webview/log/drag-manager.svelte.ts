@@ -18,6 +18,8 @@ const initialKeys: PressedKeysState = {
     s: false,
     d: false,
     m: false,
+    a: false,
+    b: false,
 };
 
 function isEditableElement(target: EventTarget | null): boolean {
@@ -30,6 +32,8 @@ function isEditableElement(target: EventTarget | null): boolean {
     return !!target.closest('input, textarea, select, [contenteditable="true"]');
 }
 
+const LETTER_KEYS = new Set<string>(['r', 's', 'd', 'm', 'a', 'b']);
+
 function getPressedKeyProperty(e: KeyboardEvent, isPressed: boolean): keyof PressedKeysState | null {
     if (isPressed && isEditableElement(e.target)) {
         return null;
@@ -41,17 +45,8 @@ function getPressedKeyProperty(e: KeyboardEvent, isPressed: boolean): keyof Pres
         return null;
     }
     const lower = e.key.toLowerCase();
-    if (lower === 'r') {
-        return 'r';
-    }
-    if (lower === 's') {
-        return 's';
-    }
-    if (lower === 'd') {
-        return 'd';
-    }
-    if (lower === 'm') {
-        return 'm';
+    if (LETTER_KEYS.has(lower)) {
+        return lower as keyof PressedKeysState;
     }
     return null;
 }
@@ -66,6 +61,7 @@ export class DragManager {
     activeModifier = $derived<DragActionModifier>(resolveActiveModifier(this.pressedKeys));
 
     private onDropCallback?: (item: DragItem, target: DropTarget, modifier: DragActionModifier) => void;
+    private activeCleanup: (() => void) | null = null;
 
     constructor(onDrop?: (item: DragItem, target: DropTarget, modifier: DragActionModifier) => void) {
         this.onDropCallback = onDrop;
@@ -78,6 +74,17 @@ export class DragManager {
     resetKeys() {
         this.pressedKeys = { ...initialKeys };
     }
+
+    cancelDrag = () => {
+        if (this.activeCleanup) {
+            this.activeCleanup();
+            this.activeCleanup = null;
+        } else {
+            this.activeDragItem = null;
+            this.activeDropTarget = null;
+            this.resetKeys();
+        }
+    };
 
     handleKeyDown = (e: KeyboardEvent) => {
         const prop = getPressedKeyProperty(e, true);
@@ -94,7 +101,11 @@ export class DragManager {
     };
 
     handleWindowBlur = () => {
-        this.resetKeys();
+        if (this.isDragging || this.activeCleanup) {
+            this.cancelDrag();
+        } else {
+            this.resetKeys();
+        }
     };
 
     draggable = (node: HTMLElement, getItem: () => DragItem | null) => {
@@ -151,6 +162,7 @@ export class DragManager {
         };
 
         const cleanup = () => {
+            this.activeCleanup = null;
             isTracking = false;
             hasMovedPastThreshold = false;
             this.activeDragItem = null;
@@ -165,8 +177,8 @@ export class DragManager {
             if (e.button !== 0) {
                 return;
             }
-            const target = e.target as HTMLElement | null;
-            if (target?.closest('button, a, input, textarea, select')) {
+            const target = e.target instanceof HTMLElement ? e.target : null;
+            if (target?.closest('button, a, input, textarea, select, [contenteditable="true"]')) {
                 return;
             }
             const nearestDraggable = target?.closest('[data-draggable="true"]');
@@ -179,10 +191,13 @@ export class DragManager {
                 return;
             }
 
+            this.pressedKeys.shift = e.shiftKey;
+
             startX = e.clientX;
             startY = e.clientY;
             isTracking = true;
             hasMovedPastThreshold = false;
+            this.activeCleanup = cleanup;
 
             window.addEventListener('pointermove', handlePointerMove);
             window.addEventListener('pointerup', handlePointerUp);
@@ -193,9 +208,11 @@ export class DragManager {
         node.addEventListener('pointerdown', handlePointerDown);
 
         return {
-            destroy() {
+            destroy: () => {
                 node.removeEventListener('pointerdown', handlePointerDown);
-                cleanup();
+                if (this.activeCleanup === cleanup) {
+                    cleanup();
+                }
             },
         };
     };

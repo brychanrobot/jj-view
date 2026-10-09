@@ -9,10 +9,20 @@ export interface PressedKeysState {
     s: boolean;
     d: boolean;
     m: boolean;
+    a: boolean;
+    b: boolean;
 }
 
 export type WebviewDragMessage =
-    | { type: 'rebaseCommit'; payload: { sourceChangeId: string; targetChangeId: string; mode: 'source' | 'revision' } }
+    | {
+          type: 'rebaseCommit';
+          payload: {
+              sourceChangeId: string;
+              targetChangeId: string;
+              mode: 'source' | 'revision';
+              placement?: 'onto' | 'before' | 'after';
+          };
+      }
     | { type: 'squashCommit'; payload: { sourceChangeId: string; targetChangeId: string; mode: 'into' | 'onto' } }
     | { type: 'duplicateCommit'; payload: { sourceChangeId: string; targetChangeId?: string } }
     | { type: 'mergeCommit'; payload: { sourceChangeId: string; targetChangeId: string } };
@@ -26,6 +36,7 @@ export interface DragActionModifier {
     shortcutHint: string;
     accentColor: string;
     priority: number;
+    includesDescendants?: boolean;
     matches: (keys: PressedKeysState) => boolean;
     buildMessagePayload: (sourceChangeId: string, targetChangeId?: string) => WebviewDragMessage;
 }
@@ -39,6 +50,7 @@ export const REBASE_BRANCH_MODIFIER: DragActionModifier = {
     shortcutHint: 'Default',
     accentColor: 'var(--vscode-charts-blue)',
     priority: 0,
+    includesDescendants: true,
     matches: () => true,
     buildMessagePayload: (sourceChangeId, targetChangeId) => ({
         type: 'rebaseCommit',
@@ -126,9 +138,99 @@ export const MERGE_MODIFIER: DragActionModifier = {
     }),
 };
 
+export const INSERT_AFTER_REVISION_MODIFIER: DragActionModifier = {
+    id: 'insert-after-revision',
+    label: 'Insert Revision After',
+    shortLabel: 'Insert After',
+    description: 'Insert revision after target (target descendants rebased onto source)',
+    badgeText: 'Insert revision after here',
+    shortcutHint: 'A',
+    accentColor: 'var(--vscode-charts-orange)',
+    priority: 10,
+    matches: (keys) => keys.a && !keys.shift,
+    buildMessagePayload: (sourceChangeId, targetChangeId) => ({
+        type: 'rebaseCommit',
+        payload: {
+            sourceChangeId,
+            targetChangeId: targetChangeId || '',
+            mode: 'revision',
+            placement: 'after',
+        },
+    }),
+};
+
+export const INSERT_AFTER_BRANCH_MODIFIER: DragActionModifier = {
+    id: 'insert-after-branch',
+    label: 'Insert Branch After',
+    shortLabel: 'Insert Branch After',
+    description: 'Insert branch after target (target descendants rebased onto source)',
+    badgeText: 'Insert branch after here',
+    shortcutHint: 'Shift + A',
+    accentColor: 'var(--vscode-charts-blue)',
+    priority: 20,
+    includesDescendants: true,
+    matches: (keys) => keys.a && keys.shift,
+    buildMessagePayload: (sourceChangeId, targetChangeId) => ({
+        type: 'rebaseCommit',
+        payload: {
+            sourceChangeId,
+            targetChangeId: targetChangeId || '',
+            mode: 'source',
+            placement: 'after',
+        },
+    }),
+};
+
+export const INSERT_BEFORE_REVISION_MODIFIER: DragActionModifier = {
+    id: 'insert-before-revision',
+    label: 'Insert Revision Before',
+    shortLabel: 'Insert Before',
+    description: 'Insert revision before target (source inserted between target and its parents)',
+    badgeText: 'Insert revision before here',
+    shortcutHint: 'B',
+    accentColor: 'var(--vscode-charts-orange)',
+    priority: 10,
+    matches: (keys) => keys.b && !keys.shift,
+    buildMessagePayload: (sourceChangeId, targetChangeId) => ({
+        type: 'rebaseCommit',
+        payload: {
+            sourceChangeId,
+            targetChangeId: targetChangeId || '',
+            mode: 'revision',
+            placement: 'before',
+        },
+    }),
+};
+
+export const INSERT_BEFORE_BRANCH_MODIFIER: DragActionModifier = {
+    id: 'insert-before-branch',
+    label: 'Insert Branch Before',
+    shortLabel: 'Insert Branch Before',
+    description: 'Insert branch before target (source inserted between target and its parents)',
+    badgeText: 'Insert branch before here',
+    shortcutHint: 'Shift + B',
+    accentColor: 'var(--vscode-charts-blue)',
+    priority: 20,
+    includesDescendants: true,
+    matches: (keys) => keys.b && keys.shift,
+    buildMessagePayload: (sourceChangeId, targetChangeId) => ({
+        type: 'rebaseCommit',
+        payload: {
+            sourceChangeId,
+            targetChangeId: targetChangeId || '',
+            mode: 'source',
+            placement: 'before',
+        },
+    }),
+};
+
 const UNSORTED_MODIFIERS: DragActionModifier[] = [
     SQUASH_ONTO_MODIFIER,
     SQUASH_INTO_MODIFIER,
+    INSERT_AFTER_BRANCH_MODIFIER,
+    INSERT_AFTER_REVISION_MODIFIER,
+    INSERT_BEFORE_BRANCH_MODIFIER,
+    INSERT_BEFORE_REVISION_MODIFIER,
     DUPLICATE_MODIFIER,
     MERGE_MODIFIER,
     REBASE_REVISION_MODIFIER,

@@ -4,7 +4,7 @@
  */
 
 import { buildGraph } from '../test-repo';
-import { expect, test, waitForScmReady } from './standalone-fixture';
+import { expect, save, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
     test('should allow editing working copy files and discarding changes via SCM', async ({
@@ -123,7 +123,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await page.waitForTimeout(200);
 
         // Save via keyboard shortcut
-        await page.keyboard.press('ControlOrMeta+s');
+        await save(page);
 
         await expect.poll(() => testRepo.getFileContent('@', 'editable.txt'), { timeout: 5000 }).toContain('edit');
     });
