@@ -26,7 +26,7 @@ import {
 } from '../host/webview-rpc-dispatcher';
 import { JjContextKey } from '../jj-context-keys';
 import type { JjRepository } from '../jj-repository';
-import type { JjService } from '../jj-service';
+import type { JjService, RebaseOptions } from '../jj-service';
 import type { JjLogEntry } from '../jj-types';
 import { Uri } from '../uri-utils';
 
@@ -624,12 +624,17 @@ export class LogViewController implements Disposable {
                     );
                 },
                 rebaseCommit: async (msg) => {
-                    if (!msg.sourceChangeId || !msg.targetChangeId || msg.sourceChangeId === msg.targetChangeId) {
+                    const source = msg.sourceChangeId.trim();
+                    const target = msg.targetChangeId.trim();
+                    if (!source || !target || source === target) {
                         return;
                     }
-                    await this.executeJjMutation('Rebasing...', 'Failed to rebase', (jj) =>
-                        jj.rebase(msg.sourceChangeId, msg.targetChangeId, msg.mode),
-                    );
+                    const options: RebaseOptions = {
+                        target,
+                        placement: msg.placement,
+                        mode: msg.mode,
+                    };
+                    await this.executeJjMutation('Rebasing...', 'Failed to rebase', (jj) => jj.rebase(source, options));
                 },
                 squashCommit: async (msg) => {
                     if (!msg.sourceChangeId || !msg.targetChangeId || msg.sourceChangeId === msg.targetChangeId) {

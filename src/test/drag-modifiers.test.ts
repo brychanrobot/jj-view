@@ -17,10 +17,12 @@ describe('DragModifierFramework', () => {
         s: false,
         d: false,
         m: false,
+        a: false,
+        b: false,
     };
 
-    it('contains all 6 built-in modifiers in registry', () => {
-        expect(BUILT_IN_MODIFIERS.length).toBe(6);
+    it('contains all 10 built-in modifiers in registry', () => {
+        expect(BUILT_IN_MODIFIERS.length).toBe(10);
     });
 
     it('resolves Rebase Branch by default when no keys are pressed', () => {
@@ -108,6 +110,69 @@ describe('DragModifierFramework', () => {
 
     it('uses standard VS Code theme token variable for Squash Onto accent color', () => {
         expect(SQUASH_ONTO_MODIFIER.accentColor).toBe('var(--vscode-charts-magenta)');
+    });
+
+    it('resolves Insert Revision After when A is pressed without Shift', () => {
+        const modifier = resolveActiveModifier({ ...emptyKeys, a: true });
+        expect(modifier.id).toBe('insert-after-revision');
+        expect(modifier.label).toBe('Insert Revision After');
+        expect(modifier.shortcutHint).toBe('A');
+        expect(modifier.buildMessagePayload('c1', 'c2')).toEqual({
+            type: 'rebaseCommit',
+            payload: { sourceChangeId: 'c1', targetChangeId: 'c2', mode: 'revision', placement: 'after' },
+        });
+    });
+
+    it('resolves Insert Branch After when Shift+A is pressed', () => {
+        const modifier = resolveActiveModifier({ ...emptyKeys, shift: true, a: true });
+        expect(modifier.id).toBe('insert-after-branch');
+        expect(modifier.label).toBe('Insert Branch After');
+        expect(modifier.shortcutHint).toBe('Shift + A');
+        expect(modifier.buildMessagePayload('c1', 'c2')).toEqual({
+            type: 'rebaseCommit',
+            payload: { sourceChangeId: 'c1', targetChangeId: 'c2', mode: 'source', placement: 'after' },
+        });
+    });
+
+    it('resolves Insert Revision Before when B is pressed without Shift', () => {
+        const modifier = resolveActiveModifier({ ...emptyKeys, b: true });
+        expect(modifier.id).toBe('insert-before-revision');
+        expect(modifier.label).toBe('Insert Revision Before');
+        expect(modifier.shortcutHint).toBe('B');
+        expect(modifier.buildMessagePayload('c1', 'c2')).toEqual({
+            type: 'rebaseCommit',
+            payload: { sourceChangeId: 'c1', targetChangeId: 'c2', mode: 'revision', placement: 'before' },
+        });
+    });
+
+    it('resolves Insert Branch Before when Shift+B is pressed', () => {
+        const modifier = resolveActiveModifier({ ...emptyKeys, shift: true, b: true });
+        expect(modifier.id).toBe('insert-before-branch');
+        expect(modifier.label).toBe('Insert Branch Before');
+        expect(modifier.shortcutHint).toBe('Shift + B');
+        expect(modifier.buildMessagePayload('c1', 'c2')).toEqual({
+            type: 'rebaseCommit',
+            payload: { sourceChangeId: 'c1', targetChangeId: 'c2', mode: 'source', placement: 'before' },
+        });
+    });
+
+    it('resolves deterministic modifier when conflicting keys of equal priority are pressed', () => {
+        // Both A and B are pressed without shift (both priority 10)
+        // Deterministically resolves to insert-after-revision based on registry definition order
+        const abModifier = resolveActiveModifier({ ...emptyKeys, a: true, b: true });
+        expect(abModifier.id).toBe('insert-after-revision');
+
+        // Both Shift+A and Shift+B are pressed (both priority 20)
+        const shiftAbModifier = resolveActiveModifier({ ...emptyKeys, shift: true, a: true, b: true });
+        expect(shiftAbModifier.id).toBe('insert-after-branch');
+
+        // Both A and S are pressed without shift (both priority 10)
+        const asModifier = resolveActiveModifier({ ...emptyKeys, a: true, s: true });
+        expect(asModifier.id).toBe('squash-into');
+
+        // Shift+S (priority 20) vs A (priority 10)
+        const shiftSA = resolveActiveModifier({ ...emptyKeys, shift: true, s: true, a: true });
+        expect(shiftSA.id).toBe('squash-onto');
     });
 
     it('pre-sorts BUILT_IN_MODIFIERS by priority in descending order', () => {

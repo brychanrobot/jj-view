@@ -4,7 +4,14 @@
  */
 
 import * as path from 'node:path';
-import { ARTIFACT_DIR as ARTIFACTS_DIR, expect, recordGifFlow, test, waitForScmReady } from './standalone-fixture';
+import {
+    ARTIFACT_DIR as ARTIFACTS_DIR,
+    expect,
+    recordGifFlow,
+    save,
+    test,
+    waitForScmReady,
+} from './standalone-fixture';
 
 test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
     test('should open preview tabs, replace clean preview on click, and pin on double click', async ({
@@ -317,7 +324,7 @@ test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
                     await captureFrame();
 
                     // Save file via keyboard shortcut
-                    await page.keyboard.press('ControlOrMeta+s');
+                    await save(page);
                     await page.waitForTimeout(300);
                     await captureFrame();
                 }

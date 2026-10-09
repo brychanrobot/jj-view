@@ -263,6 +263,64 @@ test.describe('JJ Log Pane E2E', () => {
         }).toPass({ timeout: 10000 });
     });
 
+    test('Drag and Drop Commit with a key inserts revision after target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'a', parents: ['root'], description: 'commit A', files: { 'a.txt': 'a' } },
+            { label: 'b', parents: ['a'], description: 'commit B', files: { 'b.txt': 'b' } },
+            { label: 'c', parents: ['b'], description: 'commit C', files: { 'c.txt': 'c' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const rowC = await waitForLogCommitRow(page, { changeId: nodes.c.changeId });
+        const rowA = await waitForLogCommitRow(page, { changeId: nodes.a.changeId });
+        await rowC.scrollIntoViewIfNeeded();
+        await rowA.scrollIntoViewIfNeeded();
+
+        // Drag C onto A with key 'a' to insert after A
+        await dragAndDrop(page, { source: rowC, target: rowA, key: 'a' });
+
+        await expect(async () => {
+            const parentsC = repo.getParents(nodes.c.changeId);
+            const parentsB = repo.getParents(nodes.b.changeId);
+            expect(parentsC).toContain(nodes.a.changeId);
+            expect(parentsB).toContain(nodes.c.changeId);
+        }).toPass({ timeout: 10000 });
+    });
+
+    test('Drag and Drop Commit with b key inserts revision before target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'a', parents: ['root'], description: 'commit A', files: { 'a.txt': 'a' } },
+            { label: 'b', parents: ['a'], description: 'commit B', files: { 'b.txt': 'b' } },
+            { label: 'c', parents: ['b'], description: 'commit C', files: { 'c.txt': 'c' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const rowC = await waitForLogCommitRow(page, { changeId: nodes.c.changeId });
+        const rowB = await waitForLogCommitRow(page, { changeId: nodes.b.changeId });
+        await rowC.scrollIntoViewIfNeeded();
+        await rowB.scrollIntoViewIfNeeded();
+
+        // Drag C onto B with key 'b' to insert before B
+        await dragAndDrop(page, { source: rowC, target: rowB, key: 'b' });
+
+        await expect(async () => {
+            const parentsC = repo.getParents(nodes.c.changeId);
+            const parentsB = repo.getParents(nodes.b.changeId);
+            expect(parentsC).toContain(nodes.a.changeId);
+            expect(parentsB).toContain(nodes.c.changeId);
+        }).toPass({ timeout: 10000 });
+    });
+
     test('Drag and Drop Commit with s key squashes source into target', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();
