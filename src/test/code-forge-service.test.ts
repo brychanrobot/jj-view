@@ -474,3 +474,492 @@ describe('CodeForgeService Tests', () => {
         service.dispose();
     });
 });
+
+describe('CodeForgeService polling and throttling', () => {
+    let host: FakeHostEnvironment;
+    let repo: TestRepo;
+    let provider: MockProvider;
+    let service: CodeForgeService;
+    let refreshRequests: number;
+
+    beforeEach(async () => {
+        host = new FakeHostEnvironment();
+        repo = new TestRepo();
+        repo.init();
+        provider = new MockProvider();
+        const registry = new CodeForgeRegistry();
+        registry.register({ id: 'mock-provider', create: () => provider });
+
+        service = new CodeForgeService(repo.path, new JjService(repo.path, NO_OP_LOGGER), registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+        expect(service.isEnabled).toBe(true);
+
+        refreshRequests = 0;
+        service.onRequestRefresh(() => {
+            refreshRequests++;
+        });
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        service.dispose();
+        vi.useRealTimers();
+    });
+
+    describe('codeForge.pollIntervalSeconds', () => {
+        test('defaults to polling every 60 seconds', () => {
+            service.startPolling();
+
+            vi.advanceTimersByTime(59_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+            vi.advanceTimersByTime(60_000);
+            expect(refreshRequests).toBe(2);
+        });
+
+        test('honours a custom interval', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 300);
+            service.startPolling();
+
+            vi.advanceTimersByTime(299_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('startPolling is idempotent and does not restart the countdown', () => {
+            service.startPolling();
+            vi.advanceTimersByTime(30_000);
+            service.startPolling();
+            vi.advanceTimersByTime(30_000);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('0 disables polling', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 0);
+            service.startPolling();
+
+            vi.advanceTimersByTime(24 * 60 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('raises small intervals to a 10 second floor', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 1);
+            service.startPolling();
+
+            vi.advanceTimersByTime(9_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('falls back to the default for values that are not numbers', () => {
+            host.config.set<unknown>('codeForge.pollIntervalSeconds', 'soon');
+            service.startPolling();
+
+            vi.advanceTimersByTime(59_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('does not let a huge interval overflow the timer into firing immediately', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 1e12);
+            service.startPolling();
+
+            vi.advanceTimersByTime(60 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('reschedules a running poller when the setting changes', () => {
+            service.startPolling();
+            vi.advanceTimersByTime(30_000);
+
+            host.config.set('codeForge.pollIntervalSeconds', 20);
+            vi.advanceTimersByTime(19_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+            vi.advanceTimersByTime(20_000);
+            expect(refreshRequests).toBe(2);
+        });
+
+        test('re-enabling polling at runtime starts the poller', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 0);
+            service.startPolling();
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(0);
+
+            host.config.set('codeForge.pollIntervalSeconds', 30);
+            vi.advanceTimersByTime(30_000);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('disabling polling at runtime stops a running poller', () => {
+            service.startPolling();
+            host.config.set('codeForge.pollIntervalSeconds', 0);
+
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('a setting change does not start polling that was never requested', () => {
+            host.config.set('codeForge.pollIntervalSeconds', 20);
+
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('stopPolling stops the poller and later setting changes do not restart it', () => {
+            service.startPolling();
+            service.stopPolling();
+            host.config.set('codeForge.pollIntervalSeconds', 20);
+
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('skips ticks while the window is inactive', () => {
+            service.startPolling();
+            host.ui.isActive = false;
+            vi.advanceTimersByTime(60_000);
+            expect(refreshRequests).toBe(0);
+
+            host.ui.isActive = true;
+            vi.advanceTimersByTime(60_000);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('dispose stops polling', () => {
+            service.startPolling();
+            service.dispose();
+
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('changing an unrelated codeForge setting does not re-detect the provider', () => {
+            const detectSpy = vi.spyOn(service, 'detectActiveProvider');
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            host.config.set('codeForge.pollIntervalSeconds', 30);
+
+            expect(detectSpy).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('codeForge.minRefreshIntervalSeconds', () => {
+        test('never throttles by default', async () => {
+            await service.ensureFreshStatuses([]);
+
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+
+        test('does not throttle before the first fetch', () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+
+        test('throttles until the interval has elapsed since the last fetch', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+
+            expect(service.isWithinMinRefreshInterval()).toBe(true);
+            vi.advanceTimersByTime(29_999);
+            expect(service.isWithinMinRefreshInterval()).toBe(true);
+            vi.advanceTimersByTime(1);
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+
+        test('a new fetch restarts the window', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(30_000);
+            await service.ensureFreshStatuses([]);
+
+            vi.advanceTimersByTime(29_999);
+            expect(service.isWithinMinRefreshInterval()).toBe(true);
+        });
+
+        test('a failed fetch still starts the window', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            vi.spyOn(provider, 'fetchStatuses').mockRejectedValue(new Error('rate limited'));
+
+            await expect(service.ensureFreshStatuses([])).rejects.toThrow('rate limited');
+
+            expect(service.isWithinMinRefreshInterval()).toBe(true);
+        });
+
+        test('clearCache resets the window', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+
+            service.clearCache();
+
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+
+        test('changing the active provider resets the window', async () => {
+            const other = new MockProvider('other-provider', 'Other');
+            const registry = new CodeForgeRegistry();
+            registry.register({ id: 'mock-provider', create: () => provider });
+            registry.register({ id: 'other-provider', create: () => other });
+            const multiService = new CodeForgeService(
+                repo.path,
+                new JjService(repo.path, NO_OP_LOGGER),
+                registry,
+                host,
+                NO_OP_LOGGER,
+            );
+            vi.useRealTimers();
+            await multiService.awaitReady();
+            vi.useFakeTimers();
+
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await multiService.ensureFreshStatuses([]);
+            expect(multiService.isWithinMinRefreshInterval()).toBe(true);
+
+            host.config.set('codeForge.provider', 'other-provider');
+            vi.useRealTimers();
+            await multiService.detectActiveProvider(true);
+            vi.useFakeTimers();
+
+            expect(multiService.activeProvider).toBe(other);
+            expect(multiService.isWithinMinRefreshInterval()).toBe(false);
+            multiService.dispose();
+        });
+
+        test.each<unknown>([0, -5, Number.NaN, 'abc'])('treats %s as no throttling', async (value) => {
+            host.config.set<unknown>('codeForge.minRefreshIntervalSeconds', value);
+            await service.ensureFreshStatuses([]);
+
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+
+        test('is unaffected by the clock moving backwards', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+
+            vi.setSystemTime(Date.now() - 60 * 60_000);
+
+            expect(service.isWithinMinRefreshInterval()).toBe(false);
+        });
+    });
+
+    describe('scheduleDeferredRefresh', () => {
+        test('requests a refresh when the throttle window ends', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(10_000);
+
+            service.scheduleDeferredRefresh();
+            vi.advanceTimersByTime(19_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('coalesces repeated requests into a single refresh', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+
+            for (let i = 0; i < 5; i++) {
+                service.scheduleDeferredRefresh();
+                vi.advanceTimersByTime(1_000);
+            }
+            expect(vi.getTimerCount()).toBe(1);
+            vi.advanceTimersByTime(60_000);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('can be requested again once the previous deferral has fired', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+            vi.advanceTimersByTime(30_000);
+            expect(refreshRequests).toBe(1);
+
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+            vi.advanceTimersByTime(30_000);
+            expect(refreshRequests).toBe(2);
+        });
+
+        test('still fires after an intervening fetch, which may have failed or done nothing', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(5_000);
+            service.scheduleDeferredRefresh();
+
+            // The second fetch pushes the end of the window from t=30s to t=40s.
+            vi.advanceTimersByTime(5_000);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(29_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('re-arms against a lowered minRefreshIntervalSeconds', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 300);
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+
+            host.config.set('codeForge.minRefreshIntervalSeconds', 5);
+            vi.advanceTimersByTime(4_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('re-arms against a raised minRefreshIntervalSeconds', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(10_000);
+            service.scheduleDeferredRefresh();
+
+            host.config.set('codeForge.minRefreshIntervalSeconds', 60);
+            vi.advanceTimersByTime(49_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('turning throttling off fires a pending refresh straight away', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 300);
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+
+            host.config.set('codeForge.minRefreshIntervalSeconds', 0);
+            vi.advanceTimersByTime(1);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('changing minRefreshIntervalSeconds with nothing pending arms no timer', () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 5);
+
+            expect(vi.getTimerCount()).toBe(0);
+        });
+
+        test('waits out a window extended by a fetch that was already in flight at the request', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            vi.advanceTimersByTime(5_000);
+
+            let finishFetch!: (changed: boolean) => void;
+            vi.spyOn(provider, 'fetchStatuses').mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        finishFetch = resolve;
+                    }),
+            );
+            const inFlight = service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+
+            // It ends at t=15s, moving the window end from t=30s to t=45s.
+            vi.advanceTimersByTime(10_000);
+            finishFetch(false);
+            await inFlight;
+
+            vi.advanceTimersByTime(29_999);
+            expect(refreshRequests).toBe(0);
+            vi.advanceTimersByTime(1);
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('is dropped while the window is inactive', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+
+            host.ui.isActive = false;
+            vi.advanceTimersByTime(10 * 60_000);
+
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('fires on the next tick when throttling is off', () => {
+            service.scheduleDeferredRefresh();
+
+            vi.advanceTimersByTime(1);
+
+            expect(refreshRequests).toBe(1);
+        });
+
+        test('does not let a huge interval overflow the timer into firing immediately', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 1e12);
+            await service.ensureFreshStatuses([]);
+            const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+            service.scheduleDeferredRefresh();
+
+            // An overflowing delay would fire after ~1ms and re-arm in a loop.
+            vi.advanceTimersByTime(1_000);
+
+            expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('is cancelled by dispose', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            service.scheduleDeferredRefresh();
+
+            service.dispose();
+            vi.advanceTimersByTime(10 * 60_000);
+
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('is ignored after dispose', async () => {
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await service.ensureFreshStatuses([]);
+            service.dispose();
+
+            service.scheduleDeferredRefresh();
+            vi.advanceTimersByTime(10 * 60_000);
+
+            expect(refreshRequests).toBe(0);
+        });
+
+        test('is cancelled when the active provider changes', async () => {
+            // Real I/O drives provider detection, so fake only the clock and timeouts, from the start.
+            vi.useRealTimers();
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+            const other = new MockProvider('other-provider', 'Other');
+            const registry = new CodeForgeRegistry();
+            registry.register({ id: 'mock-provider', create: () => provider });
+            registry.register({ id: 'other-provider', create: () => other });
+            const multiService = new CodeForgeService(
+                repo.path,
+                new JjService(repo.path, NO_OP_LOGGER),
+                registry,
+                host,
+                NO_OP_LOGGER,
+            );
+            await multiService.awaitReady();
+            const forceRefreshSpy = vi.spyOn(multiService, 'forceRefresh');
+
+            host.config.set('codeForge.minRefreshIntervalSeconds', 30);
+            await multiService.ensureFreshStatuses([]);
+            multiService.scheduleDeferredRefresh();
+
+            host.config.set('codeForge.provider', 'other-provider');
+            await multiService.detectActiveProvider(true);
+            vi.advanceTimersByTime(10 * 60_000);
+
+            expect(multiService.activeProvider).toBe(other);
+            expect(forceRefreshSpy).not.toHaveBeenCalled();
+            multiService.dispose();
+        });
+    });
+});

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as vscode from 'vscode';
+import { MANUAL_REFRESH_REASON } from '../core/code-forge-service';
 import { abandonCommand } from '../core/commands/abandon';
 import { absorbCommand } from '../core/commands/absorb';
 import { setBookmarkCommand } from '../core/commands/bookmark';
@@ -364,12 +365,12 @@ export function registerCommands(options: RegisterCommandsOptions): void {
     }
 
     const refreshDisposable = vscode.commands.registerCommand('jj-view.refreshGraph', async () => {
-        await logWebviewProvider.controller.refresh();
+        await logWebviewProvider.controller.refresh(MANUAL_REFRESH_REASON);
     });
     context.subscriptions.push(refreshDisposable);
 
     const refreshCmd = vscode.commands.registerCommand('jj-view.refreshLog', () =>
-        logWebviewProvider.controller.refresh(),
+        logWebviewProvider.controller.refresh(MANUAL_REFRESH_REASON),
     );
     context.subscriptions.push(refreshCmd);
 }
