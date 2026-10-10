@@ -317,6 +317,159 @@ suite('Log Webview Commands End-to-End Integration Test', () => {
         assert.strictEqual(parents[0], idA, 'B should be rebased onto A');
     });
 
+    test('Rebase commit with placement after inserts revision after target', async () => {
+        // Setup graph: Root -> A -> B -> C
+        repo.describe('A');
+        const idA = repo.getChangeId('@');
+
+        repo.new([idA]);
+        repo.describe('B');
+        const idB = repo.getChangeId('@');
+
+        repo.new([idB]);
+        repo.describe('C');
+        const idC = repo.getChangeId('@');
+
+        // Rebase revision C after A -> DAG should become A -> C -> B
+        await client.sender.rebaseCommit({
+            sourceChangeId: idC,
+            targetChangeId: idA,
+            mode: 'revision',
+            placement: 'after',
+        });
+
+        const parentsC = repo.getParents(idC);
+        assert.strictEqual(parentsC.length, 1);
+        assert.strictEqual(parentsC[0], idA, 'C should be child of A');
+
+        const parentsB = repo.getParents(idB);
+        assert.strictEqual(parentsB.length, 1);
+        assert.strictEqual(parentsB[0], idC, 'B should be child of C');
+    });
+
+    test('Rebase commit with placement before inserts revision before target', async () => {
+        // Setup graph: Root -> A -> B -> C
+        repo.describe('A');
+        const idA = repo.getChangeId('@');
+
+        repo.new([idA]);
+        repo.describe('B');
+        const idB = repo.getChangeId('@');
+
+        repo.new([idB]);
+        repo.describe('C');
+        const idC = repo.getChangeId('@');
+
+        // Rebase revision C before B -> DAG should become A -> C -> B
+        await client.sender.rebaseCommit({
+            sourceChangeId: idC,
+            targetChangeId: idB,
+            mode: 'revision',
+            placement: 'before',
+        });
+
+        const parentsC = repo.getParents(idC);
+        assert.strictEqual(parentsC.length, 1);
+        assert.strictEqual(parentsC[0], idA, 'C should be child of A');
+
+        const parentsB = repo.getParents(idB);
+        assert.strictEqual(parentsB.length, 1);
+        assert.strictEqual(parentsB[0], idC, 'B should be child of C');
+    });
+
+    test('Rebase commit with placement after in branch mode rebases descendants', async () => {
+        // Setup graph: Root -> A -> B
+        //                   \-> C -> D
+        repo.describe('A');
+        const idA = repo.getChangeId('@');
+
+        repo.new([idA]);
+        repo.describe('B');
+        const idB = repo.getChangeId('@');
+
+        repo.new(['root()']);
+        repo.describe('C');
+        const idC = repo.getChangeId('@');
+
+        repo.new([idC]);
+        repo.describe('D');
+        const idD = repo.getChangeId('@');
+
+        // Rebase branch C after A -> DAG should become Root -> A -> C -> D and B rebased onto D
+        await client.sender.rebaseCommit({
+            sourceChangeId: idC,
+            targetChangeId: idA,
+            mode: 'source',
+            placement: 'after',
+        });
+
+        const parentsC = repo.getParents(idC);
+        assert.strictEqual(parentsC.length, 1);
+        assert.strictEqual(parentsC[0], idA, 'C should be child of A');
+
+        const parentsD = repo.getParents(idD);
+        assert.strictEqual(parentsD.length, 1);
+        assert.strictEqual(parentsD[0], idC, 'D should be child of C');
+
+        const parentsB = repo.getParents(idB);
+        assert.strictEqual(parentsB.length, 1);
+        assert.strictEqual(parentsB[0], idD, 'B should be child of D');
+    });
+
+    test('Rebase commit with placement before in branch mode rebases descendants', async () => {
+        // Setup graph: Root -> A -> B
+        //                   \-> C -> D
+        repo.describe('A');
+        const idA = repo.getChangeId('@');
+
+        repo.new([idA]);
+        repo.describe('B');
+        const idB = repo.getChangeId('@');
+
+        repo.new(['root()']);
+        repo.describe('C');
+        const idC = repo.getChangeId('@');
+
+        repo.new([idC]);
+        repo.describe('D');
+        const idD = repo.getChangeId('@');
+
+        // Rebase branch C before B -> C becomes child of A, and B becomes child of D
+        await client.sender.rebaseCommit({
+            sourceChangeId: idC,
+            targetChangeId: idB,
+            mode: 'source',
+            placement: 'before',
+        });
+
+        const parentsC = repo.getParents(idC);
+        assert.strictEqual(parentsC.length, 1);
+        assert.strictEqual(parentsC[0], idA, 'C should be child of A');
+
+        const parentsD = repo.getParents(idD);
+        assert.strictEqual(parentsD.length, 1);
+        assert.strictEqual(parentsD[0], idC, 'D should be child of C');
+
+        const parentsB = repo.getParents(idB);
+        assert.strictEqual(parentsB.length, 1);
+        assert.strictEqual(parentsB[0], idD, 'B should be child of D');
+    });
+
+    test('Rebase commit ignores self-rebase silently', async () => {
+        repo.describe('Self commit');
+        const idA = repo.getChangeId('@');
+
+        await client.sender.rebaseCommit({
+            sourceChangeId: idA,
+            targetChangeId: idA,
+            mode: 'revision',
+            placement: 'after',
+        });
+
+        // Ensure repo is unaffected
+        assert.strictEqual(repo.getChangeId('@'), idA);
+    });
+
     test('Squash commit (into) squashes source into target', async () => {
         repo.describe('Target A');
         const idA = repo.getChangeId('@');

@@ -44,6 +44,42 @@ function scrollToCommit(changeId: string) {
 
 const sender = useRpcSender<LogViewToHostMessage>(LogViewToHostMessageSchema);
 
+let overlayEl = $state<HTMLElement | null>(null);
+
+const overlayPos = $derived.by(() => {
+    if (!dragManager.activeDragItem) {
+        return { left: 0, top: 0 };
+    }
+    // Track modifier and pressed key changes so clamping recalculates when card dimension changes in place
+    void dragManager.activeModifier;
+    void dragManager.pressedKeys;
+
+    const isCommit = dragManager.activeDragItem.type === 'commit';
+    const offsetX = isCommit ? -5 : -10;
+    const offsetY = isCommit ? -24 : -11;
+    let x = dragManager.pointerPos.x + offsetX;
+    let y = dragManager.pointerPos.y + offsetY;
+
+    if (overlayEl && typeof window !== 'undefined') {
+        const rect = overlayEl.getBoundingClientRect();
+        const maxX = window.innerWidth - rect.width - 8;
+        const maxY = window.innerHeight - rect.height - 8;
+        if (x > maxX) {
+            x = Math.max(8, maxX);
+        }
+        if (y > maxY) {
+            y = Math.max(8, maxY);
+        }
+        if (x < 8) {
+            x = 8;
+        }
+        if (y < 8) {
+            y = 8;
+        }
+    }
+    return { left: x, top: y };
+});
+
 const dragManager = new DragManager((item, target, modifier) => {
     if (item.type === 'bookmark') {
         const bookmarkName = item.name;
@@ -251,6 +287,10 @@ function handleGraphAction(action: string, payload: ActionPayload) {
     onkeydown={(e) => {
         dragManager.handleKeyDown(e);
         if (e.key === 'Escape') {
+            if (dragManager.isDragging) {
+                dragManager.cancelDrag();
+                return;
+            }
             selectedCommitIds = new Set();
             void sender.selectionChange({
                 commitIds: [],
@@ -301,13 +341,10 @@ function handleGraphAction(action: string, payload: ActionPayload) {
         <!-- Floating Drag Preview Overlay -->
         {#if dragManager.activeDragItem}
             <div
+                bind:this={overlayEl}
                 class="drag-preview-overlay"
-                style:left={dragManager.activeDragItem.type === 'commit'
-                    ? `${dragManager.pointerPos.x - 5}px`
-                    : `${dragManager.pointerPos.x - 10}px`}
-                style:top={dragManager.activeDragItem.type === 'commit'
-                    ? `${dragManager.pointerPos.y - 24}px`
-                    : `${dragManager.pointerPos.y - 11}px`}
+                style:left={`${overlayPos.left}px`}
+                style:top={`${overlayPos.top}px`}
             >
                 {#if dragManager.activeDragItem.type === 'bookmark'}
                     <div class="bookmark-preview-wrapper">
@@ -352,7 +389,7 @@ function handleGraphAction(action: string, payload: ActionPayload) {
     .bookmark-preview-wrapper {
         cursor: grabbing;
         opacity: 1;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
     }
 </style>
 

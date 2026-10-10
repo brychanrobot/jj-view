@@ -263,6 +263,150 @@ test.describe('JJ Log Pane E2E', () => {
         }).toPass({ timeout: 10000 });
     });
 
+    test('Captures screenshots of drag card with +n children indicator and modifiers', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        // Graph: Root -> A -> B -> C -> D
+        // A has 3 descendants (B, C, D)
+        // B has 2 descendants (C, D)
+        const nodes = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'a', parents: ['root'], description: 'commit A: base features', files: { 'a.txt': 'a' } },
+            { label: 'b', parents: ['a'], description: 'commit B: middle layer', files: { 'b.txt': 'b' } },
+            { label: 'c', parents: ['b'], description: 'commit C: top revision', files: { 'c.txt': 'c' } },
+            { label: 'd', parents: ['c'], description: 'commit D: working copy', files: { 'd.txt': 'd' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await vscode.executeCommand('notifications.clearAll');
+        await focusJJLog(page);
+
+        const scmHeader = page.locator('.pane-header', { hasText: 'Changes' }).first();
+        if (await scmHeader.isVisible()) {
+            const isExpanded = await scmHeader.getAttribute('aria-expanded');
+            if (isExpanded === 'true') {
+                await scmHeader.click();
+            }
+        }
+        await page.waitForTimeout(300);
+
+        const webview = await getLogWebview(page);
+
+        const rowB = await waitForLogCommitRow(page, { changeId: nodes.b.changeId });
+        const rowC = await waitForLogCommitRow(page, { changeId: nodes.c.changeId });
+        await rowB.scrollIntoViewIfNeeded();
+        await rowC.scrollIntoViewIfNeeded();
+
+        const sourceBox = await rowB.boundingBox();
+        const targetBox = await rowC.boundingBox();
+
+        if (sourceBox && targetBox) {
+            // Drag commit B (which has 2 children: C and D) onto commit C
+            await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 10 });
+            await page.waitForTimeout(500);
+
+            const card = webview.locator('.drag-preview-overlay .card');
+            await expect(card).toBeVisible();
+
+            const artifactDir = '/home/bryant/.gemini/antigravity/brain/d6442362-64e2-497c-87ce-e4e31f4ef0ef';
+
+            // 1. Default Rebase Branch (shows +2 children!)
+            await card.screenshot({ path: `${artifactDir}/drag-card-branch-children.png` });
+            await page.screenshot({ path: `${artifactDir}/drag-branch-children.png` });
+
+            // 2. Shift + A (Insert Branch After, shows +2 children and top indicator line!)
+            await page.keyboard.down('Shift');
+            await page.keyboard.down('a');
+            await page.waitForTimeout(400);
+            await card.screenshot({ path: `${artifactDir}/drag-card-insert-after-branch.png` });
+            await page.screenshot({ path: `${artifactDir}/drag-insert-after-branch.png` });
+
+            // 3. A without Shift (Insert Revision After, revision-only so NO +2 children, orange top indicator!)
+            await page.keyboard.up('Shift');
+            await page.waitForTimeout(400);
+            await card.screenshot({ path: `${artifactDir}/drag-card-insert-after-rev.png` });
+            await page.screenshot({ path: `${artifactDir}/drag-insert-after-rev.png` });
+
+            // 4. B without Shift (Insert Revision Before, orange bottom indicator!)
+            await page.keyboard.up('a');
+            await page.keyboard.down('b');
+            await page.waitForTimeout(400);
+            await card.screenshot({ path: `${artifactDir}/drag-card-insert-before-rev.png` });
+            await page.screenshot({ path: `${artifactDir}/drag-insert-before-rev.png` });
+
+            // 5. Shift + B (Insert Branch Before, shows +2 children and blue bottom indicator!)
+            await page.keyboard.down('Shift');
+            await page.waitForTimeout(400);
+            await card.screenshot({ path: `${artifactDir}/drag-card-insert-before-branch.png` });
+            await page.screenshot({ path: `${artifactDir}/drag-insert-before-branch.png` });
+
+            await page.mouse.up();
+            await page.keyboard.up('Shift');
+            await page.keyboard.up('b');
+            await page.waitForTimeout(300);
+        }
+    });
+
+    test('Drag and Drop Commit with a key inserts revision after target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'a', parents: ['root'], description: 'commit A', files: { 'a.txt': 'a' } },
+            { label: 'b', parents: ['a'], description: 'commit B', files: { 'b.txt': 'b' } },
+            { label: 'c', parents: ['b'], description: 'commit C', files: { 'c.txt': 'c' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const rowC = await waitForLogCommitRow(page, { changeId: nodes.c.changeId });
+        const rowA = await waitForLogCommitRow(page, { changeId: nodes.a.changeId });
+        await rowC.scrollIntoViewIfNeeded();
+        await rowA.scrollIntoViewIfNeeded();
+
+        // Drag C onto A with key 'a' to insert after A
+        await dragAndDrop(page, { source: rowC, target: rowA, key: 'a' });
+
+        await expect(async () => {
+            const parentsC = repo.getParents(nodes.c.changeId);
+            const parentsB = repo.getParents(nodes.b.changeId);
+            expect(parentsC).toContain(nodes.a.changeId);
+            expect(parentsB).toContain(nodes.c.changeId);
+        }).toPass({ timeout: 10000 });
+    });
+
+    test('Drag and Drop Commit with b key inserts revision before target', async ({ vscode }) => {
+        const repo = new TestRepo();
+        repo.init();
+        const nodes = await buildGraph(repo, [
+            { label: 'root', description: 'root' },
+            { label: 'a', parents: ['root'], description: 'commit A', files: { 'a.txt': 'a' } },
+            { label: 'b', parents: ['a'], description: 'commit B', files: { 'b.txt': 'b' } },
+            { label: 'c', parents: ['b'], description: 'commit C', files: { 'c.txt': 'c' } },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+        await focusJJLog(page);
+
+        const rowC = await waitForLogCommitRow(page, { changeId: nodes.c.changeId });
+        const rowB = await waitForLogCommitRow(page, { changeId: nodes.b.changeId });
+        await rowC.scrollIntoViewIfNeeded();
+        await rowB.scrollIntoViewIfNeeded();
+
+        // Drag C onto B with key 'b' to insert before B
+        await dragAndDrop(page, { source: rowC, target: rowB, key: 'b' });
+
+        await expect(async () => {
+            const parentsC = repo.getParents(nodes.c.changeId);
+            const parentsB = repo.getParents(nodes.b.changeId);
+            expect(parentsC).toContain(nodes.a.changeId);
+            expect(parentsB).toContain(nodes.c.changeId);
+        }).toPass({ timeout: 10000 });
+    });
+
     test('Drag and Drop Commit with s key squashes source into target', async ({ vscode }) => {
         const repo = new TestRepo();
         repo.init();

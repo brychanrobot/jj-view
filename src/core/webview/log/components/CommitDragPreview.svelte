@@ -4,7 +4,19 @@
 -->
 <script lang="ts">
 import { getChangeIdDisplayLength, shortenChangeId } from '../../../../utils/jj-utils';
-import { BUILT_IN_MODIFIERS, type DragActionModifier, REBASE_BRANCH_MODIFIER } from '../utils/drag-modifiers';
+import {
+    type DragActionModifier,
+    DUPLICATE_MODIFIER,
+    INSERT_AFTER_BRANCH_MODIFIER,
+    INSERT_AFTER_REVISION_MODIFIER,
+    INSERT_BEFORE_BRANCH_MODIFIER,
+    INSERT_BEFORE_REVISION_MODIFIER,
+    MERGE_MODIFIER,
+    REBASE_BRANCH_MODIFIER,
+    REBASE_REVISION_MODIFIER,
+    SQUASH_INTO_MODIFIER,
+    SQUASH_ONTO_MODIFIER,
+} from '../utils/drag-modifiers';
 import type { CommitDragData } from './CommitDragPreview';
 
 interface Props {
@@ -15,9 +27,15 @@ interface Props {
 
 let { commit, activeModifier: activeModifierProp, minChangeIdLength }: Props = $props();
 
-const AVAILABLE_MODIFIERS = BUILT_IN_MODIFIERS.filter((m) => m.id !== 'rebase-branch');
-const MODIFIER_ROW1 = AVAILABLE_MODIFIERS.slice(0, 2);
-const MODIFIER_ROW2 = AVAILABLE_MODIFIERS.slice(2);
+const MODIFIER_ROW1 = [
+    REBASE_REVISION_MODIFIER,
+    INSERT_AFTER_REVISION_MODIFIER,
+    INSERT_AFTER_BRANCH_MODIFIER,
+    INSERT_BEFORE_REVISION_MODIFIER,
+    INSERT_BEFORE_BRANCH_MODIFIER,
+];
+const MODIFIER_ROW2 = [SQUASH_INTO_MODIFIER, SQUASH_ONTO_MODIFIER, DUPLICATE_MODIFIER, MERGE_MODIFIER];
+const MODIFIER_ROWS = [MODIFIER_ROW1, MODIFIER_ROW2];
 
 const activeModifier = $derived(activeModifierProp || REBASE_BRANCH_MODIFIER);
 const activeColor = $derived(activeModifier.accentColor);
@@ -26,6 +44,10 @@ const fullId = $derived(commit.changeId || '');
 const idDisplayLength = $derived(getChangeIdDisplayLength(commit.change_id_shortest, minChangeIdLength));
 const shortId = $derived(commit.change_id_shortest || shortenChangeId(fullId, idDisplayLength));
 const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
+
+const descendantCount = $derived(commit.descendantCount ?? 0);
+const includesDescendants = $derived(activeModifier.includesDescendants ?? false);
+const showDescendantsBadge = $derived(includesDescendants && descendantCount > 0);
 </script>
 
 <div class="card">
@@ -46,6 +68,9 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
                 </span>
                 <span class="dot-separator">•</span>
                 <span class="action-label" style:color={activeColor}>{activeModifier.label}</span>
+                {#if showDescendantsBadge}
+                    <span class="descendants-pill">+{descendantCount} {descendantCount === 1 ? 'child' : 'children'}</span>
+                {/if}
             </div>
         </div>
     </div>
@@ -58,56 +83,33 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
             </span>
         </div>
         <div class="badge-matrix">
-            <div class="badge-row">
-                {#each MODIFIER_ROW1 as modifier (modifier.id)}
-                    {@const isCurrent = activeModifier.id === modifier.id}
-                    <span
-                        class="badge-container"
-                        class:current={isCurrent}
-                        style:border={isCurrent ? `1px solid ${activeColor}` : '1px solid transparent'}
-                    >
-                        <kbd
-                            class="badge-kbd"
-                            style:color={isCurrent ? activeColor : 'var(--vscode-keybindingLabel-foreground, inherit)'}
-                            style:font-weight={isCurrent ? 'bold' : 'normal'}
-                        >
-                            {modifier.shortcutHint}
-                        </kbd>
+            {#each MODIFIER_ROWS as row}
+                <div class="badge-row">
+                    {#each row as modifier (modifier.id)}
+                        {@const isCurrent = activeModifier.id === modifier.id}
                         <span
-                            class="badge-label"
-                            style:color={isCurrent ? activeColor : 'var(--vscode-descriptionForeground)'}
-                            style:font-weight={isCurrent ? 'bold' : 'normal'}
+                            class="badge-container"
+                            class:current={isCurrent}
+                            style:border={isCurrent ? `1px solid ${activeColor}` : '1px solid transparent'}
                         >
-                            {modifier.shortLabel || modifier.label}
+                            <kbd
+                                class="badge-kbd"
+                                style:color={isCurrent ? activeColor : 'var(--vscode-keybindingLabel-foreground, inherit)'}
+                                style:font-weight={isCurrent ? 'bold' : 'normal'}
+                            >
+                                {modifier.shortcutHint}
+                            </kbd>
+                            <span
+                                class="badge-label"
+                                style:color={isCurrent ? activeColor : 'var(--vscode-descriptionForeground)'}
+                                style:font-weight={isCurrent ? 'bold' : 'normal'}
+                            >
+                                {modifier.shortLabel || modifier.label}
+                            </span>
                         </span>
-                    </span>
-                {/each}
-            </div>
-            <div class="badge-row">
-                {#each MODIFIER_ROW2 as modifier (modifier.id)}
-                    {@const isCurrent = activeModifier.id === modifier.id}
-                    <span
-                        class="badge-container"
-                        class:current={isCurrent}
-                        style:border={isCurrent ? `1px solid ${activeColor}` : '1px solid transparent'}
-                    >
-                        <kbd
-                            class="badge-kbd"
-                            style:color={isCurrent ? activeColor : 'var(--vscode-keybindingLabel-foreground, inherit)'}
-                            style:font-weight={isCurrent ? 'bold' : 'normal'}
-                        >
-                            {modifier.shortcutHint}
-                        </kbd>
-                        <span
-                            class="badge-label"
-                            style:color={isCurrent ? activeColor : 'var(--vscode-descriptionForeground)'}
-                            style:font-weight={isCurrent ? 'bold' : 'normal'}
-                        >
-                            {modifier.shortLabel || modifier.label}
-                        </span>
-                    </span>
-                {/each}
-            </div>
+                    {/each}
+                </div>
+            {/each}
         </div>
     </div>
 </div>
@@ -118,9 +120,11 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
         flex-direction: column;
         background-color: var(--vscode-editor-background);
         border: 1px solid var(--vscode-focusBorder);
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        width: 300px;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+        min-width: 260px;
+        width: max-content;
+        max-width: min(420px, calc(100vw - 16px));
         overflow: hidden;
         font-family: var(--vscode-editor-font-family);
         font-size: var(--vscode-editor-font-size);
@@ -192,11 +196,29 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
         font-weight: 600;
         display: flex;
         align-items: center;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .descendants-pill {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 6px;
+        padding: 0 5px;
+        height: 16px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 600;
+        background-color: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .footer {
-        background-color: var(--vscode-editor-lineHighlightBackground, rgba(255, 255, 255, 0.05));
-        border-top: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.1));
+        background-color: var(--vscode-editor-lineHighlightBackground);
+        border-top: 1px solid var(--vscode-widget-border);
         padding: 6px 8px;
         font-size: 0.75em;
         color: var(--vscode-descriptionForeground);
@@ -220,9 +242,9 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
         flex-direction: column;
         gap: 4px;
         font-size: 0.95em;
-        background-color: var(--vscode-sideBar-background, var(--vscode-editorWidget-background, rgba(0, 0, 0, 0.2)));
-        border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
-        border-radius: 3px;
+        background-color: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 4px;
         padding: 4px 6px;
         margin-top: 2px;
         overflow: hidden;
@@ -232,7 +254,7 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
         display: flex;
         gap: 6px;
         align-items: center;
-        overflow: hidden;
+        flex-wrap: wrap;
     }
 
     .badge-container {
@@ -246,7 +268,7 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
     }
 
     .badge-container.current {
-        background-color: var(--vscode-keybindingTable-headerBackground, rgba(255, 255, 255, 0.12));
+        background-color: var(--vscode-keybindingTable-headerBackground, var(--vscode-list-activeSelectionBackground));
     }
 
     .badge-kbd {
@@ -254,8 +276,8 @@ const remainderId = $derived(fullId.substring(shortId.length, idDisplayLength));
         font-family: var(--vscode-editor-font-family);
         padding: 0 3px;
         border-radius: 3px;
-        background-color: var(--vscode-keybindingLabel-background, rgba(0, 0, 0, 0.2));
-        border: 1px solid var(--vscode-keybindingLabel-border, rgba(255, 255, 255, 0.2));
+        background-color: var(--vscode-keybindingLabel-background);
+        border: 1px solid var(--vscode-keybindingLabel-border, var(--vscode-widget-border));
         white-space: nowrap;
     }
 

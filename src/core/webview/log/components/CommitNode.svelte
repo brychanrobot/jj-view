@@ -22,6 +22,7 @@ interface Props {
     idDisplayLength: number;
     hiddenActions?: Set<CommitAction>;
     dragManager: DragManager;
+    descendantCount?: number;
 }
 
 let {
@@ -35,6 +36,7 @@ let {
     idDisplayLength,
     hiddenActions = new Set(),
     dragManager,
+    descendantCount = 0,
 }: Props = $props();
 
 let isHovered = $state(false);
@@ -133,10 +135,18 @@ const backgroundColor = $derived.by(() => {
     return undefined;
 });
 
+const isValidDropTarget = $derived(isOver && !isDraggingThis);
+const dropColor = $derived(dragManager.activeModifier?.accentColor || 'var(--vscode-list-activeSelectionForeground)');
+const isInsertAfter = $derived(dragManager.activeModifier?.id.startsWith('insert-after') ?? false);
+const isInsertBefore = $derived(dragManager.activeModifier?.id.startsWith('insert-before') ?? false);
+const isInsertModifier = $derived(isInsertAfter || isInsertBefore);
+
 // Outline computation for drop target
 const outline = $derived.by(() => {
-    if (isOver && dragManager.activeDragItem?.type === 'commit') {
-        const dropColor = dragManager.activeModifier?.accentColor || 'var(--vscode-list-activeSelectionForeground)';
+    if (isValidDropTarget && dragManager.activeDragItem?.type === 'commit') {
+        if (isInsertModifier) {
+            return undefined;
+        }
         return `2px dashed ${dropColor}`;
     }
     return undefined;
@@ -162,9 +172,7 @@ const hasShortId = $derived(shortId && idPart.startsWith(shortId));
 
 // Active dragging bookmark check
 const isDraggingBookmark = $derived(dragManager.activeDragItem?.type === 'bookmark');
-const activeBookmark = $derived(
-    isDraggingBookmark ? (dragManager.activeDragItem as { type: 'bookmark'; name: string; remote?: string }) : null,
-);
+const activeBookmark = $derived(dragManager.activeDragItem?.type === 'bookmark' ? dragManager.activeDragItem : null);
 const hasActiveBookmarkAlready = $derived(
     commit.bookmarks?.some(
         (b) => b.name === activeBookmark?.name && (b.remote ?? null) === (activeBookmark?.remote ?? null),
@@ -192,6 +200,7 @@ const hasActiveBookmarkAlready = $derived(
         changeId: commit.change_id,
         description: commit.description,
         change_id_shortest: commit.change_id_shortest,
+        descendantCount,
     })}
     use:dragManager.droppable={() => commit.change_id}
     onclick={(e) => {
@@ -208,6 +217,13 @@ const hasActiveBookmarkAlready = $derived(
     onmouseenter={() => (isHovered = true)}
     onmouseleave={() => (isHovered = false)}
 >
+    {#if isValidDropTarget && dragManager.activeDragItem?.type === 'commit'}
+        {#if isInsertAfter}
+            <div class="drop-indicator-line top" style:--drop-color={dropColor}></div>
+        {:else if isInsertBefore}
+            <div class="drop-indicator-line bottom" style:--drop-color={dropColor}></div>
+        {/if}
+    {/if}
     <!-- Left Column: ID and Actions -->
     <span
         class="id-actions-area"
@@ -335,11 +351,11 @@ const hasActiveBookmarkAlready = $derived(
                 title={commitTooltip}
                 style:font-weight={isCurrentWorkingCopy ? 'bold' : 'normal'}
                 style:color={isImmutable
-                    ? 'var(--vscode-descriptionForeground, #8a8a8a)'
+                    ? 'var(--vscode-descriptionForeground)'
                     : isEmpty
-                      ? 'var(--vscode-testing-iconPassed, #73c991)'
+                      ? 'var(--vscode-testing-iconPassed)'
                       : !commit.description
-                        ? 'var(--vscode-editorWarning-foreground, #cca700)'
+                        ? 'var(--vscode-editorWarning-foreground)'
                         : 'inherit'}
                 style:font-style={fontStyle}
             >
@@ -369,7 +385,7 @@ const hasActiveBookmarkAlready = $derived(
                     <TagPill {tag} />
                 {/each}
 
-                {#if isOver && dragManager.activeDragItem?.type === 'commit'}
+                {#if isValidDropTarget && dragManager.activeDragItem?.type === 'commit'}
                     <span
                         class="drop-badge"
                         style:background-color={dragManager.activeModifier?.accentColor || 'var(--vscode-charts-blue)'}
@@ -498,6 +514,7 @@ const hasActiveBookmarkAlready = $derived(
 
 <style>
     .commit-row {
+        position: relative;
         min-height: 28px;
         height: auto;
         display: flex;
@@ -512,6 +529,35 @@ const hasActiveBookmarkAlready = $derived(
         min-width: 0;
         padding-left: 6px;
         padding-top: 0;
+    }
+
+    .drop-indicator-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: var(--drop-color);
+        z-index: 10;
+        pointer-events: none;
+    }
+
+    .drop-indicator-line.top {
+        top: -1px;
+    }
+
+    .drop-indicator-line.bottom {
+        bottom: -1px;
+    }
+
+    .drop-indicator-line::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: -3px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--drop-color);
     }
 
     .id-actions-area {
@@ -587,7 +633,7 @@ const hasActiveBookmarkAlready = $derived(
     }
 
     .drop-badge {
-        color: var(--vscode-editor-background, #fff);
+        color: var(--vscode-editor-background);
         font-size: 0.8em;
         font-weight: bold;
         padding: 1px 6px;
@@ -661,7 +707,7 @@ const hasActiveBookmarkAlready = $derived(
         display: flex;
         align-items: center;
         gap: 3px;
-        color: var(--vscode-problemsWarningIcon-foreground, var(--vscode-editorWarning-foreground, #cca700));
+        color: var(--vscode-problemsWarningIcon-foreground, var(--vscode-editorWarning-foreground));
         margin-left: 4px;
         background: none;
         border: none;
