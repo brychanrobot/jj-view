@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { showMultiFileDiffCommand } from '../../core/commands/multi-diff';
 import type { JjRepository } from '../../core/jj-repository';
@@ -102,5 +104,32 @@ describe('showMultiFileDiffCommand', () => {
 
         expect(ctx.host.ui.infoMessages[0]).toContain('No changes found in revision');
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);
+    });
+
+    it('declares resourceLabelFormatters in package.json to strip leading path separator for custom schemes', async () => {
+        const pkgPath = path.resolve(__dirname, '../../../package.json');
+        const pkgContent = JSON.parse(await fs.readFile(pkgPath, 'utf8')) as {
+            contributes?: {
+                resourceLabelFormatters?: Array<{
+                    scheme: string;
+                    formatting: {
+                        label: string;
+                        separator: string;
+                        stripPathStartingSeparator: boolean;
+                    };
+                }>;
+            };
+        };
+
+        const formatters = pkgContent.contributes?.resourceLabelFormatters ?? [];
+        const schemes = ['jj-view', 'jj-edit', 'jj-merge-output'];
+
+        for (const scheme of schemes) {
+            const formatter = formatters.find((f) => f.scheme === scheme);
+            expect(formatter, `Expected resourceLabelFormatter for ${scheme}`).toBeDefined();
+            expect(formatter?.formatting.stripPathStartingSeparator).toBe(true);
+            expect(formatter?.formatting.label).toBe('$' + '{path}');
+            expect(formatter?.formatting.separator).toBe('/');
+        }
     });
 });

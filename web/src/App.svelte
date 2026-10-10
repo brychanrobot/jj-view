@@ -1060,7 +1060,8 @@ onMount(() => {
                             resolveUriContent(r.leftUri),
                             resolveUriContent(r.rightUri),
                         ]);
-                        const filename = r.label || r.rightUri?.fsPath || r.leftUri?.fsPath || 'file';
+                        const rawFilename = r.label || r.rightUri?.fsPath || r.leftUri?.fsPath || 'file';
+                        const filename = rawFilename.replace(/^[/\\]+/, '');
                         const isWorkingCopy = r.rightUri?.scheme === 'file';
                         return {
                             filename,

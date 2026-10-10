@@ -61,7 +61,10 @@ function renderMultiDiff(): void {
     const currentFiles = untrack(() => files);
 
     for (const file of currentFiles) {
-        const cleanName = file.filename.replace(/\s*\([^)]*\)$/, '').trim();
+        const cleanName = file.filename
+            .replace(/\s*\([^)]*\)$/, '')
+            .replace(/^[/\\]+/, '')
+            .trim();
         const orig = file.originalContent ?? '';
         const mod = file.modifiedContent ?? '';
 

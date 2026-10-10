@@ -75,4 +75,28 @@ describe('PierreMultiDiffViewer Component', () => {
         expect(html).toContain('pierre-multi-diff-viewer');
         expect(html).not.toContain('multi-diff-toolbar');
     });
+
+    it('renders multi-diff viewer when filenames have leading slashes', () => {
+        const result = render(PierreMultiDiffViewer, {
+            props: {
+                title: 'Changes with leading slash paths',
+                files: [
+                    {
+                        filename: '/src/targeting.ts',
+                        originalContent: 'old',
+                        modifiedContent: 'new',
+                    },
+                    {
+                        filename: '\\config\\settings.json',
+                        originalContent: '{}',
+                        modifiedContent: '{"a": 1}',
+                    },
+                ],
+            },
+        });
+        const html = result.body;
+
+        expect(html).toContain('pierre-multi-diff-viewer');
+        expect(html).toContain('multi-diff-content-container');
+    });
 });
