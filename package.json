@@ -20,6 +20,32 @@
     ],
     "main": "./dist/extension.js",
     "contributes": {
+        "resourceLabelFormatters": [
+            {
+                "scheme": "jj-view",
+                "formatting": {
+                    "label": "${path}",
+                    "separator": "/",
+                    "stripPathStartingSeparator": true
+                }
+            },
+            {
+                "scheme": "jj-edit",
+                "formatting": {
+                    "label": "${path}",
+                    "separator": "/",
+                    "stripPathStartingSeparator": true
+                }
+            },
+            {
+                "scheme": "jj-merge-output",
+                "formatting": {
+                    "label": "${path}",
+                    "separator": "/",
+                    "stripPathStartingSeparator": true
+                }
+            }
+        ],
         "customEditors": [
             {
                 "viewType": "jj-view.commitDetailsEditor",
