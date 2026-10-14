@@ -240,6 +240,12 @@ export class TestRepo {
         fs.appendFileSync(configPath, `${name} = ${formatTomlValue(value)}\n`, 'utf-8');
     }
 
+    removeConfig(name: string) {
+        const { configPath } = this.ensureRepoConfig();
+        const lines = fs.readFileSync(configPath, 'utf-8').split('\n');
+        fs.writeFileSync(configPath, lines.filter((line) => !line.startsWith(`${name} =`)).join('\n'), 'utf-8');
+    }
+
     configBatch(configs: Record<string, string>) {
         const { configPath } = this.ensureRepoConfig();
         let content = '';

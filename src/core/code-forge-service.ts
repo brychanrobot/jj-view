@@ -15,6 +15,14 @@ import type { CodeForgeChangeInfo, CommitParent, JjLogEntry } from './jj-types';
 
 const DEFAULT_PRIORITY_ORDER = ['github', 'gitlab', 'gerrit'];
 
+/** Refresh reason for user-initiated refreshes; they bypass `codeForge.minRefreshIntervalSeconds`. */
+export const MANUAL_REFRESH_REASON = 'manual refresh command';
+
+const DEFAULT_POLL_INTERVAL_SECONDS = 60;
+const MIN_POLL_INTERVAL_SECONDS = 10;
+/** Longer timer delays overflow and fire immediately. */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 function getProviderPriority(provider: CodeForgeProvider): number {
     if (provider.priority !== undefined) {
         return provider.priority;
@@ -25,6 +33,11 @@ function getProviderPriority(provider: CodeForgeProvider): number {
 
 export class CodeForgeService implements Disposable {
     private poller: NodeJS.Timeout | undefined;
+    private pollerIntervalMs = 0;
+    private pollingRequested = false;
+    private lastStatusFetchAt: number | undefined;
+    private deferredRefreshPending = false;
+    private deferredRefreshTimers = new TimerBucket();
     private activeProviderDisposable: Disposable | undefined;
     private disposables: (Disposable | HostDisposable)[] = [];
     private isDisposed = false;
@@ -76,9 +89,15 @@ export class CodeForgeService implements Disposable {
                         e.affectsConfiguration('jj-view.gerrit') ||
                         e.affectsConfiguration('jj-view.github') ||
                         e.affectsConfiguration('jj-view.gitlab') ||
-                        e.affectsConfiguration('jj-view.codeForge')
+                        e.affectsConfiguration('jj-view.codeForge.provider')
                     ) {
                         this.detectActiveProvider(true);
+                    }
+                    if (e.affectsConfiguration('jj-view.codeForge.pollIntervalSeconds')) {
+                        this.schedulePoller();
+                    }
+                    if (e.affectsConfiguration('jj-view.codeForge.minRefreshIntervalSeconds')) {
+                        this.rearmDeferredRefresh();
                     }
                 }),
             );
@@ -96,6 +115,7 @@ export class CodeForgeService implements Disposable {
         this.isDisposed = true;
         this.stopPolling();
         this.safeDispose(this.backoffTimers, 'backoff timers');
+        this.safeDispose(this.deferredRefreshTimers, 'deferred refresh timers');
         this.safeDispose(this.activeProviderDisposable, 'active provider');
         this.safeDeactivate(this.activeProviderInstance);
         for (const provider of this.providers.values()) {
@@ -145,27 +165,127 @@ export class CodeForgeService implements Disposable {
         return this.providers.get(id);
     }
 
+    /** Starts polling every `codeForge.pollIntervalSeconds` (0 disables). Idempotent. */
     public startPolling() {
-        if (this.poller) {
+        this.pollingRequested = true;
+        this.schedulePoller();
+    }
+
+    public stopPolling() {
+        this.pollingRequested = false;
+        this.clearPoller();
+    }
+
+    private getPollIntervalMs(): number {
+        const seconds = this.host.config.get<number>('codeForge.pollIntervalSeconds', DEFAULT_POLL_INTERVAL_SECONDS);
+        if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
+            return DEFAULT_POLL_INTERVAL_SECONDS * 1000;
+        }
+        if (seconds <= 0) {
+            return 0;
+        }
+        return Math.min(Math.max(seconds, MIN_POLL_INTERVAL_SECONDS) * 1000, MAX_TIMER_DELAY_MS);
+    }
+
+    private schedulePoller(): void {
+        if (this.isDisposed) {
+            return;
+        }
+        const intervalMs = this.pollingRequested ? this.getPollIntervalMs() : 0;
+        if (intervalMs === 0) {
+            this.clearPoller();
+            return;
+        }
+        if (this.poller && this.pollerIntervalMs === intervalMs) {
             return;
         }
 
+        this.clearPoller();
+        this.pollerIntervalMs = intervalMs;
         this.poller = setInterval(() => {
             const isActive = this.host.ui.isActive ?? this.host.ui.isFocused ?? true;
             if (this.isEnabled && isActive) {
                 this.forceRefresh();
             }
-        }, 60000);
+        }, intervalMs);
     }
 
-    public stopPolling() {
+    private clearPoller(): void {
         if (this.poller) {
             clearInterval(this.poller);
             this.poller = undefined;
         }
+        this.pollerIntervalMs = 0;
+    }
+
+    /** Time left in the `codeForge.minRefreshIntervalSeconds` window; 0 if unset or elapsed. */
+    private getMinRefreshRemainingMs(): number {
+        const seconds = this.host.config.get<number>('codeForge.minRefreshIntervalSeconds', 0);
+        if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
+            return 0;
+        }
+        if (this.lastStatusFetchAt === undefined) {
+            return 0;
+        }
+        const elapsedMs = Date.now() - this.lastStatusFetchAt;
+        if (elapsedMs < 0) {
+            return 0;
+        }
+        return Math.max(seconds * 1000 - elapsedMs, 0);
+    }
+
+    /** Whether a fetch ran less than `codeForge.minRefreshIntervalSeconds` ago. */
+    public isWithinMinRefreshInterval(): boolean {
+        return this.getMinRefreshRemainingMs() > 0;
+    }
+
+    /**
+     * Refreshes once the throttle window ends, for a change whose fetch was held back. Calls coalesce into one
+     * trailing forceRefresh(). No attempt is made to detect an intervening fetch covering it, since providers
+     * swallow errors; at most one extra fetch results.
+     */
+    public scheduleDeferredRefresh(): void {
+        if (this.isDisposed || this.deferredRefreshPending) {
+            return;
+        }
+        this.deferredRefreshPending = true;
+        this.armDeferredRefreshTimer();
+    }
+
+    private armDeferredRefreshTimer(): void {
+        const delayMs = Math.min(this.getMinRefreshRemainingMs(), MAX_TIMER_DELAY_MS);
+        this.deferredRefreshTimers.schedule(() => {
+            if (this.isDisposed || !this.deferredRefreshPending) {
+                return;
+            }
+            if (this.getMinRefreshRemainingMs() > 0) {
+                // A fetch (or the timer clamp) moved the end of the window.
+                this.armDeferredRefreshTimer();
+                return;
+            }
+            this.deferredRefreshPending = false;
+            const isActive = this.host.ui.isActive ?? this.host.ui.isFocused ?? true;
+            if (isActive) {
+                this.forceRefresh();
+            }
+        }, delayMs);
+    }
+
+    /** Re-arms a pending deferred refresh after the setting changes. */
+    private rearmDeferredRefresh(): void {
+        if (this.deferredRefreshPending) {
+            this.deferredRefreshTimers.dispose();
+            this.armDeferredRefreshTimer();
+        }
+    }
+
+    private cancelDeferredRefresh(): void {
+        this.deferredRefreshTimers.dispose();
+        this.deferredRefreshPending = false;
     }
 
     public clearCache(): void {
+        this.lastStatusFetchAt = undefined;
         for (const provider of this.providers.values()) {
             provider.clearCache();
         }
@@ -252,6 +372,8 @@ export class CodeForgeService implements Disposable {
             const prevActive = this.activeProviderInstance;
             const changed = prevActive?.id !== detectedProvider?.id;
             if (changed) {
+                this.lastStatusFetchAt = undefined;
+                this.cancelDeferredRefresh();
                 this.activeProviderDisposable?.dispose();
                 prevActive?.deactivate();
 
@@ -283,7 +405,11 @@ export class CodeForgeService implements Disposable {
         if (!this.activeProviderInstance) {
             return false;
         }
-        return this.activeProviderInstance.fetchStatuses(changes, this.jjService);
+        try {
+            return await this.activeProviderInstance.fetchStatuses(changes, this.jjService);
+        } finally {
+            this.lastStatusFetchAt = Date.now();
+        }
     }
 
     private verifyStructureSync(
