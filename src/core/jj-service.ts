@@ -7,6 +7,7 @@ import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
 import { type DiffHunkRange, parseDiffHunks, parseMultiFileDiffHunks } from '../utils/line-drift';
+import { LruCache } from '../utils/lru-cache';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import {
     HELPER_SCRIPT_TOKEN,
@@ -141,6 +142,7 @@ export class JjService {
     private readonly _changesCache = new AsyncCache<string, JjStatusEntry[]>({
         clone: (entries) => entries.map((e) => ({ ...e })),
     });
+    private readonly _gitBlobContentCache = new LruCache<string, string>({ maxEntries: 200 });
     private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
@@ -1093,6 +1095,7 @@ export class JjService {
         this._gitBlobHashCache.clear();
         this._diffContentCache.clear();
         this._diffBinaryCache.clear();
+        this._gitBlobContentCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -2054,6 +2057,49 @@ export class JjService {
             return hunks;
         } catch {
             this._setDiffHunksCache(cacheKey, null);
+            return undefined;
+        }
+    }
+
+    async getGitBlobContent(blobSha: string): Promise<string | undefined> {
+        if (!blobSha || blobSha === 'none' || /^0{4,64}$/.test(blobSha)) {
+            return '';
+        }
+
+        if (!/^[0-9a-fA-F]{4,64}$/.test(blobSha)) {
+            this.logger.debug(`getGitBlobContent rejected invalid blobSha: ${blobSha}`);
+            return undefined;
+        }
+
+        const cached = this._gitBlobContentCache.get(blobSha);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        try {
+            const gitRoot = await this.getGitRoot();
+            const timeout = 10000;
+            const res = await this.system.process.execFile(
+                'git',
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    ...(gitRoot ? [`--git-dir=${gitRoot}`] : []),
+                    'cat-file',
+                    '-p',
+                    blobSha,
+                ],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout,
+                },
+            );
+
+            this._gitBlobContentCache.set(blobSha, res.stdout);
+            return res.stdout;
+        } catch (err) {
+            this.logger.debug(`getGitBlobContent failed for ${blobSha}: ${getErrorMessage(err)}`);
             return undefined;
         }
     }

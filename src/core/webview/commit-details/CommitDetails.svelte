@@ -10,6 +10,7 @@ import {
     type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
 } from '../../host/ipc/commit-details-schemas';
+import type { CodeForgeChangeInfo } from '../../jj-schemas';
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { BasePill, BookmarkPill, PersonInfo, TagPill } from '../common/components';
 import { useRpcReceiver } from '../transport/bridge.svelte';
@@ -35,9 +36,14 @@ interface Props {
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
+    codeForgeChange?: CodeForgeChangeInfo;
+    codeForgeNeedsUpload?: boolean;
+    descriptionModifiedFromRemote?: boolean;
+    unuploadedFilePaths?: string[];
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
+    onCompareWithUploaded?: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
 }
 
@@ -61,9 +67,14 @@ let {
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
+    codeForgeChange,
+    codeForgeNeedsUpload = false,
+    descriptionModifiedFromRemote = false,
+    unuploadedFilePaths,
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
+    onCompareWithUploaded,
     onDescriptionChange,
 }: Props = $props();
 
@@ -73,6 +84,8 @@ const hasShortId = $derived(Boolean(shortId && idPart.startsWith(shortId)));
 const displayOffset = $derived(
     offsetPart || (isDivergent && changeIdOffset !== undefined ? String(changeIdOffset) : undefined),
 );
+const isActiveUploadedChange = $derived(codeForgeChange?.status === 'NEW');
+const unuploadedSet = $derived(new Set(isActiveUploadedChange ? (unuploadedFilePaths ?? []) : []));
 
 // Seed from the host's unsaved draft (if any) so a remounted editor resumes
 // the edit; `description` stays the persisted baseline for isDirty.
@@ -439,6 +452,34 @@ function getFileColor(status: string, conflicted?: boolean): string {
             {/each}
         </div>
 
+        {#if codeForgeChange && isActiveUploadedChange && codeForgeNeedsUpload}
+            <div class="code-forge-banner" role="status" aria-live="polite">
+                <div class="code-forge-banner-info">
+                    <span class="codicon codicon-cloud-upload banner-icon" aria-hidden="true"></span>
+                    <span class="banner-text">
+                        {(unuploadedFilePaths !== undefined
+                            ? unuploadedFilePaths.length === 0 && !descriptionModifiedFromRemote
+                            : codeForgeChange.contentSynced === true) &&
+                        (codeForgeChange.parentSynced === false || codeForgeChange.contentSynced === true)
+                            ? `Parent differs from ${codeForgeChange.displayLabel}`
+                            : `Local changes differ from ${codeForgeChange.displayLabel}`}
+                    </span>
+                </div>
+                {#if onCompareWithUploaded && codeForgeChange.currentRevision && ((unuploadedFilePaths?.length ?? 0) > 0 || descriptionModifiedFromRemote)}
+                    <button
+                        type="button"
+                        class="banner-action-button"
+                        onclick={onCompareWithUploaded}
+                        title={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                        aria-label={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                    >
+                        <span class="codicon codicon-diff" aria-hidden="true"></span>
+                        Compare
+                    </button>
+                {/if}
+            </div>
+        {/if}
+
         <div class="metadata-section">
             <div class="id-chips-row">
                 <div class="id-row">
@@ -505,6 +546,18 @@ function getFileColor(status: string, conflicted?: boolean): string {
                 >
                     <span class="codicon codicon-settings-gear"></span>
                 </a>
+                {#if isActiveUploadedChange && descriptionModifiedFromRemote && onCompareWithUploaded}
+                    <button
+                        type="button"
+                        class="diff-badge-button"
+                        onclick={onCompareWithUploaded}
+                        title="Commit message has changed since upload. Click to compare."
+                        aria-label="Commit message modified since upload. Click to compare."
+                    >
+                        <span class="codicon codicon-diff" aria-hidden="true"></span>
+                        Modified since upload
+                    </button>
+                {/if}
             </div>
             <div class="editor-actions">
                 {#if !isImmutable}
@@ -590,14 +643,27 @@ function getFileColor(status: string, conflicted?: boolean): string {
                     </div>
                 {/if}
             </div>
-            <button
-                type="button"
-                onclick={onOpenMultiDiff}
-                class="secondary-button"
-            >
-                <span class="codicon codicon-diff"></span>
-                Multi-file Diff
-            </button>
+            <div class="files-header-actions">
+                {#if isActiveUploadedChange && unuploadedFilePaths && unuploadedFilePaths.length > 0 && onCompareWithUploaded}
+                    <button
+                        type="button"
+                        onclick={onCompareWithUploaded}
+                        class="secondary-button unuploaded-diff-button"
+                        title="Compare changed files with uploaded revision"
+                    >
+                        <span class="codicon codicon-git-compare" aria-hidden="true"></span>
+                        Compare with Uploaded ({unuploadedFilePaths.length})
+                    </button>
+                {/if}
+                <button
+                    type="button"
+                    onclick={onOpenMultiDiff}
+                    class="secondary-button"
+                >
+                    <span class="codicon codicon-diff"></span>
+                    Multi-file Diff
+                </button>
+            </div>
         </div>
         <div class="files-list">
             <div class="files-items" bind:clientHeight={filesContentHeight}>
@@ -645,6 +711,12 @@ function getFileColor(status: string, conflicted?: boolean): string {
                                             <span class="stat-deleted">-{file.deletions}</span>
                                         {/if}
                                     </span>
+                                {/if}
+                                {#if unuploadedSet.has(file.path)}
+                                    <span
+                                        class="file-status-badge status-unuploaded"
+                                        title={`File modified since upload to ${codeForgeChange?.providerName || 'remote'}`}
+                                    >unuploaded</span>
                                 {/if}
                                 {#if file.conflicted}
                                     <span class="file-status-badge status-conflicted" title={conflictLabel}>{file.conflictSides ? `${file.conflictSides}-way conflict` : 'conflicted'}</span>
@@ -703,13 +775,15 @@ function getFileColor(status: string, conflicted?: boolean): string {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 12px;
+        flex-wrap: wrap;
+        gap: 8px 12px;
         min-height: 26px;
     }
 
     .section-title-group {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 8px;
     }
 
@@ -925,7 +999,7 @@ function getFileColor(status: string, conflicted?: boolean): string {
     .secondary-button {
         background-color: var(--vscode-button-secondaryBackground);
         color: var(--vscode-button-secondaryForeground);
-        border: 1px solid var(--vscode-button-border, transparent);
+        border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-button-border, transparent));
         padding: 3px 10px;
         font-size: 12px;
         font-weight: 500;
@@ -933,6 +1007,7 @@ function getFileColor(status: string, conflicted?: boolean): string {
         display: inline-flex;
         align-items: center;
         gap: 6px;
+        white-space: nowrap;
         cursor: pointer;
         line-height: normal;
         transition: background-color 0.15s;
@@ -1246,6 +1321,103 @@ function getFileColor(status: string, conflicted?: boolean): string {
         background: color-mix(in srgb, var(--vscode-gitDecoration-renamedResourceForeground, #73c991) 12%, transparent);
     }
 
+    .file-status-badge.status-unuploaded {
+        --unuploaded-accent: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground));
+        --unuploaded-fg: color-mix(in srgb, var(--unuploaded-accent) 55%, var(--vscode-foreground));
+        color: var(--unuploaded-fg);
+        background: color-mix(in srgb, var(--unuploaded-accent) 12%, transparent);
+    }
+
+    .code-forge-banner {
+        --unuploaded-accent: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground));
+        --unuploaded-fg: color-mix(in srgb, var(--unuploaded-accent) 55%, var(--vscode-foreground));
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+        border: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border));
+        border-left: 3px solid var(--unuploaded-fg);
+    }
+
+    .code-forge-banner-info {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+    }
+
+    .banner-icon {
+        color: var(--unuploaded-fg);
+    }
+
+    .banner-action-button {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        white-space: nowrap;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-button-border, transparent));
+        cursor: pointer;
+    }
+
+    .banner-action-button:hover {
+        background: var(--vscode-button-secondaryHoverBackground);
+    }
+
+    .banner-action-button:focus-visible,
+    .diff-badge-button:focus-visible,
+    .secondary-button:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    .diff-badge-button {
+        --unuploaded-accent: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground));
+        --unuploaded-fg: color-mix(in srgb, var(--unuploaded-accent) 55%, var(--vscode-foreground));
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+        background: color-mix(in srgb, var(--unuploaded-accent) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--unuploaded-accent) 45%, transparent);
+        color: var(--unuploaded-fg);
+        cursor: pointer;
+        margin-left: 6px;
+    }
+
+    .diff-badge-button:hover {
+        background: color-mix(in srgb, var(--unuploaded-accent) 20%, transparent);
+    }
+
+    .files-header-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .unuploaded-diff-button {
+        color: var(--vscode-button-secondaryForeground);
+    }
+
+    .unuploaded-diff-button .codicon {
+        color: color-mix(
+            in srgb,
+            var(--vscode-charts-orange, var(--vscode-editorWarning-foreground)) 55%,
+            var(--vscode-foreground)
+        );
+    }
 
     .no-files-message {
         display: flex;

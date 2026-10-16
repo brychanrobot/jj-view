@@ -538,4 +538,122 @@ describe('CommitDetailsController Domain Unit Tests', () => {
 
         detailsController.dispose();
     });
+
+    test('dispatches jj-view.compareWithUploaded command on openCompareWithUploaded message', async () => {
+        const executeSpy = vi.spyOn(fakeHost.commands, 'executeCommand');
+
+        const handled = await controller.handleMessage({
+            type: 'openCompareWithUploaded',
+            payload: { changeId: '@' },
+        });
+
+        expect(handled).toBe(true);
+        expect(executeSpy).toHaveBeenCalledWith('jj-view.compareWithUploaded', '@');
+    });
+
+    test('emits file list promptly before async comparison finishes and resets stale comparison state on reload', async () => {
+        testRepo.writeFile('file.txt', 'local v2');
+        testRepo.describe('feat: local desc\n\nChange-Id: I1111222233334444555566667777888899990000');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        let hasForgeChange = true;
+        const populateSpy = vi.spyOn(repoInstance.codeForge, 'populateCodeForgeInfo').mockImplementation((commits) => {
+            for (const c of commits) {
+                if (hasForgeChange) {
+                    c.codeForgeChange = {
+                        id: 'I1111222233334444555566667777888899990000',
+                        number: 101,
+                        displayLabel: 'CL/101',
+                        providerName: 'Gerrit',
+                        status: 'NEW',
+                        submittable: false,
+                        url: 'https://example.com/101',
+                        unresolvedComments: 0,
+                        currentRevision: 'remote-rev',
+                        remoteDescription: 'feat: remote desc\n\nChange-Id: I1111222233334444555566667777888899990000',
+                        files: { 'file.txt': { newSha: 'remote-blob', status: 'M' } },
+                    };
+                    c.codeForgeNeedsUpload = true;
+                } else {
+                    c.codeForgeChange = undefined;
+                    c.codeForgeNeedsUpload = undefined;
+                }
+            }
+        });
+
+        try {
+            client.receivedMessages.length = 0;
+            await controller.load();
+            expect(client.receivedMessages.some((m) => m.type === 'update' && !m.payload.isLoadingFiles)).toBe(true);
+            await controller.activeComparison;
+
+            expect(controller.getState()?.descriptionModifiedFromRemote).toBe(true);
+            expect(controller.getState()?.unuploadedFilePaths).toEqual(['file.txt']);
+
+            hasForgeChange = false;
+            await controller.load();
+            await controller.activeComparison;
+
+            expect(controller.getState()?.descriptionModifiedFromRemote).toBeUndefined();
+            expect(controller.getState()?.unuploadedFilePaths).toBeUndefined();
+        } finally {
+            populateSpy.mockRestore();
+        }
+    });
+
+    test('skips automatic unuploaded comparison for MERGED changes and discards stale loads on reload/dispose', async () => {
+        testRepo.writeFile('file.txt', 'merged content');
+        testRepo.describe('feat: already merged\n\nChange-Id: I2222222233334444555566667777888899990000');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        let status: 'NEW' | 'MERGED' = 'MERGED';
+        const populateSpy = vi.spyOn(repoInstance.codeForge, 'populateCodeForgeInfo').mockImplementation((commits) => {
+            for (const c of commits) {
+                c.codeForgeChange = {
+                    id: 'I2222222233334444555566667777888899990000',
+                    number: 202,
+                    displayLabel: 'CL/202',
+                    providerName: 'Gerrit',
+                    status,
+                    submittable: false,
+                    url: 'https://example.com/202',
+                    unresolvedComments: 0,
+                    currentRevision: 'remote-rev-merged',
+                    remoteDescription: 'feat: older message',
+                    files: { 'file.txt': { newSha: 'different-sha', status: 'M' } },
+                };
+                c.codeForgeNeedsUpload = status === 'NEW';
+            }
+        });
+
+        try {
+            await controller.load();
+            await controller.activeComparison;
+            expect(controller.activeComparison).toBeUndefined();
+            expect(controller.getState()?.unuploadedFilePaths).toBeUndefined();
+            expect(controller.getState()?.descriptionModifiedFromRemote).toBeUndefined();
+
+            // Supersede an in-flight comparison via a second load(); stale load must not overwrite
+            status = 'NEW';
+            const firstLoad = controller.load();
+            const secondLoad = controller.load();
+            await Promise.all([firstLoad, secondLoad]);
+            await controller.activeComparison;
+            expect(controller.getState()?.unuploadedFilePaths).toEqual(['file.txt']);
+
+            // Dispose cancels pending emissions cleanly
+            controller.dispose();
+            await expect(controller.load()).resolves.toBeUndefined();
+        } finally {
+            populateSpy.mockRestore();
+        }
+    });
 });

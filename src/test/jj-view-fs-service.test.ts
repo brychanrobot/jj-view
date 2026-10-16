@@ -3,11 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { JjViewFsService } from '../core/jj-view-fs-service';
-import { Uri } from '../core/uri-utils';
+import { createTextContentUri, createUploadedFileUri, Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
@@ -186,7 +190,6 @@ describe('JjViewFsService Unit Tests', () => {
         expect(Buffer.from(leftBytes).toString('utf8')).toBe('v1\n');
         expect(Buffer.from(rightBytes).toString('utf8')).toBe('v2\n');
     });
-
     it('preserves exact non-UTF-8 binary bytes for image diffs and revision reads', async () => {
         const pngV1 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
         const pngV2 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x80, 0x99, 0xab]);
@@ -225,5 +228,115 @@ describe('JjViewFsService Unit Tests', () => {
         expect(Buffer.from(leftBytes).equals(pngV1)).toBe(true);
         expect(Buffer.from(rightBytes).equals(pngV2)).toBe(true);
         expect(Buffer.from(revBytes).equals(pngV1)).toBe(true);
+    });
+
+    it('reads text mode content correctly', async () => {
+        const textUri = createTextContentUri(repo.path, 'COMMIT_MSG', 'Subject line\n\nCommit body');
+        const bytes = await service.readFile(textUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('Subject line\n\nCommit body');
+    });
+
+    it('reads uploaded content via git blobSha', async () => {
+        repo.writeFile('uploaded.txt', 'uploaded content from blob');
+        const commitId = repo.getCommitId('@');
+        const repoInstance = repoManager.getRepositoryForUri(Uri.file(repo.path));
+        if (!repoInstance) {
+            throw new Error('repoInstance not found');
+        }
+
+        const hashes = await repoInstance.jj.getGitBlobHashes(commitId, ['uploaded.txt']);
+        const blobSha = hashes.get('uploaded.txt');
+        expect(blobSha).toBeDefined();
+
+        const uploadedUri = createUploadedFileUri(repo.path, 'uploaded.txt', {
+            changeId: 'I12345',
+            blobSha,
+        });
+
+        const bytes = await service.readFile(uploadedUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('uploaded content from blob');
+    });
+
+    it('reads uploaded content via remoteRevision when blobSha is absent', async () => {
+        repo.writeFile('remote.txt', 'remote revision file content');
+        const commitId = repo.getCommitId('@');
+
+        const uploadedUri = createUploadedFileUri(repo.path, 'remote.txt', {
+            changeId: 'I67890',
+            remoteRevision: commitId,
+        });
+
+        const bytes = await service.readFile(uploadedUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('remote revision file content');
+    });
+
+    it('preserves exact binary bytes for uploaded images with blobSha and remoteRevision or forge fallback', async () => {
+        const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
+        repo.writeBinaryFile('banner.png', pngBytes);
+        const commitId = repo.getCommitId('@');
+        const repoInstance = repoManager.getRepositoryForUri(Uri.file(repo.path));
+        if (!repoInstance) {
+            throw new Error('repoInstance not found');
+        }
+        const hashes = await repoInstance.jj.getGitBlobHashes(commitId, ['banner.png']);
+        const blobSha = hashes.get('banner.png');
+        expect(blobSha).toBeDefined();
+
+        const localUploadedUri = createUploadedFileUri(repo.path, 'banner.png', {
+            changeId: 'Iimglocal',
+            blobSha,
+            remoteRevision: commitId,
+        });
+        const localBytes = await service.readFile(localUploadedUri);
+        expect(Buffer.from(localBytes).equals(pngBytes)).toBe(true);
+
+        const spy = vi
+            .spyOn(repoInstance.codeForge, 'getUploadedFileContent')
+            .mockResolvedValue(new Uint8Array(pngBytes));
+        const remoteOnlyUri = createUploadedFileUri(repo.path, 'banner.png', {
+            changeId: 'Iimgremote',
+            blobSha: '0123456789abcdef0123456789abcdef01234567',
+            remoteRevision: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+            changeNumber: 4242,
+        });
+        const remoteBytes = await service.readFile(remoteOnlyUri);
+        expect(spy).toHaveBeenCalledWith(4242, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'banner.png');
+        expect(Buffer.from(remoteBytes).equals(pngBytes)).toBe(true);
+    });
+
+    it('reads git blob content in non-colocated repos and secondary workspaces, and rejects invalid blobSha', async () => {
+        const secondaryParent = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-ws-sec-'));
+        const nonColocatedRepo = new TestRepo();
+        try {
+            const primaryJj = new JjService(repo.path, NO_OP_LOGGER);
+            repo.writeFile('ws.txt', 'hello secondary workspace');
+            const commitId = repo.getCommitId('@');
+            const hashes = await primaryJj.getGitBlobHashes(commitId, ['ws.txt']);
+            const blobSha = hashes.get('ws.txt');
+            if (!blobSha) {
+                throw new Error('Expected blobSha for ws.txt');
+            }
+
+            const wsPath = path.join(secondaryParent, 'sec');
+            await primaryJj.workspaceAdd(wsPath, 'sec');
+            const secJj = new JjService(wsPath, NO_OP_LOGGER);
+            expect(await secJj.getGitBlobContent(blobSha)).toBe('hello secondary workspace');
+            expect(await secJj.getGitBlobContent('--help')).toBeUndefined();
+            expect(await secJj.getGitBlobContent('-p')).toBeUndefined();
+
+            nonColocatedRepo.init({ colocate: false });
+            nonColocatedRepo.writeFile('nc.txt', 'hello non-colocated');
+            const ncCommitId = nonColocatedRepo.getCommitId('@');
+            const ncJj = new JjService(nonColocatedRepo.path, NO_OP_LOGGER);
+            const ncHashes = await ncJj.getGitBlobHashes(ncCommitId, ['nc.txt']);
+            const ncBlobSha = ncHashes.get('nc.txt');
+            expect(ncBlobSha).toBeDefined();
+            if (ncBlobSha) {
+                expect(await ncJj.getGitBlobContent(ncBlobSha)).toBe('hello non-colocated');
+            }
+        } finally {
+            await nonColocatedRepo.dispose();
+            await fs.rm(secondaryParent, { recursive: true, force: true });
+        }
     });
 });

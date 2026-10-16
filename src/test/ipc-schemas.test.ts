@@ -21,7 +21,15 @@ import {
 describe('IPC Schemas Unit Tests', () => {
     describe('LogView Schemas', () => {
         it('validates CommitAction enum', () => {
-            const validActions = ['newChild', 'edit', 'squash', 'abandon', 'openCodeForge', 'upload'];
+            const validActions = [
+                'newChild',
+                'edit',
+                'squash',
+                'abandon',
+                'openCodeForge',
+                'upload',
+                'compareWithUploaded',
+            ];
             for (const action of validActions) {
                 expect(CommitActionSchema.safeParse(action).success).toBe(true);
             }
@@ -162,6 +170,12 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 LogViewToHostMessageSchema.safeParse({
                     type: 'upload',
+                    payload: { changeId: 'kkmpptxz' },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewToHostMessageSchema.safeParse({
+                    type: 'compareWithUploaded',
                     payload: { changeId: 'kkmpptxz' },
                 }).success,
             ).toBe(true);
@@ -335,6 +349,12 @@ describe('IPC Schemas Unit Tests', () => {
             expect(
                 CommitDetailsToHostMessageSchema.safeParse({
                     type: 'openMultiDiff',
+                    payload: { changeId: 'kkmpptxz' },
+                }).success,
+            ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'openCompareWithUploaded',
                     payload: { changeId: 'kkmpptxz' },
                 }).success,
             ).toBe(true);
