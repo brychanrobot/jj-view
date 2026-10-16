@@ -203,4 +203,45 @@ describe('CommitDetailsApp SSR Rendering', () => {
         );
         expect(html).not.toContain('src/core/webview/</span> ');
     });
+
+    it('successfully server-renders code forge sync banner, description modified badge, and modified file badges', () => {
+        const initialCommit: CommitDetailsPayload = {
+            changeId: 'krsyowswxmxnqznrtlpuyutskyzrpunp',
+            commitId: 'abcdef1234567890abcdef1234567890abcdef12',
+            description: 'feat: local description with changes',
+            files: [
+                {
+                    path: 'src/index.ts',
+                    status: 'modified',
+                },
+            ],
+            isLoadingFiles: false,
+            isImmutable: false,
+            codeForgeChange: {
+                id: 'I12345',
+                number: 999,
+                displayLabel: 'CL/999',
+                providerName: 'Gerrit',
+                status: 'NEW',
+                submittable: false,
+                url: 'https://example.com/999',
+                unresolvedComments: 0,
+                currentRevision: 'uploaded-rev-123',
+                synced: false,
+                contentSynced: false,
+            },
+            codeForgeNeedsUpload: true,
+            descriptionModifiedFromRemote: true,
+            unuploadedFilePaths: ['src/index.ts'],
+        };
+
+        const result = render(CommitDetailsApp, { props: { initialCommit } });
+        const html = result.body;
+
+        expect(html).toContain('code-forge-banner');
+        expect(html).toContain('Local changes differ from CL/999');
+        expect(html).toContain('Modified since upload');
+        expect(html).toContain('status-unuploaded');
+        expect(html).toContain('Compare with Uploaded');
+    });
 });

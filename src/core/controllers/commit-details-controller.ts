@@ -6,6 +6,7 @@
 import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
+import { computeUnuploadedComparison } from '../commands/compare-with-uploaded';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
 import type { HostEnvironment } from '../host/host-environment';
 import {
@@ -54,6 +55,8 @@ export class CommitDetailsController implements Disposable {
     private _pendingUpdate?: { newText: string; newSelection: { start: number; end: number } };
     private _currentSavePromise?: Promise<boolean>;
     private _nextSavePromise?: Promise<boolean>;
+    private _descriptionModifiedFromRemote?: boolean;
+    private _unuploadedFilePaths?: string[];
 
     private readonly _onDidUpdate = new EventEmitter<JjLogEntry>();
     public readonly onDidUpdate: Event<JjLogEntry> = this._onDidUpdate.event;
@@ -72,6 +75,16 @@ export class CommitDetailsController implements Disposable {
         this._loadQueue = new CoalescingQueue(async () => {
             await this._doLoad();
         });
+
+        if (this.repo?.codeForge) {
+            this._disposables.push(
+                this.repo.codeForge.onDidUpdate(() => {
+                    if (!this._disposed) {
+                        void this.load();
+                    }
+                }),
+            );
+        }
     }
 
     public get isDisposed(): boolean {
@@ -167,6 +180,10 @@ export class CommitDetailsController implements Disposable {
             bodyWidthRuler: this._host.config.get<number | undefined>('commit.bodyWidthRuler'),
             formatDescriptionOnSave: this._host.config.get<boolean>('commit.formatDescriptionOnSave', false),
             isLoadingFiles: this._isLoadingFiles,
+            codeForgeChange: this._logEntry.codeForgeChange,
+            codeForgeNeedsUpload: this._logEntry.codeForgeNeedsUpload,
+            descriptionModifiedFromRemote: this._descriptionModifiedFromRemote,
+            unuploadedFilePaths: this._unuploadedFilePaths,
         };
     }
 
@@ -243,6 +260,9 @@ export class CommitDetailsController implements Disposable {
         }
 
         const log = logs[0];
+        if (this.repo.codeForge) {
+            this.repo.codeForge.populateCodeForgeInfo([log]);
+        }
         this._logEntry = log;
         const previousPersisted = this._persistedDescription;
         const freshPersisted = (log.description || '').trim();
@@ -273,6 +293,27 @@ export class CommitDetailsController implements Disposable {
             const changes = rawChanges || [];
             this._changes = changes;
             this._isLoadingFiles = false;
+
+            if (this._logEntry?.codeForgeChange && this.repo) {
+                try {
+                    const comparison = await computeUnuploadedComparison(this.repo, this.changeId);
+                    if (this._disposed || currentLoadId !== this._loadId) {
+                        return;
+                    }
+                    this._descriptionModifiedFromRemote = comparison.descriptionModified;
+                    this._unuploadedFilePaths = comparison.unuploadedFilePaths;
+                } catch {
+                    this._descriptionModifiedFromRemote = undefined;
+                    this._unuploadedFilePaths = undefined;
+                }
+            } else {
+                this._descriptionModifiedFromRemote = undefined;
+                this._unuploadedFilePaths = undefined;
+            }
+
+            if (this._disposed || currentLoadId !== this._loadId) {
+                return;
+            }
 
             const finalState = this.getState();
             if (finalState) {
@@ -493,6 +534,9 @@ export class CommitDetailsController implements Disposable {
                 },
                 openMultiDiff: async (payload) => {
                     await this._host.commands.executeCommand('jj-view.showMultiFileDiff', payload.changeId);
+                },
+                openCompareWithUploaded: async (payload) => {
+                    await this._host.commands.executeCommand('jj-view.compareWithUploaded', payload.changeId);
                 },
             },
             {

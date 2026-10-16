@@ -451,4 +451,16 @@ describe('LogViewController Domain Unit Tests', () => {
         await refreshPromise;
         expect(ensureFreshSpy).toHaveBeenCalledTimes(2);
     });
+
+    test('dispatches jj-view.compareWithUploaded command on compareWithUploaded message', async () => {
+        const executeSpy = vi.spyOn(fakeHost.commands, 'executeCommand');
+
+        const handled = await controller.handleMessage({
+            type: 'compareWithUploaded',
+            payload: { changeId: 'test-change-cl' },
+        });
+
+        expect(handled).toBe(true);
+        expect(executeSpy).toHaveBeenCalledWith('jj-view.compareWithUploaded', 'test-change-cl');
+    });
 });

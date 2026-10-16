@@ -149,6 +149,11 @@ export class GerritProvider implements CodeForgeProvider {
         maxEntries: MAX_COMMENTS_CACHE_ENTRIES,
         keepStaleOnError: true,
     });
+    private uploadedFileContentCache = new AsyncCache<string, string | undefined>({
+        ttl: Duration.minutes(10),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
     private gerritHost: string | undefined;
     private repoRoot: string | undefined;
     private gitRoot: string | null = null;
@@ -1185,11 +1190,46 @@ export class GerritProvider implements CodeForgeProvider {
         this._onDidUpdate.fire();
     }
 
+    public async getUploadedFileContent(
+        changeNumber: number,
+        revisionId: string,
+        filePath: string,
+    ): Promise<string | undefined> {
+        if (!this.gerritHost) {
+            return undefined;
+        }
+        const cacheKey = `${changeNumber}:${revisionId}:${filePath}`;
+        return this.uploadedFileContentCache.getOrFetch(cacheKey, async () => {
+            const encodedPath = encodeURIComponent(filePath);
+            const url = `${this.gerritHost}/changes/${changeNumber}/revisions/${revisionId}/files/${encodedPath}/content`;
+            try {
+                const response = await this.fetchGerrit(url);
+                if (!response.ok) {
+                    return undefined;
+                }
+                const base64 = await response.text();
+                const cleaned = base64.trim();
+                const binary = atob(cleaned);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return new TextDecoder().decode(bytes);
+            } catch (err) {
+                this.outputChannel?.warn(
+                    `[GerritProvider] Failed to fetch uploaded file content for ${filePath} (${changeNumber}@${revisionId}): ${err}`,
+                );
+                return undefined;
+            }
+        });
+    }
+
     public clearCache(): void {
         this.cache.clear();
         this.contentSyncCache.clear();
         void this.commentsCache.clear();
         void this.draftsCache.clear();
+        void this.uploadedFileContentCache.clear();
         this.authHeader = undefined;
         this.authChecked = false;
         this.lastAuthTime = 0;

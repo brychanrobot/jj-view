@@ -78,6 +78,7 @@ _Multi-File Diff editor reviewing changes across revisions (Theme: Autumn)._
 **JJ View** integrates with popular code forge providers to bring pull requests, merge requests, and code reviews directly into VS Code:
 
 - **🤖 Gerrit Integration**: Displays current Gerrit status (e.g. Active, Merged) and provides direct links to CLs. Auto-detects from `.gitreview` or git remotes.
+- **🔄 Unuploaded Changes Diff**: When a local revision differs from the remote patchset, click the diff button or context menu to inspect local modifications against the uploaded revision in the multi-file diff editor (including commit description diffs while isolating unrelated upstream rebase changes).
 - **🐱 GitHub Integration**: Displays PR status (Open, Merged, Draft), checks mergeability, and tracks unresolved comment counts. Supports uploading changes via SCM actions.
 - **🦊 GitLab Integration**: Displays Merge Request status, checks mergeability, and tracks unresolved comments for GitLab and self-hosted instances.
 - **💬 Review Discussions & Inline Comments**:
@@ -148,6 +149,7 @@ The extension automatically refreshes the view when:
 - `JJ View: Forget Workspace`: Forget a workspace without deleting its directory.
 - `JJ View: Delete Workspace Directory`: Forget a workspace and delete its directory from disk.
 - `JJ View: Show Multi-File Diff`: Open a comprehensive multi-file diff view for the selected revision. These views are editable for mutable commits.
+- `JJ View: Compare with Uploaded Revision`: Review local changes against what is currently uploaded to your code forge, including per-file diffs and commit description changes while isolating unrelated upstream rebase diffs.
 - `JJ View: Compare All Files with Revision...`: Compare all files between a selected revision and the working copy.
 - `JJ View: Compare File with Revision...`: Compare a specific file against a selected revision.
 

@@ -11,6 +11,8 @@ import {
     createCommitDetailsUri,
     createDiffUris,
     createRevisionUri,
+    createTextContentUri,
+    createUploadedFileUri,
     decodeJjViewQuery,
     encodeJjViewQuery,
     fnv1aHash,
@@ -629,5 +631,42 @@ describe('pathe cross-platform contract', () => {
         expect(path.relative('/a/b/c', '/a/b/d')).toBe('../d');
         expect(path.relative('/a/b', '/a/b')).toBe('');
         expect(path.relative('C:/workspace/repo', 'C:/workspace/repo/src/file.ts')).toBe('src/file.ts');
+    });
+
+    describe('createUploadedFileUri and createTextContentUri', () => {
+        it('creates and decodes uploaded file URI with full parameters', () => {
+            const uri = createUploadedFileUri('/repo/root', 'src/file.ts', {
+                changeId: 'I12345678',
+                commitId: 'rev-commit-id',
+                blobSha: 'blob123',
+                remoteRevision: 'remote-rev-456',
+                changeNumber: 12345,
+            });
+
+            expect(uri.scheme).toBe('jj-view');
+            expect(uri.path).toBe('/src/file.ts');
+
+            const query = decodeJjViewQuery(uri);
+            expect(query.mode).toBe('uploaded');
+            if (query.mode === 'uploaded') {
+                expect(query.changeId).toBe('I12345678');
+                expect(query.commitId).toBe('rev-commit-id');
+                expect(query.blobSha).toBe('blob123');
+                expect(query.remoteRevision).toBe('remote-rev-456');
+                expect(query.changeNumber).toBe(12345);
+            }
+        });
+
+        it('creates and decodes text content URI', () => {
+            const uri = createTextContentUri('/repo/root', 'COMMIT_MSG', 'Title\n\nBody message');
+            expect(uri.scheme).toBe('jj-view');
+            expect(uri.path).toBe('/COMMIT_MSG');
+
+            const query = decodeJjViewQuery(uri);
+            expect(query.mode).toBe('text');
+            if (query.mode === 'text') {
+                expect(query.text).toBe('Title\n\nBody message');
+            }
+        });
     });
 });

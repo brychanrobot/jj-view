@@ -24,7 +24,17 @@ export interface FileStatLike {
 
 export type JjViewQuery =
     | { mode: 'diff'; root?: string; base: string; side: 'left' | 'right' }
-    | { mode: 'revision'; root?: string; revision: string };
+    | { mode: 'revision'; root?: string; revision: string }
+    | {
+          mode: 'uploaded';
+          root?: string;
+          changeId: string;
+          commitId?: string;
+          blobSha?: string;
+          remoteRevision?: string;
+          changeNumber?: number;
+      }
+    | { mode: 'text'; root?: string; text: string };
 
 export function encodeJjViewQuery(query: JjViewQuery): string {
     const params = new URLSearchParams();
@@ -38,6 +48,26 @@ export function encodeJjViewQuery(query: JjViewQuery): string {
         })
         .with({ mode: 'revision' }, (q) => {
             params.set('revision', q.revision);
+        })
+        .with({ mode: 'uploaded' }, (q) => {
+            params.set('mode', 'uploaded');
+            params.set('changeId', q.changeId);
+            if (q.commitId) {
+                params.set('commitId', q.commitId);
+            }
+            if (q.blobSha) {
+                params.set('blobSha', q.blobSha);
+            }
+            if (q.remoteRevision) {
+                params.set('remoteRevision', q.remoteRevision);
+            }
+            if (q.changeNumber !== undefined) {
+                params.set('changeNumber', String(q.changeNumber));
+            }
+        })
+        .with({ mode: 'text' }, (q) => {
+            params.set('mode', 'text');
+            params.set('text', q.text);
         })
         .exhaustive();
     return params.toString();
@@ -60,6 +90,23 @@ export function getUriParams(uri: Uri): URLSearchParams {
 export function decodeJjViewQuery(uri: Uri): JjViewQuery {
     const params = getUriParams(uri);
     const root = params.get('root') || params.get('repoRoot') || undefined;
+    const mode = params.get('mode');
+
+    if (mode === 'uploaded') {
+        const changeId = params.get('changeId') || '';
+        const commitId = params.get('commitId') || undefined;
+        const blobSha = params.get('blobSha') || undefined;
+        const remoteRevision = params.get('remoteRevision') || undefined;
+        const rawNum = params.get('changeNumber');
+        const changeNumber = rawNum ? Number.parseInt(rawNum, 10) : undefined;
+        return { mode: 'uploaded', root, changeId, commitId, blobSha, remoteRevision, changeNumber };
+    }
+
+    if (mode === 'text') {
+        const text = params.get('text') || '';
+        return { mode: 'text', root, text };
+    }
+
     const revision = params.get('revision');
     const base = params.get('base');
     const side = params.get('side');
@@ -240,6 +287,54 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
         scheme: 'jj-view',
         path: relPathStr,
         fragment: encodeJjViewQuery({ mode: 'revision', root, revision }),
+    });
+}
+
+/**
+ * Creates a jj-view URI for viewing a file from an uploaded code forge revision/patchset.
+ */
+export function createUploadedFileUri(
+    root: string,
+    filePath: string,
+    options: {
+        changeId: string;
+        commitId?: string;
+        blobSha?: string;
+        remoteRevision?: string;
+        changeNumber?: number;
+    },
+): Uri {
+    const posixRel = toForwardSlash(filePath);
+    const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
+    return Uri.from({
+        scheme: 'jj-view',
+        path: relPathStr,
+        fragment: encodeJjViewQuery({
+            mode: 'uploaded',
+            root,
+            changeId: options.changeId,
+            commitId: options.commitId,
+            blobSha: options.blobSha,
+            remoteRevision: options.remoteRevision,
+            changeNumber: options.changeNumber,
+        }),
+    });
+}
+
+/**
+ * Creates a jj-view URI representing fixed text content (e.g. Commit Message diff).
+ */
+export function createTextContentUri(root: string, virtualPath: string, text: string): Uri {
+    const posixRel = toForwardSlash(virtualPath);
+    const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
+    return Uri.from({
+        scheme: 'jj-view',
+        path: relPathStr,
+        fragment: encodeJjViewQuery({
+            mode: 'text',
+            root,
+            text,
+        }),
     });
 }
 

@@ -9,6 +9,7 @@ import {
     type CommitDetailsHostToWebviewMessage,
     CommitDetailsHostToWebviewMessageSchema,
 } from '../../host/ipc/commit-details-schemas';
+import type { CodeForgeChangeInfo } from '../../jj-schemas';
 import type { JjBookmark, JjStatusEntry } from '../../jj-types';
 import { BasePill, BookmarkPill, PersonInfo, TagPill } from '../common/components';
 import { useRpcReceiver } from '../transport/bridge.svelte';
@@ -32,9 +33,14 @@ interface Props {
     titleWidthRuler?: number;
     bodyWidthRuler?: number;
     minChangeIdLength?: number;
+    codeForgeChange?: CodeForgeChangeInfo;
+    codeForgeNeedsUpload?: boolean;
+    descriptionModifiedFromRemote?: boolean;
+    unuploadedFilePaths?: string[];
     onSave: (description: string) => void;
     onOpenDiff: (file: JjStatusEntry, isImmutable: boolean) => void;
     onOpenMultiDiff: () => void;
+    onCompareWithUploaded?: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
 }
 
@@ -57,9 +63,14 @@ let {
     titleWidthRuler = 50,
     bodyWidthRuler = 72,
     minChangeIdLength = 1,
+    codeForgeChange,
+    codeForgeNeedsUpload = false,
+    descriptionModifiedFromRemote = false,
+    unuploadedFilePaths = [],
     onSave,
     onOpenDiff,
     onOpenMultiDiff,
+    onCompareWithUploaded,
     onDescriptionChange,
 }: Props = $props();
 
@@ -69,6 +80,7 @@ const hasShortId = $derived(Boolean(shortId && idPart.startsWith(shortId)));
 const displayOffset = $derived(
     offsetPart || (isDivergent && changeIdOffset !== undefined ? String(changeIdOffset) : undefined),
 );
+const unuploadedSet = $derived(new Set(unuploadedFilePaths));
 
 let draftDescription = $state(description);
 let prevDescription = $state(description);
@@ -418,6 +430,31 @@ function getFileColor(status: string, conflicted?: boolean): string {
             {/each}
         </div>
 
+        {#if codeForgeChange && codeForgeNeedsUpload}
+            <div class="code-forge-banner" role="status" aria-live="polite">
+                <div class="code-forge-banner-info">
+                    <span class="codicon codicon-cloud-upload banner-icon" aria-hidden="true"></span>
+                    <span class="banner-text">
+                        {unuploadedFilePaths.length === 0 && !descriptionModifiedFromRemote && codeForgeChange.parentSynced === false
+                            ? `Parent differs from ${codeForgeChange.displayLabel}`
+                            : `Local changes differ from ${codeForgeChange.displayLabel}`}
+                    </span>
+                </div>
+                {#if onCompareWithUploaded}
+                    <button
+                        type="button"
+                        class="banner-action-button"
+                        onclick={onCompareWithUploaded}
+                        title={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                        aria-label={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                    >
+                        <span class="codicon codicon-diff" aria-hidden="true"></span>
+                        Compare
+                    </button>
+                {/if}
+            </div>
+        {/if}
+
         <div class="metadata-section">
             <div class="id-chips-row">
                 <div class="id-row">
@@ -484,6 +521,18 @@ function getFileColor(status: string, conflicted?: boolean): string {
                 >
                     <span class="codicon codicon-settings-gear"></span>
                 </a>
+                {#if descriptionModifiedFromRemote && onCompareWithUploaded}
+                    <button
+                        type="button"
+                        class="diff-badge-button"
+                        onclick={onCompareWithUploaded}
+                        title="Commit message has changed since upload. Click to compare."
+                        aria-label="Commit message modified since upload. Click to compare."
+                    >
+                        <span class="codicon codicon-diff" aria-hidden="true"></span>
+                        Modified since upload
+                    </button>
+                {/if}
             </div>
             <div class="editor-actions">
                 {#if !isImmutable}
@@ -569,14 +618,27 @@ function getFileColor(status: string, conflicted?: boolean): string {
                     </div>
                 {/if}
             </div>
-            <button
-                type="button"
-                onclick={onOpenMultiDiff}
-                class="secondary-button"
-            >
-                <span class="codicon codicon-diff"></span>
-                Multi-file Diff
-            </button>
+            <div class="files-header-actions">
+                {#if unuploadedFilePaths && unuploadedFilePaths.length > 0 && onCompareWithUploaded}
+                    <button
+                        type="button"
+                        onclick={onCompareWithUploaded}
+                        class="secondary-button unuploaded-diff-button"
+                        title="Compare changed files with uploaded revision"
+                    >
+                        <span class="codicon codicon-cloud-upload"></span>
+                        Compare with Uploaded ({unuploadedFilePaths.length})
+                    </button>
+                {/if}
+                <button
+                    type="button"
+                    onclick={onOpenMultiDiff}
+                    class="secondary-button"
+                >
+                    <span class="codicon codicon-diff"></span>
+                    Multi-file Diff
+                </button>
+            </div>
         </div>
         <div class="files-list">
             <div class="files-items" bind:clientHeight={filesContentHeight}>
@@ -624,6 +686,12 @@ function getFileColor(status: string, conflicted?: boolean): string {
                                             <span class="stat-deleted">-{file.deletions}</span>
                                         {/if}
                                     </span>
+                                {/if}
+                                {#if unuploadedSet.has(file.path)}
+                                    <span
+                                        class="file-status-badge status-unuploaded"
+                                        title={`File modified since upload to ${codeForgeChange?.providerName || 'remote'}`}
+                                    >modified</span>
                                 {/if}
                                 {#if file.conflicted}
                                     <span class="file-status-badge status-conflicted" title={conflictLabel}>{file.conflictSides ? `${file.conflictSides}-way conflict` : 'conflicted'}</span>
@@ -1225,6 +1293,80 @@ function getFileColor(status: string, conflicted?: boolean): string {
         background: color-mix(in srgb, var(--vscode-gitDecoration-renamedResourceForeground, #73c991) 12%, transparent);
     }
 
+    .file-status-badge.status-unuploaded {
+        color: var(--vscode-charts-yellow);
+        border: 1px solid var(--vscode-charts-yellow);
+        background: none;
+    }
+
+    .code-forge-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 10px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+        border: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border));
+        border-left: 3px solid var(--vscode-charts-yellow);
+    }
+
+    .code-forge-banner-info {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+    }
+
+    .banner-icon {
+        color: var(--vscode-charts-yellow);
+    }
+
+    .banner-action-button {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: 1px solid var(--vscode-button-border, transparent);
+        cursor: pointer;
+    }
+
+    .banner-action-button:hover {
+        background: var(--vscode-button-secondaryHoverBackground);
+    }
+
+    .diff-badge-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: none;
+        border: 1px solid var(--vscode-charts-yellow);
+        color: var(--vscode-charts-yellow);
+        cursor: pointer;
+        margin-left: 6px;
+    }
+
+    .diff-badge-button:hover {
+        background: var(--vscode-toolbar-hoverBackground);
+    }
+
+    .files-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .unuploaded-diff-button {
+        color: var(--vscode-charts-yellow);
+    }
 
     .no-files-message {
         display: flex;

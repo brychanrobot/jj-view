@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { z } from 'zod';
-import { JjBookmarkSchema, JjStatusEntrySchema } from '../../jj-schemas';
+import { CodeForgeChangeInfoSchema, JjBookmarkSchema, JjStatusEntrySchema } from '../../jj-schemas';
 
 export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('webviewLoaded') }),
@@ -32,6 +32,12 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('openMultiDiff'),
+        payload: z.object({
+            changeId: z.string(),
+        }),
+    }),
+    z.object({
+        type: z.literal('openCompareWithUploaded'),
         payload: z.object({
             changeId: z.string(),
         }),
@@ -72,6 +78,10 @@ export const CommitDetailsPayloadSchema = z.object({
     theme: z.string().optional(),
     formatDescriptionOnSave: z.boolean().optional(),
     isLoadingFiles: z.boolean().optional(),
+    codeForgeChange: CodeForgeChangeInfoSchema.optional(),
+    codeForgeNeedsUpload: z.boolean().optional(),
+    descriptionModifiedFromRemote: z.boolean().optional(),
+    unuploadedFilePaths: z.array(z.string()).optional(),
 });
 export type CommitDetailsPayload = z.infer<typeof CommitDetailsPayloadSchema>;
 

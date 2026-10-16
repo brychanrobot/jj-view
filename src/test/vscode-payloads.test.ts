@@ -14,6 +14,7 @@ import { createAdvanceBookmarkPayload } from '../vscode/payloads/bookmark-advanc
 import { createAdvanceBookmarkAndUploadPayload } from '../vscode/payloads/bookmark-advance-upload.payload';
 import { createCommitPayload, createCommitPromptPayload } from '../vscode/payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from '../vscode/payloads/compare-all-files-with-revision.payload';
+import { createCompareWithUploadedPayload } from '../vscode/payloads/compare-with-uploaded.payload';
 import { createDescribePromptPayload, createSetDescriptionPayload } from '../vscode/payloads/describe.payload';
 import { createShowDetailsPayload } from '../vscode/payloads/details.payload';
 import { createDuplicatePayload } from '../vscode/payloads/duplicate.payload';
@@ -224,6 +225,18 @@ describe('vscode payloads', () => {
         it('extracts revision', () => {
             const payload = createCompareAllFilesWithRevisionPayload(['rev1']);
             expect(payload.revision).toBe('rev1');
+        });
+    });
+
+    describe('compare with uploaded payload', () => {
+        it('extracts revision from arguments', () => {
+            const payload = createCompareWithUploadedPayload(['rev123']);
+            expect(payload.revision).toBe('rev123');
+        });
+
+        it('defaults to working copy @ when no argument is passed', () => {
+            const payload = createCompareWithUploadedPayload([]);
+            expect(payload.revision).toBe('@');
         });
     });
 

@@ -254,6 +254,12 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(diff-multiple)',
         },
         {
+            command: 'jj-view.compareWithUploaded',
+            title: 'Compare with Uploaded Revision',
+            category: 'JJ View',
+            icon: '$(diff)',
+        },
+        {
             command: 'jj-view.workspaceAdd',
             title: 'Add Workspace',
             category: 'JJ View',
@@ -720,6 +726,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.compareWithWorkingCopy',
                 when: "webviewSection == 'commit' && !jj.isCurrentWorkingCopy",
                 group: '1_diff@2',
+            },
+            {
+                command: 'jj-view.compareWithUploaded',
+                when: "webviewSection == 'commit' && jj.canCompareWithUploaded",
+                group: '1_diff@3',
             },
             {
                 command: 'jj-view.new',

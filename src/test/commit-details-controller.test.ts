@@ -528,4 +528,16 @@ describe('CommitDetailsController Domain Unit Tests', () => {
 
         detailsController.dispose();
     });
+
+    test('dispatches jj-view.compareWithUploaded command on openCompareWithUploaded message', async () => {
+        const executeSpy = vi.spyOn(fakeHost.commands, 'executeCommand');
+
+        const handled = await controller.handleMessage({
+            type: 'openCompareWithUploaded',
+            payload: { changeId: '@' },
+        });
+
+        expect(handled).toBe(true);
+        expect(executeSpy).toHaveBeenCalledWith('jj-view.compareWithUploaded', '@');
+    });
 });
