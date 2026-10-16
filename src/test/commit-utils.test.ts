@@ -296,4 +296,37 @@ describe('computeCommitActions', () => {
         // Unselected while others are selected -> allowed
         expect(computeCommitActions(commitB, new Set(), false, 2, false).vscodeContext['jj.canSquash']).toBe(true);
     });
+
+    it('should set jj.canCompareWithUploaded based on codeForgeChange presence, files, and selection count', async () => {
+        const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
+        const commit = await getCommit(ids.A.changeId);
+
+        // Initially no codeForgeChange
+        const resultWithout = computeCommitActions(commit, new Set(), false, 0, false);
+        expect(resultWithout.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+
+        // Without files metadata (non-Gerrit in Stage 1), remains disabled
+        commit.codeForgeChange = {
+            id: 'I12345',
+            number: 12345,
+            displayLabel: 'CL/12345',
+            providerName: 'Gerrit',
+            status: 'NEW',
+            submittable: false,
+            url: 'https://example.com/12345',
+            unresolvedComments: 0,
+            currentRevision: 'uploaded-sha-999',
+        };
+        const resultWithoutFiles = computeCommitActions(commit, new Set(), true, 1, false);
+        expect(resultWithoutFiles.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+
+        // With codeForgeChange having currentRevision and files
+        commit.codeForgeChange.files = { 'file.txt': { newSha: 'blob-1', status: 'M' } };
+
+        const resultWithSingle = computeCommitActions(commit, new Set(), true, 1, false);
+        expect(resultWithSingle.vscodeContext['jj.canCompareWithUploaded']).toBe(true);
+
+        const resultWithMulti = computeCommitActions(commit, new Set(), true, 2, false);
+        expect(resultWithMulti.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+    });
 });

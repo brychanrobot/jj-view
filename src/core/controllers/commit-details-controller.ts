@@ -6,6 +6,7 @@
 import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
+import { computeUnuploadedComparison } from '../commands/compare-with-uploaded';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
 import type { HostEnvironment } from '../host/host-environment';
 import {
@@ -54,6 +55,9 @@ export class CommitDetailsController implements Disposable {
     private _pendingUpdate?: { newText: string; newSelection: { start: number; end: number } };
     private _currentSavePromise?: Promise<boolean>;
     private _nextSavePromise?: Promise<boolean>;
+    private _descriptionModifiedFromRemote?: boolean;
+    private _unuploadedFilePaths?: string[];
+    private _activeComparison?: Promise<void>;
 
     private readonly _onDidUpdate = new EventEmitter<JjLogEntry>();
     public readonly onDidUpdate: Event<JjLogEntry> = this._onDidUpdate.event;
@@ -72,6 +76,16 @@ export class CommitDetailsController implements Disposable {
         this._loadQueue = new CoalescingQueue(async () => {
             await this._doLoad();
         });
+
+        if (this.repo?.codeForge) {
+            this._disposables.push(
+                this.repo.codeForge.onDidUpdate(() => {
+                    if (!this._disposed) {
+                        void this.load();
+                    }
+                }),
+            );
+        }
     }
 
     public get isDisposed(): boolean {
@@ -80,6 +94,10 @@ export class CommitDetailsController implements Disposable {
 
     public get logEntry(): JjLogEntry | undefined {
         return this._logEntry;
+    }
+
+    public get activeComparison(): Promise<void> | undefined {
+        return this._activeComparison;
     }
 
     public get changes(): readonly JjStatusEntry[] | undefined {
@@ -179,6 +197,10 @@ export class CommitDetailsController implements Disposable {
             bodyWidthRuler: this._host.config.get<number | undefined>('commit.bodyWidthRuler'),
             formatDescriptionOnSave: this._host.config.get<boolean>('commit.formatDescriptionOnSave', false),
             isLoadingFiles: this._isLoadingFiles,
+            codeForgeChange: this._logEntry.codeForgeChange,
+            codeForgeNeedsUpload: this._logEntry.codeForgeNeedsUpload,
+            descriptionModifiedFromRemote: this._descriptionModifiedFromRemote,
+            unuploadedFilePaths: this._unuploadedFilePaths,
         };
     }
 
@@ -223,6 +245,8 @@ export class CommitDetailsController implements Disposable {
         const start = performance.now();
         const currentLoadId = ++this._loadId;
         this._isLoadingFiles = true;
+        this._descriptionModifiedFromRemote = undefined;
+        this._unuploadedFilePaths = undefined;
 
         let logs: JjLogEntry[];
         try {
@@ -255,6 +279,9 @@ export class CommitDetailsController implements Disposable {
         }
 
         const log = logs[0];
+        if (this.repo.codeForge) {
+            this.repo.codeForge.populateCodeForgeInfo([log]);
+        }
         this._logEntry = log;
         const previousPersisted = this._persistedDescription;
         const freshPersisted = (log.description || '').trim();
@@ -291,6 +318,21 @@ export class CommitDetailsController implements Disposable {
                 this._receiver.sender.update(finalState);
             }
 
+            if (
+                log.codeForgeChange?.status === 'NEW' &&
+                log.codeForgeChange.currentRevision &&
+                log.codeForgeChange.files !== undefined &&
+                this.repo
+            ) {
+                const comparisonPromise = this._refreshUnuploadedComparison(currentLoadId, log, changes);
+                this._activeComparison = comparisonPromise;
+                void comparisonPromise.finally(() => {
+                    if (this._activeComparison === comparisonPromise) {
+                        this._activeComparison = undefined;
+                    }
+                });
+            }
+
             const duration = performance.now() - start;
             this._logger?.info?.(
                 `[timing] [CommitDetails] refresh took ${duration.toFixed(0)}ms (${changes.length} files)`,
@@ -298,6 +340,35 @@ export class CommitDetailsController implements Disposable {
         } catch (err) {
             this._isLoadingFiles = false;
             this._logger?.error(`[CommitDetailsController] Failed to load changes for ${this.changeId}`, toError(err));
+        }
+    }
+
+    private async _refreshUnuploadedComparison(
+        loadId: number,
+        logEntry: JjLogEntry,
+        changes: readonly JjStatusEntry[],
+    ): Promise<void> {
+        if (!this.repo || this._disposed || loadId !== this._loadId) {
+            return;
+        }
+        try {
+            const comparison = await computeUnuploadedComparison(this.repo, this.changeId, {
+                logEntry,
+                localChanges: changes,
+            });
+            if (this._disposed || loadId !== this._loadId) {
+                return;
+            }
+            this._descriptionModifiedFromRemote = comparison.descriptionModified;
+            this._unuploadedFilePaths = comparison.unuploadedFilePaths;
+            const updatedState = this.getState();
+            if (updatedState) {
+                this._receiver.sender.update(updatedState);
+            }
+        } catch (err: unknown) {
+            this._logger?.debug?.(
+                `[CommitDetailsController] Unuploaded comparison skipped for ${this.changeId}: ${toError(err).message}`,
+            );
         }
     }
 
@@ -505,6 +576,9 @@ export class CommitDetailsController implements Disposable {
                 },
                 openMultiDiff: async (payload) => {
                     await this._host.commands.executeCommand('jj-view.showMultiFileDiff', payload.changeId);
+                },
+                openCompareWithUploaded: async (payload) => {
+                    await this._host.commands.executeCommand('jj-view.compareWithUploaded', payload.changeId);
                 },
             },
             {

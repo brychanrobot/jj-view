@@ -92,6 +92,10 @@ $effect(() => {
         titleWidthRuler={detailsCommit.titleWidthRuler}
         bodyWidthRuler={detailsCommit.bodyWidthRuler}
         minChangeIdLength={detailsCommit.minChangeIdLength}
+        codeForgeChange={detailsCommit.codeForgeChange}
+        codeForgeNeedsUpload={detailsCommit.codeForgeNeedsUpload}
+        descriptionModifiedFromRemote={detailsCommit.descriptionModifiedFromRemote}
+        unuploadedFilePaths={detailsCommit.unuploadedFilePaths}
         onSave={(description) => {
             if (detailsCommit?.changeId) {
                 void sender.saveDescription({ changeId: detailsCommit.changeId, description });
@@ -105,6 +109,11 @@ $effect(() => {
         onOpenMultiDiff={() => {
             if (detailsCommit?.changeId) {
                 void sender.openMultiDiff({ changeId: detailsCommit.changeId });
+            }
+        }}
+        onCompareWithUploaded={() => {
+            if (detailsCommit?.changeId) {
+                void sender.openCompareWithUploaded({ changeId: detailsCommit.changeId });
             }
         }}
         onDescriptionChange={(description, selectionStart, selectionEnd) => {

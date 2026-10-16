@@ -277,6 +277,10 @@ function handleGraphAction(action: string, payload: ActionPayload) {
         void sender.upload(payload);
         return;
     }
+    if (action === 'compareWithUploaded') {
+        void sender.compareWithUploaded(payload);
+        return;
+    }
     if (action === 'openCodeForge' && payload.url) {
         void sender.openCodeForge({ url: payload.url });
     }

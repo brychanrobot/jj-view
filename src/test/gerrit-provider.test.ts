@@ -1231,5 +1231,34 @@ describe('GerritProvider', () => {
             await provider.fetchStatuses([{ commitId: 'c-999', changeId: 'I99999' }], mockJjService);
             expect(server.requests.some((req) => req.includes('/drafts'))).toBe(false);
         });
+
+        test('getUploadedFileContent strips leading slash, encodes COMMIT_MSG, preserves binary bytes, and only caches 404s', async () => {
+            const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
+            server.registerFileContent(123, 'rev-1', 'src/logo.png', pngBytes);
+            server.registerTextFileContent(123, 'rev-1', '/COMMIT_MSG', 'Remote commit message');
+
+            const logoBytes = await provider.getUploadedFileContent(123, 'rev-1', '/src/logo.png');
+            expect(logoBytes).toEqual(pngBytes);
+
+            const commitMsgBytes = await provider.getUploadedFileContent(123, 'rev-1', 'COMMIT_MSG');
+            expect(new TextDecoder().decode(commitMsgBytes)).toBe('Remote commit message');
+            expect(server.requests.some((r) => r.includes('/files/%2FCOMMIT_MSG/content'))).toBe(true);
+
+            // 404 returns undefined and is cached
+            const missing1 = await provider.getUploadedFileContent(123, 'rev-1', 'missing.txt');
+            const missing2 = await provider.getUploadedFileContent(123, 'rev-1', 'missing.txt');
+            expect(missing1).toBeUndefined();
+            expect(missing2).toBeUndefined();
+            expect(server.requests.filter((r) => r.includes('missing.txt'))).toHaveLength(1);
+
+            // Transient 500 throws and is NOT negatively cached
+            server.registerTextFileContent(123, 'rev-1', 'flaky.txt', 'recovered content');
+            server.failFileContentWithStatus = 500;
+            await expect(provider.getUploadedFileContent(123, 'rev-1', 'flaky.txt')).rejects.toThrow(/status 500/);
+
+            server.failFileContentWithStatus = undefined;
+            const recovered = await provider.getUploadedFileContent(123, 'rev-1', 'flaky.txt');
+            expect(new TextDecoder().decode(recovered)).toBe('recovered content');
+        });
     });
 });

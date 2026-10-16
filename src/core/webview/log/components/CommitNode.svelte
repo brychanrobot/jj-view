@@ -445,11 +445,35 @@ const hasActiveBookmarkAlready = $derived(
                             <span class="codicon codicon-cloud"></span>
                         </div>
                     {:else}
+                        {#if codeForgeChange.currentRevision && codeForgeChange.files !== undefined && codeForgeChange.contentSynced === false}
+                            <button
+                                type="button"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    onAction('compareWithUploaded', { changeId: commit.change_id });
+                                }}
+                                onkeydown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                                        e.stopPropagation();
+                                    }
+                                }}
+                                title={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                                aria-label={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                                class="compare-uploaded-button"
+                            >
+                                <span class="codicon codicon-git-compare" aria-hidden="true"></span>
+                            </button>
+                        {/if}
                         <button
                             type="button"
                             onclick={(e) => {
                                 e.stopPropagation();
                                 onAction('upload', { changeId: commit.change_id });
+                            }}
+                            onkeydown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                                    e.stopPropagation();
+                                }
                             }}
                             title={codeForgeChange.parentSynced === false
                                 ? 'Parent mismatch (Click to push update)'
@@ -689,18 +713,36 @@ const hasActiveBookmarkAlready = $derived(
         height: 14px;
     }
 
+    .compare-uploaded-button,
     .upload-button {
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         margin-left: 4px;
-        color: var(--vscode-charts-yellow);
+        color: color-mix(
+            in srgb,
+            var(--vscode-charts-orange, var(--vscode-editorWarning-foreground)) 55%,
+            var(--vscode-foreground)
+        );
         background: none;
         border: none;
+        border-radius: 4px;
         padding: 0;
         width: 14px;
         height: 14px;
+    }
+
+    .compare-uploaded-button:hover,
+    .upload-button:hover {
+        background: var(--vscode-toolbar-hoverBackground);
+        opacity: 0.9;
+    }
+
+    .compare-uploaded-button:focus-visible,
+    .upload-button:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
     }
 
     .comments-button {

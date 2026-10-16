@@ -26,6 +26,7 @@ export class FakeGerritServer {
     public changes = new Map<string, GerritChange>();
     private comments = new Map<number, Record<string, FakeGerritComment[]>>(); // changeNumber -> (filePath -> comments)
     private drafts = new Map<number, Record<string, FakeGerritComment[]>>(); // changeNumber -> (filePath -> drafts)
+    private fileContents = new Map<string, Uint8Array>(); // `${changeNumber}:${revisionId}:${filePath}`
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
@@ -37,6 +38,7 @@ export class FakeGerritServer {
     public failResponseBody: string | undefined;
     public failDraftsWithStatus: number | undefined;
     public failDraftsResponseBody: string | undefined;
+    public failFileContentWithStatus: number | undefined;
     public emptyDraftResponseBody = false;
 
     private nextChangeNumber = 1000;
@@ -69,6 +71,14 @@ export class FakeGerritServer {
 
     public registerDrafts(changeNumber: number, drafts: Record<string, FakeGerritComment[]>) {
         this.drafts.set(changeNumber, drafts);
+    }
+
+    public registerFileContent(changeNumber: number, revisionId: string, filePath: string, content: Uint8Array) {
+        this.fileContents.set(`${changeNumber}:${revisionId}:${filePath}`, content);
+    }
+
+    public registerTextFileContent(changeNumber: number, revisionId: string, filePath: string, content: string) {
+        this.fileContents.set(`${changeNumber}:${revisionId}:${filePath}`, new TextEncoder().encode(content));
     }
 
     /**
@@ -161,6 +171,7 @@ export class FakeGerritServer {
         this.changes.clear();
         this.comments.clear();
         this.drafts.clear();
+        this.fileContents.clear();
         this.requests = [];
         this.draftRequestBodies = [];
         this.requestLog = [];
@@ -169,6 +180,7 @@ export class FakeGerritServer {
         this.failResponseBody = undefined;
         this.failDraftsWithStatus = undefined;
         this.failDraftsResponseBody = undefined;
+        this.failFileContentWithStatus = undefined;
         this.emptyDraftResponseBody = false;
         this.nextChangeNumber = 1000;
     }
@@ -319,6 +331,28 @@ export class FakeGerritServer {
                     });
                     return;
                 }
+            }
+
+            const fileContentMatch = urlStr.match(/\/changes\/(\d+)\/revisions\/([^/]+)\/files\/(.+)\/content$/);
+            if (fileContentMatch && req.method === 'GET') {
+                if (this.failFileContentWithStatus) {
+                    res.writeHead(this.failFileContentWithStatus);
+                    res.end('Error');
+                    return;
+                }
+                const changeNumber = parseInt(fileContentMatch[1], 10);
+                const revisionId = decodeURIComponent(fileContentMatch[2]);
+                const encodedPath = fileContentMatch[3];
+                const filePath = encodedPath === '%2FCOMMIT_MSG' ? '/COMMIT_MSG' : decodeURIComponent(encodedPath);
+                const bytes = this.fileContents.get(`${changeNumber}:${revisionId}:${filePath}`);
+                if (!bytes) {
+                    res.writeHead(404);
+                    res.end('Not Found');
+                    return;
+                }
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end(`${Buffer.from(bytes).toString('base64')}\n`);
+                return;
             }
 
             if (urlStr.includes('/changes/')) {

@@ -160,6 +160,11 @@ export class GerritProvider implements CodeForgeProvider {
         maxEntries: MAX_COMMENTS_CACHE_ENTRIES,
         keepStaleOnError: true,
     });
+    private uploadedFileContentCache = new AsyncCache<string, Uint8Array | undefined>({
+        ttl: Duration.minutes(10),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
     private gerritHost: string | undefined;
     private repoRoot: string | undefined;
     private gitRoot: string | null = null;
@@ -1333,11 +1338,38 @@ export class GerritProvider implements CodeForgeProvider {
         this._onDidUpdate.fire();
     }
 
+    public async getUploadedFileContent(
+        changeNumber: number,
+        revisionId: string,
+        filePath: string,
+    ): Promise<Uint8Array | undefined> {
+        if (!this.gerritHost) {
+            return undefined;
+        }
+        const cleanPath = filePath.replace(/^\/+/, '');
+        const cacheKey = `${changeNumber}:${revisionId}:${cleanPath}`;
+        return this.uploadedFileContentCache.getOrFetch(cacheKey, async () => {
+            const encodedPath = cleanPath === 'COMMIT_MSG' ? '%2FCOMMIT_MSG' : encodeURIComponent(cleanPath);
+            const url = `${this.gerritHost}/changes/${changeNumber}/revisions/${encodeURIComponent(revisionId)}/files/${encodedPath}/content`;
+            const response = await this.fetchGerrit(url);
+            if (response.status === 404) {
+                return undefined;
+            }
+            if (!response.ok) {
+                throw new Error(`Gerrit file content request failed with status ${response.status}`);
+            }
+            const base64 = await response.text();
+            const cleaned = base64.replace(/\s+/g, '');
+            return Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
+        });
+    }
+
     public clearCache(): void {
         this.cache.clear();
         this.contentSyncCache.clear();
         void this.commentsCache.clear();
         void this.draftsCache.clear();
+        void this.uploadedFileContentCache.clear();
         this.credentialAvailable = false;
         this.authChecked = false;
         this.lastAuthTime = 0;

@@ -87,6 +87,13 @@ export interface CodeForgeProvider {
     /** Resolve/unresolve a comment thread */
     resolveCommentThread?(changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void>;
 
+    /** Fetch the raw content of a file in an uploaded revision/patchset from the forge */
+    getUploadedFileContent?(
+        changeNumber: number,
+        revisionId: string,
+        filePath: string,
+    ): Promise<Uint8Array | undefined>;
+
     /** Preemptively retarget inverted PRs/MRs before pushing commits to prevent forge auto-closure */
     prepareStackedChanges?(stack: StackCommitNode[]): Promise<void>;
 
