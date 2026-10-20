@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { JjViewFsService } from '../core/jj-view-fs-service';
-import { Uri } from '../core/uri-utils';
+import { createTextContentUri, createUploadedFileUri, Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
@@ -185,5 +185,45 @@ describe('JjViewFsService Unit Tests', () => {
 
         expect(Buffer.from(leftBytes).toString('utf8')).toBe('v1\n');
         expect(Buffer.from(rightBytes).toString('utf8')).toBe('v2\n');
+    });
+
+    it('reads text mode content correctly', async () => {
+        const textUri = createTextContentUri(repo.path, 'COMMIT_MSG', 'Subject line\n\nCommit body');
+        const bytes = await service.readFile(textUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('Subject line\n\nCommit body');
+    });
+
+    it('reads uploaded content via git blobSha', async () => {
+        repo.writeFile('uploaded.txt', 'uploaded content from blob');
+        const commitId = repo.getCommitId('@');
+        const repoInstance = repoManager.getRepositoryForUri(Uri.file(repo.path));
+        if (!repoInstance) {
+            throw new Error('repoInstance not found');
+        }
+
+        const hashes = await repoInstance.jj.getGitBlobHashes(commitId, ['uploaded.txt']);
+        const blobSha = hashes.get('uploaded.txt');
+        expect(blobSha).toBeDefined();
+
+        const uploadedUri = createUploadedFileUri(repo.path, 'uploaded.txt', {
+            changeId: 'I12345',
+            blobSha,
+        });
+
+        const bytes = await service.readFile(uploadedUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('uploaded content from blob');
+    });
+
+    it('reads uploaded content via remoteRevision when blobSha is absent', async () => {
+        repo.writeFile('remote.txt', 'remote revision file content');
+        const commitId = repo.getCommitId('@');
+
+        const uploadedUri = createUploadedFileUri(repo.path, 'remote.txt', {
+            changeId: 'I67890',
+            remoteRevision: commitId,
+        });
+
+        const bytes = await service.readFile(uploadedUri);
+        expect(Buffer.from(bytes).toString('utf8')).toBe('remote revision file content');
     });
 });

@@ -449,6 +449,18 @@ const hasActiveBookmarkAlready = $derived(
                             type="button"
                             onclick={(e) => {
                                 e.stopPropagation();
+                                onAction('compareWithUploaded', { changeId: commit.change_id });
+                            }}
+                            title={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                            aria-label={`Compare local changes with uploaded revision (${codeForgeChange.displayLabel})`}
+                            class="compare-uploaded-button"
+                        >
+                            <span class="codicon codicon-git-compare" aria-hidden="true"></span>
+                        </button>
+                        <button
+                            type="button"
+                            onclick={(e) => {
+                                e.stopPropagation();
                                 onAction('upload', { changeId: commit.change_id });
                             }}
                             title={codeForgeChange.parentSynced === false
@@ -689,6 +701,7 @@ const hasActiveBookmarkAlready = $derived(
         height: 14px;
     }
 
+    .compare-uploaded-button,
     .upload-button {
         cursor: pointer;
         display: flex;
@@ -701,6 +714,11 @@ const hasActiveBookmarkAlready = $derived(
         padding: 0;
         width: 14px;
         height: 14px;
+    }
+
+    .compare-uploaded-button:hover,
+    .upload-button:hover {
+        opacity: 0.8;
     }
 
     .comments-button {

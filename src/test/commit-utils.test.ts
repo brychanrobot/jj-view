@@ -204,4 +204,32 @@ describe('computeCommitActions', () => {
         expect(result.visibleActions.edit).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
     });
+
+    it('should set jj.canCompareWithUploaded based on codeForgeChange presence and selection count', async () => {
+        const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
+        const commit = await getCommit(ids.A.changeId);
+
+        // Initially no codeForgeChange
+        const resultWithout = computeCommitActions(commit, new Set(), false, 0, false);
+        expect(resultWithout.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+
+        // With codeForgeChange having currentRevision
+        commit.codeForgeChange = {
+            id: 'I12345',
+            number: 12345,
+            displayLabel: 'CL/12345',
+            providerName: 'Gerrit',
+            status: 'NEW',
+            submittable: false,
+            url: 'https://example.com/12345',
+            unresolvedComments: 0,
+            currentRevision: 'uploaded-sha-999',
+        };
+
+        const resultWithSingle = computeCommitActions(commit, new Set(), true, 1, false);
+        expect(resultWithSingle.vscodeContext['jj.canCompareWithUploaded']).toBe(true);
+
+        const resultWithMulti = computeCommitActions(commit, new Set(), true, 2, false);
+        expect(resultWithMulti.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+    });
 });

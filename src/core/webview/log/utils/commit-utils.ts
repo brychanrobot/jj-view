@@ -49,6 +49,9 @@ export function computeCommitActions(
         'jj.canNewBefore': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
         'jj.canNewAfter': !isSelected || !hasImmutableSelection,
         'jj.canUpload': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
+        'jj.canCompareWithUploaded': Boolean(
+            commit.codeForgeChange?.currentRevision && (!isSelected || selectionCount <= 1),
+        ),
 
         // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
         'jj.canEdit':

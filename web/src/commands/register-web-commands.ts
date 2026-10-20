@@ -24,6 +24,7 @@ import { commitCommand } from '../../../src/core/commands/commit';
 import { commitPromptCommand } from '../../../src/core/commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from '../../../src/core/commands/compare-all-files-with-revision';
 import { compareFileWithRevisionCommand } from '../../../src/core/commands/compare-file-with-revision';
+import { compareWithUploadedCommand } from '../../../src/core/commands/compare-with-uploaded';
 import { setDescriptionCommand } from '../../../src/core/commands/describe';
 import { describePromptCommand } from '../../../src/core/commands/describe-prompt';
 import { showDetailsCommand } from '../../../src/core/commands/details';
@@ -92,6 +93,7 @@ import {
 import { createCommitPayload, createCommitPromptPayload } from './payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from './payloads/compare-all-files-with-revision.payload';
 import { createCompareFileWithRevisionPayload } from './payloads/compare-file-with-revision.payload';
+import { createCompareWithUploadedPayload } from './payloads/compare-with-uploaded.payload';
 import { createCompleteSquashRevisionPayload } from './payloads/complete-squash-revision.payload';
 import { createDescribePromptPayload, createSetDescriptionPayload } from './payloads/describe.payload';
 import { createShowDetailsPayload } from './payloads/details.payload';
@@ -307,6 +309,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     // 8. Details & Multi-Diff
     registerWithPayload('jj-view.showDetails', createShowDetailsPayload, showDetailsCommand);
     registerWithPayload('jj-view.showMultiFileDiff', createShowMultiFileDiffPayload, showMultiFileDiffCommand);
+    registerWithPayload('jj-view.compareWithUploaded', createCompareWithUploadedPayload, compareWithUploadedCommand);
     registerWithPayload(
         'jj-view.compareWithWorkingCopy',
         createCompareAllFilesWithRevisionPayload,

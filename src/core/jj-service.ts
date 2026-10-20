@@ -6,6 +6,7 @@ import path from 'pathe';
 import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
+import { LruCache } from '../utils/lru-cache';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import { type HostSystem, type ProcessExecOptions, ProcessExitError, type TrackableProcess } from './host/host-system';
 import { NodeHostSystem } from './host/node-host-system';
@@ -832,6 +833,7 @@ export class JjService {
         this._gitRoot = undefined;
         this._gitRootPromise = undefined;
         this._gitBlobHashCache.clear();
+        this._gitBlobContentCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -1533,5 +1535,37 @@ export class JjService {
         }
 
         return resultMap;
+    }
+
+    private readonly _gitBlobContentCache = new LruCache<string, string>({ maxEntries: 200 });
+
+    async getGitBlobContent(blobSha: string): Promise<string | undefined> {
+        if (!blobSha || blobSha === 'none' || blobSha.startsWith('0000000')) {
+            return '';
+        }
+
+        const cached = this._gitBlobContentCache.get(blobSha);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        try {
+            const timeout = 10000;
+            const res = await this.system.process.execFile(
+                'git',
+                ['--no-pager', '--no-optional-locks', 'cat-file', '-p', blobSha],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout,
+                },
+            );
+
+            this._gitBlobContentCache.set(blobSha, res.stdout);
+            return res.stdout;
+        } catch (err) {
+            this.logger.debug(`getGitBlobContent failed for ${blobSha}: ${getErrorMessage(err)}`);
+            return undefined;
+        }
     }
 }

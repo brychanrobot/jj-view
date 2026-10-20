@@ -5,7 +5,15 @@
 import { z } from 'zod';
 import { JjLogEntrySchema } from '../../jj-schemas';
 
-export const CommitActionSchema = z.enum(['newChild', 'edit', 'squash', 'abandon', 'openCodeForge', 'upload']);
+export const CommitActionSchema = z.enum([
+    'newChild',
+    'edit',
+    'squash',
+    'abandon',
+    'openCodeForge',
+    'upload',
+    'compareWithUploaded',
+]);
 export type CommitAction = z.infer<typeof CommitActionSchema>;
 
 export const TOGGLEABLE_COMMIT_ACTIONS = ['newChild', 'edit', 'squash', 'abandon'] as const;
@@ -101,6 +109,10 @@ export const LogViewToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('upload'),
+        payload: ActionPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('compareWithUploaded'),
         payload: ActionPayloadSchema,
     }),
     z.object({

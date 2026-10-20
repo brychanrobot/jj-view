@@ -3,11 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import path from 'pathe';
 import { AsyncCache } from '../utils/async-cache';
 import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
-import { decodeJjViewQuery, type FileStatLike, getFsPathFromUri, type Uri } from './uri-utils';
+import {
+    decodeJjViewQuery,
+    type FileStatLike,
+    getFsPathFromUri,
+    type JjViewQuery,
+    toForwardSlash,
+    type Uri,
+} from './uri-utils';
 import { VirtualFsUriTracker } from './virtual-fs-uri-tracker';
 
 export type { FileStatLike };
@@ -80,8 +88,14 @@ export class JjViewFsService implements Disposable {
 
         try {
             const query = decodeJjViewQuery(uri);
+            if (query.mode === 'text') {
+                return new TextEncoder().encode(query.text);
+            }
             if (query.mode === 'revision') {
                 return await this._readRevisionContent(repo, filePath, query.revision);
+            }
+            if (query.mode === 'uploaded') {
+                return await this._readUploadedContent(repo, filePath, query);
             }
             return await this._readDiffContent(repo, filePath, query.base, query.side);
         } catch (err: unknown) {
@@ -93,12 +107,56 @@ export class JjViewFsService implements Disposable {
     }
 
     private async _readRevisionContent(repo: JjRepository, filePath: string, revision: string): Promise<Uint8Array> {
+        if (!revision || revision === 'none' || revision.startsWith('0000000')) {
+            return new Uint8Array();
+        }
         try {
             const content = await repo.jj.getFileContent(filePath, revision);
             return new TextEncoder().encode(content);
         } catch (err: unknown) {
             this._repositoryManager.outputChannel.debug(
                 `[JjViewFsService] Failed to read revision file ${filePath}@${revision}: ${String(err)}`,
+            );
+            return new Uint8Array();
+        }
+    }
+
+    private async _readUploadedContent(
+        repo: JjRepository,
+        filePath: string,
+        query: Extract<JjViewQuery, { mode: 'uploaded' }>,
+    ): Promise<Uint8Array> {
+        try {
+            if (query.blobSha) {
+                const blobContent = await repo.jj.getGitBlobContent(query.blobSha);
+                if (blobContent !== undefined) {
+                    return new TextEncoder().encode(blobContent);
+                }
+            }
+
+            const rev = query.remoteRevision || query.commitId;
+            if (rev) {
+                try {
+                    const content = await repo.jj.getFileContent(filePath, rev);
+                    return new TextEncoder().encode(content);
+                } catch {
+                    // Fallback to Code Forge service if not found in local JJ/Git store
+                }
+            }
+
+            if (query.changeNumber && rev) {
+                const relPath = toForwardSlash(
+                    path.isAbsolute(filePath) ? path.relative(repo.jj.workspaceRoot, filePath) : filePath,
+                );
+                const remoteContent = await repo.codeForge.getUploadedFileContent(query.changeNumber, rev, relPath);
+                if (remoteContent !== undefined) {
+                    return new TextEncoder().encode(remoteContent);
+                }
+            }
+            return new Uint8Array();
+        } catch (err: unknown) {
+            this._repositoryManager.outputChannel.debug(
+                `[JjViewFsService] Failed to read uploaded file ${filePath}: ${String(err)}`,
             );
             return new Uint8Array();
         }

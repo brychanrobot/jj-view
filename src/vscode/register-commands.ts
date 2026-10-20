@@ -23,6 +23,7 @@ import { commitCommand } from '../core/commands/commit';
 import { commitPromptCommand } from '../core/commands/commit-prompt';
 import { compareAllFilesWithRevisionCommand } from '../core/commands/compare-all-files-with-revision';
 import { compareFileWithRevisionCommand } from '../core/commands/compare-file-with-revision';
+import { compareWithUploadedCommand } from '../core/commands/compare-with-uploaded';
 import { setDescriptionCommand } from '../core/commands/describe';
 import { describePromptCommand } from '../core/commands/describe-prompt';
 import { showDetailsCommand } from '../core/commands/details';
@@ -84,6 +85,7 @@ import {
 import { createCommitPayload, createCommitPromptPayload } from './payloads/commit.payload';
 import { createCompareAllFilesWithRevisionPayload } from './payloads/compare-all-files-with-revision.payload';
 import { createCompareFileWithRevisionPayload } from './payloads/compare-file-with-revision.payload';
+import { createCompareWithUploadedPayload } from './payloads/compare-with-uploaded.payload';
 import { createCompleteSquashRevisionPayload } from './payloads/complete-squash-revision.payload';
 import { createDescribePromptPayload, createSetDescriptionPayload } from './payloads/describe.payload';
 import { createShowDetailsPayload } from './payloads/details.payload';
@@ -292,6 +294,11 @@ export function registerCommands(options: RegisterCommandsOptions): void {
             'jj-view.showMultiFileDiff',
             createShowMultiFileDiffPayload,
             showMultiFileDiffCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.compareWithUploaded',
+            createCompareWithUploadedPayload,
+            compareWithUploadedCommand,
         ),
         registerCommandWithPayload(
             'jj-view.compareWithWorkingCopy',

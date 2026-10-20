@@ -286,6 +286,17 @@ export class CodeForgeService implements Disposable {
         return this.activeProviderInstance.fetchStatuses(changes, this.jjService);
     }
 
+    public async getUploadedFileContent(
+        changeNumber: number,
+        revisionId: string,
+        filePath: string,
+    ): Promise<string | undefined> {
+        if (!this.activeProviderInstance?.getUploadedFileContent) {
+            return undefined;
+        }
+        return this.activeProviderInstance.getUploadedFileContent(changeNumber, revisionId, filePath);
+    }
+
     private verifyStructureSync(
         parents: CommitParent[],
         info: CodeForgeChangeInfo,
