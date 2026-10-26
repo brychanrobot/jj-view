@@ -113,17 +113,21 @@ describe('AsyncCache Unit Tests', () => {
         expect(hit.count).toBe(1); // Cached value was preserved
     });
 
-    test('evicts and does not cache in-flight fetches if clear is called while fetching', async () => {
+    test('refetches instead of returning a value evicted by clear() mid-flight', async () => {
         const onEvict = vi.fn();
         const cache = new AsyncCache<string, { id: number }>({ onEvict });
 
         let resolveFetch: (value: { id: number }) => void = () => {};
-        const fetcher = vi.fn().mockImplementation(
-            () =>
-                new Promise<{ id: number }>((resolve) => {
+        let calls = 0;
+        const fetcher = vi.fn().mockImplementation(() => {
+            calls++;
+            if (calls === 1) {
+                return new Promise<{ id: number }>((resolve) => {
                     resolveFetch = resolve;
-                }),
-        );
+                });
+            }
+            return Promise.resolve({ id: calls });
+        });
 
         const inFlight = cache.getOrFetch('key1', fetcher);
         expect(fetcher).toHaveBeenCalledTimes(1);
@@ -132,15 +136,73 @@ describe('AsyncCache Unit Tests', () => {
         await cache.clear();
 
         // Now resolve the in-flight fetch
-        resolveFetch({ id: 42 });
+        resolveFetch({ id: 1 });
         const res = await inFlight;
-        expect(res).toEqual({ id: 42 });
 
-        // onEvict should have been called for the orphaned resolved value
-        expect(onEvict).toHaveBeenCalledWith({ id: 42 });
+        // The orphaned first value was evicted (its backing resource may be gone)...
+        expect(onEvict).toHaveBeenCalledWith({ id: 1 });
+        // ...so the caller must receive a freshly fetched, live value instead.
+        expect(res).toEqual({ id: 2 });
+        expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(cache.get('key1')).toEqual({ id: 2 });
+    });
 
-        // Cache must not contain the stale resolved value
-        expect(cache.has('key1')).toBe(false);
+    test('concurrent waiters also receive the refetched value, not the evicted one', async () => {
+        const evicted: string[] = [];
+        const cache = new AsyncCache<string, string>({
+            onEvict: (v) => {
+                evicted.push(v);
+            },
+        });
+
+        let resolveFetch: (value: string) => void = () => {};
+        let calls = 0;
+        const fetcher = vi.fn().mockImplementation(() => {
+            calls++;
+            if (calls === 1) {
+                return new Promise<string>((resolve) => {
+                    resolveFetch = resolve;
+                });
+            }
+            return Promise.resolve(`fresh_${calls}`);
+        });
+
+        const p1 = cache.getOrFetch('k', fetcher);
+        const p2 = cache.getOrFetch('k', fetcher);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        await cache.clear();
+        resolveFetch('orphaned');
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        expect(evicted).toContain('orphaned');
+        expect(r1).not.toBe('orphaned');
+        expect(r2).not.toBe('orphaned');
+        expect(r1).toBe(r2);
+        // Exactly one refetch should have been needed for both waiters.
+        expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    test('stores the value after repeated mid-flight invalidations instead of evicting it', async () => {
+        const onEvict = vi.fn();
+        const cache = new AsyncCache<string, number>({ onEvict });
+
+        // Every fetch is invalidated by a clear() before it resolves.
+        let calls = 0;
+        const fetcher = vi.fn().mockImplementation(async () => {
+            calls++;
+            await cache.clear();
+            return calls;
+        });
+
+        const res = await cache.getOrFetch('k', fetcher);
+
+        // Bounded retries: initial attempt + MAX_INVALIDATION_RETRIES.
+        expect(fetcher).toHaveBeenCalledTimes(4);
+        expect(res).toBe(4);
+        // The returned value must be live (not evicted) and cached.
+        expect(onEvict).not.toHaveBeenCalledWith(4);
+        expect(cache.get('k')).toBe(4);
     });
 
     test('evicts least recently used items when maxEntries is reached', async () => {
@@ -190,10 +252,12 @@ describe('AsyncCache Unit Tests', () => {
         cache.set('k1', 'manual_value');
 
         resolveFetch('stale_fetched_value');
-        await inFlight;
+        // The superseded caller gets the explicitly set (live) value, never the evicted one.
+        expect(await inFlight).toBe('manual_value');
 
         expect(cache.get('k1')).toBe('manual_value');
         expect(onEvict).toHaveBeenCalledWith('stale_fetched_value');
+        expect(fetcher).toHaveBeenCalledTimes(1);
     });
 
     test('get() purges expired entries and does not promote them to MRU', async () => {

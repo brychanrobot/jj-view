@@ -12,6 +12,7 @@ import path from 'pathe';
 import { setRealpathSyncResolver } from '../uri-utils';
 import {
     type FileStat,
+    HELPER_SCRIPT_TOKEN,
     type HelperScriptName,
     type HostFs,
     type HostPlatform,
@@ -21,10 +22,17 @@ import {
     type ProcessExecOptions,
     ProcessExitError,
     type ProcessResult,
+    SCRATCH_DIR_TOKEN,
+    type ScratchExecRequest,
+    type ScratchExecResult,
     type WatchEvent,
     type WatcherSubscription,
     type WatchOptions,
 } from './host-system';
+
+function isNodeErrorWithCode(err: unknown, code: string): boolean {
+    return typeof err === 'object' && err !== null && 'code' in err && err.code === code;
+}
 
 export class NodeHostProcess implements HostProcess {
     async execFile(file: string, args: readonly string[], options?: ProcessExecOptions): Promise<ProcessResult> {
@@ -58,6 +66,33 @@ export class NodeHostProcess implements HostProcess {
         });
     }
 
+    async execFileInScratchDir(request: ScratchExecRequest): Promise<ScratchExecResult> {
+        const scratchDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), request.scratchPrefix));
+        for (const subdir of request.subdirs) {
+            await fsPromises.mkdir(path.join(scratchDir, subdir), { recursive: true });
+        }
+        const helperScriptPath = request.helperScript ? await this.getHelperScriptPath(request.helperScript) : '';
+        const args = request.args.map((arg) =>
+            arg.replaceAll(SCRATCH_DIR_TOKEN, scratchDir).replaceAll(HELPER_SCRIPT_TOKEN, helperScriptPath),
+        );
+
+        let result: ProcessResult;
+        try {
+            result = await this.execFile(request.file, args, request.options);
+        } catch (err) {
+            if (!(err instanceof ProcessExitError)) {
+                await fsPromises.rm(scratchDir, { recursive: true, force: true }).catch(() => {});
+                throw err;
+            }
+            result = { stdout: err.stdout, stderr: err.stderr, exitCode: err.exitCode };
+        }
+
+        const markerPresent = request.completionMarker
+            ? fsSync.existsSync(path.join(scratchDir, request.completionMarker))
+            : false;
+        return { ...result, scratchDir, markerPresent };
+    }
+
     async getHelperScriptPath(scriptName: HelperScriptName): Promise<string> {
         const isWin = process.platform === 'win32';
         const fileName = isWin ? `${scriptName}.bat` : `${scriptName}.sh`;
@@ -83,6 +118,21 @@ export class NodeHostFs implements HostFs {
 
     async readTextFile(filePath: string): Promise<string> {
         return fsPromises.readFile(filePath, 'utf8');
+    }
+
+    async readTextFiles(paths: readonly string[]): Promise<(string | null)[]> {
+        return Promise.all(
+            paths.map(async (filePath) => {
+                try {
+                    return await fsPromises.readFile(filePath, 'utf8');
+                } catch (err) {
+                    if (isNodeErrorWithCode(err, 'ENOENT')) {
+                        return null;
+                    }
+                    throw err;
+                }
+            }),
+        );
     }
 
     async readBinaryFile(filePath: string): Promise<Uint8Array> {

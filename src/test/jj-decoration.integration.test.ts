@@ -75,7 +75,7 @@ suite('JJ Decoration Integration Test', () => {
         repo.writeFile(fileName, 'content');
 
         // Trigger refresh
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Get decoration for the file
         const uri = Uri.file(file1);
@@ -143,7 +143,7 @@ suite('JJ Decoration Integration Test', () => {
         repo.writeFile('tracked_file.txt', 'this is tracked');
 
         // Wait for jj to pick up the ignore rules
-        await scmProvider.refresh();
+        await scmProvider.refresh({ forceSnapshot: true });
 
         // Check decoration for tracked file
         const trackedUri = Uri.file(path.join(repo.path, 'tracked_file.txt'));
@@ -238,7 +238,7 @@ suite('JJ Decoration Integration Test', () => {
 
         // 1. File exists and is tracked in the working copy
         repo.writeFile(fileName, 'content');
-        await scmProvider.refresh(); // Automatically tracked as 'A'
+        await scmProvider.refresh({ forceSnapshot: true }); // Automatically tracked as 'A'
 
         const initialTrackedDecoration = await waitForDecoration(uri, (dec) => dec?.badge === 'A');
         assert.ok(initialTrackedDecoration !== undefined, 'Should be tracked initially');
@@ -247,7 +247,7 @@ suite('JJ Decoration Integration Test', () => {
         // 2. Ignore it first, then untrack it (jj file untrack requires the file to be ignored)
         repo.writeFile('.gitignore', `${fileName}\n`);
         repo.untrack(fileName);
-        await scmProvider.refresh(); // Triggers update of decoration cache
+        await scmProvider.refresh({ forceSnapshot: true }); // Triggers update of decoration cache
 
         const finalIgnoredDecoration = await waitForDecoration(uri, (dec) => dec?.tooltip === 'Ignored');
         assert.ok(finalIgnoredDecoration !== undefined, 'Should now be ignored');

@@ -14,6 +14,10 @@ export class NodeHostProcess implements HostProcess {
         throw new Error('NodeHostProcess is not available in browser environments.');
     }
 
+    public execFileInScratchDir(): never {
+        throw new Error('NodeHostProcess is not available in browser environments.');
+    }
+
     public getHelperScriptPath(): never {
         throw new Error('NodeHostProcess is not available in browser environments.');
     }
@@ -27,6 +31,9 @@ export class NodeHostFs implements HostFs {
     }
 
     public readTextFile(): never {
+        throw new Error('NodeHostFs is not available in browser environments.');
+    }
+    public readTextFiles(): never {
         throw new Error('NodeHostFs is not available in browser environments.');
     }
     public readBinaryFile(): never {

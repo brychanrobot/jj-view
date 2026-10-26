@@ -497,11 +497,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                         result: { success: true },
                     });
                 }
-                if (msg.method === 'fs.readFile') {
+                if (msg.method === 'fs.readFiles') {
                     fakeWs.simulateMessage({
                         jsonrpc: '2.0',
                         id: msg.id,
-                        result: { content: storedBase64 },
+                        result: { files: [{ content: storedBase64 }] },
                     });
                 }
             });
@@ -530,11 +530,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                     }
                     fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { success: true } });
                 }
-                if (msg.method === 'fs.readFile') {
+                if (msg.method === 'fs.readFiles') {
                     fakeWs.simulateMessage({
                         jsonrpc: '2.0',
                         id: msg.id,
-                        result: { content: storedBase64 },
+                        result: { files: [{ content: storedBase64 }] },
                     });
                 }
             });
@@ -573,11 +573,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                         result: { success: true },
                     });
                 }
-                if (msg.method === 'fs.readFile') {
+                if (msg.method === 'fs.readFiles') {
                     fakeWs.simulateMessage({
                         jsonrpc: '2.0',
                         id: msg.id,
-                        result: { content: storedBase64 },
+                        result: { files: [{ content: storedBase64 }] },
                     });
                 }
             });
@@ -589,19 +589,19 @@ describe('RemoteHostSystem Unit Tests', () => {
             host.dispose();
         });
 
-        it('maps missing file error to HostSystemError with code ENOENT', async () => {
+        it('maps per-entry ENOENT error to HostSystemError with code ENOENT', async () => {
             const { host, fakeWs } = setupRemoteHost();
             await host.ready;
 
             fakeWs.onClientRequest((msg) => {
-                if (msg.method === 'fs.readFile') {
+                if (msg.method === 'fs.readFiles') {
                     fakeWs.simulateMessage({
                         jsonrpc: '2.0',
                         id: msg.id,
-                        error: {
-                            code: RPC_CODE_INTERNAL_ERROR,
-                            message: 'ENOENT: no such file or directory: /mock/repo/missing.txt',
-                            data: { code: 'ENOENT' },
+                        result: {
+                            files: [
+                                { error: { code: 'ENOENT', message: 'open /mock/repo/missing.txt: no such file' } },
+                            ],
                         },
                     });
                 }
@@ -616,6 +616,208 @@ describe('RemoteHostSystem Unit Tests', () => {
                     expect(err.code).toBe('ENOENT');
                 }
             }
+
+            host.dispose();
+        });
+
+        it('coalesces reads issued in the same microtask into one fs.readFiles RPC with per-entry results', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            const requestedBatches: string[][] = [];
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method !== 'fs.readFiles') {
+                    return;
+                }
+                const paths = (msg.params as { paths: string[] }).paths;
+                requestedBatches.push(paths);
+                fakeWs.simulateMessage({
+                    jsonrpc: '2.0',
+                    id: msg.id,
+                    result: {
+                        files: paths.map((p) => {
+                            if (p.endsWith('missing.txt')) {
+                                return { error: { code: 'ENOENT', message: `missing: ${p}` } };
+                            }
+                            if (p.endsWith('denied.txt')) {
+                                return { error: { message: `access denied: ${p}` } };
+                            }
+                            return { content: Buffer.from(`content of ${p}`, 'utf8').toString('base64') };
+                        }),
+                    },
+                });
+            });
+
+            // Three independent callers, same tick, mixed single/batch/binary APIs.
+            const results = await Promise.allSettled([
+                host.fs.readTextFile('/mock/repo/a.txt'),
+                host.fs.readTextFile('/mock/repo/missing.txt'),
+                host.fs.readBinaryFile('/mock/repo/denied.txt'),
+                host.fs.readTextFiles(['/mock/repo/b.txt', '/mock/repo/missing.txt']),
+            ]);
+
+            expect(requestedBatches).toEqual([
+                [
+                    '/mock/repo/a.txt',
+                    '/mock/repo/missing.txt',
+                    '/mock/repo/denied.txt',
+                    '/mock/repo/b.txt',
+                    '/mock/repo/missing.txt',
+                ],
+            ]);
+
+            expect(results[0]).toEqual({ status: 'fulfilled', value: 'content of /mock/repo/a.txt' });
+            expect(results[1].status).toBe('rejected');
+            if (results[1].status === 'rejected') {
+                expect(results[1].reason).toBeInstanceOf(HostSystemError);
+                expect((results[1].reason as HostSystemError).code).toBe('ENOENT');
+            }
+            expect(results[2].status).toBe('rejected');
+            if (results[2].status === 'rejected') {
+                expect(results[2].reason).not.toBeInstanceOf(HostSystemError);
+                expect((results[2].reason as Error).message).toContain('access denied');
+            }
+            expect(results[3]).toEqual({ status: 'fulfilled', value: ['content of /mock/repo/b.txt', null] });
+
+            host.dispose();
+        });
+
+        it('does not coalesce reads issued in different microtasks', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            const requestedBatches: string[][] = [];
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method !== 'fs.readFiles') {
+                    return;
+                }
+                const paths = (msg.params as { paths: string[] }).paths;
+                requestedBatches.push(paths);
+                fakeWs.simulateMessage({
+                    jsonrpc: '2.0',
+                    id: msg.id,
+                    result: { files: paths.map(() => ({ content: '' })) },
+                });
+            });
+
+            await host.fs.readTextFile('/mock/repo/first.txt');
+            await host.fs.readTextFile('/mock/repo/second.txt');
+
+            expect(requestedBatches).toEqual([['/mock/repo/first.txt'], ['/mock/repo/second.txt']]);
+            host.dispose();
+        });
+
+        it('rejects every coalesced read when the batch RPC itself fails', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method === 'fs.readFiles') {
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        error: { code: RPC_CODE_INTERNAL_ERROR, message: 'daemon exploded' },
+                    });
+                }
+            });
+
+            const results = await Promise.allSettled([
+                host.fs.readTextFile('/mock/repo/a.txt'),
+                host.fs.readTextFile('/mock/repo/b.txt'),
+            ]);
+            for (const r of results) {
+                expect(r.status).toBe('rejected');
+                if (r.status === 'rejected') {
+                    expect((r.reason as Error).message).toBe('daemon exploded');
+                }
+            }
+            host.dispose();
+        });
+
+        it('readTextFiles rethrows non-ENOENT per-entry errors', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method === 'fs.readFiles') {
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: {
+                            files: [{ content: '' }, { error: { code: 'EACCES', message: 'permission denied' } }],
+                        },
+                    });
+                }
+            });
+
+            await expect(host.fs.readTextFiles(['/mock/repo/ok.txt', '/mock/repo/locked.txt'])).rejects.toThrow(
+                'permission denied',
+            );
+            host.dispose();
+        });
+    });
+
+    describe('Scratch Directory Execution', () => {
+        it('sends one process.execFileInScratchDir request and maps the result', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            let received: unknown;
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method === 'process.execFileInScratchDir') {
+                    received = msg.params;
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: {
+                            scratchDir: '/tmp/daemon/jj-bulk-diff-abc',
+                            stdout: '',
+                            stderr: 'aborted by tool',
+                            exitCode: 1,
+                            markerPresent: true,
+                        },
+                    });
+                }
+            });
+
+            let spawned = false;
+            const res = await host.process.execFileInScratchDir({
+                file: 'jj',
+                args: ['diffedit', '--tool', 'x', '{{scratchDir}}/left', '{{helperScript}}'],
+                scratchPrefix: 'jj-bulk-diff-',
+                subdirs: ['left', 'right'],
+                helperScript: 'batch-diff',
+                completionMarker: 'right/.complete',
+                options: {
+                    cwd: '/workspace/project',
+                    env: { JJ_VIEW_EXTENSION: '1' },
+                    onSpawn: () => {
+                        spawned = true;
+                    },
+                },
+            });
+
+            expect(spawned).toBe(true);
+            expect(received).toEqual({
+                file: 'jj',
+                args: ['diffedit', '--tool', 'x', '{{scratchDir}}/left', '{{helperScript}}'],
+                scratchPrefix: 'jj-bulk-diff-',
+                subdirs: ['left', 'right'],
+                helperScript: 'batch-diff',
+                completionMarker: 'right/.complete',
+                cwd: '/workspace/project',
+                env: { JJ_VIEW_EXTENSION: '1' },
+                timeout: undefined,
+                maxBuffer: undefined,
+            });
+            // Non-zero exit is data, not an exception, so the caller can consult markerPresent.
+            expect(res).toEqual({
+                scratchDir: '/tmp/daemon/jj-bulk-diff-abc',
+                stdout: '',
+                stderr: 'aborted by tool',
+                exitCode: 1,
+                markerPresent: true,
+            });
 
             host.dispose();
         });
@@ -905,11 +1107,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                     }
                     fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { success: true } });
                 }
-                if (msg.method === 'fs.readFile') {
+                if (msg.method === 'fs.readFiles') {
                     fakeWs.simulateMessage({
                         jsonrpc: '2.0',
                         id: msg.id,
-                        result: { content: storedBase64 },
+                        result: { files: [{ content: storedBase64 }] },
                     });
                 }
             });

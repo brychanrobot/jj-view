@@ -21,9 +21,26 @@ export interface AsyncCacheOptions<V> {
     keepStaleOnError?: boolean;
 }
 
+/**
+ * Result of a single fetch attempt. `stored` is false when the entry was
+ * invalidated (clear/delete/set) while the fetch was in flight; in that case
+ * the value has already been passed to `onEvict` and must not be handed out.
+ */
+interface FetchOutcome<V> {
+    value: V;
+    stored: boolean;
+}
+
 export class AsyncCache<K = string, V = unknown> {
+    /**
+     * Upper bound on consecutive mid-flight invalidations tolerated before a
+     * fetched value is stored regardless. Prevents livelock under a constantly
+     * clearing cache while still guaranteeing callers never receive an evicted value.
+     */
+    private static readonly MAX_INVALIDATION_RETRIES = 3;
+
     private readonly _cache: LruCache<K, { value: V; expires: number }>;
-    private readonly _promises = new Map<K, Promise<V>>();
+    private readonly _promises = new Map<K, Promise<FetchOutcome<V>>>();
     private readonly _defaultTtl: Duration;
     private readonly _onEvict?: (value: V) => Promise<void> | void;
     private readonly _clone?: (value: V) => V;
@@ -56,24 +73,50 @@ export class AsyncCache<K = string, V = unknown> {
         return this._cache.maxEntries;
     }
 
+    /**
+     * Returns the cached value for `key`, fetching it if missing or expired.
+     *
+     * Values whose fetch is invalidated mid-flight (by `clear()`, `delete()` or
+     * `set()`) are evicted and never returned; the lookup is re-evaluated instead,
+     * coalescing with any newer in-flight fetch or explicitly set value.
+     */
     async getOrFetch(key: K, fetcher: () => Promise<V>, ttl?: Duration): Promise<V> {
-        const inProgress = this._promises.get(key);
-        if (inProgress) {
-            const val = await inProgress;
-            return this._clone ? this._clone(val) : val;
-        }
+        for (let attempt = 0; ; attempt++) {
+            const inProgress = this._promises.get(key);
+            if (inProgress) {
+                const outcome = await inProgress;
+                if (outcome.stored) {
+                    return this._clone ? this._clone(outcome.value) : outcome.value;
+                }
+                continue;
+            }
 
-        const cached = this._cache.peek(key);
-        if (cached && Date.now() < cached.expires) {
-            const entry = this._cache.get(key);
-            if (entry) {
-                return this._clone ? this._clone(entry.value) : entry.value;
+            const cached = this._cache.peek(key);
+            if (cached && Date.now() < cached.expires) {
+                const entry = this._cache.get(key);
+                if (entry) {
+                    return this._clone ? this._clone(entry.value) : entry.value;
+                }
+            }
+
+            const forceStore = attempt >= AsyncCache.MAX_INVALIDATION_RETRIES;
+            const outcome = await this._fetchAndStore(key, fetcher, ttl, cached, forceStore);
+            if (outcome.stored) {
+                return this._clone ? this._clone(outcome.value) : outcome.value;
             }
         }
+    }
 
+    private async _fetchAndStore(
+        key: K,
+        fetcher: () => Promise<V>,
+        ttl: Duration | undefined,
+        cached: { value: V; expires: number } | undefined,
+        forceStore: boolean,
+    ): Promise<FetchOutcome<V>> {
         const currentEpoch = this._epoch;
-        let promise: Promise<V> | undefined;
-        promise = (async () => {
+        let promise: Promise<FetchOutcome<V>> | undefined;
+        promise = (async (): Promise<FetchOutcome<V>> => {
             if (cached && !this._keepStaleOnError) {
                 this._cache.delete(key);
                 if (this._onEvict) {
@@ -91,30 +134,45 @@ export class AsyncCache<K = string, V = unknown> {
                 throw err;
             }
 
-            if (this._promises.get(key) === promise && this._epoch === currentEpoch) {
+            const stillCurrent = this._promises.get(key) === promise && this._epoch === currentEpoch;
+            if (stillCurrent) {
                 if (cached && this._cache.peek(key) === cached && this._keepStaleOnError && this._onEvict) {
                     await this._onEvict(cached.value);
                 }
-                const duration = ttl ?? this._defaultTtl;
-                this._cache.set(key, {
-                    value,
-                    expires: Date.now() + duration.toMilliseconds(),
-                });
-            } else if (this._onEvict) {
+                this._store(key, value, ttl);
+                return { value, stored: true };
+            }
+
+            // Invalidated while fetching. If someone explicitly set a value in the
+            // meantime, defer to it; otherwise either give up (caller retries) or,
+            // on the final attempt, keep our value so the caller gets a live one.
+            const superseded = this._cache.peek(key);
+            if (!superseded && forceStore) {
+                this._store(key, value, ttl);
+                return { value, stored: true };
+            }
+            if (this._onEvict) {
                 await this._onEvict(value);
             }
-            return value;
+            return { value, stored: false };
         })();
 
         this._promises.set(key, promise);
         try {
-            const val = await promise;
-            return this._clone ? this._clone(val) : val;
+            return await promise;
         } finally {
             if (this._promises.get(key) === promise) {
                 this._promises.delete(key);
             }
         }
+    }
+
+    private _store(key: K, value: V, ttl: Duration | undefined): void {
+        const duration = ttl ?? this._defaultTtl;
+        this._cache.set(key, {
+            value,
+            expires: Date.now() + duration.toMilliseconds(),
+        });
     }
 
     get(key: K): V | undefined {

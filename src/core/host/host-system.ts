@@ -40,8 +40,43 @@ export class ProcessExitError extends Error {
 
 export type HelperScriptName = 'batch-diff' | 'batch-edit' | 'conflict-capture';
 
+/** Placeholder in {@link ScratchExecRequest.args} replaced by the host with the created scratch directory. */
+export const SCRATCH_DIR_TOKEN = '{{scratchDir}}';
+/** Placeholder in {@link ScratchExecRequest.args} replaced by the host with the resolved helper script path. */
+export const HELPER_SCRIPT_TOKEN = '{{helperScript}}';
+
+/**
+ * Describes a process run that needs a fresh scratch directory. The host performs
+ * mkdtemp + mkdir(subdirs) + helper script resolution + exec + marker check as a
+ * single operation so remote hosts pay one round trip instead of six.
+ */
+export interface ScratchExecRequest {
+    readonly file: string;
+    /** Arguments; occurrences of {@link SCRATCH_DIR_TOKEN} and {@link HELPER_SCRIPT_TOKEN} are substituted by the host. */
+    readonly args: readonly string[];
+    /** Prefix for the scratch directory name, created under the host's temp dir. */
+    readonly scratchPrefix: string;
+    /** Subdirectories (relative to the scratch dir) created before the process runs. */
+    readonly subdirs: readonly string[];
+    /** Helper script whose resolved path replaces {@link HELPER_SCRIPT_TOKEN}. */
+    readonly helperScript?: HelperScriptName;
+    /** Path relative to the scratch dir whose existence after exec is reported as `markerPresent`. */
+    readonly completionMarker?: string;
+    readonly options?: ProcessExecOptions;
+}
+
+/**
+ * Result of {@link HostProcess.execFileInScratchDir}. Unlike `execFile`, a non-zero
+ * exit does not reject: callers decide using `exitCode` and `markerPresent`.
+ */
+export interface ScratchExecResult extends ProcessResult {
+    readonly scratchDir: string;
+    readonly markerPresent: boolean;
+}
+
 export interface HostProcess {
     execFile(file: string, args: readonly string[], options?: ProcessExecOptions): Promise<ProcessResult>;
+    execFileInScratchDir(request: ScratchExecRequest): Promise<ScratchExecResult>;
     getHelperScriptPath(scriptName: HelperScriptName): Promise<string>;
 }
 
@@ -56,6 +91,11 @@ export interface FileStat {
 export interface HostFs {
     readonly tempDir: string;
     readTextFile(path: string): Promise<string>;
+    /**
+     * Reads several text files in one host call. Entries are `null` when the file
+     * does not exist; any other failure rejects the whole call.
+     */
+    readTextFiles(paths: readonly string[]): Promise<(string | null)[]>;
     readBinaryFile(path: string): Promise<Uint8Array>;
     writeTextFile(path: string, content: string): Promise<void>;
     writeBinaryFile(path: string, content: Uint8Array): Promise<void>;

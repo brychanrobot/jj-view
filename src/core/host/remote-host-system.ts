@@ -14,6 +14,8 @@ import {
     type ProcessExecOptions,
     ProcessExitError,
     type ProcessResult,
+    type ScratchExecRequest,
+    type ScratchExecResult,
     type TrackableProcess,
     type WatchEvent,
     type WatcherSubscription,
@@ -1228,6 +1230,37 @@ class RemoteHostProcess implements HostProcess {
         };
     }
 
+    async execFileInScratchDir(request: ScratchExecRequest): Promise<ScratchExecResult> {
+        const options = request.options;
+        const abortController = this._createAbortController(options);
+
+        const params = {
+            file: request.file,
+            args: [...request.args],
+            scratchPrefix: request.scratchPrefix,
+            subdirs: [...request.subdirs],
+            helperScript: request.helperScript,
+            completionMarker: request.completionMarker,
+            cwd: options?.cwd,
+            env: options?.env,
+            timeout: options?.timeout,
+            maxBuffer: options?.maxBuffer,
+        };
+
+        const res = await this._host.request<ScratchExecResult>(
+            'process.execFileInScratchDir',
+            params,
+            abortController.signal,
+        );
+        return {
+            scratchDir: res.scratchDir,
+            markerPresent: res.markerPresent ?? false,
+            stdout: res.stdout ?? '',
+            stderr: res.stderr ?? '',
+            exitCode: res.exitCode ?? 0,
+        };
+    }
+
     async getHelperScriptPath(scriptName: HelperScriptName): Promise<string> {
         const res = await this._host.request<{ path: string }>('process.getHelperScriptPath', {
             name: scriptName,
@@ -1236,22 +1269,117 @@ class RemoteHostProcess implements HostProcess {
     }
 }
 
+interface PendingRead {
+    readonly path: string;
+    readonly resolve: (bytes: Uint8Array) => void;
+    readonly reject: (err: Error) => void;
+}
+
+interface RemoteReadFileEntry {
+    readonly content?: string;
+    readonly error?: { readonly code?: string; readonly message: string };
+}
+
 class RemoteHostFs implements HostFs {
+    private _pendingReads: PendingRead[] = [];
+    private _readFlushScheduled = false;
+
     constructor(private readonly _host: RemoteHostSystem) {}
 
     get tempDir(): string {
         return this._host.tempDir;
     }
 
+    /**
+     * Queues a file read. All reads enqueued synchronously within the same microtask
+     * are sent to the daemon as one `fs.readFiles` RPC; results and errors are
+     * delivered per path, so callers are unaware of the coalescing.
+     */
+    private _enqueueRead(filePath: string): Promise<Uint8Array> {
+        return new Promise<Uint8Array>((resolve, reject) => {
+            this._pendingReads.push({ path: filePath, resolve, reject });
+            if (this._readFlushScheduled) {
+                return;
+            }
+            this._readFlushScheduled = true;
+            queueMicrotask(() => void this._flushReads());
+        });
+    }
+
+    private async _flushReads(): Promise<void> {
+        const batch = this._pendingReads;
+        this._pendingReads = [];
+        this._readFlushScheduled = false;
+        if (batch.length === 0) {
+            return;
+        }
+
+        const start = performance.now();
+        let entries: RemoteReadFileEntry[];
+        try {
+            const res = await this._host.request<{ files?: RemoteReadFileEntry[] }>('fs.readFiles', {
+                paths: batch.map((p) => p.path),
+            });
+            entries = res.files ?? [];
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            for (const pending of batch) {
+                pending.reject(error);
+            }
+            return;
+        }
+        const rpcDuration = performance.now() - start;
+
+        let totalBytes = 0;
+        batch.forEach((pending, i) => {
+            const entry = entries[i];
+            if (!entry) {
+                pending.reject(new Error(`fs.readFiles: missing result for ${pending.path}`));
+                return;
+            }
+            if (entry.error) {
+                const message = entry.error.message;
+                pending.reject(
+                    entry.error.code === 'ENOENT' ? new HostSystemError(message, 'ENOENT') : new Error(message),
+                );
+                return;
+            }
+            const bytes = base64ToUint8Array(entry.content ?? '');
+            totalBytes += bytes.length;
+            pending.resolve(bytes);
+        });
+
+        if (typeof console !== 'undefined' && console.log) {
+            const totalDuration = performance.now() - start;
+            console.log(
+                `[Perf:RemoteFs] readFiles(${batch.length} paths) took ${totalDuration.toFixed(1)}ms (rpc: ${rpcDuration.toFixed(1)}ms, size: ${totalBytes} bytes)`,
+            );
+        }
+    }
+
+    async readTextFiles(paths: readonly string[]): Promise<(string | null)[]> {
+        const decoder = new TextDecoder('utf-8');
+        return Promise.all(
+            paths.map(async (filePath) => {
+                try {
+                    return decoder.decode(await this._enqueueRead(filePath));
+                } catch (err) {
+                    if (err instanceof HostSystemError && err.code === 'ENOENT') {
+                        return null;
+                    }
+                    throw err;
+                }
+            }),
+        );
+    }
+
     async readTextFile(filePath: string): Promise<string> {
-        const res = await this._host.request<{ content: string }>('fs.readFile', { path: filePath });
-        const bytes = base64ToUint8Array(res.content);
+        const bytes = await this._enqueueRead(filePath);
         return new TextDecoder('utf-8').decode(bytes);
     }
 
     async readBinaryFile(filePath: string): Promise<Uint8Array> {
-        const res = await this._host.request<{ content: string }>('fs.readFile', { path: filePath });
-        return base64ToUint8Array(res.content);
+        return this._enqueueRead(filePath);
     }
 
     async writeTextFile(filePath: string, content: string): Promise<void> {
@@ -1312,11 +1440,30 @@ class RemoteHostFs implements HostFs {
         return res.exists ?? false;
     }
 
+    private readonly _realpathCache = new Map<string, Promise<string>>();
+
+    clearRealpathCache(): void {
+        this._realpathCache.clear();
+    }
+
     async realpath(targetPath: string): Promise<string> {
-        const res = await this._host.request<{ resolvedPath: string }>('fs.realpath', {
-            path: targetPath,
-        });
-        return res.resolvedPath;
+        let promise = this._realpathCache.get(targetPath);
+        if (promise) {
+            return promise;
+        }
+        promise = (async () => {
+            try {
+                const res = await this._host.request<{ resolvedPath: string }>('fs.realpath', {
+                    path: targetPath,
+                });
+                return res.resolvedPath;
+            } catch (err) {
+                this._realpathCache.delete(targetPath);
+                throw err;
+            }
+        })();
+        this._realpathCache.set(targetPath, promise);
+        return promise;
     }
 
     async mkdtemp(prefix: string): Promise<string> {
