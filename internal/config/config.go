@@ -85,8 +85,11 @@ type Store struct {
 	workspaces     map[string]*workspaceEntry
 	onChange       func(key string, scope string)
 
-	watcher *fsnotify.Watcher
-	done    chan struct{}
+	watcher     *fsnotify.Watcher
+	watchMu     sync.Mutex
+	watchedDirs map[string]bool
+	watchAddCh  chan string
+	done        chan struct{}
 }
 
 // NewStore initializes a configuration store.
@@ -118,16 +121,18 @@ func NewStore(opts ...Options) (*Store, error) {
 		vscodeUserData: make(map[string]any),
 		workspaces:     make(map[string]*workspaceEntry),
 		onChange:       opt.OnChange,
+		watchedDirs:    make(map[string]bool),
+		watchAddCh:     make(chan string, 128),
 		done:           make(chan struct{}),
 	}
 
-	_ = s.initWatcher()
 	_ = s.loadUser()
 	if s.repoRoot != "" {
 		s.mu.Lock()
 		_ = s.ensureWorkspaceLoadedLocked(s.repoRoot)
 		s.mu.Unlock()
 	}
+	_ = s.initWatcher()
 
 	return s, nil
 }
@@ -356,14 +361,14 @@ func (s *Store) watchWorkspaceDirLocked(root string) {
 	if s.watcher == nil || root == "" {
 		return
 	}
-	_ = s.watcher.Add(root)
+	s.enqueueWatch(root)
 	jjViewDir := filepath.Join(root, ".jj-view")
 	if _, err := os.Stat(jjViewDir); err == nil {
-		_ = s.watcher.Add(jjViewDir)
+		s.enqueueWatch(jjViewDir)
 	}
 	vscodeDir := filepath.Join(root, ".vscode")
 	if _, err := os.Stat(vscodeDir); err == nil {
-		_ = s.watcher.Add(vscodeDir)
+		s.enqueueWatch(vscodeDir)
 	}
 }
 
@@ -442,6 +447,30 @@ func normalizeKey(k string) string {
 	return strings.TrimPrefix(k, "jj-view.")
 }
 
+func lookupNestedMap(m map[string]any, dottedKey string) (any, bool) {
+	if !strings.Contains(dottedKey, ".") {
+		return nil, false
+	}
+	if val, ok := m[dottedKey]; ok {
+		return val, true
+	}
+	for i := 0; i < len(dottedKey); i++ {
+		if dottedKey[i] == '.' {
+			prefix := dottedKey[:i]
+			rest := dottedKey[i+1:]
+			if subMap, ok := m[prefix].(map[string]any); ok {
+				if val, ok := subMap[rest]; ok {
+					return val, true
+				}
+				if val, found := lookupNestedMap(subMap, rest); found {
+					return val, true
+				}
+			}
+		}
+	}
+	return nil, false
+}
+
 func getFromWorkspaceMap(wsData map[string]any, key string) (any, bool) {
 	if len(wsData) == 0 {
 		return nil, false
@@ -456,11 +485,21 @@ func getFromWorkspaceMap(wsData map[string]any, key string) (any, bool) {
 	if val, ok := wsData[norm]; ok {
 		return val, true
 	}
+	if val, ok := lookupNestedMap(wsData, "jj-view."+norm); ok {
+		return val, true
+	}
+	if val, ok := lookupNestedMap(wsData, norm); ok {
+		return val, true
+	}
 	return nil, false
 }
 
 func getFromWorkspaceEntry(entry *workspaceEntry, key string) (any, bool) {
 	if entry == nil {
+		return nil, false
+	}
+	norm := normalizeKey(key)
+	if norm == "codeForge.adapterCommand" {
 		return nil, false
 	}
 	// 1. Standalone .jj-view/config.json has highest precedence
@@ -507,7 +546,7 @@ func (s *Store) InspectForWorkspace(key string, workspaceRoot string) InspectRes
 		UserPath:       s.userPath,
 		VscodeUserPath: s.vscodeUserPath,
 	}
-	if entry != nil {
+	if entry != nil && norm != "codeForge.adapterCommand" {
 		res.WorkspacePath = entry.standalonePath
 		res.VscodeWorkspacePath = entry.vscodePath
 		if val, ok := getFromWorkspaceMap(entry.standaloneData, key); ok {
@@ -570,12 +609,18 @@ func (s *Store) GetScopedForWorkspace(scope string, key string, workspaceRoot st
 
 	switch Scope(scope) {
 	case ScopeWorkspace:
+		if normalizeKey(key) == "codeForge.adapterCommand" {
+			return nil, false
+		}
 		entry := s.ensureWorkspaceLoadedLocked(workspaceRoot)
 		if entry == nil {
 			return nil, false
 		}
 		return getFromWorkspaceMap(entry.standaloneData, key)
 	case ScopeVscodeWorkspace:
+		if normalizeKey(key) == "codeForge.adapterCommand" {
+			return nil, false
+		}
 		entry := s.ensureWorkspaceLoadedLocked(workspaceRoot)
 		if entry == nil {
 			return nil, false
@@ -607,8 +652,21 @@ func (s *Store) GetAllScoped(scope string) map[string]any {
 	return s.GetAllScopedForWorkspace(scope, "")
 }
 
+func flattenNestedKeys(prefix string, src map[string]any, emit func(key string, val any)) {
+	for k, v := range src {
+		fullKey := k
+		if prefix != "" {
+			fullKey = prefix + "." + k
+		}
+		if subMap, ok := v.(map[string]any); ok {
+			flattenNestedKeys(fullKey, subMap, emit)
+		}
+		emit(fullKey, v)
+	}
+}
+
 func (s *Store) mergeVscodeMapIntoLocked(dst map[string]any, src map[string]any) {
-	for k := range src {
+	flattenNestedKeys("", src, func(k string, _ any) {
 		if strings.HasPrefix(k, "jj-view.") || s.isJjViewKeyLocked(k) {
 			norm := normalizeKey(k)
 			if val, ok := getFromWorkspaceMap(src, norm); ok {
@@ -617,16 +675,67 @@ func (s *Store) mergeVscodeMapIntoLocked(dst map[string]any, src map[string]any)
 				dst["jj-view."+norm] = val
 			}
 		}
-	}
+	})
 }
 
 func mergeStandaloneMapInto(dst map[string]any, src map[string]any) {
-	for k := range src {
+	flattenNestedKeys("", src, func(k string, _ any) {
 		norm := normalizeKey(k)
 		if val, ok := getFromWorkspaceMap(src, norm); ok {
 			dst[k] = val
 			dst[norm] = val
 			dst["jj-view."+norm] = val
+		}
+	})
+}
+
+func stripAdapterCommand(m map[string]any) {
+	if m == nil {
+		return
+	}
+	delete(m, "codeForge.adapterCommand")
+	delete(m, "jj-view.codeForge.adapterCommand")
+	for _, topKey := range []string{"codeForge", "jj-view.codeForge"} {
+		if cf, ok := m[topKey].(map[string]any); ok {
+			if _, has := cf["adapterCommand"]; has {
+				cloned := make(map[string]any, len(cf))
+				for k, v := range cf {
+					if k != "adapterCommand" {
+						cloned[k] = v
+					}
+				}
+				if len(cloned) == 0 {
+					delete(m, topKey)
+				} else {
+					m[topKey] = cloned
+				}
+			}
+		}
+	}
+	if jj, ok := m["jj-view"].(map[string]any); ok {
+		if cf, ok := jj["codeForge"].(map[string]any); ok {
+			if _, has := cf["adapterCommand"]; has {
+				clonedJj := make(map[string]any, len(jj))
+				for k, v := range jj {
+					clonedJj[k] = v
+				}
+				clonedCf := make(map[string]any, len(cf))
+				for k, v := range cf {
+					if k != "adapterCommand" {
+						clonedCf[k] = v
+					}
+				}
+				if len(clonedCf) == 0 {
+					delete(clonedJj, "codeForge")
+				} else {
+					clonedJj["codeForge"] = clonedCf
+				}
+				if len(clonedJj) == 0 {
+					delete(m, "jj-view")
+				} else {
+					m["jj-view"] = clonedJj
+				}
+			}
 		}
 	}
 }
@@ -635,10 +744,15 @@ func (s *Store) mergeWorkspaceEntryIntoLocked(dst map[string]any, entry *workspa
 	if entry == nil {
 		return
 	}
+	ws := make(map[string]any)
 	// 1. Lower priority within workspace: .vscode/settings.json (filtered to jj-view keys)
-	s.mergeVscodeMapIntoLocked(dst, entry.vscodeData)
+	s.mergeVscodeMapIntoLocked(ws, entry.vscodeData)
 	// 2. Higher priority within workspace: .jj-view/config.json (all keys belong to jj-view)
-	mergeStandaloneMapInto(dst, entry.standaloneData)
+	mergeStandaloneMapInto(ws, entry.standaloneData)
+	stripAdapterCommand(ws)
+	for k, v := range ws {
+		dst[k] = v
+	}
 }
 
 // GetAllScopedForWorkspace returns configuration keys and values for a specific scope and workspace root.
@@ -662,6 +776,7 @@ func (s *Store) GetAllScopedForWorkspace(scope string, workspaceRoot string) map
 		res := make(map[string]any)
 		if entry != nil {
 			mergeStandaloneMapInto(res, entry.standaloneData)
+			stripAdapterCommand(res)
 		}
 		return res
 
@@ -670,6 +785,7 @@ func (s *Store) GetAllScopedForWorkspace(scope string, workspaceRoot string) map
 		res := make(map[string]any)
 		if entry != nil {
 			s.mergeVscodeMapIntoLocked(res, entry.vscodeData)
+			stripAdapterCommand(res)
 		}
 		return res
 
@@ -687,7 +803,7 @@ func (s *Store) GetAllScopedForWorkspace(scope string, workspaceRoot string) map
 }
 
 func (s *Store) isJjViewKeyLocked(k string) bool {
-	if strings.HasPrefix(k, "jj-view.") || strings.HasPrefix(k, "appearance.") || strings.HasPrefix(k, "diff.") {
+	if strings.HasPrefix(k, "jj-view.") || strings.HasPrefix(k, "appearance.") || strings.HasPrefix(k, "diff.") || strings.HasPrefix(k, "codeForge.") {
 		return true
 	}
 	norm := normalizeKey(k)
@@ -712,6 +828,10 @@ func (s *Store) SetScopedForWorkspace(scope string, key string, val any, workspa
 
 	norm := normalizeKey(key)
 	sc := Scope(scope)
+
+	if (sc == ScopeWorkspace || sc == ScopeVscodeWorkspace) && norm == "codeForge.adapterCommand" {
+		return fmt.Errorf("setting %q is not allowed in workspace scope", key)
+	}
 
 	if sc == ScopeWorkspace {
 		entry := s.ensureWorkspaceLoadedLocked(workspaceRoot)
@@ -821,9 +941,7 @@ func (s *Store) saveStandaloneWorkspaceLocked(entry *workspaceEntry) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create .jj-view directory: %w", err)
 	}
-	if s.watcher != nil {
-		_ = s.watcher.Add(dir)
-	}
+	s.enqueueWatch(dir)
 
 	fileData := make(map[string]any)
 	for k, v := range entry.standaloneData {
@@ -853,9 +971,7 @@ func (s *Store) saveVscodeWorkspaceLocked(entry *workspaceEntry) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create .vscode directory: %w", err)
 	}
-	if s.watcher != nil {
-		_ = s.watcher.Add(dir)
-	}
+	s.enqueueWatch(dir)
 
 	fileData, _ := parseJSONCFile(entry.vscodePath)
 	if fileData == nil {
@@ -896,6 +1012,73 @@ func (s *Store) saveVscodeWorkspaceLocked(entry *workspaceEntry) error {
 	return os.Rename(tmpFile, entry.vscodePath)
 }
 
+func (s *Store) addWatchSync(dir string) {
+	if s.watcher == nil || dir == "" {
+		return
+	}
+	cleaned := filepath.Clean(dir)
+	s.watchMu.Lock()
+	if s.watchedDirs[cleaned] {
+		s.watchMu.Unlock()
+		return
+	}
+	s.watchedDirs[cleaned] = true
+	s.watchMu.Unlock()
+
+	if err := s.watcher.Add(cleaned); err != nil {
+		s.watchMu.Lock()
+		delete(s.watchedDirs, cleaned)
+		s.watchMu.Unlock()
+	}
+}
+
+func (s *Store) enqueueWatch(dirs ...string) {
+	if s.watcher == nil {
+		return
+	}
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		cleaned := filepath.Clean(dir)
+		s.watchMu.Lock()
+		if s.watchedDirs[cleaned] {
+			s.watchMu.Unlock()
+			continue
+		}
+		s.watchedDirs[cleaned] = true
+		s.watchMu.Unlock()
+
+		select {
+		case s.watchAddCh <- cleaned:
+		case <-s.done:
+			return
+		default:
+			go func(d string) {
+				select {
+				case s.watchAddCh <- d:
+				case <-s.done:
+				}
+			}(cleaned)
+		}
+	}
+}
+
+func (s *Store) watchAddLoop() {
+	for {
+		select {
+		case <-s.done:
+			return
+		case dir := <-s.watchAddCh:
+			if err := s.watcher.Add(dir); err != nil {
+				s.watchMu.Lock()
+				delete(s.watchedDirs, dir)
+				s.watchMu.Unlock()
+			}
+		}
+	}
+}
+
 func (s *Store) initWatcher() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -905,16 +1088,36 @@ func (s *Store) initWatcher() error {
 
 	userDir := filepath.Dir(s.userPath)
 	_ = os.MkdirAll(userDir, 0700)
-	_ = s.watcher.Add(userDir)
+	s.addWatchSync(userDir)
 
 	if s.vscodeUserPath != "" {
 		vsUserDir := filepath.Dir(s.vscodeUserPath)
 		if _, err := os.Stat(vsUserDir); err == nil {
-			_ = s.watcher.Add(vsUserDir)
+			s.addWatchSync(vsUserDir)
+		}
+	}
+
+	s.mu.RLock()
+	roots := make([]string, 0, len(s.workspaces))
+	for root := range s.workspaces {
+		roots = append(roots, root)
+	}
+	s.mu.RUnlock()
+
+	for _, root := range roots {
+		s.addWatchSync(root)
+		jjViewDir := filepath.Join(root, ".jj-view")
+		if _, err := os.Stat(jjViewDir); err == nil {
+			s.addWatchSync(jjViewDir)
+		}
+		vscodeDir := filepath.Join(root, ".vscode")
+		if _, err := os.Stat(vscodeDir); err == nil {
+			s.addWatchSync(vscodeDir)
 		}
 	}
 
 	go s.watchLoop()
+	go s.watchAddLoop()
 	return nil
 }
 
@@ -938,7 +1141,7 @@ func (s *Store) watchLoop() {
 			cleanedEvent := filepath.Clean(event.Name)
 			// If .jj-view or .vscode was created in any watched workspace root, watch it too
 			if (base == ".jj-view" || base == ".vscode") && (event.Has(fsnotify.Create) || event.Has(fsnotify.Write)) {
-				_ = s.watcher.Add(event.Name)
+				s.enqueueWatch(event.Name)
 			}
 
 			if base == userBase && cleanedEvent == filepath.Clean(s.userPath) {
@@ -982,7 +1185,7 @@ func (s *Store) handleUserFileEvent() {
 	s.mu.Unlock()
 
 	if s.onChange != nil {
-		s.onChange("", string(ScopeUser))
+		go s.onChange("", string(ScopeUser))
 	}
 }
 
@@ -1005,7 +1208,7 @@ func (s *Store) handleVscodeUserFileEvent() {
 	s.mu.Unlock()
 
 	if s.onChange != nil {
-		s.onChange("", string(ScopeVscodeUser))
+		go s.onChange("", string(ScopeVscodeUser))
 	}
 }
 
@@ -1033,7 +1236,7 @@ func (s *Store) handleWorkspaceFileEvent(changedPath string) {
 	s.mu.Unlock()
 
 	if changed && s.onChange != nil {
-		s.onChange("", string(ScopeWorkspace))
+		go s.onChange("", string(ScopeWorkspace))
 	}
 }
 

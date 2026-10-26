@@ -28,6 +28,9 @@ export enum JjContextKey {
 
     /** Mirrors the jj-view.openDiffOnClick setting; controls inline button visibility */
     OpenDiffOnClick = 'jj.openDiffOnClick',
+
+    /** Current code forge upload model ('revision' | 'branch' | 'branch-stack' | undefined) */
+    CodeForgeUploadModel = 'jj.codeForgeUploadModel',
 }
 
 /**

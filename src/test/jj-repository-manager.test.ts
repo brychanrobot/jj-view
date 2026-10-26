@@ -42,19 +42,24 @@ describe('JjRepositoryManager Unit Tests', () => {
         });
 
         const scanPromise = manager.scanForRepositories();
+        try {
+            // Wait for the primary workspace root repository to be registered while findFiles is still pending
+            await vi.waitFor(() => {
+                expect(manager.repositories).toHaveLength(1);
+                expect(manager.repositories[0].rootUri.fsPath).toBeSameFsPath(mainRepo.path);
+            });
+            expect(openedRoots).toHaveLength(1);
+            expect(openedRoots[0]).toBeSameFsPath(mainRepo.path);
+            expect(manager.focusedRepository?.rootUri.fsPath).toBeSameFsPath(mainRepo.path);
+        } finally {
+            // Now resolve findFiles with the nested sub-repository
+            resolveFindFiles([Uri.file(path.join(subRepo.path, '.jj', 'working_copy', 'type'))]);
+            await scanPromise;
+        }
 
-        // Wait for the primary workspace root repository to be registered while findFiles is still pending
-        await vi.waitFor(() => {
-            expect(manager.repositories.map((r) => r.rootUri.fsPath)).toEqual([mainRepo.path]);
-        });
-        expect(openedRoots).toEqual([mainRepo.path]);
-        expect(manager.focusedRepository?.rootUri.fsPath).toBeSameFsPath(mainRepo.path);
-
-        // Now resolve findFiles with the nested sub-repository
-        resolveFindFiles([Uri.file(path.join(subRepo.path, '.jj', 'working_copy', 'type'))]);
-        await scanPromise;
-
-        expect(manager.repositories.map((r) => r.rootUri.fsPath).sort()).toEqual([mainRepo.path, subRepo.path].sort());
+        expect(manager.repositories.map((r) => r.rootUri.fsPath).sort()).toEqual(
+            [Uri.file(mainRepo.path).fsPath, Uri.file(subRepo.path).fsPath].sort(),
+        );
         registry.dispose();
     });
 
@@ -132,7 +137,9 @@ describe('JjRepositoryManager Unit Tests', () => {
 
         // Dynamically registered subRepo must not be disposed by Stage 2
         expect(manager.repositories).toHaveLength(2);
-        expect(manager.repositories.map((r) => r.rootUri.fsPath).sort()).toEqual([mainRepo.path, subRepo.path].sort());
+        expect(manager.repositories.map((r) => r.rootUri.fsPath).sort()).toEqual(
+            [Uri.file(mainRepo.path).fsPath, Uri.file(subRepo.path).fsPath].sort(),
+        );
 
         // Verify maybeRegisterWorkspaceRoot works even when autoRepositoryDetection is false
         await manager.clear();

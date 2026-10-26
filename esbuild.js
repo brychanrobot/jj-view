@@ -156,6 +156,7 @@ async function main() {
         entryPoints: ['src/vscode/extension.ts'],
         bundle: true,
         format: 'cjs',
+        mainFields: ['module', 'main'],
         minify: production,
         sourcemap: !production,
         sourcesContent: false,

@@ -18,6 +18,10 @@ import { logPerf } from './perf-logger';
 export const ROOT_ID = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
 export const isMac = process.platform === 'darwin';
 
+const e2eIsolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-config-'));
+process.env.XDG_CONFIG_HOME = path.join(e2eIsolatedConfigDir, 'xdg-config');
+process.env.APPDATA = path.join(e2eIsolatedConfigDir, 'appdata');
+
 interface WorkspaceConfig {
     folders?: Array<{ path?: string }>;
 }
@@ -298,7 +302,10 @@ export async function launchNewVSCode(
         }
     }
 
-    const env = { ...process.env, NODE_NO_WARNINGS: '1' } as { [key: string]: string };
+    const env = {
+        ...process.env,
+        NODE_NO_WARNINGS: '1',
+    } as { [key: string]: string };
     delete env.ELECTRON_RUN_AS_NODE;
     for (const key in extraEnv) {
         const val = extraEnv[key];
@@ -1029,7 +1036,9 @@ export async function dismissActiveUI(page: Page | undefined): Promise<boolean> 
                 .catch(() => {});
         }
 
-        const contextMenu = page.locator('.context-view.monaco-menu-container').filter({ visible: true });
+        const contextMenu = page
+            .locator('.context-view.monaco-menu-container:not(.chat-response-selection-menu)')
+            .filter({ visible: true });
         let menuIterations = 0;
         while ((await contextMenu.count()) > 0 && menuIterations < 5) {
             menuIterations++;

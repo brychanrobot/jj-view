@@ -13,6 +13,7 @@ import { GerritProvider } from '../../src/core/gerrit-provider';
 import { GitHubProvider } from '../../src/core/github-provider';
 import { GitLabProvider } from '../../src/core/gitlab-provider';
 import { RemoteHostSystem } from '../../src/core/host/remote-host-system';
+import { JjContextKey } from '../../src/core/jj-context-keys';
 import { JjEditFsService } from '../../src/core/jj-edit-fs-service';
 import { JjProcessTracker } from '../../src/core/jj-process-tracker';
 import { JjRepository } from '../../src/core/jj-repository';
@@ -517,6 +518,7 @@ export async function bootstrap(): Promise<void> {
         const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
             void webHostEnv.commands.setContextKey('jj.codeForgeActive', !!provider);
             void webHostEnv.commands.setContextKey('jj.codeForgeProvider', provider?.id);
+            void webHostEnv.commands.setContextKey(JjContextKey.CodeForgeUploadModel, provider?.uploadModel);
             const manageable = !!provider?.isAuthManageable;
             void webHostEnv.commands.setContextKey('jj.codeForgeAuthManageable', manageable);
             void webHostEnv.commands.setContextKey('jj.codeForgeTerm', provider?.changeTerm?.toLowerCase() || 'change');

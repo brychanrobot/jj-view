@@ -83,18 +83,45 @@ export class VsCodeCommentsProvider implements vscode.Disposable {
             vscodeThread.collapsibleState = expectedCollapsibleState;
             this.threads.set(thread.id, vscodeThread);
         } else {
-            vscodeThread.comments = comments;
-            vscodeThread.range = range;
+            const commentsChanged =
+                vscodeThread.comments.length !== comments.length ||
+                vscodeThread.comments.some((existing, idx) => {
+                    const next = comments[idx];
+                    const existingBody = typeof existing.body === 'string' ? existing.body : existing.body.value;
+                    const nextBody = typeof next.body === 'string' ? next.body : next.body.value;
+                    return (
+                        existingBody !== nextBody ||
+                        existing.author.name !== next.author.name ||
+                        existing.label !== next.label
+                    );
+                });
+            if (commentsChanged) {
+                vscodeThread.comments = comments;
+            }
+            if (
+                !vscodeThread.range ||
+                vscodeThread.range.start.line !== range.start.line ||
+                vscodeThread.range.start.character !== range.start.character ||
+                vscodeThread.range.end.line !== range.end.line ||
+                vscodeThread.range.end.character !== range.end.character
+            ) {
+                vscodeThread.range = range;
+            }
             const previousResolved = vscodeThread.contextValue?.startsWith('resolved:');
             if (previousResolved !== thread.isResolved) {
                 vscodeThread.collapsibleState = expectedCollapsibleState;
             }
         }
 
-        vscodeThread.contextValue = expectedContextValue;
-        vscodeThread.state = thread.isResolved
+        if (vscodeThread.contextValue !== expectedContextValue) {
+            vscodeThread.contextValue = expectedContextValue;
+        }
+        const expectedState = thread.isResolved
             ? vscode.CommentThreadState.Resolved
             : vscode.CommentThreadState.Unresolved;
+        if (vscodeThread.state !== expectedState) {
+            vscodeThread.state = expectedState;
+        }
 
         return vscodeThread;
     }
@@ -108,10 +135,9 @@ export class VsCodeCommentsProvider implements vscode.Disposable {
         const activeThreadIds = new Set<string>();
 
         for (const thread of threadsList) {
-            if (!thread.filePath || thread.line === undefined) {
+            if (!thread.filePath) {
                 continue;
             }
-
             activeThreadIds.add(thread.id);
             this.syncCommentThread(thread, activeRepoPath);
         }

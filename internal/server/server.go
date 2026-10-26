@@ -233,6 +233,23 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	s.secretStore = secretStore
 	s.procMgr = process.NewManager(filepath.Join(fsMgr.DaemonTempDir(), "scripts"))
+	s.procMgr.SetAllowedForgeCommand(func() string {
+		userCfg := s.configStore.GetAllScoped(string(config.ScopeUser))
+		if val, ok := userCfg["codeForge.adapterCommand"].(string); ok && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+		if val, ok := userCfg["jj-view.codeForge.adapterCommand"].(string); ok && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+		vscodeUserCfg := s.configStore.GetAllScoped(string(config.ScopeVscodeUser))
+		if val, ok := vscodeUserCfg["codeForge.adapterCommand"].(string); ok && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+		if val, ok := vscodeUserCfg["jj-view.codeForge.adapterCommand"].(string); ok && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+		return ""
+	})
 
 	s.restoreAllowedRootsFromState()
 	s.maybeWarmRepoRoot(cfg.RepoRoot)
@@ -351,13 +368,18 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/ws", s.handleWS)
 
-	s.httpServer = &http.Server{
+	httpSrv := &http.Server{
 		Handler:      mux,
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 0,
 	}
 
-	return s.httpServer.Serve(s.listener)
+	s.mu.Lock()
+	s.httpServer = httpSrv
+	listener := s.listener
+	s.mu.Unlock()
+
+	return httpSrv.Serve(listener)
 }
 
 // Addr returns the server's listening address.
@@ -419,11 +441,18 @@ func (s *Server) Close(ctx context.Context) error {
 		ws.close()
 	}
 
-	if s.httpServer != nil {
-		if err := s.httpServer.Shutdown(ctx); err != nil {
-			_ = s.httpServer.Close()
+	s.mu.RLock()
+	httpSrv := s.httpServer
+	listener := s.listener
+	s.mu.RUnlock()
+
+	if httpSrv != nil {
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			_ = httpSrv.Close()
 			return err
 		}
+	} else if listener != nil {
+		_ = listener.Close()
 	}
 	return nil
 }

@@ -95,6 +95,7 @@ export class GitLabProvider implements CodeForgeProvider {
     public readonly id = 'gitlab';
     public readonly displayName = 'GitLab';
     public readonly changeTerm = 'PR' as const;
+    public readonly uploadModel = 'branch-stack' as const;
     public readonly priority = 20;
     public readonly isAuthManageable = true;
 

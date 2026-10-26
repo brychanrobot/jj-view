@@ -29,12 +29,17 @@ export interface CodeForgeProvider {
     readonly changeTerm: 'CL' | 'PR' | 'Change';
     /** Optional priority order for auto-detection (lower values detected first) */
     readonly priority?: number;
+    /** Upload and change model supported by this forge ('revision', 'branch', or 'branch-stack') */
+    readonly uploadModel?: 'revision' | 'branch' | 'branch-stack';
 
     /** Fires when change cache statuses or states are updated */
     readonly onDidUpdate: Event<void>;
 
     /** Determines if this provider is active for the current workspace and remotes */
     detect(workspaceRoot: string, remotes: GitRemote[]): Promise<boolean>;
+
+    /** Returns true if a bookmark is managed internally by this code forge */
+    isManagedBookmark?(bookmarkName: string): boolean;
 
     /** Retrieves the cached status info for a given change */
     getCachedChangeInfo(
@@ -52,6 +57,9 @@ export interface CodeForgeProvider {
      * Return undefined if this provider does not support uploading code.
      */
     getUploadCommand?(revision: string, hasBookmark?: boolean): { subcommand: string; args: string[] } | undefined;
+
+    /** Directly uploads a single revision using the provider's upload mechanism */
+    uploadRevision?(revision: string, jj: JjService): Promise<string>;
 
     /** Hook called when the provider starts or stops being the active provider */
     activate(): void;
@@ -111,12 +119,30 @@ export interface CodeForgeComment {
     isDraft?: boolean;
 }
 
+export type CommentSide = 'PARENT' | 'REVISION';
+
+export interface CommentRange {
+    start_line: number;
+    start_character: number;
+    end_line: number;
+    end_character: number;
+}
+
+export interface CodeForgeCommentThreadMetadata {
+    side?: CommentSide;
+    range?: CommentRange;
+    commitId?: string;
+    originalLine?: number;
+    portedLine?: number;
+    patchSet?: number;
+}
+
 export interface CodeForgeCommentThread {
     id: string;
     filePath?: string;
     line?: number;
     isResolved: boolean;
-    metadata?: Record<string, unknown>;
+    metadata?: CodeForgeCommentThreadMetadata;
     comments: CodeForgeComment[];
 }
 

@@ -226,6 +226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
         hostEnvironment.commands.setContextKey('jj.codeForgeActive', !!provider);
         hostEnvironment.commands.setContextKey('jj.codeForgeProvider', provider?.id);
+        hostEnvironment.commands.setContextKey(JjContextKey.CodeForgeUploadModel, provider?.uploadModel);
         const manageable = !!provider?.isAuthManageable;
         hostEnvironment.commands.setContextKey('jj.codeForgeAuthManageable', manageable);
         hostEnvironment.commands.setContextKey('jj.codeForgeTerm', provider?.changeTerm?.toLowerCase() || 'change');

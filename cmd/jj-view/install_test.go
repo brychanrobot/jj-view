@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestRunInstallAntigravityPlugin(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
 	tempDir := t.TempDir()
 	configDir := filepath.Join(tempDir, "config")
 	fakeBinary := filepath.Join(tempDir, "fake-jj-view")
@@ -54,7 +56,7 @@ func TestRunInstallAntigravityPlugin(t *testing.T) {
 		t.Errorf("unexpected icon content: %s", string(iconData))
 	}
 
-	// 3. Verify sidecar.json
+	// 3. Verify sidecar.json wraps the binary in the user's login shell
 	sidecarPath := filepath.Join(configDir, "plugins", "jj-view", "sidecars", "jj-view", "sidecar.json")
 	sData, err := os.ReadFile(sidecarPath)
 	if err != nil {
@@ -64,14 +66,28 @@ func TestRunInstallAntigravityPlugin(t *testing.T) {
 	if err := json.Unmarshal(sData, &sManifest); err != nil {
 		t.Fatalf("invalid sidecar.json: %v", err)
 	}
-	if sManifest["command"] != fakeBinary {
-		t.Errorf("expected command %s, got %v", fakeBinary, sManifest["command"])
-	}
 	if sManifest["display_name"] != "jj view" {
 		t.Errorf("expected display_name 'jj view', got %v", sManifest["display_name"])
 	}
-	if got := fmt.Sprint(sManifest["args"]); got != "[--host 127.0.0.1 --no-open]" {
-		t.Errorf("unexpected sidecar args: %s", got)
+	if runtime.GOOS == "windows" {
+		if sManifest["command"] != fakeBinary {
+			t.Errorf("expected command %s, got %v", fakeBinary, sManifest["command"])
+		}
+		if got := fmt.Sprint(sManifest["args"]); got != "[--host 127.0.0.1 --no-open]" {
+			t.Errorf("unexpected sidecar args: got %s, want [--host 127.0.0.1 --no-open]", got)
+		}
+	} else {
+		if sManifest["command"] != "/bin/sh" {
+			t.Errorf("expected command /bin/sh, got %v", sManifest["command"])
+		}
+		wantArgs := fmt.Sprintf("[-lc exec '%s' --host 127.0.0.1 --no-open]", fakeBinary)
+		if got := fmt.Sprint(sManifest["args"]); got != wantArgs {
+			t.Errorf("unexpected sidecar args: got %s, want %s", got, wantArgs)
+		}
+		envMap, ok := sManifest["env"].(map[string]any)
+		if !ok || envMap[reloadShellEnvVar] != "/bin/sh" {
+			t.Errorf("expected sidecar env.%s = /bin/sh, got %v", reloadShellEnvVar, sManifest["env"])
+		}
 	}
 
 	// Verify legacy loose sidecar was cleaned up
@@ -99,5 +115,18 @@ func TestRunInstallAntigravityPlugin(t *testing.T) {
 	sidecars, ok := cManifest["sidecars"].(map[string]any)
 	if ok && sidecars["jj-view"] != nil {
 		t.Errorf("expected legacy jj-view to be removed from sidecars in config.json")
+	}
+}
+
+func TestBuildSidecarCommandFallbackWithoutShell(t *testing.T) {
+	cmd, args, env := buildSidecarCommand("/opt/jj-view", "")
+	if cmd != "/opt/jj-view" {
+		t.Fatalf("cmd = %q, want /opt/jj-view", cmd)
+	}
+	if got := fmt.Sprint(args); got != "[--host 127.0.0.1 --no-open]" {
+		t.Fatalf("args = %s, want [--host 127.0.0.1 --no-open]", got)
+	}
+	if len(env) != 0 {
+		t.Fatalf("expected nil/empty env, got %v", env)
 	}
 }

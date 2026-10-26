@@ -15,6 +15,7 @@ import type { JjService } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import type { AsyncCache } from '../utils/async-cache';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import * as credentialUtils from '../utils/git-credential-utils';
 import type { LruCache } from '../utils/lru-cache';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGerritServer } from './helpers/fake-gerrit-server';
@@ -663,13 +664,69 @@ describe('GerritProvider', () => {
             expect(reply.body).toBe('Resolved reply');
         });
 
+        test('replyToCommentThread and resolveCommentThread preserve parent side and range', async () => {
+            const commentRange = {
+                start_line: 10,
+                start_character: 4,
+                end_line: 12,
+                end_character: 18,
+            };
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-parent-ranged',
+                        line: 12,
+                        side: 'PARENT',
+                        range: commentRange,
+                        message: 'Comment on parent range',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        patch_set: 2,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toHaveLength(1);
+            expect(threads[0].metadata?.side).toBe('PARENT');
+            expect(threads[0].metadata?.range).toEqual(commentRange);
+
+            await provider.replyToCommentThread('I12345', threads[0], 'Reply preserving side and range');
+            expect(server.draftRequestBodies).toHaveLength(1);
+            expect(server.draftRequestBodies[0]).toEqual({
+                path: 'file.txt',
+                line: 12,
+                side: 'PARENT',
+                range: commentRange,
+                message: 'Reply preserving side and range',
+                in_reply_to: 'comment-parent-ranged',
+                unresolved: true,
+            });
+
+            await provider.resolveCommentThread('I12345', threads[0], true);
+            expect(server.draftRequestBodies).toHaveLength(2);
+            expect(server.draftRequestBodies[1]).toEqual({
+                path: 'file.txt',
+                line: 12,
+                side: 'PARENT',
+                range: commentRange,
+                message: 'Resolved',
+                in_reply_to: 'comment-parent-ranged',
+                unresolved: false,
+            });
+        });
+
         test('attaches authentication headers and rewrites URL when auth is available', async () => {
             const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-test-'));
             const gitRoot = path.join(tempRepoDir, '.git');
-            cp.execSync(`git init --bare "${gitRoot}"`);
-            cp.execSync(
-                `git --git-dir="${gitRoot}" config credential.helper "!f() { echo username=testuser; echo password=testpass; }; f"`,
-            );
+            cp.execFileSync('git', ['init', '--bare', gitRoot]);
+            cp.execFileSync('git', [
+                `--git-dir=${gitRoot}`,
+                'config',
+                'credential.helper',
+                '!f() { echo username=testuser; echo password=testpass; }; f',
+            ]);
 
             setPrivate(provider, 'repoRoot', tempRepoDir);
             setPrivate(provider, 'gitRoot', gitRoot);
@@ -735,64 +792,55 @@ describe('GerritProvider', () => {
         });
 
         test('resolves the git credential once for concurrent requests and re-asks the host after clearCache', async () => {
-            const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-cache-test-'));
-            const gitRoot = path.join(tempRepoDir, '.git');
-            cp.execSync(`git init --bare "${gitRoot}"`);
-
-            const logFile = path.join(tempRepoDir, 'call_log.txt');
-            cp.execSync(
-                `git --git-dir="${gitRoot}" config credential.helper "!f() { echo username=testuser; echo password=testpass; echo invoked >> \\"${logFile}\\"; }; f"`,
-            );
-
-            setPrivate(provider, 'repoRoot', tempRepoDir);
-            setPrivate(provider, 'gitRoot', gitRoot);
+            setPrivate(provider, 'repoRoot', '/repo');
+            setPrivate(provider, 'gitRoot', '/repo/.git');
             const hasGitCredentials = vi.spyOn(host.http, 'hasGitCredentials');
+            const resolveGitAuthHeaderSpy = vi
+                .spyOn(credentialUtils, 'resolveGitAuthHeader')
+                .mockResolvedValue({ name: 'Authorization', value: 'Basic dGVzdHVzZXI6dGVzdHBhc3M=' });
 
-            server.clearRequests();
-            server.registerComments(123, {});
+            try {
+                server.clearRequests();
+                server.registerComments(123, {});
 
-            // getCommentThreads fetches comments and drafts concurrently; both must
-            // wait for the single in-flight credential check and go out authenticated.
-            await provider.getCommentThreads('I12345');
-            expect(server.requests.length).toBeGreaterThanOrEqual(2);
-            expect(server.requests.every((url) => url.startsWith('/a/changes/'))).toBe(true);
-            expect(server.requestLog.every((entry) => entry.headers.authorization !== undefined)).toBe(true);
-            expect(hasGitCredentials).toHaveBeenCalledTimes(1);
+                // getCommentThreads fetches comments and drafts concurrently; both must
+                // wait for the single in-flight credential check and go out authenticated.
+                await provider.getCommentThreads('I12345');
+                expect(server.requests.length).toBeGreaterThanOrEqual(2);
+                expect(server.requests.every((url) => url.startsWith('/a/changes/'))).toBe(true);
+                expect(server.requestLog.every((entry) => entry.headers.authorization !== undefined)).toBe(true);
+                expect(hasGitCredentials).toHaveBeenCalledTimes(1);
+                expect(resolveGitAuthHeaderSpy).toHaveBeenCalledTimes(1);
 
-            // Second call - provider remembers the result within its TTL.
-            await provider.getCommentThreads('I12345');
-            expect(hasGitCredentials).toHaveBeenCalledTimes(1);
+                // Second call - provider remembers the result within its TTL.
+                await provider.getCommentThreads('I12345');
+                expect(hasGitCredentials).toHaveBeenCalledTimes(1);
+                expect(resolveGitAuthHeaderSpy).toHaveBeenCalledTimes(1);
 
-            let logContent = await fs.readFile(logFile, 'utf8');
-            let lines = logContent.trim().split('\n').filter(Boolean);
-            expect(lines).toHaveLength(1);
+                // clearCache forgets the provider-side answer; the host is asked again
+                // but serves the credential from its own cache without re-running the helper.
+                provider.clearCache();
 
-            // clearCache forgets the provider-side answer; the host is asked again
-            // but serves the credential from its own cache without re-running the helper.
-            provider.clearCache();
+                // Repopulate cache for this changeId so getCommentThreads doesn't exit early
+                const cache = accessPrivate<LruCache<string, CodeForgeChangeInfo>>(provider, 'cache');
+                cache.set('I12345', {
+                    id: 'I12345',
+                    number: 123,
+                    displayLabel: 'CL/123',
+                    providerName: 'Gerrit',
+                    status: 'NEW',
+                    submittable: true,
+                    unresolvedComments: 0,
+                    url: `${server.url}/c/test-project/+/123`,
+                    currentRevision: 'sha-1',
+                });
 
-            // Repopulate cache for this changeId so getCommentThreads doesn't exit early
-            const cache = accessPrivate<LruCache<string, CodeForgeChangeInfo>>(provider, 'cache');
-            cache.set('I12345', {
-                id: 'I12345',
-                number: 123,
-                displayLabel: 'CL/123',
-                providerName: 'Gerrit',
-                status: 'NEW',
-                submittable: true,
-                unresolvedComments: 0,
-                url: `${server.url}/c/test-project/+/123`,
-                currentRevision: 'sha-1',
-            });
-
-            await provider.getCommentThreads('I12345');
-            expect(hasGitCredentials).toHaveBeenCalledTimes(2);
-
-            logContent = await fs.readFile(logFile, 'utf8');
-            lines = logContent.trim().split('\n').filter(Boolean);
-            expect(lines).toHaveLength(1);
-
-            await fs.rm(tempRepoDir, { recursive: true, force: true });
+                await provider.getCommentThreads('I12345');
+                expect(hasGitCredentials).toHaveBeenCalledTimes(2);
+                expect(resolveGitAuthHeaderSpy).toHaveBeenCalledTimes(1);
+            } finally {
+                resolveGitAuthHeaderSpy.mockRestore();
+            }
         });
 
         test('getCommentThreads caches results within TTL and does not make duplicate requests', async () => {

@@ -151,6 +151,12 @@ export class CommitDetailsController implements Disposable {
         if (!this._logEntry) {
             return undefined;
         }
+        const activeProvider = this.repo?.codeForge?.activeProvider;
+        const isManaged = activeProvider?.isManagedBookmark;
+        const rawBookmarks = this._logEntry.bookmarks || [];
+        const bookmarks = isManaged
+            ? rawBookmarks.filter((b) => !isManaged.call(activeProvider, b.name))
+            : rawBookmarks;
         return {
             changeId: this.changeId,
             changeIdShortest: this._logEntry.change_id_shortest,
@@ -163,7 +169,7 @@ export class CommitDetailsController implements Disposable {
             isImmutable: this._logEntry.is_immutable,
             author: this._logEntry.author,
             committer: this._logEntry.committer,
-            bookmarks: this._logEntry.bookmarks || [],
+            bookmarks,
             tags: this._logEntry.tags || [],
             isEmpty: this._logEntry.is_empty,
             isConflict: this._logEntry.conflict,

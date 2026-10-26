@@ -657,5 +657,45 @@ describe('ChangeDetectionManager', () => {
                 { timeout: 2000, interval: 50 },
             );
         });
+
+        it('falls back to watching .jj/working_copy/checkout when op_heads/heads does not exist (custom jj backend)', async () => {
+            await fs.rm(path.join(repo.path, '.jj', 'repo', 'op_heads', 'heads'), { recursive: true, force: true });
+
+            const heads1 = await jj.getOperationHeads();
+            expect(heads1).toHaveLength(1);
+            expect(heads1[0]).toMatch(/^[0-9a-f]+$/);
+
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('OpHeads Watcher] Started');
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            triggerRefreshSpy.mockClear();
+
+            const checkoutPath = path.join(repo.path, '.jj', 'working_copy', 'checkout');
+            await fs.writeFile(checkoutPath, Buffer.from('new-custom-op-head-state'));
+
+            await vi.waitFor(
+                () => {
+                    const found = triggerRefreshSpy.mock.calls.some((call) => call[0].reason === 'jj operation');
+                    expect(found, 'Expected jj operation refresh when checkout file changed').toBe(true);
+                },
+                { timeout: 5000, interval: 100 },
+            );
+        });
+
+        it('watches .citc/modified when present in watch mode instead of full workspace root', async () => {
+            const citcModifiedDir = path.join(repo.path, '.citc', 'modified');
+            await fs.mkdir(citcModifiedDir, { recursive: true });
+            host.config.set('fileWatcherMode', 'watch');
+
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await waitForLog('Working Copy Watcher] Started');
+
+            const wcWatcher = accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher');
+            expect(wcWatcher).toBeDefined();
+            if (!wcWatcher) {
+                throw new Error('Working copy watcher undefined');
+            }
+            expect(accessPrivate<string>(wcWatcher, 'path')).toBeSameFsPath(citcModifiedDir);
+        });
     });
 });

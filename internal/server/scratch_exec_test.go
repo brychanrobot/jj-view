@@ -45,6 +45,10 @@ func TestExecFileInScratchDirCreatesDirsAndSubstitutesTokens(t *testing.T) {
 }
 
 func TestExecFileInScratchDirSubstitutesHelperScript(t *testing.T) {
+	if orig, ok := os.LookupEnv("GIT_EDITOR"); ok {
+		os.Unsetenv("GIT_EDITOR")
+		t.Cleanup(func() { os.Setenv("GIT_EDITOR", orig) })
+	}
 	srv, _ := setupTestServer(t)
 
 	// `git var GIT_EDITOR` echoes core.editor, which lets us observe the substituted path.

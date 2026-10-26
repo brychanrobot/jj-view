@@ -391,7 +391,9 @@ export async function rightClickAndSelect(page: Page, target: Locator, label: st
 
         // 2. Wait for THE item to appear in an open menu.
         // We use a short timeout here to fail FAST and retry the right-click if the menu didn't open.
-        const menuContainer = page.locator('.monaco-menu-container:not([aria-hidden="true"])');
+        const menuContainer = page.locator(
+            '.monaco-menu-container:not([aria-hidden="true"]):not(.chat-response-selection-menu)',
+        );
         const item = menuContainer.locator('.action-item', { hasText: label }).first();
 
         await expect(item).toBeVisible({ timeout: 100 });
@@ -1321,7 +1323,7 @@ export async function selectLine(page: Page, editor: Locator, text: string | Reg
 export async function clickContextMenuItem(page: Page, label: string | RegExp) {
     const start = Date.now();
     await expect(async () => {
-        const menu = page.locator('.monaco-menu-container');
+        const menu = page.locator('.monaco-menu-container:not(.chat-response-selection-menu)');
         await expect(menu).toBeVisible({ timeout: 2000 });
 
         const item = menu.locator('.action-item').filter({ hasText: label }).first();
@@ -1460,13 +1462,13 @@ export async function getReviewWidget(page: Page, expectedText?: string): Promis
  */
 async function expandReplyFormIfNeeded(reviewWidget: Locator, force = false) {
     const replyPlaceholderBtn = reviewWidget.locator('.review-thread-reply-button');
-    const formActions = reviewWidget.locator('.form-actions');
+    const expandedForm = reviewWidget.locator('.comment-form-container.expand');
 
-    const needsExpansion = force || (await replyPlaceholderBtn.isVisible()) || !(await formActions.isVisible());
+    const needsExpansion = force || (await replyPlaceholderBtn.isVisible()) || !(await expandedForm.isVisible());
     if (needsExpansion) {
         await expect(replyPlaceholderBtn).toBeVisible({ timeout: 5000 });
         await replyPlaceholderBtn.click();
-        await expect(formActions).toBeVisible({ timeout: 5000 });
+        await expect(expandedForm).toBeVisible({ timeout: 5000 });
     }
 }
 
@@ -1478,7 +1480,9 @@ async function clickCommentButton(reviewWidget: Locator, buttonLabel: string | R
     await expandReplyFormIfNeeded(reviewWidget);
 
     const button = reviewWidget
-        .locator('.form-actions button, .form-actions [role="button"]')
+        .locator(
+            '.comment-form-container.expand .form-actions button, .comment-form-container.expand .form-actions [role="button"]',
+        )
         .filter({ hasText: buttonLabel })
         .first();
 
@@ -1489,8 +1493,7 @@ async function clickCommentButton(reviewWidget: Locator, buttonLabel: string | R
         await expect(button).toBeVisible({ timeout: 5000 });
     }
 
-    await reviewWidget.page().waitForTimeout(200);
-    await button.click();
+    await button.dispatchEvent('click');
     logPerf(perfLabel, start);
 }
 
@@ -1507,7 +1510,7 @@ async function submitTypedCommentReply(
     const start = Date.now();
     await expandReplyFormIfNeeded(reviewWidget);
 
-    const editor = reviewWidget.locator('.comment-form .monaco-editor');
+    const editor = reviewWidget.locator('.comment-form-container.expand .comment-form .monaco-editor');
     try {
         await expect(editor).toBeVisible({ timeout: 2000 });
     } catch {
@@ -1519,7 +1522,9 @@ async function submitTypedCommentReply(
     await page.keyboard.type(text);
 
     const button = reviewWidget
-        .locator('.form-actions button, .form-actions [role="button"]')
+        .locator(
+            '.comment-form-container.expand .form-actions button, .comment-form-container.expand .form-actions [role="button"]',
+        )
         .filter({ hasText: buttonLabel })
         .first();
 
@@ -1530,7 +1535,7 @@ async function submitTypedCommentReply(
         await expect(button).toBeVisible({ timeout: 5000 });
     }
 
-    await button.click();
+    await button.dispatchEvent('click');
     logPerf(perfLabel, start);
 }
 

@@ -2,7 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { parse as parseJsonc } from 'jsonc-parser';
 import * as vscode from 'vscode';
 import { type Event, EventEmitter } from '../core/host/events';
 import type {
@@ -224,6 +227,57 @@ export class VsCodeHostUi implements HostUi {
     readonly onDidChangeFocus: Event<boolean> = this.onDidChangeActive;
 }
 
+function lookupKeyInConfig(data: unknown, key: string): unknown {
+    if (!data || typeof data !== 'object') {
+        return undefined;
+    }
+    const record = data as Record<string, unknown>;
+    const norm = key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
+
+    if (`jj-view.${norm}` in record) {
+        return record[`jj-view.${norm}`];
+    }
+    if (key in record) {
+        return record[key];
+    }
+    if (norm in record) {
+        return record[norm];
+    }
+
+    const parts = norm.split('.');
+    let current: unknown = record;
+    let found = true;
+    for (const part of parts) {
+        if (current && typeof current === 'object' && part in current) {
+            current = (current as Record<string, unknown>)[part];
+        } else {
+            found = false;
+            break;
+        }
+    }
+    if (found && current !== undefined) {
+        return current;
+    }
+
+    if ('jj-view' in record && typeof record['jj-view'] === 'object' && record['jj-view'] !== null) {
+        let nested: unknown = record['jj-view'];
+        let nestedFound = true;
+        for (const part of parts) {
+            if (nested && typeof nested === 'object' && part in nested) {
+                nested = (nested as Record<string, unknown>)[part];
+            } else {
+                nestedFound = false;
+                break;
+            }
+        }
+        if (nestedFound && nested !== undefined) {
+            return nested;
+        }
+    }
+
+    return undefined;
+}
+
 export class VsCodeHostConfig implements HostConfig {
     readonly onDidChangeConfiguration: Event<HostConfigurationChangeEvent> = (listener, thisArgs, disposables) => {
         const disposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -241,7 +295,63 @@ export class VsCodeHostConfig implements HostConfig {
     get<T>(key: string, defaultValue: T): T;
     get<T>(key: string, defaultValue?: T): T | undefined {
         const normalizedKey = key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
-        return getJjViewConfig<T>(normalizedKey, defaultValue) ?? defaultValue;
+        const allowWorkspaceOverride = normalizedKey !== 'codeForge.adapterCommand';
+
+        // 1. Workspace .jj-view/config.json (if a workspace folder is open and the file exists)
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (allowWorkspaceOverride && workspaceFolders && workspaceFolders.length > 0) {
+            for (const folder of workspaceFolders) {
+                const wsConfigPath = path.join(folder.uri.fsPath, '.jj-view', 'config.json');
+                if (fs.existsSync(wsConfigPath)) {
+                    try {
+                        const content = fs.readFileSync(wsConfigPath, 'utf8');
+                        const parsed: unknown = parseJsonc(content);
+                        const val = lookupKeyInConfig(parsed, normalizedKey);
+                        if (val !== undefined) {
+                            return val as T;
+                        }
+                    } catch {
+                        // ignore malformed config files
+                    }
+                }
+            }
+        }
+
+        // 2. Workspace VS Code configuration
+        const config = vscode.workspace.getConfiguration('jj-view');
+        const inspected = typeof config.inspect === 'function' ? config.inspect<T>(normalizedKey) : undefined;
+        if (allowWorkspaceOverride && inspected?.workspaceValue !== undefined) {
+            return inspected.workspaceValue;
+        }
+
+        // 3. Standalone user config ~/.config/jj-view/config.json
+        let userConfigPath: string | undefined;
+        if (process.platform === 'win32') {
+            const appData = process.env.APPDATA || (os.homedir() ? path.join(os.homedir(), 'AppData', 'Roaming') : '');
+            userConfigPath = appData ? path.join(appData, 'jj-view', 'config.json') : undefined;
+        } else {
+            const configHome = process.env.XDG_CONFIG_HOME || (os.homedir() ? path.join(os.homedir(), '.config') : '');
+            userConfigPath = configHome ? path.join(configHome, 'jj-view', 'config.json') : undefined;
+        }
+        if (userConfigPath && fs.existsSync(userConfigPath)) {
+            try {
+                const content = fs.readFileSync(userConfigPath, 'utf8');
+                const parsed: unknown = parseJsonc(content);
+                const val = lookupKeyInConfig(parsed, normalizedKey);
+                if (val !== undefined) {
+                    return val as T;
+                }
+            } catch {
+                // ignore malformed user config
+            }
+        }
+
+        // 4. Global VS Code configuration
+        const globalVal = getJjViewConfig<T>(normalizedKey, defaultValue);
+        if (globalVal !== undefined) {
+            return globalVal;
+        }
+        return defaultValue;
     }
 
     async update<T>(key: string, value: T, scope: 'user' | 'workspace' = 'user'): Promise<void> {

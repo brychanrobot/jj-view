@@ -93,6 +93,20 @@ func TestBuildReloadEnvReplacesExistingReloadVars(t *testing.T) {
 	}
 }
 
+func TestBuildShellExecArgs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell exec wrapper is Unix-only")
+	}
+	bin, args := buildShellExecArgs("/bin/sh", "/path/with'quote/jj-view", []string{"jj-view", "--host", "127.0.0.1", "--no-open"})
+	if bin != "/bin/sh" {
+		t.Fatalf("bin = %q, want /bin/sh", bin)
+	}
+	wantArgs := []string{"/bin/sh", "-lc", `exec '/path/with'\''quote/jj-view' '--host' '127.0.0.1' '--no-open'`}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args = %v, want %v", args, wantArgs)
+	}
+}
+
 func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGHUP in-place exec is not supported on Windows")

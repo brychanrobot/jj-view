@@ -6,6 +6,34 @@
 import { expect, type Page } from '@playwright/test';
 import { buildGraph, type CommitId, TestRepo } from '../test-repo';
 import { clearActiveEditor, clickScmAction, focusSCM, SCM_ACTIONS, test, waitForTab } from './e2e-helpers';
+import type { VSCodeFixture } from './vscode-fixture';
+
+async function setSquashEditorText(page: Page, text: string, vscode: VSCodeFixture) {
+    const editor = page.locator('.editor-instance .monaco-editor').first();
+    await expect(editor).toBeVisible({ timeout: 5000 });
+    await expect(editor.locator('.view-lines')).toContainText(/parent\s+description/, {
+        timeout: 5000,
+    });
+
+    const textRegex = new RegExp(text.trim().split(/\s+/).join('\\s+'));
+    await expect(async () => {
+        await editor.locator('.view-lines').click();
+        await clearActiveEditor(page);
+        await page.keyboard.insertText(text);
+        await expect(editor.locator('.view-lines')).toContainText(textRegex, { timeout: 1000 });
+        await expect(editor.locator('.view-lines')).not.toContainText(/parent\s+description/, { timeout: 1000 });
+
+        const isSynced = await vscode.evaluate((vsc, _api, expected) => {
+            const doc = vsc.window.activeTextEditor?.document;
+            return Boolean(
+                doc?.uri.fsPath.endsWith('SQUASH_MSG') &&
+                    doc.isDirty &&
+                    doc.getText().trim() === (expected as string).trim(),
+            );
+        }, text);
+        expect(isSynced).toBe(true);
+    }).toPass({ timeout: 5000, intervals: [100, 250, 500] });
+}
 
 test.describe('Squash E2E', () => {
     let repo: TestRepo;
@@ -40,10 +68,7 @@ test.describe('Squash E2E', () => {
         await waitForTab(page, 'SQUASH_MSG');
 
         // Find the editor and modify the text
-        const editor = page.locator('.editor-instance .monaco-editor').first();
-        await editor.click();
-        await clearActiveEditor(page);
-        await page.keyboard.insertText('Combined Description');
+        await setSquashEditorText(page, 'Combined Description', vscode);
 
         // Clear any active notifications first
         await vscode.executeCommand('notifications.clearAll');
@@ -64,7 +89,7 @@ test.describe('Squash E2E', () => {
         await expect(tab).not.toBeVisible({ timeout: 5000 });
     });
 
-    test('Squash: Finalize via checkmark button', async () => {
+    test('Squash: Finalize via checkmark button', async ({ vscode }) => {
         await focusSCM(page);
 
         // Trigger squash
@@ -74,10 +99,7 @@ test.describe('Squash E2E', () => {
         await waitForTab(page, 'SQUASH_MSG');
 
         // Find the editor and modify the text
-        const editor = page.locator('.editor-instance .monaco-editor').first();
-        await editor.click();
-        await clearActiveEditor(page);
-        await page.keyboard.insertText('Description via Button');
+        await setSquashEditorText(page, 'Description via Button', vscode);
 
         // Click the checkmark button in the editor title bar
         const completeButton = page.getByRole('button', { name: 'Complete Squash Revision' }).first();
@@ -134,10 +156,7 @@ test.describe('Squash E2E', () => {
         await waitForTab(page, 'SQUASH_MSG');
 
         // Find the editor and modify the text
-        const editor = page.locator('.editor-instance .monaco-editor').first();
-        await editor.click();
-        await clearActiveEditor(page);
-        await page.keyboard.insertText('Description via Dialog');
+        await setSquashEditorText(page, 'Description via Dialog', vscode);
 
         // Clear notifications
         await vscode.executeCommand('notifications.clearAll');
@@ -168,10 +187,7 @@ test.describe('Squash E2E', () => {
         await waitForTab(page, 'SQUASH_MSG');
 
         // Modify the text to make it dirty
-        const editor = page.locator('.editor-instance .monaco-editor').first();
-        await editor.click();
-        await clearActiveEditor(page);
-        await page.keyboard.insertText('Some text');
+        await setSquashEditorText(page, 'Some text', vscode);
 
         // Clear notifications
         await vscode.executeCommand('notifications.clearAll');

@@ -8,6 +8,7 @@ import { TimerBucket } from '../utils/timer-bucket';
 import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
+import { CustomCliForgeProvider } from './custom-cli-forge-provider';
 import { type Disposable, disposeSafely, type Event, EventEmitter } from './host/events';
 import type { HostDisposable, HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
@@ -45,6 +46,7 @@ export class CodeForgeService implements Disposable {
 
     private providers = new Map<string, CodeForgeProvider>();
     private activeProviderInstance: CodeForgeProvider | undefined;
+    private customCliProvider: CustomCliForgeProvider;
 
     constructor(
         public readonly workspaceRoot: string,
@@ -53,6 +55,9 @@ export class CodeForgeService implements Disposable {
         private host: HostEnvironment,
         private outputChannel: LoggerChannel,
     ) {
+        this.customCliProvider = new CustomCliForgeProvider(this.host, this.outputChannel);
+        this.providers.set('custom-cli', this.customCliProvider);
+
         for (const factory of this.registry.getFactories()) {
             this.providers.set(factory.id, factory.create(this.outputChannel, this.host));
         }
@@ -98,7 +103,7 @@ export class CodeForgeService implements Disposable {
         this.safeDispose(this.backoffTimers, 'backoff timers');
         this.safeDispose(this.activeProviderDisposable, 'active provider');
         this.safeDeactivate(this.activeProviderInstance);
-        for (const provider of this.providers.values()) {
+        for (const provider of new Set(this.providers.values())) {
             if (typeof provider.dispose === 'function') {
                 const disposeFn = provider.dispose.bind(provider);
                 this.safeDispose({ dispose: disposeFn }, `provider ${provider.id}`);
@@ -166,7 +171,7 @@ export class CodeForgeService implements Disposable {
     }
 
     public clearCache(): void {
-        for (const provider of this.providers.values()) {
+        for (const provider of new Set(this.providers.values())) {
             provider.clearCache();
         }
     }
@@ -226,18 +231,23 @@ export class CodeForgeService implements Disposable {
             const remotes = await this.jjService.getGitRemotes();
             const repoRoot = await this.jjService.getRepoRoot();
             const preferredId = this.host.config.get<string>('codeForge.provider');
+            const prevActive = this.activeProviderInstance;
+            const prevActiveId = prevActive?.id;
 
             let detectedProvider: CodeForgeProvider | undefined;
 
             if (preferredId) {
-                const provider = this.providers.get(preferredId);
+                let provider = this.providers.get(preferredId);
+                if (!provider && (preferredId === 'custom-cli' || preferredId === this.customCliProvider.id)) {
+                    provider = this.customCliProvider;
+                }
                 if (provider && (await provider.detect(repoRoot, remotes))) {
                     detectedProvider = provider;
                 }
             }
 
             if (!detectedProvider) {
-                const sortedProviders = Array.from(this.providers.values()).sort(
+                const sortedProviders = Array.from(new Set(this.providers.values())).sort(
                     (a, b) => getProviderPriority(a) - getProviderPriority(b),
                 );
 
@@ -249,8 +259,11 @@ export class CodeForgeService implements Disposable {
                 }
             }
 
-            const prevActive = this.activeProviderInstance;
-            const changed = prevActive?.id !== detectedProvider?.id;
+            if (detectedProvider && detectedProvider === this.customCliProvider) {
+                this.providers.set(this.customCliProvider.id, this.customCliProvider);
+            }
+
+            const changed = prevActive !== detectedProvider || prevActiveId !== detectedProvider?.id;
             if (changed) {
                 this.activeProviderDisposable?.dispose();
                 prevActive?.deactivate();
@@ -298,7 +311,7 @@ export class CodeForgeService implements Disposable {
 
         const remoteParents = info.remoteParents;
         if (!remoteParents || remoteParents.length === 0) {
-            info.parentSynced = true;
+            info.parentSynced = info.parentSynced ?? true;
             return;
         }
 
@@ -316,16 +329,26 @@ export class CodeForgeService implements Disposable {
             const parentBookmarks = parentCommit
                 ? (parentCommit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name)
                 : undefined;
-            const parentInfo = activeProvider.getCachedChangeInfo(
-                localParent.change_id,
-                parentCommit?.description,
-                parentBookmarks,
-                localParent.commit_id,
-            );
+            const parentInfo =
+                parentCommit?.codeForgeChange ??
+                activeProvider.getCachedChangeInfo(
+                    localParent.change_id,
+                    parentCommit?.description,
+                    parentBookmarks,
+                    localParent.commit_id,
+                );
             if (!parentInfo) {
                 return localParent.is_immutable && remoteSet.has(localParent.commit_id);
             }
-            return parentInfo.currentRevision !== undefined && remoteSet.has(parentInfo.currentRevision);
+            const isParentSynced =
+                localParent.commit_id === parentInfo.currentRevision ||
+                parentInfo.synced === true ||
+                (parentInfo.synced === undefined &&
+                    parentInfo.contentSynced === true &&
+                    parentInfo.parentSynced !== false);
+            return (
+                parentInfo.currentRevision !== undefined && remoteSet.has(parentInfo.currentRevision) && isParentSynced
+            );
         });
 
         info.parentSynced = matches;
@@ -337,6 +360,7 @@ export class CodeForgeService implements Disposable {
             return;
         }
 
+        const isManagedBookmark = activeProvider.isManagedBookmark;
         const commitMap = new Map<string, JjLogEntry>();
         for (const commit of commits) {
             commit.codeForgeNeedsUpload = undefined;
@@ -352,13 +376,35 @@ export class CodeForgeService implements Disposable {
             }
         }
 
-        // Structural Pass
-        for (const commit of commits) {
+        // Structural Pass (bottom-up so parent.codeForgeChange.synced is resolved before children)
+        const structureEvaluated = new Set<string>();
+        const evaluateStructure = (commit: JjLogEntry): void => {
+            if (commit.commit_id) {
+                if (structureEvaluated.has(commit.commit_id)) {
+                    return;
+                }
+                structureEvaluated.add(commit.commit_id);
+            }
+            if (commit.parents) {
+                for (const parent of commit.parents) {
+                    const parentCommit = commitMap.get(parent.commit_id);
+                    if (parentCommit) {
+                        evaluateStructure(parentCommit);
+                    }
+                }
+            }
             const info = commit.codeForgeChange;
             if (info && commit.parents) {
                 this.verifyStructureSync(commit.parents, info, activeProvider, commitMap);
                 info.synced = info.contentSynced && info.parentSynced;
             }
+            if (isManagedBookmark && commit.bookmarks && commit.bookmarks.length > 0) {
+                commit.bookmarks = commit.bookmarks.filter((b) => !isManagedBookmark.call(activeProvider, b.name));
+            }
+        };
+
+        for (const commit of commits) {
+            evaluateStructure(commit);
         }
 
         const needsUploadCache = new Map<string, boolean>();
