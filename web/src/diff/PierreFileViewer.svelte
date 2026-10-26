@@ -7,10 +7,11 @@ import { File } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
-import { isBinaryFile } from './binary-detection';
+import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-detection';
 import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
+import ImageDiffViewer from './ImageDiffViewer.svelte';
 
 interface Props {
     filename: string;
@@ -58,7 +59,11 @@ let detachEditor: (() => void) | null = null;
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
 
-const isBinary = $derived(isBinaryFile(filename, content));
+const isRasterImage = $derived(isImageByExtension(filename));
+const isSvg = $derived(isSvgByExtension(filename));
+let svgPreviewMode = $state(false);
+const showImagePreview = $derived(isRasterImage || (isSvg && svgPreviewMode));
+const isBinary = $derived(!isRasterImage && isBinaryFile(filename, content));
 
 function cleanupInstances(): void {
     selectedRanges = undefined;
@@ -154,7 +159,7 @@ function scheduleAutoSave(): void {
 }
 
 function renderFile(): void {
-    if (!containerEl || isBinary || typeof window === 'undefined') {
+    if (!containerEl || isBinary || showImagePreview || typeof window === 'undefined') {
         return;
     }
 
@@ -304,7 +309,19 @@ onDestroy(() => {
 </script>
 
 <div class="pierre-file-viewer" data-testid="pierre-file-viewer">
-    {#if isBinary}
+    {#if showImagePreview}
+        <ImageDiffViewer
+            {filename}
+            modifiedContent={currentContent || content}
+            singleFile={true}
+            onSwitchToCode={isSvg
+                ? () => {
+                      svgPreviewMode = false;
+                      queueMicrotask(() => renderFile());
+                  }
+                : undefined}
+        />
+    {:else if isBinary}
         <div class="binary-card" data-testid="binary-file-card">
             <i class="codicon codicon-file-binary binary-icon" aria-hidden="true"></i>
             <h3>Binary file not shown</h3>

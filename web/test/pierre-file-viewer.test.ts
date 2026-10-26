@@ -8,11 +8,11 @@ import { describe, expect, it } from 'vitest';
 import PierreFileViewer from '../src/diff/PierreFileViewer.svelte';
 
 describe('PierreFileViewer Component', () => {
-    it('renders binary suppression card when file is binary', () => {
+    it('renders binary suppression card when file is a non-image binary', () => {
         const result = render(PierreFileViewer, {
             props: {
-                filename: 'icon.png',
-                content: 'PNG_DATA_WITH_\x00_BYTE',
+                filename: 'archive.zip',
+                content: 'ZIP_DATA_WITH_\x00_BYTE',
                 isWorkingCopy: true,
             },
         });
@@ -20,8 +20,23 @@ describe('PierreFileViewer Component', () => {
 
         expect(html).toContain('binary-file-card');
         expect(html).toContain('Binary file not shown');
-        expect(html).toContain('icon.png');
+        expect(html).toContain('archive.zip');
         expect(html).toContain('The file cannot be displayed in the text editor.');
+    });
+
+    it('renders image preview when file is an image', () => {
+        const result = render(PierreFileViewer, {
+            props: {
+                filename: 'icon.png',
+                content: 'data:image/png;base64,iVBORw0KGgo=',
+                isWorkingCopy: true,
+            },
+        });
+        const html = result.body;
+
+        expect(html).toContain('image-file-viewer');
+        expect(html).toContain('image-pane-single');
+        expect(html).not.toContain('binary-file-card');
     });
 
     it('renders text file viewer container without diff toggles or redundant header toolbar', () => {

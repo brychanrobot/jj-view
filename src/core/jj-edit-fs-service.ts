@@ -140,8 +140,7 @@ export class JjEditFsService implements Disposable {
             }
         }
 
-        const content = await repo.jj.getFileContent(filePath, revision);
-        return new TextEncoder().encode(content);
+        return await repo.jj.getFileBinaryContent(filePath, revision);
     }
 
     async writeFile(uri: Uri, content: Uint8Array): Promise<void> {

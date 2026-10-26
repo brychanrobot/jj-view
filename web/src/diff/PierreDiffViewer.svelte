@@ -9,10 +9,11 @@ import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
-import { isBinaryFile } from './binary-detection';
+import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-detection';
 import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
+import ImageDiffViewer from './ImageDiffViewer.svelte';
 import { startRenderTrace } from './render-perf';
 
 interface Props {
@@ -93,7 +94,13 @@ const threadMounts = new ThreadAnnotationMounts({
     onSetResolved: (handle, resolved) => onSetThreadResolved?.(handle, resolved) ?? Promise.resolve(),
 });
 
-const isBinary = $derived(isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent));
+const isRasterImage = $derived(isImageByExtension(filename));
+const isSvg = $derived(isSvgByExtension(filename));
+let svgPreviewMode = $state(false);
+const showImageDiff = $derived(isRasterImage || (isSvg && svgPreviewMode));
+const isBinary = $derived(
+    !isRasterImage && (isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent)),
+);
 
 /**
  * Threads become Pierre line annotations on the new-file side (the side the
@@ -255,7 +262,7 @@ function scheduleAutoSave(): void {
 }
 
 function renderDiff(): void {
-    if (!containerEl || isBinary || typeof window === 'undefined') {
+    if (!containerEl || isBinary || showImageDiff || typeof window === 'undefined') {
         return;
     }
 
@@ -576,30 +583,46 @@ onDestroy(() => {
 </script>
 
 <div class="pierre-diff-viewer" data-testid="pierre-diff-viewer">
-    <div class="diff-style-toggle-floating" role="group" aria-label="Diff style">
-        <button
-            type="button"
-            class="toggle-btn"
-            class:active={diffStyle === 'split'}
-            onclick={() => setDiffStyle('split')}
-            title="Side-by-side split diff"
-            data-testid="toggle-split-diff"
-            data-style="split"
-        >
-            Split
-        </button>
-        <button
-            type="button"
-            class="toggle-btn"
-            class:active={diffStyle === 'unified'}
-            onclick={() => setDiffStyle('unified')}
-            title="Inline unified diff"
-            data-testid="toggle-unified-diff"
-            data-style="unified"
-        >
-            Unified
-        </button>
-    </div>
+    {#if !showImageDiff && !isBinary}
+        <div class="diff-style-toggle-floating" role="group" aria-label="Diff style">
+            <button
+                type="button"
+                class="toggle-btn"
+                class:active={diffStyle === 'split'}
+                onclick={() => setDiffStyle('split')}
+                title="Side-by-side split diff"
+                data-testid="toggle-split-diff"
+                data-style="split"
+            >
+                Split
+            </button>
+            <button
+                type="button"
+                class="toggle-btn"
+                class:active={diffStyle === 'unified'}
+                onclick={() => setDiffStyle('unified')}
+                title="Inline unified diff"
+                data-testid="toggle-unified-diff"
+                data-style="unified"
+            >
+                Unified
+            </button>
+            {#if isSvg}
+                <button
+                    type="button"
+                    class="toggle-btn"
+                    onclick={() => {
+                        cleanupInstances();
+                        svgPreviewMode = true;
+                    }}
+                    title="Preview rendered SVG diff"
+                    data-testid="toggle-svg-preview"
+                >
+                    Preview
+                </button>
+            {/if}
+        </div>
+    {/if}
 
     {#if isConflict && (onResolveConflict || onOpenMergeEditor)}
         <div class="diff-conflict-floating">
@@ -629,7 +652,20 @@ onDestroy(() => {
         </div>
     {/if}
 
-    {#if isBinary}
+    {#if showImageDiff}
+        <ImageDiffViewer
+            {filename}
+            {originalContent}
+            modifiedContent={currentContent || modifiedContent}
+            {fileStatus}
+            onSwitchToCode={isSvg
+                ? () => {
+                      svgPreviewMode = false;
+                      queueMicrotask(() => renderDiff());
+                  }
+                : undefined}
+        />
+    {:else if isBinary}
         <div class="binary-card" data-testid="binary-diff-card">
             <i class="codicon codicon-file-binary binary-icon" aria-hidden="true"></i>
             <h3>Binary file not shown</h3>
