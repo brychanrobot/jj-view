@@ -37,8 +37,14 @@ test.describe('Standalone Web Connection and Auth', () => {
         expect(text).toContain('Unauthorized');
     });
 
-    test('should reject WebSocket handshake without valid token', async ({ server, request }) => {
-        const response = await request.get(`${server.baseUrl}/ws/system`);
-        expect(response.status()).toBe(401);
+    test('should reject RPC and Events requests without valid token', async ({ server, request }) => {
+        const rpcRes = await request.post(`${server.baseUrl}/api/rpc`, {
+            data: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'system.info' }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+        expect(rpcRes.status()).toBe(401);
+
+        const eventsRes = await request.get(`${server.baseUrl}/api/events`);
+        expect(eventsRes.status()).toBe(401);
     });
 });

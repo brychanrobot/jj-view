@@ -39,14 +39,12 @@ export class HostSystemError extends Error {
     }
 }
 
-export interface WebSocketLike {
+export interface EventSourceLike {
     readonly readyState: number;
-    send(data: string): void;
-    close(code?: number, reason?: string): void;
+    close(): void;
     onopen: ((ev: Event) => void) | null;
     onmessage: ((ev: MessageEvent) => void) | null;
     onerror: ((ev: Event) => void) | null;
-    onclose: ((ev: CloseEvent) => void) | null;
 }
 
 export interface RemoteHostSystemOptions {
@@ -54,12 +52,15 @@ export interface RemoteHostSystemOptions {
     readonly token?: string;
     readonly platform?: HostPlatform;
     readonly tempDir?: string;
-    readonly webSocketFactory?: (url: string) => WebSocketLike;
+    readonly clientId?: string;
+    readonly fetch?: typeof fetch;
+    readonly eventSourceFactory?: (url: string) => EventSourceLike;
     readonly autoConnect?: boolean;
     readonly reconnect?: boolean;
     readonly reconnectDelayMs?: number;
     readonly maxReconnectAttempts?: number;
     readonly requestTimeoutMs?: number;
+    readonly csrfToken?: string;
 }
 
 interface JsonRpcRequest {
@@ -88,13 +89,13 @@ interface JsonRpcNotification {
     readonly params?: unknown;
 }
 
-interface PendingRequest {
-    readonly id: number;
-    readonly method: string;
-    readonly resolve: (result: unknown) => void;
-    readonly reject: (error: Error) => void;
-    timer?: ReturnType<typeof setTimeout>;
-    abortCleanup?: () => void;
+function generateRandomId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    const rand = Math.random().toString(36).slice(2);
+    const time = Date.now().toString(36);
+    return `${rand}${time}`;
 }
 
 interface ActiveWatcherSubscription {
@@ -180,10 +181,102 @@ declare global {
     interface Window {
         __JJ_VIEW_CONFIG__?: {
             token?: string;
+            sidecarToken?: string;
             port?: number;
             repoRoot?: string;
+            csrfToken?: string;
         };
     }
+}
+
+function isResourceTiming(entry: PerformanceEntry): entry is PerformanceResourceTiming {
+    return entry.entryType === 'resource';
+}
+
+/**
+ * Breaks a PerformanceResourceTiming entry into the phases Chrome's Network
+ * panel shows, so a single log line answers: which protocol, was the socket
+ * reused, how long did the request sit in the browser queue, and how much of
+ * the remaining time was transit vs. daemon work.
+ */
+function formatResourceTiming(entry: PerformanceResourceTiming): string {
+    const connect = entry.connectEnd > 0 ? entry.connectEnd - entry.connectStart : 0;
+    const tls = entry.secureConnectionStart > 0 ? entry.connectEnd - entry.secureConnectionStart : 0;
+    // Time between fetch() being issued and the request actually leaving the
+    // socket, excluding connection setup. This is Chrome's "Stalled" segment and
+    // is where connection-pool contention shows up.
+    const stall = entry.requestStart > 0 ? entry.requestStart - entry.fetchStart - connect : 0;
+    const ttfb = entry.responseStart > 0 ? entry.responseStart - entry.requestStart : 0;
+    const download = entry.responseStart > 0 ? entry.responseEnd - entry.responseStart : 0;
+    const serverParts = entry.serverTiming.map((st) => `${st.name}=${st.duration.toFixed(2)}ms`);
+    const server = serverParts.length > 0 ? serverParts.join(',') : 'n/a';
+    const proto = entry.nextHopProtocol || 'unknown';
+    const reused = connect === 0 ? 'reused' : 'new';
+    return (
+        `proto=${proto} socket=${reused} stall=${stall.toFixed(1)}ms connect=${connect.toFixed(1)}ms ` +
+        `tls=${tls.toFixed(1)}ms ttfb=${ttfb.toFixed(1)}ms download=${download.toFixed(1)}ms ` +
+        `server=[${server}] transfer=${entry.transferSize}B body=${entry.encodedBodySize}B`
+    );
+}
+
+const RPC_PARAM_SUMMARY_MAX = 120;
+const RPC_ARG_MAX = 40;
+
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+function headOf(text: string, max: number): string {
+    if (text.length <= max) {
+        return text;
+    }
+    return `${text.slice(0, max - 1)}…`;
+}
+
+function tailOf(text: string, max: number): string {
+    if (text.length <= max) {
+        return text;
+    }
+    return `…${text.slice(text.length - max + 1)}`;
+}
+
+/**
+ * One-line summary of an RPC's params for perf logs: the argv for process
+ * calls, the path for fs/watcher calls, the path count for batched reads.
+ * Lets a pasted console log attribute each request to a concrete jj command
+ * or file without turning on debug logging.
+ */
+function describeRpcParams(method: string, params: unknown): string {
+    if (typeof params !== 'object' || params === null) {
+        return '';
+    }
+    const record = params as Record<string, unknown>;
+    if (method.startsWith('process.')) {
+        const file = typeof record.file === 'string' ? record.file.split('/').pop() : '';
+        const args = isStringArray(record.args) ? record.args : [];
+        const shownArgs: string[] = [];
+        for (let i = 0; i < args.length; i++) {
+            // `--config k=v` pairs are identical on every jj call; drop them so
+            // the subcommand and its revset stay within the clipped summary.
+            if (args[i] === '--config') {
+                i++;
+                continue;
+            }
+            shownArgs.push(headOf(args[i], RPC_ARG_MAX));
+        }
+        const argv = [file, ...shownArgs].filter((a) => a !== undefined && a !== '').join(' ');
+        return headOf(argv, RPC_PARAM_SUMMARY_MAX);
+    }
+    if (isStringArray(record.paths)) {
+        return `${record.paths.length} paths`;
+    }
+    if (typeof record.path === 'string') {
+        return tailOf(record.path, RPC_PARAM_SUMMARY_MAX);
+    }
+    if (typeof record.key === 'string') {
+        return record.key;
+    }
+    return '';
 }
 
 export class RemoteHostSystem implements HostSystem {
@@ -198,9 +291,11 @@ export class RemoteHostSystem implements HostSystem {
 
     private readonly _options: RemoteHostSystemOptions;
     private _resolvedToken?: string;
-    private _ws: WebSocketLike | null = null;
+    private readonly _baseUrl: string;
+    private _clientId: string;
+    private _eventSource: EventSourceLike | null = null;
     private _nextRequestId = 1;
-    private readonly _pendingRequests = new Map<number, PendingRequest>();
+    private readonly _activeRequests = new Map<number, AbortController>();
     private readonly _activeSubscriptions = new Map<string, ActiveWatcherSubscription>();
     private readonly _configListeners = new Set<(key: string, scope: string) => void>();
     private readonly _stateListeners = new Set<(key: string) => void>();
@@ -211,20 +306,104 @@ export class RemoteHostSystem implements HostSystem {
     private _readyPromise: Promise<void> | null = null;
     private _readyResolve: (() => void) | null = null;
     private _readyReject: ((err: Error) => void) | null = null;
+    private _timingObserver: PerformanceObserver | null = null;
+    private readonly _pendingTimings = new Map<number, string>();
+    private static readonly MAX_PENDING_TIMINGS = 500;
 
     constructor(options?: RemoteHostSystemOptions) {
         this._options = options ?? {};
         this._platform = this._options.platform ?? 'linux';
         this._tempDir = this._options.tempDir ?? '/tmp';
+        this._clientId = this._options.clientId ?? generateRandomId();
+        this._baseUrl = this._resolveBaseUrl();
 
         this.process = new RemoteHostProcess(this);
         this.fs = new RemoteHostFs(this);
         this.watcher = new RemoteHostWatcher(this);
 
         this._createReadyPromise();
+        this._installTimingObserver();
 
         if (this._options.autoConnect ?? true) {
             this.connect();
+        }
+    }
+
+    /**
+     * Observes PerformanceResourceTiming entries for /api/rpc and logs a
+     * per-request breakdown (protocol, socket reuse, browser-side stall, TTFB,
+     * download, Server-Timing). This is the only way to tell queueing in the
+     * browser's connection pool apart from proxy/network transit; fetch() wall
+     * time alone cannot distinguish them.
+     *
+     * Entries are matched to requests by the `rid` query parameter carried on
+     * the RPC URL; resource timing exposes no other handle on the request.
+     */
+    private _installTimingObserver(): void {
+        if (typeof PerformanceObserver === 'undefined') {
+            return;
+        }
+        try {
+            const observer = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                    if (!isResourceTiming(entry)) {
+                        continue;
+                    }
+                    const rid = RemoteHostSystem._parseRequestId(entry.name);
+                    if (rid === null) {
+                        continue;
+                    }
+                    this._logResourceTiming(rid, entry);
+                }
+            });
+            observer.observe({ type: 'resource', buffered: false });
+            this._timingObserver = observer;
+        } catch {
+            // Resource timing not supported in this environment; keep the plain
+            // fetch() wall-time log only.
+        }
+    }
+
+    private static readonly RPC_URL_RE = /\/api\/rpc\?rid=(\d+)$/;
+
+    private static _parseRequestId(url: string): number | null {
+        const match = RemoteHostSystem.RPC_URL_RE.exec(url);
+        if (!match) {
+            return null;
+        }
+        return Number(match[1]);
+    }
+
+    private _rpcUrl(id: number): string {
+        return `${this._baseUrl}/api/rpc?rid=${id}`;
+    }
+
+    private _logResourceTiming(id: number, entry: PerformanceResourceTiming): void {
+        const method = this._pendingTimings.get(id);
+        if (method === undefined) {
+            return;
+        }
+        this._pendingTimings.delete(id);
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(
+                `[Perf:RPC:net] ${method} (#${id}) total=${entry.duration.toFixed(1)}ms ${formatResourceTiming(entry)}`,
+            );
+        }
+    }
+
+    private _trackPendingTiming(id: number, method: string): void {
+        if (!this._timingObserver) {
+            return;
+        }
+        this._pendingTimings.set(id, method);
+        if (this._pendingTimings.size <= RemoteHostSystem.MAX_PENDING_TIMINGS) {
+            return;
+        }
+        // Entries whose resource timing never arrived (e.g. aborted requests)
+        // would otherwise accumulate; evict the oldest.
+        const oldest = this._pendingTimings.keys().next();
+        if (!oldest.done) {
+            this._pendingTimings.delete(oldest.value);
         }
     }
 
@@ -249,7 +428,7 @@ export class RemoteHostSystem implements HostSystem {
     }
 
     public get isConnected(): boolean {
-        return this._ws !== null && this._ws.readyState === 1; // 1 = OPEN
+        return this._eventSource !== null && this._eventSource.readyState === 1; // 1 = OPEN
     }
 
     private _createReadyPromise(): void {
@@ -270,38 +449,36 @@ export class RemoteHostSystem implements HostSystem {
             this._reconnectTimer = null;
         }
 
-        const url = this._resolveWebSocketUrl();
-        const factory = this._options.webSocketFactory ?? this._defaultWebSocketFactory;
+        const eventsUrl = this._resolveEventsUrl();
+        const factory = this._options.eventSourceFactory ?? this._defaultEventSourceFactory;
         if (!factory) {
             const err = new Error(
-                'WebSocket is not available in the current environment. Provide webSocketFactory in RemoteHostSystemOptions.',
+                'EventSource is not available in the current environment. Provide eventSourceFactory in RemoteHostSystemOptions.',
             );
             if (this._readyReject) {
                 this._readyReject(err);
                 this._readyReject = null;
                 this._readyResolve = null;
             }
+            this._readyPromise = Promise.reject(err);
+            this._readyPromise.catch(() => {});
             return;
         }
 
         try {
-            const ws = factory(url);
-            this._ws = ws;
+            const es = factory(eventsUrl);
+            this._eventSource = es;
 
-            ws.onopen = () => {
+            es.onopen = () => {
                 this._handleOpen();
             };
 
-            ws.onmessage = (event) => {
+            es.onmessage = (event) => {
                 this._handleMessage(event.data);
             };
 
-            ws.onerror = (event) => {
+            es.onerror = (event) => {
                 this._handleError(event);
-            };
-
-            ws.onclose = (event) => {
-                this._handleClose(event.code, event.reason);
             };
         } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
@@ -310,60 +487,47 @@ export class RemoteHostSystem implements HostSystem {
                 this._readyReject = null;
                 this._readyResolve = null;
             }
-            this._rejectPendingRequests(error);
-            this._handleError(err);
+            this._readyPromise = Promise.reject(error);
+            this._readyPromise.catch(() => {});
         }
     }
 
-    private get _defaultWebSocketFactory(): ((url: string) => WebSocketLike) | undefined {
-        if (typeof WebSocket !== 'undefined') {
-            return (url: string) => new WebSocket(url);
+    private get _defaultEventSourceFactory(): ((url: string) => EventSourceLike) | undefined {
+        if (typeof EventSource !== 'undefined') {
+            return (url: string) => new EventSource(url, { withCredentials: true });
         }
         return undefined;
     }
 
-    private _resolveWebSocketUrl(): string {
+    private _resolveBaseUrl(): string {
         if (this._options.url) {
-            return this._options.url;
+            let u = this._options.url.trim();
+            if (u.startsWith('ws://')) {
+                u = `http://${u.slice(5)}`;
+            } else if (u.startsWith('wss://')) {
+                u = `https://${u.slice(6)}`;
+            }
+            try {
+                const parsed = new URL(u);
+                const queryToken = parsed.searchParams.get('token') || parsed.searchParams.get('sidecar_token');
+                if (queryToken && !this._resolvedToken) {
+                    this._resolvedToken = queryToken;
+                }
+                const prefix = parsed.pathname.replace(/\/(?:ws\/system|api\/(?:rpc|events))$/, '').replace(/\/+$/, '');
+                return `${parsed.protocol}//${parsed.host}${prefix}`;
+            } catch {
+                u = u.replace(/\/(?:ws\/system|api\/(?:rpc|events))(?:\?.*)?$/, '');
+                return u.replace(/\/+$/, '');
+            }
         }
 
-        let token = this._resolvedToken ?? this._options.token;
+        let protocol = 'http:';
         let host = '127.0.0.1:8080';
-        let protocol = 'ws:';
 
         if (typeof window !== 'undefined') {
             const cfg = window.__JJ_VIEW_CONFIG__;
-            if (!token && cfg?.token) {
-                token = cfg.token;
-            }
-            if (!token && window.location?.search) {
-                const params = new URLSearchParams(window.location.search);
-                const queryToken = params.get('token');
-                if (queryToken) {
-                    token = queryToken;
-                    this._resolvedToken = queryToken;
-                }
-            }
-            if (!token && window.sessionStorage) {
-                try {
-                    const stored = window.sessionStorage.getItem('jj_view_token');
-                    if (stored) {
-                        token = stored;
-                        this._resolvedToken = stored;
-                    }
-                } catch {
-                    // Ignore storage access restrictions
-                }
-            }
-            if (token && window.sessionStorage) {
-                try {
-                    window.sessionStorage.setItem('jj_view_token', token);
-                } catch {
-                    // Ignore storage access restrictions
-                }
-            }
             if (window.location?.protocol === 'https:') {
-                protocol = 'wss:';
+                protocol = 'https:';
             }
             if (window.location?.host) {
                 host = window.location.host;
@@ -372,8 +536,83 @@ export class RemoteHostSystem implements HostSystem {
             }
         }
 
-        const query = token ? `?token=${encodeURIComponent(token)}` : '';
-        return `${protocol}//${host}/ws/system${query}`;
+        return `${protocol}//${host}`;
+    }
+
+    private _resolveToken(): string | undefined {
+        if (this._options.token) {
+            return this._options.token;
+        }
+        if (this._resolvedToken) {
+            return this._resolvedToken;
+        }
+        if (typeof window !== 'undefined') {
+            const cfg = window.__JJ_VIEW_CONFIG__;
+            if (cfg?.sidecarToken) {
+                this._resolvedToken = cfg.sidecarToken;
+                this._persistToken(cfg.sidecarToken);
+                return cfg.sidecarToken;
+            }
+            if (cfg?.token) {
+                this._resolvedToken = cfg.token;
+                this._persistToken(cfg.token);
+                return cfg.token;
+            }
+            if (window.location?.search) {
+                const params = new URLSearchParams(window.location.search);
+                const queryToken = params.get('token') || params.get('sidecar_token');
+                if (queryToken) {
+                    this._resolvedToken = queryToken;
+                    this._persistToken(queryToken);
+                    return queryToken;
+                }
+            }
+            if (window.sessionStorage) {
+                try {
+                    const stored = window.sessionStorage.getItem('jj_view_token');
+                    if (stored) {
+                        this._resolvedToken = stored;
+                        return stored;
+                    }
+                } catch {
+                    // Ignore storage access restrictions
+                }
+            }
+        }
+        return undefined;
+    }
+
+    private _persistToken(token: string): void {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            try {
+                window.sessionStorage.setItem('jj_view_token', token);
+            } catch {
+                // Ignore storage access restrictions
+            }
+        }
+    }
+
+    private _resolveCsrfToken(): string | undefined {
+        if (this._options.csrfToken) {
+            return this._options.csrfToken;
+        }
+        if (typeof window !== 'undefined') {
+            return window.__JJ_VIEW_CONFIG__?.csrfToken;
+        }
+        return undefined;
+    }
+
+    private _resolveEventsUrl(): string {
+        const token = this._resolveToken();
+        const queryParams = new URLSearchParams();
+        if (this._clientId) {
+            queryParams.set('clientId', this._clientId);
+        }
+        if (token) {
+            queryParams.set('token', token);
+        }
+        const qs = queryParams.toString();
+        return `${this._baseUrl}/api/events${qs ? `?${qs}` : ''}`;
     }
 
     private _handleOpen(): void {
@@ -430,53 +669,22 @@ export class RemoteHostSystem implements HostSystem {
         // Handle notifications (no id)
         if (msg.id === undefined && typeof msg.method === 'string') {
             this._handleNotification(msg.method, msg.params);
-            return;
         }
-
-        // Handle response with id
-        if (typeof msg.id !== 'number' && typeof msg.id !== 'string') {
-            return;
-        }
-
-        const idNum = typeof msg.id === 'number' ? msg.id : Number.parseInt(msg.id, 10);
-        const pending = this._pendingRequests.get(idNum);
-        if (!pending) {
-            return;
-        }
-
-        this._pendingRequests.delete(idNum);
-        if (pending.timer) {
-            clearTimeout(pending.timer);
-        }
-        pending.abortCleanup?.();
-
-        const response = parsed as JsonRpcResponse;
-        if (response.error) {
-            const errData = response.error.data;
-            if (response.error.code === RPC_CODE_PROCESS_ERROR && isProcessExitData(errData)) {
-                pending.reject(
-                    new ProcessExitError(response.error.message, errData.exitCode, errData.stdout, errData.stderr),
-                );
-                return;
-            }
-
-            const isEnoent =
-                response.error.message.startsWith('ENOENT') ||
-                (typeof errData === 'object' && errData !== null && (errData as { code?: string }).code === 'ENOENT');
-
-            if (isEnoent) {
-                pending.reject(new HostSystemError(response.error.message, 'ENOENT'));
-                return;
-            }
-
-            pending.reject(new Error(response.error.message));
-            return;
-        }
-
-        pending.resolve(response.result);
     }
 
     private _handleNotification(method: string, params: unknown): void {
+        if (method === 'system.connected') {
+            if (
+                params &&
+                typeof params === 'object' &&
+                'clientId' in params &&
+                typeof (params as { clientId?: unknown }).clientId === 'string'
+            ) {
+                this._clientId = (params as { clientId: string }).clientId;
+            }
+            return;
+        }
+
         if (method === 'config/didChange') {
             const key =
                 params &&
@@ -552,34 +760,34 @@ export class RemoteHostSystem implements HostSystem {
     }
 
     private _handleError(_event: unknown): void {
-        // Errors are usually followed by close events
-    }
-
-    private _rejectPendingRequests(err: Error): void {
-        for (const req of this._pendingRequests.values()) {
-            if (req.timer) {
-                clearTimeout(req.timer);
-            }
-            req.abortCleanup?.();
-            req.reject(err);
-        }
-        this._pendingRequests.clear();
-    }
-
-    private _handleClose(_code: number, _reason: string): void {
-        this._ws = null;
-
-        // Reject all pending requests
-        this._rejectPendingRequests(new Error('WebSocket connection closed'));
-
         if (this._isDisposed) {
             return;
+        }
+
+        if (!this._eventSource || this._eventSource.readyState === 2) {
+            this._handleDisconnect();
+        }
+    }
+
+    private _handleDisconnect(): void {
+        if (this._isDisposed) {
+            return;
+        }
+
+        const es = this._eventSource;
+        this._eventSource = null;
+        if (es && es.readyState !== 2) {
+            try {
+                es.close();
+            } catch {
+                // Ignore close error
+            }
         }
 
         const shouldReconnect = this._options.reconnect ?? true;
         const maxAttempts = this._options.maxReconnectAttempts ?? 10;
         if (!shouldReconnect || this._reconnectAttempts >= maxAttempts) {
-            const err = new Error('WebSocket connection closed and reconnection stopped');
+            const err = new Error('SSE connection closed and reconnection stopped');
             if (this._readyReject) {
                 this._readyReject(err);
                 this._readyReject = null;
@@ -641,8 +849,8 @@ export class RemoteHostSystem implements HostSystem {
             throw new Error('Request aborted');
         }
 
-        if (!this.isConnected || !this._ws) {
-            throw new Error('WebSocket is not connected');
+        if (!this.isConnected) {
+            throw new Error('Host daemon is not connected');
         }
 
         const id = this._nextRequestId++;
@@ -653,46 +861,136 @@ export class RemoteHostSystem implements HostSystem {
             params,
         };
 
-        return new Promise<T>((resolve, reject) => {
-            const timeoutMs = this._options.requestTimeoutMs ?? 60000;
-            let abortCleanup: (() => void) | undefined;
+        const fetchFn = this._options.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
+        if (!fetchFn) {
+            throw new Error(
+                'Fetch is not available in the current environment. Provide fetch in RemoteHostSystemOptions.',
+            );
+        }
 
-            const timer = setTimeout(() => {
-                this._pendingRequests.delete(id);
-                abortCleanup?.();
+        const timeoutMs = this._options.requestTimeoutMs ?? 60000;
+        const abortController = new AbortController();
+        this._activeRequests.set(id, abortController);
+
+        let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+        let didTimeout = false;
+
+        if (timeoutMs > 0) {
+            timeoutTimer = setTimeout(() => {
+                didTimeout = true;
                 this.notify('$/cancelRequest', { id });
-                reject(new Error(`Request ${method} timed out after ${timeoutMs}ms`));
+                abortController.abort(new Error(`Request ${method} timed out after ${timeoutMs}ms`));
             }, timeoutMs);
+        }
 
-            if (signal) {
-                const onAbort = () => {
-                    this._pendingRequests.delete(id);
-                    clearTimeout(timer);
-                    abortCleanup?.();
-                    this.notify('$/cancelRequest', { id });
-                    reject(new Error('Request aborted'));
-                };
-                signal.addEventListener('abort', onAbort, { once: true });
-                abortCleanup = () => {
-                    signal.removeEventListener('abort', onAbort);
-                };
+        let abortListener: (() => void) | undefined;
+        if (signal) {
+            abortListener = () => {
+                this.notify('$/cancelRequest', { id });
+                abortController.abort(signal.reason ?? new Error('Request aborted'));
+            };
+            signal.addEventListener('abort', abortListener, { once: true });
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
+        if (this._clientId) {
+            headers['X-Client-ID'] = this._clientId;
+        }
+        const token = this._resolveToken();
+        if (token) {
+            headers['X-Sidecar-Token'] = token;
+            headers.Authorization = `Bearer ${token}`;
+        }
+        const csrfToken = this._resolveCsrfToken();
+        if (csrfToken) {
+            headers['X-CSRF-Token'] = csrfToken;
+        }
+
+        const startTime = performance.now();
+        let netDuration = 0;
+
+        try {
+            const fetchStart = performance.now();
+            this._trackPendingTiming(id, method);
+            const resp = await fetchFn(this._rpcUrl(id), {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(requestPayload),
+                signal: abortController.signal,
+                credentials: 'include',
+            });
+            netDuration = performance.now() - fetchStart;
+
+            if (!resp.ok) {
+                if (resp.status === 401) {
+                    throw new HostSystemError('Unauthorized', 'EACCES');
+                }
+                if (resp.status === 403) {
+                    throw new Error('Forbidden');
+                }
+                const errorText = await resp.text().catch(() => '');
+                throw new Error(`HTTP error ${resp.status}: ${errorText || resp.statusText}`);
             }
 
-            this._pendingRequests.set(id, {
-                id,
-                method,
-                resolve: resolve as (result: unknown) => void,
-                reject,
-                timer,
-                abortCleanup,
-            });
+            const response = (await resp.json()) as JsonRpcResponse;
+            const totalDuration = performance.now() - startTime;
+            if (typeof console !== 'undefined' && console.log) {
+                const summary = describeRpcParams(method, params);
+                console.log(
+                    `[Perf:RPC] ${method} (#${id}) completed in ${totalDuration.toFixed(1)}ms (net: ${netDuration.toFixed(1)}ms) start=+${startTime.toFixed(0)}ms${summary ? ` :: ${summary}` : ''}`,
+                );
+            }
+            if (response.error) {
+                const errData = response.error.data;
+                if (response.error.code === RPC_CODE_PROCESS_ERROR && isProcessExitData(errData)) {
+                    throw new ProcessExitError(
+                        response.error.message,
+                        errData.exitCode,
+                        errData.stdout,
+                        errData.stderr,
+                    );
+                }
 
-            this._ws?.send(JSON.stringify(requestPayload));
-        });
+                const isEnoent =
+                    response.error.message.startsWith('ENOENT') ||
+                    (typeof errData === 'object' &&
+                        errData !== null &&
+                        (errData as { code?: string }).code === 'ENOENT');
+
+                if (isEnoent) {
+                    throw new HostSystemError(response.error.message, 'ENOENT');
+                }
+
+                throw new Error(response.error.message);
+            }
+
+            return response.result as T;
+        } catch (err) {
+            if (didTimeout) {
+                throw new Error(`Request ${method} timed out after ${timeoutMs}ms`);
+            }
+            if (signal?.aborted) {
+                throw new Error('Request aborted');
+            }
+            if (err instanceof Error) {
+                throw err;
+            }
+            throw new Error(String(err));
+        } finally {
+            if (timeoutTimer) {
+                clearTimeout(timeoutTimer);
+            }
+            if (signal && abortListener) {
+                signal.removeEventListener('abort', abortListener);
+            }
+            this._activeRequests.delete(id);
+        }
     }
 
     public notify(method: string, params?: unknown): void {
-        if (!this.isConnected || !this._ws) {
+        if (this._isDisposed) {
             return;
         }
 
@@ -702,11 +1000,35 @@ export class RemoteHostSystem implements HostSystem {
             params,
         };
 
-        try {
-            this._ws.send(JSON.stringify(notification));
-        } catch {
-            // Notifications are best-effort
+        const fetchFn = this._options.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
+        if (!fetchFn) {
+            return;
         }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
+        if (this._clientId) {
+            headers['X-Client-ID'] = this._clientId;
+        }
+        const token = this._resolveToken();
+        if (token) {
+            headers['X-Sidecar-Token'] = token;
+            headers.Authorization = `Bearer ${token}`;
+        }
+        const csrfToken = this._resolveCsrfToken();
+        if (csrfToken) {
+            headers['X-CSRF-Token'] = csrfToken;
+        }
+
+        fetchFn(`${this._baseUrl}/api/rpc`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(notification),
+            credentials: 'include',
+        }).catch(() => {
+            // Notifications are best-effort
+        });
     }
 
     public registerWatcherSubscription(sub: ActiveWatcherSubscription): void {
@@ -823,6 +1145,12 @@ export class RemoteHostSystem implements HostSystem {
             this._reconnectTimer = null;
         }
 
+        if (this._timingObserver) {
+            this._timingObserver.disconnect();
+            this._timingObserver = null;
+        }
+        this._pendingTimings.clear();
+
         const disposeError = new Error('RemoteHostSystem is disposed');
         if (this._readyReject) {
             this._readyReject(disposeError);
@@ -832,23 +1160,19 @@ export class RemoteHostSystem implements HostSystem {
         this._readyPromise = Promise.reject(disposeError);
         this._readyPromise.catch(() => {});
 
-        for (const req of this._pendingRequests.values()) {
-            if (req.timer) {
-                clearTimeout(req.timer);
-            }
-            req.abortCleanup?.();
-            req.reject(disposeError);
+        for (const ac of this._activeRequests.values()) {
+            ac.abort(disposeError);
         }
-        this._pendingRequests.clear();
+        this._activeRequests.clear();
         this._activeSubscriptions.clear();
 
-        if (this._ws) {
+        if (this._eventSource) {
             try {
-                this._ws.close(1000, 'Normal Closure');
+                this._eventSource.close();
             } catch {
                 // Ignore close error
             }
-            this._ws = null;
+            this._eventSource = null;
         }
     }
 }
@@ -856,7 +1180,7 @@ export class RemoteHostSystem implements HostSystem {
 class RemoteHostProcess implements HostProcess {
     constructor(private readonly _host: RemoteHostSystem) {}
 
-    async execFile(file: string, args: readonly string[], options?: ProcessExecOptions): Promise<ProcessResult> {
+    private _createAbortController(options?: ProcessExecOptions): AbortController {
         const abortController = new AbortController();
         let isKilled = false;
 
@@ -881,6 +1205,11 @@ class RemoteHostProcess implements HostProcess {
             };
             options.onSpawn(proc);
         }
+        return abortController;
+    }
+
+    async execFile(file: string, args: readonly string[], options?: ProcessExecOptions): Promise<ProcessResult> {
+        const abortController = this._createAbortController(options);
 
         const params = {
             file,

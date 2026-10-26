@@ -121,11 +121,6 @@ export default defineConfig({
             allow: [rootDir],
         },
         proxy: {
-            '/ws/system': {
-                target: `http://127.0.0.1:${backendPort}`,
-                ws: true,
-                changeOrigin: true,
-            },
             '/api': {
                 target: `http://127.0.0.1:${backendPort}`,
                 changeOrigin: true,

@@ -4,19 +4,20 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/brychanrobot/jj-view/internal/protocol"
 )
@@ -118,77 +119,137 @@ func TestServerHealthAndIndex(t *testing.T) {
 	if !strings.Contains(bodyStr, srv.SessionToken()) {
 		t.Fatalf("index.html missing session token")
 	}
+
+	// 4. Asset URLs must be tagged with the content-derived build id, not the
+	// bare semver (which stays constant across dev builds and would let the
+	// browser keep an "immutable" cached copy of stale JS).
+	build := srv.AssetVersion()
+	if !strings.HasPrefix(build, "test-version-") || len(build) != len("test-version-")+12 {
+		t.Fatalf("unexpected asset version format: %q", build)
+	}
+	if !strings.Contains(bodyStr, "/dist/app.js?v="+url.QueryEscape(build)) {
+		t.Fatalf("index.html app.js not tagged with build %q: %s", build, bodyStr)
+	}
+	if strings.Contains(bodyStr, "/dist/app.js?v=test-version\"") {
+		t.Fatalf("index.html app.js tagged with bare semver")
+	}
+	if health["build"] != build {
+		t.Fatalf("health build = %v, want %q", health["build"], build)
+	}
 }
 
-func TestWebSocketAuthAndOrigin(t *testing.T) {
+func TestComputeAssetVersionIsStableAndVersionPrefixed(t *testing.T) {
+	a := computeAssetVersion("1.2.3")
+	b := computeAssetVersion("1.2.3")
+	if a != b {
+		t.Fatalf("asset version not deterministic: %q vs %q", a, b)
+	}
+	if !strings.HasPrefix(a, "1.2.3-") {
+		t.Fatalf("asset version missing semver prefix: %q", a)
+	}
+	if !strings.HasPrefix(computeAssetVersion(""), "dev-") {
+		t.Fatalf("empty version should fall back to dev prefix")
+	}
+	// Different semver strings yield different tags but share the content hash.
+	c := computeAssetVersion("9.9.9")
+	if strings.TrimPrefix(c, "9.9.9-") != strings.TrimPrefix(a, "1.2.3-") {
+		t.Fatalf("content hash should not depend on version string: %q vs %q", a, c)
+	}
+}
+
+func TestHTTPRPCAndSSEAuthAndOrigin(t *testing.T) {
 	srv, _ := setupTestServer(t)
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system", srv.Port())
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc", srv.Port())
+	eventsURL := fmt.Sprintf("http://127.0.0.1:%d/api/events", srv.Port())
 
 	// 1. Missing token -> 401
-	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err == nil {
-		t.Fatal("expected failure without token, got connected")
+	resp, err := http.Post(rpcURL, "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
 	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected status 401, got %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected status 401 for unauth RPC, got %d", resp.StatusCode)
+	}
+
+	respSSE, err := http.Get(eventsURL)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respSSE.Body.Close()
+	if respSSE.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected status 401 for unauth events, got %d", respSSE.StatusCode)
 	}
 
 	// 2. Invalid origin -> 403
-	authURL := fmt.Sprintf("%s?token=%s", wsURL, srv.SessionToken())
-	badOriginHeader := http.Header{"Origin": []string{"https://malicious-website.com"}}
-	_, resp, err = websocket.DefaultDialer.Dial(authURL, badOriginHeader)
-	if err == nil {
-		t.Fatal("expected failure with bad origin, got connected")
+	authRPCURL := fmt.Sprintf("%s?token=%s", rpcURL, srv.SessionToken())
+	req, _ := http.NewRequest(http.MethodPost, authRPCURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://malicious-website.com")
+	client := &http.Client{}
+	respBadOrigin, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
 	}
-	if resp != nil && resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d", resp.StatusCode)
+	defer respBadOrigin.Body.Close()
+	if respBadOrigin.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected status 403 for bad origin RPC, got %d", respBadOrigin.StatusCode)
 	}
 
 	// 3. Valid token + allowed origin -> Success
-	goodOriginHeader := http.Header{"Origin": []string{fmt.Sprintf("http://127.0.0.1:%d", srv.Port())}}
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, goodOriginHeader)
+	reqGood, _ := http.NewRequest(http.MethodPost, authRPCURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	reqGood.Header.Set("Content-Type", "application/json")
+	reqGood.Header.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", srv.Port()))
+	respGood, err := client.Do(reqGood)
 	if err != nil {
 		t.Fatalf("failed to connect with valid token: %v", err)
 	}
-	_ = conn.Close()
+	defer respGood.Body.Close()
+	if respGood.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200 for good origin RPC, got %d", respGood.StatusCode)
+	}
 }
 
-func TestWebSocketJSONRPCMethods(t *testing.T) {
-	srv, tempRepo := setupTestServer(t)
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
+func postRPC(t *testing.T, srv *Server, id any, method string, params any) protocol.Response {
+	t.Helper()
+	paramsRaw, _ := json.Marshal(params)
+	var idRaw *json.RawMessage
+	if id != nil {
+		idBytes, _ := json.Marshal(id)
+		raw := json.RawMessage(idBytes)
+		idRaw = &raw
 	}
-	defer conn.Close()
+	req := protocol.Request{
+		JSONRPC: "2.0",
+		ID:      idRaw,
+		Method:  method,
+		Params:  paramsRaw,
+	}
+	bodyBytes, _ := json.Marshal(req)
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=%s", srv.Port(), srv.SessionToken())
+	httpReq, err := http.NewRequest(http.MethodPost, rpcURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("failed to create http request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Client-ID", "test-client-1")
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		t.Fatalf("failed to post rpc request: %v", err)
+	}
+	defer resp.Body.Close()
+	var res protocol.Response
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode rpc response: %v", err)
+	}
+	return res
+}
+
+func TestHTTPJSONRPCMethods(t *testing.T) {
+	srv, tempRepo := setupTestServer(t)
 
 	callRPC := func(id any, method string, params any) protocol.Response {
-		paramsRaw, _ := json.Marshal(params)
-		idBytes, _ := json.Marshal(id)
-		idRaw := json.RawMessage(idBytes)
-		req := protocol.Request{
-			JSONRPC: "2.0",
-			ID:      &idRaw,
-			Method:  method,
-			Params:  paramsRaw,
-		}
-		if err := conn.WriteJSON(req); err != nil {
-			t.Fatalf("failed to write request: %v", err)
-		}
-		for {
-			var raw map[string]any
-			if err := conn.ReadJSON(&raw); err != nil {
-				t.Fatalf("failed to read response: %v", err)
-			}
-			// Skip notifications that don't have an ID
-			if _, hasMethod := raw["method"]; hasMethod && raw["id"] == nil {
-				continue
-			}
-			var res protocol.Response
-			resBytes, _ := json.Marshal(raw)
-			_ = json.Unmarshal(resBytes, &res)
-			return res
-		}
+		return postRPC(t, srv, id, method, params)
 	}
 
 	// 1. system.info
@@ -249,34 +310,94 @@ func TestWebSocketJSONRPCMethods(t *testing.T) {
 
 	// 5. config.set & config.get
 	setRes := callRPC(6, "config.set", map[string]any{
-		"key":   "theme",
-		"value": "dark",
+		"key":   "jj-view.defaultUiMode",
+		"value": "full",
+		"scope": "user",
 	})
 	if setRes.Error != nil {
 		t.Fatalf("config.set error: %+v", setRes.Error)
 	}
-
-	getRes := callRPC(7, "config.get", map[string]string{"key": "theme"})
+	getRes := callRPC(7, "config.get", map[string]string{
+		"key":   "jj-view.defaultUiMode",
+		"scope": "user",
+	})
 	if getRes.Error != nil {
 		t.Fatalf("config.get error: %+v", getRes.Error)
 	}
 	getMap := getRes.Result.(map[string]any)
-	if getMap["value"] != "dark" {
-		t.Fatalf("expected theme dark, got %v", getMap["value"])
+	if getMap["value"] != "full" || getMap["found"] != true {
+		t.Fatalf("unexpected config.get result: %+v", getMap)
 	}
 
-	// 6. watcher.watch & watcher.unwatch
-	watchRes := callRPC(8, "watcher.watch", map[string]any{
+	// 6. fs.stat
+	statRes := callRPC(8, "fs.stat", map[string]string{"path": filePath})
+	if statRes.Error != nil {
+		t.Fatalf("fs.stat error: %+v", statRes.Error)
+	}
+	statMap := statRes.Result.(map[string]any)
+	if statMap["isFile"] != true {
+		t.Fatalf("expected isFile=true, got %+v", statMap)
+	}
+
+	// 7. fs.mkdir & fs.readdir
+	dirPath := filepath.Join(tempRepo, "sub-dir")
+	mkdirRes := callRPC(9, "fs.mkdir", map[string]any{"path": dirPath, "recursive": true})
+	if mkdirRes.Error != nil {
+		t.Fatalf("fs.mkdir error: %+v", mkdirRes.Error)
+	}
+	readdirRes := callRPC(10, "fs.readdir", map[string]string{"path": tempRepo})
+	if readdirRes.Error != nil {
+		t.Fatalf("fs.readdir error: %+v", readdirRes.Error)
+	}
+	readdirMap := readdirRes.Result.(map[string]any)
+	files := readdirMap["files"].([]any)
+	foundSubDir := false
+	for _, f := range files {
+		if f.(string) == "sub-dir" {
+			foundSubDir = true
+			break
+		}
+	}
+	if !foundSubDir {
+		t.Fatalf("sub-dir not found in readdir output")
+	}
+
+	// 8. fs.exists
+	existsRes := callRPC(11, "fs.exists", map[string]string{"path": filePath})
+	if existsRes.Error != nil {
+		t.Fatalf("fs.exists error: %+v", existsRes.Error)
+	}
+	existsMap := existsRes.Result.(map[string]any)
+	if existsMap["exists"] != true {
+		t.Fatalf("expected exists=true, got %+v", existsMap)
+	}
+
+	// 9. fs.rm
+	rmRes := callRPC(12, "fs.rm", map[string]any{"path": filePath})
+	if rmRes.Error != nil {
+		t.Fatalf("fs.rm error: %+v", rmRes.Error)
+	}
+	existsAfterRm := callRPC(13, "fs.exists", map[string]string{"path": filePath})
+	existsAfterMap := existsAfterRm.Result.(map[string]any)
+	if existsAfterMap["exists"] != false {
+		t.Fatalf("expected exists=false after rm, got %+v", existsAfterMap)
+	}
+
+	// 10. watcher.watch & watcher.unwatch
+	watchRes := callRPC(14, "watcher.watch", map[string]any{
 		"dirPath": tempRepo,
-		"ignore":  []string{"*.tmp"},
+		"ignore":  []string{".git"},
 	})
 	if watchRes.Error != nil {
 		t.Fatalf("watcher.watch error: %+v", watchRes.Error)
 	}
 	watchMap := watchRes.Result.(map[string]any)
 	subID := watchMap["subscriptionId"].(string)
+	if subID == "" {
+		t.Fatalf("expected non-empty subscriptionId")
+	}
 
-	unwatchRes := callRPC(9, "watcher.unwatch", map[string]string{
+	unwatchRes := callRPC(15, "watcher.unwatch", map[string]string{
 		"subscriptionId": subID,
 	})
 	if unwatchRes.Error != nil {
@@ -284,57 +405,32 @@ func TestWebSocketJSONRPCMethods(t *testing.T) {
 	}
 }
 
-func TestCancelRequestWithStringID(t *testing.T) {
+func TestCancelRequestViaContext(t *testing.T) {
 	srv, _ := setupTestServer(t)
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
 
-	// Send a command with a string ID
-	reqID := "cancel-test-id-123"
-	idBytes, _ := json.Marshal(reqID)
-	idRaw := json.RawMessage(idBytes)
+	// Send an execFile request with a context that cancels immediately
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
 
-	paramsRaw, _ := json.Marshal(map[string]any{
+	rawParams, _ := json.Marshal(map[string]any{
 		"file": "git",
 		"args": []string{"--version"},
 	})
-
+	rawID := json.RawMessage("1")
 	req := protocol.Request{
 		JSONRPC: "2.0",
-		ID:      &idRaw,
+		ID:      &rawID,
 		Method:  "process.execFile",
-		Params:  paramsRaw,
+		Params:  rawParams,
 	}
+	bodyBytes, _ := json.Marshal(req)
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=%s", srv.Port(), srv.SessionToken())
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(bodyBytes))
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	if err := conn.WriteJSON(req); err != nil {
-		t.Fatalf("failed to write request: %v", err)
-	}
-
-	// Immediately send cancellation
-	cancelParamsRaw, _ := json.Marshal(map[string]any{
-		"id": reqID,
-	})
-	cancelReq := protocol.Request{
-		JSONRPC: "2.0",
-		Method:  "$/cancelRequest",
-		Params:  cancelParamsRaw,
-	}
-	if err := conn.WriteJSON(cancelReq); err != nil {
-		t.Fatalf("failed to write cancel notification: %v", err)
-	}
-
-	var res protocol.Response
-	if err := conn.ReadJSON(&res); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
-
-	// Either it completed before cancel was processed, or was cancelled with CodeRequestCancelled
-	if res.Error != nil && res.Error.Code != protocol.CodeRequestCancelled {
-		t.Fatalf("unexpected error code: %+v", res.Error)
+	_, err := http.DefaultClient.Do(httpReq)
+	if err == nil {
+		t.Fatal("expected error due to context cancellation, got nil")
 	}
 }
 
@@ -378,14 +474,39 @@ func TestForgeProxySecurity(t *testing.T) {
 
 func TestConfigDidChangeNotification(t *testing.T) {
 	srv, tempRepo := setupTestServer(t)
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
+	eventsURL := fmt.Sprintf("http://127.0.0.1:%d/api/events?token=%s&clientId=test-client-notif", srv.Port(), srv.SessionToken())
+	resp, err := http.Get(eventsURL)
 	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
+		t.Fatalf("failed to connect to SSE: %v", err)
 	}
-	defer conn.Close()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for SSE, got %d", resp.StatusCode)
+	}
 
 	vscodeDir := filepath.Join(tempRepo, ".vscode")
+
+	// Read SSE stream lines
+	received := make(chan bool, 1)
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "data:") {
+				dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				var notif protocol.Notification
+				if err := json.Unmarshal([]byte(dataStr), &notif); err == nil && notif.Method == "config/didChange" {
+					received <- true
+					return
+				}
+			}
+		}
+	}()
 
 	// External modification of workspace settings
 	wsSettings := `{"jj-view.logTheme": "forest"}`
@@ -393,27 +514,11 @@ func TestConfigDidChangeNotification(t *testing.T) {
 		t.Fatalf("failed to write settings.json: %v", err)
 	}
 
-	// Read messages until we get a notification for config/didChange
-	received := make(chan bool, 1)
-	go func() {
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var notif protocol.Notification
-			if err := json.Unmarshal(msg, &notif); err == nil && notif.Method == "config/didChange" {
-				received <- true
-				return
-			}
-		}
-	}()
-
 	select {
 	case <-received:
 		// Succeeded
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for config/didChange notification")
+		t.Fatal("timed out waiting for config/didChange notification over SSE")
 	}
 }
 
@@ -457,6 +562,9 @@ func TestIndexAndSPARouting(t *testing.T) {
 	body, _ := io.ReadAll(respAuth.Body)
 	if !strings.Contains(string(body), "window.__JJ_VIEW_CONFIG__") {
 		t.Fatalf("expected body to contain injected config, got: %s", string(body))
+	}
+	if !strings.Contains(string(body), srv.SessionToken()) {
+		t.Fatalf("expected body to contain session token, got: %s", string(body))
 	}
 
 	// 4. SPA route: GET /diff with token -> 200, serves index.html with injected config
@@ -523,40 +631,8 @@ func TestServer_UserDataDir(t *testing.T) {
 func TestServerStateAndSecretsRPC(t *testing.T) {
 	srv, _ := setupTestServer(t)
 
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
-	if err != nil {
-		t.Fatalf("failed to dial websocket: %v", err)
-	}
-	defer conn.Close()
-
 	callRPC := func(id int, method string, params any) protocol.Response {
-		rawParams, _ := json.Marshal(params)
-		rawID := json.RawMessage(fmt.Sprintf("%d", id))
-		req := protocol.Request{
-			JSONRPC: "2.0",
-			ID:      &rawID,
-			Method:  method,
-			Params:  rawParams,
-		}
-		if err := conn.WriteJSON(req); err != nil {
-			t.Fatalf("failed to send RPC: %v", err)
-		}
-		for {
-			var raw map[string]json.RawMessage
-			if err := conn.ReadJSON(&raw); err != nil {
-				t.Fatalf("failed to read RPC: %v", err)
-			}
-			// Notifications do not have an ID
-			idRaw, hasID := raw["id"]
-			if !hasID || len(idRaw) == 0 || string(idRaw) == "null" {
-				continue
-			}
-			var res protocol.Response
-			data, _ := json.Marshal(raw)
-			_ = json.Unmarshal(data, &res)
-			return res
-		}
+		return postRPC(t, srv, id, method, params)
 	}
 
 	// 1. state.set
@@ -643,109 +719,71 @@ func TestServerFindFilesRPC(t *testing.T) {
 		t.Fatalf("failed to write type file: %v", err)
 	}
 
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
-	if err != nil {
-		t.Fatalf("failed to dial websocket: %v", err)
-	}
-	defer conn.Close()
-
-	rawParams, _ := json.Marshal(map[string]any{
+	res := postRPC(t, srv, 1, "fs.findFiles", map[string]any{
 		"baseDir": tempRepo,
 		"pattern": "**/.jj/working_copy/type",
 	})
-	rawID := json.RawMessage("1")
-	req := protocol.Request{
-		JSONRPC: "2.0",
-		ID:      &rawID,
-		Method:  "fs.findFiles",
-		Params:  rawParams,
-	}
-	if err := conn.WriteJSON(req); err != nil {
-		t.Fatalf("failed to send RPC: %v", err)
-	}
-
-	var res protocol.Response
-	if err := conn.ReadJSON(&res); err != nil {
-		t.Fatalf("failed to read response: %v", err)
-	}
 	if res.Error != nil {
-		t.Fatalf("fs.findFiles RPC error: %+v", res.Error)
+		t.Fatalf("fs.findFiles error: %+v", res.Error)
 	}
 
 	resMap := res.Result.(map[string]any)
-	filesRaw, ok := resMap["files"].([]any)
-	if !ok || len(filesRaw) == 0 {
-		t.Fatalf("expected non-empty files array, got %+v", resMap)
+	files := resMap["files"].([]any)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file match, got %v", len(files))
 	}
-
-	found := false
-	for _, f := range filesRaw {
-		if f == typeFile {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected to find %s, but results were: %+v", typeFile, filesRaw)
+	matched := files[0].(string)
+	if filepath.Clean(matched) != filepath.Clean(typeFile) {
+		t.Fatalf("expected match %q, got %q", typeFile, matched)
 	}
 }
 
 func TestSidecarTokenAndOriginValidation(t *testing.T) {
-	tempRepo := t.TempDir()
-	srv, err := NewServer(Config{
-		Host:         "127.0.0.1",
-		Port:         0,
-		RepoRoot:     tempRepo,
-		SidecarToken: "test-sidecar-token-xyz",
-	})
-	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
-	}
-	if err := srv.Listen(); err != nil {
-		t.Fatalf("failed to listen: %v", err)
-	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = srv.Close(ctx)
-	}()
-	go func() { _ = srv.Start() }()
+	srv, _ := setupTestServer(t)
+	srv.cfg.SidecarToken = "test-sidecar-token-xyz"
 
-	client := &http.Client{Timeout: 2 * time.Second}
-
-	// 1. Health check with sidecar token in header
-	healthReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/api/health", srv.Port()), nil)
-	healthReq.Header.Set("X-Sidecar-Token", "test-sidecar-token-xyz")
-	resp, err := client.Do(healthReq)
+	// 1. Authenticated request using X-Sidecar-Token header
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()), nil)
+	req.Header.Set("X-Sidecar-Token", "test-sidecar-token-xyz")
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("health check failed: %v", err)
+		t.Fatalf("request failed: %v", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
-	}
-	var healthData map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&healthData)
-	resp.Body.Close()
-	if healthData["sidecar"] != true {
-		t.Fatalf("expected sidecar=true in health response: %+v", healthData)
+		t.Fatalf("expected 200 OK with X-Sidecar-Token, got %d", resp.StatusCode)
 	}
 
-	// 2. Index with X-Sidecar-Token header and Origin: antigravity-webview://test
-	indexReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()), nil)
-	indexReq.Header.Set("X-Sidecar-Token", "test-sidecar-token-xyz")
-	indexReq.Header.Set("Origin", "antigravity-webview://app")
-	respIndex, err := client.Do(indexReq)
+	// 2. Authenticated request using ?sidecar_token= query parameter
+	respQuery, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?sidecar_token=test-sidecar-token-xyz", srv.Port()))
 	if err != nil {
-		t.Fatalf("index request failed: %v", err)
+		t.Fatalf("request failed: %v", err)
 	}
-	if respIndex.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK for index with sidecar token, got %d", respIndex.StatusCode)
+	defer respQuery.Body.Close()
+	if respQuery.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK with ?sidecar_token=, got %d", respQuery.StatusCode)
 	}
-	if allowOrigin := respIndex.Header.Get("Access-Control-Allow-Origin"); allowOrigin != "antigravity-webview://app" {
-		t.Fatalf("expected Access-Control-Allow-Origin antigravity-webview://app, got %q", allowOrigin)
+
+	// 2b. Root UI load without token in sidecar mode (e.g. host iframe navigation)
+	respNoToken, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()))
+	if err != nil {
+		t.Fatalf("request without token failed: %v", err)
 	}
-	respIndex.Body.Close()
+	defer respNoToken.Body.Close()
+	if respNoToken.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK without token in sidecar mode, got %d", respNoToken.StatusCode)
+	}
+	hasCookie := false
+	for _, c := range respNoToken.Cookies() {
+		if c.Name == "jj_view_token" && c.Value == srv.cfg.SidecarToken {
+			hasCookie = true
+			break
+		}
+	}
+	if !hasCookie {
+		t.Fatalf("expected jj_view_token cookie set on root load in sidecar mode")
+	}
 
 	// 3. Reject invalid sidecar token
 	badReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", srv.Port()), nil)
@@ -759,26 +797,23 @@ func TestSidecarTokenAndOriginValidation(t *testing.T) {
 	}
 	badResp.Body.Close()
 
-	// 4. Dial dual endpoint /api/ws with ?sidecar_token=... and Origin: null
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/ws?sidecar_token=test-sidecar-token-xyz", srv.Port())
-	header := http.Header{}
-	header.Set("Origin", "null")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	// 4. Endpoint /api/rpc with ?sidecar_token=... and Origin: null
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?sidecar_token=test-sidecar-token-xyz", srv.Port())
+	nullOriginReq, _ := http.NewRequest(http.MethodPost, rpcURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	nullOriginReq.Header.Set("Content-Type", "application/json")
+	nullOriginReq.Header.Set("Origin", "null")
+	resNull, err := client.Do(nullOriginReq)
 	if err != nil {
-		t.Fatalf("failed to dial /api/ws with sidecar token: %v", err)
+		t.Fatalf("failed to call /api/rpc with sidecar token: %v", err)
 	}
-	_ = conn.Close()
+	defer resNull.Body.Close()
+	if resNull.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/rpc with Origin null, got %d", resNull.StatusCode)
+	}
 }
 
 func TestWorkspaceAddAllowedRootRPC(t *testing.T) {
 	srv, _ := setupTestServer(t)
-
-	authURL := fmt.Sprintf("ws://127.0.0.1:%d/api/ws?token=%s", srv.Port(), srv.SessionToken())
-	conn, _, err := websocket.DefaultDialer.Dial(authURL, nil)
-	if err != nil {
-		t.Fatalf("failed to dial websocket: %v", err)
-	}
-	defer conn.Close()
 
 	// External directory outside repository
 	outsideDir := t.TempDir()
@@ -788,31 +823,7 @@ func TestWorkspaceAddAllowedRootRPC(t *testing.T) {
 	}
 
 	callRPC := func(id int, method string, params any) protocol.Response {
-		rawParams, _ := json.Marshal(params)
-		rawID := json.RawMessage(fmt.Sprintf("%d", id))
-		req := protocol.Request{
-			JSONRPC: "2.0",
-			ID:      &rawID,
-			Method:  method,
-			Params:  rawParams,
-		}
-		if err := conn.WriteJSON(req); err != nil {
-			t.Fatalf("failed to send RPC: %v", err)
-		}
-		for {
-			var raw map[string]json.RawMessage
-			if err := conn.ReadJSON(&raw); err != nil {
-				t.Fatalf("failed to read RPC: %v", err)
-			}
-			idRaw, hasID := raw["id"]
-			if !hasID || len(idRaw) == 0 || string(idRaw) == "null" {
-				continue
-			}
-			var res protocol.Response
-			data, _ := json.Marshal(raw)
-			_ = json.Unmarshal(data, &res)
-			return res
-		}
+		return postRPC(t, srv, id, method, params)
 	}
 
 	// 1. Initial stat should fail because outsideDir is not allowed
@@ -878,7 +889,6 @@ func TestServerPreloadAndSidecarEndpoints(t *testing.T) {
 		t.Fatalf("failed to send authenticated /_sidecar request: %v", err)
 	}
 	defer authResp.Body.Close()
-	// Should not be 401 Unauthorized or 404 Not Found (might be 500 if agentapi binary isn't mocked or 200 if agentapi succeeds)
 	if authResp.StatusCode == http.StatusUnauthorized || authResp.StatusCode == http.StatusNotFound {
 		t.Fatalf("expected authorized /_sidecar endpoint (not 401 or 404), got %d", authResp.StatusCode)
 	}
@@ -916,15 +926,19 @@ func TestOriginValidationAndPNAHeaders(t *testing.T) {
 		t.Errorf("expected Access-Control-Allow-Private-Network 'true', got %q", got)
 	}
 
-	// 2. WebSocket dial with an allow-listed origin should succeed
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	wsHeader := http.Header{}
-	wsHeader.Set("Origin", proxyOrigin)
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, wsHeader)
+	// 2. RPC post with an allow-listed origin should succeed
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=%s", srv.Port(), srv.SessionToken())
+	rpcReq, _ := http.NewRequest(http.MethodPost, rpcURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	rpcReq.Header.Set("Content-Type", "application/json")
+	rpcReq.Header.Set("Origin", proxyOrigin)
+	rpcResp, err := client.Do(rpcReq)
 	if err != nil {
-		t.Fatalf("failed to dial websocket with allow-listed origin: %v", err)
+		t.Fatalf("failed to post rpc with allow-listed origin: %v", err)
 	}
-	_ = conn.Close()
+	defer rpcResp.Body.Close()
+	if rpcResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for allow-listed origin RPC, got %d", rpcResp.StatusCode)
+	}
 
 	// 3. Sidecar mode allows any origin
 	sidecarSrv, err := NewServer(Config{
@@ -944,14 +958,18 @@ func TestOriginValidationAndPNAHeaders(t *testing.T) {
 	}()
 	defer func() { _ = sidecarSrv.Close(context.Background()) }()
 
-	sidecarWSURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=sidecar-ui-token-xyz", sidecarSrv.Port())
-	anyOriginHeader := http.Header{}
-	anyOriginHeader.Set("Origin", "https://arbitrary-custom-subdomain.example.net")
-	sConn, _, err := websocket.DefaultDialer.Dial(sidecarWSURL, anyOriginHeader)
+	sidecarRPCURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=sidecar-ui-token-xyz", sidecarSrv.Port())
+	anyOriginReq, _ := http.NewRequest(http.MethodPost, sidecarRPCURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+	anyOriginReq.Header.Set("Content-Type", "application/json")
+	anyOriginReq.Header.Set("Origin", "https://arbitrary-custom-subdomain.example.net")
+	sResp, err := client.Do(anyOriginReq)
 	if err != nil {
-		t.Fatalf("failed to dial sidecar websocket with arbitrary origin: %v", err)
+		t.Fatalf("failed to call sidecar rpc with arbitrary origin: %v", err)
 	}
-	_ = sConn.Close()
+	defer sResp.Body.Close()
+	if sResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for sidecar rpc with arbitrary origin, got %d", sResp.StatusCode)
+	}
 }
 
 func TestOriginRejectedWhenNotAllowListed(t *testing.T) {
@@ -972,27 +990,28 @@ func TestOriginRejectedWhenNotAllowListed(t *testing.T) {
 		t.Errorf("expected no Access-Control-Allow-Origin for unknown origin, got %q", got)
 	}
 
-	// WebSocket dial from an unknown origin is refused even with a valid token.
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
-	foreignHeader := http.Header{}
-	foreignHeader.Set("Origin", foreignOrigin)
-	conn, wsResp, err := websocket.DefaultDialer.Dial(wsURL, foreignHeader)
-	if err == nil {
-		_ = conn.Close()
-		t.Fatalf("expected websocket dial from unknown origin to fail")
+	// RPC post from an unknown origin is refused even with a valid token.
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=%s", srv.Port(), srv.SessionToken())
+	postRPC := func(origin string) int {
+		t.Helper()
+		rpcReq, _ := http.NewRequest(http.MethodPost, rpcURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"system.info"}`))
+		rpcReq.Header.Set("Content-Type", "application/json")
+		rpcReq.Header.Set("Origin", origin)
+		rpcResp, err := client.Do(rpcReq)
+		if err != nil {
+			t.Fatalf("rpc post with origin %q failed: %v", origin, err)
+		}
+		defer rpcResp.Body.Close()
+		return rpcResp.StatusCode
 	}
-	if wsResp == nil || wsResp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 for unknown origin, got %v", wsResp)
+	if got := postRPC(foreignOrigin); got != http.StatusForbidden {
+		t.Fatalf("expected 403 for unknown origin, got %d", got)
 	}
 
 	// An origin matching the request host is still accepted without configuration.
-	sameHostHeader := http.Header{}
-	sameHostHeader.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", srv.Port()))
-	sameHostConn, _, err := websocket.DefaultDialer.Dial(wsURL, sameHostHeader)
-	if err != nil {
-		t.Fatalf("expected same-host origin to be accepted: %v", err)
+	if got := postRPC(fmt.Sprintf("http://127.0.0.1:%d", srv.Port())); got != http.StatusOK {
+		t.Fatalf("expected 200 for same-host origin, got %d", got)
 	}
-	_ = sameHostConn.Close()
 }
 
 func TestOriginHostMatches(t *testing.T) {
