@@ -289,6 +289,10 @@ To prevent watches from accumulating when you work across multiple repositories 
 - **Delete all active watches**: `watchman watch-del-all`
 - **Restart the daemon**: `watchman shutdown-server`
 
+## Standalone Web App
+
+JJ View also runs outside VS Code as a self-contained `jj-view` binary that serves the same UI in a browser and powers the Antigravity integration. See [docs/standalone.md](docs/standalone.md) for usage and options.
+
 ## Requirements
 
 - **Jujutsu (jj)**: The `jj` CLI must be installed. By default, it must be available in your system `PATH`, but you can also configure a custom path in the extension settings.

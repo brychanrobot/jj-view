@@ -49,6 +49,12 @@ Guidelines](https://opensource.google/conduct/).
     ```
 5.  **Run the extension**:
     Open the project in VS Code and press `F5` to start the extension in a new Extension Development Host window.
+6.  **Build the standalone binary** (optional):
+    ```bash
+    pnpm build:all      # web bundle + Go daemon → dist/bin/jj-view
+    pnpm build:server   # Go daemon only, reusing the existing web bundle
+    ```
+    `dist/bin/jj-view install` registers that build with Antigravity and restarts any running daemons; see [docs/standalone.md](docs/standalone.md) for the runtime flags.
 
 ### Code Reviews
 
