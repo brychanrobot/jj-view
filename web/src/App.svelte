@@ -6,6 +6,7 @@
 import path from 'pathe';
 import { onMount, untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
+import type { CommentsManager, CommentThread } from '../../src/core/comments-manager';
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
 import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
@@ -25,6 +26,8 @@ import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { toError } from '../../src/utils/error-utils';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
+import CommentsPane from './comments/CommentsPane.svelte';
+import { CommentsStore, type CommentThreadHandle, normalizeThreadPath } from './comments/comments-store.svelte';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
 import { applyAppTheme, loadTheme } from './diff/highlighter-setup';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
@@ -52,6 +55,7 @@ import StatusBar from './status/StatusBar.svelte';
 import { StatusBarService } from './status/status-bar-service';
 import TabBar from './tabs/TabBar.svelte';
 import {
+    COMMENTS_TAB_ID,
     getTabId,
     type MultiDiffFileEntry,
     type TabEntry,
@@ -73,6 +77,8 @@ interface Props {
     statusBarService?: StatusBarService;
     /** Panel sizes restored from storage before mount, so the first paint is already right. */
     initialLayout?: PersistedLayout;
+    /** Review comments for the active change; drives the Comments tab and inline diff threads. */
+    commentsManager?: CommentsManager;
 }
 
 let {
@@ -88,6 +94,7 @@ let {
     notificationService,
     statusBarService,
     initialLayout,
+    commentsManager,
 }: Props = $props();
 
 function persistLayout(layout: PersistedLayout): void {
@@ -294,6 +301,117 @@ function handleWindowKeydown(e: KeyboardEvent): void {
     }
 }
 
+/** Opens the diff of `file` as changed by `changeId` (parent vs. that revision). */
+async function openFileDiffForChange(
+    file: JjStatusEntry,
+    changeId: string,
+    isWorkingCopy: boolean,
+    options: HostOpenOptions,
+): Promise<void> {
+    const leftUri = Uri.from({
+        scheme: 'jj-view',
+        path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+        fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: changeId, side: 'left' }),
+    });
+    const rightUri = isWorkingCopy
+        ? Uri.file(path.join(workspaceRoot, file.path))
+        : Uri.from({
+              scheme: 'jj-view',
+              path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+              fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: changeId, side: 'right' }),
+          });
+    const matchingState = createJjResourceState(file, changeId, workspaceRoot, {
+        editable: isWorkingCopy,
+        workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+    });
+    await loadDiffFromUris(leftUri, rightUri, `${file.path} (${changeId.slice(0, 8)})`, matchingState, options);
+}
+
+// ---- Review comments ------------------------------------------------------
+
+// The manager is wired once at startup; capturing the initial value is intentional.
+// svelte-ignore state_referenced_locally
+const commentsStore = commentsManager ? new CommentsStore(commentsManager) : undefined;
+
+/** Repo-relative path for a file URI, for matching comment threads. */
+function uriRelativePath(uri: Uri | undefined): string | undefined {
+    if (!uri) {
+        return undefined;
+    }
+    if (uri.scheme === 'file') {
+        const root = commentsStore?.repoPath ?? workspaceRoot;
+        return normalizeThreadPath(path.relative(root, uri.fsPath), undefined);
+    }
+    return normalizeThreadPath(uri.path, undefined);
+}
+
+/** Repo-relative path of the file a diff/file tab shows, for matching comment threads. */
+function tabRelativePath(view: TabViewData): string | undefined {
+    const uri = view.type === 'diff' ? (view.rightUri ?? view.leftUri) : view.type === 'file' ? view.uri : undefined;
+    return uriRelativePath(uri);
+}
+
+const activeDiffThreads = $derived.by((): CommentThreadHandle[] => {
+    if (!commentsStore || !activeTab || activeTab.view.type !== 'diff') {
+        return [];
+    }
+    const relativePath = tabRelativePath(activeTab.view);
+    return relativePath ? commentsStore.handlesForFile(relativePath) : [];
+});
+
+/** Threads for each entry of the active multi-diff tab, keyed by the entry's `filename`. */
+const activeMultiDiffThreads = $derived.by((): ReadonlyMap<string, readonly CommentThreadHandle[]> => {
+    const byFile = new Map<string, readonly CommentThreadHandle[]>();
+    if (!commentsStore || !activeTab || activeTab.view.type !== 'multi-diff') {
+        return byFile;
+    }
+    for (const entry of activeTab.view.files) {
+        const relativePath = uriRelativePath(entry.rightUri ?? entry.leftUri);
+        const handles = relativePath ? commentsStore.handlesForFile(relativePath) : [];
+        if (handles.length > 0) {
+            byFile.set(entry.filename, handles);
+        }
+    }
+    return byFile;
+});
+
+/** The command payloads only need the thread id, but are typed on the host CommentThread shape. */
+function toCommandThread(handle: CommentThreadHandle): CommentThread {
+    const filePath = handle.thread.filePath ?? '';
+    const root = commentsStore?.repoPath ?? workspaceRoot;
+    return {
+        id: handle.id,
+        uri: Uri.file(path.isAbsolute(filePath) ? filePath : path.join(root, filePath)),
+    };
+}
+
+async function replyToThread(handle: CommentThreadHandle, text: string, resolve: boolean): Promise<void> {
+    const command = resolve ? 'jj-view.replyAndResolveComment' : 'jj-view.replyComment';
+    await webHostEnv?.commands.executeCommand(command, { reply: { thread: toCommandThread(handle), text } });
+}
+
+async function setThreadResolved(handle: CommentThreadHandle, resolved: boolean): Promise<void> {
+    const command = resolved ? 'jj-view.resolveCommentThread' : 'jj-view.unresolveCommentThread';
+    await webHostEnv?.commands.executeCommand(command, { arg: toCommandThread(handle) });
+}
+
+function openThreadLocation(handle: CommentThreadHandle): void {
+    const store = commentsStore;
+    const changeId = store?.jjChangeId;
+    const relativePath = store ? normalizeThreadPath(handle.thread.filePath, store.repoPath) : undefined;
+    if (!changeId || !relativePath) {
+        return;
+    }
+    const isWorkingCopy = changeId === currentSnapshot?.currentEntry?.change_id;
+    void openFileDiffForChange({ path: relativePath, status: 'modified' }, changeId, isWorkingCopy, {
+        preview: true,
+    });
+}
+
+function openCommentsTab(): void {
+    openOrActivateTab({ type: 'comments' }, { preview: false });
+}
+
 /** Everything a commit-details tab owns; disposed together with the tab. */
 interface CommitDetailsSession {
     readonly bridge: InMemoryBridge;
@@ -321,25 +439,7 @@ function ensureCommitDetailsSession(tab: TabEntry): void {
         const controller = new CommitDetailsController(changeId, model.repo, hostEnv, {
             logger: NO_OP_LOGGER,
             openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
-                const leftUri = Uri.from({
-                    scheme: 'jj-view',
-                    path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-                    fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'left' }),
-                });
-                const rightUri = isWorkingCopy
-                    ? Uri.file(path.join(workspaceRoot, file.path))
-                    : Uri.from({
-                          scheme: 'jj-view',
-                          path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-                          fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'right' }),
-                      });
-                const matchingState = createJjResourceState(file, cId, workspaceRoot, {
-                    editable: isWorkingCopy,
-                    workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                });
-                await loadDiffFromUris(leftUri, rightUri, `${file.path} (${cId.slice(0, 8)})`, matchingState, {
-                    preview: true,
-                });
+                await openFileDiffForChange(file, cId, isWorkingCopy, { preview: true });
             },
         });
         // An edited draft pins the tab, like a dirty file editor, so clicking
@@ -435,6 +535,10 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         title = view.title;
         tooltip = view.uri.fsPath;
         iconClass = 'codicon codicon-file';
+    } else if (view.type === 'comments') {
+        title = 'Comments';
+        tooltip = 'Review comments';
+        iconClass = 'codicon codicon-comment-discussion';
     }
 
     const isPreview = options?.preview ?? view.type === 'commit-details';
@@ -1133,6 +1237,12 @@ onMount(() => {
             closeAllTabs();
         });
 
+        // showCommentsCommand (core) retargets the CommentsManager and then asks
+        // the host to focus its comments panel; here that is the Comments tab.
+        webHostEnv.commands.registerCommand('workbench.action.focusCommentsPanel', async () => {
+            openCommentsTab();
+        });
+
         webHostEnv.commands.setContextKeySetter(rootContext);
         webHostEnv.ui.setQuickInputService(activeQuickInput);
 
@@ -1356,6 +1466,7 @@ onMount(() => {
 
     return () => {
         webHostEnv?.documents.setDelegate(undefined);
+        commentsStore?.dispose();
         rootContext.dispose();
         configSub?.dispose();
     };
@@ -1459,6 +1570,9 @@ onMount(() => {
                                 isConflict={activeTab.view.resourceState?.status === 'conflicted' ||
                                     (activeTab.view.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
                                 parentMutable={currentSnapshot?.parentMutable ?? false}
+                                commentThreads={activeDiffThreads}
+                                onReplyToThread={replyToThread}
+                                onSetThreadResolved={setThreadResolved}
                                 onSave={handleSaveFile}
                                 onDiscard={handleDiscardFile}
                                 onResolveConflict={handleResolveConflict}
@@ -1488,6 +1602,9 @@ onMount(() => {
                             title={activeTab.title}
                             files={activeTab.view.files}
                             theme={activeTheme}
+                            commentThreads={activeMultiDiffThreads}
+                            onReplyToThread={replyToThread}
+                            onSetThreadResolved={setThreadResolved}
                         />
                     {/key}
                 {:else if activeTab && activeTab.view.type === 'file'}
@@ -1527,6 +1644,20 @@ onMount(() => {
                             onClose={() => closeTabById(sessionTabId)}
                         />
                     {/key}
+                {:else if activeTab && activeTab.view.type === 'comments' && commentsStore}
+                    <CommentsPane
+                        store={commentsStore}
+                        onOpenThread={openThreadLocation}
+                        onReply={replyToThread}
+                        onSetResolved={setThreadResolved}
+                        onCopyUnresolved={() => {
+                            void webHostEnv?.commands.executeCommand('jj-view.copyUnresolvedComments');
+                        }}
+                        onRefresh={() => {
+                            void commentsManager?.refreshActiveChangeComments();
+                        }}
+                        onClose={() => closeTabById(COMMENTS_TAB_ID)}
+                    />
                 {:else}
                     <div class="empty-editor-message">
                         <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>

@@ -44,6 +44,10 @@ export type TabViewData =
           title: string;
           content?: string;
           resourceState?: JjResourceState;
+      }
+    | {
+          /** The review comments for the CommentsManager's active change. One per app. */
+          type: 'comments';
       };
 
 export interface TabEntry {
@@ -58,6 +62,8 @@ export interface TabEntry {
 
 export type TabReorderPosition = 'before' | 'after';
 
+export const COMMENTS_TAB_ID = 'comments';
+
 export function getTabId(view: TabViewData): string {
     switch (view.type) {
         case 'diff': {
@@ -71,5 +77,7 @@ export function getTabId(view: TabViewData): string {
             return `commit-details:${view.changeId}`;
         case 'file':
             return `file:${view.uri.toString()}`;
+        case 'comments':
+            return COMMENTS_TAB_ID;
     }
 }
