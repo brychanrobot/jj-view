@@ -131,13 +131,13 @@ function formatActiveDuration(startTime: number, currentTime: number): string {
 function getStatusColor(status: string): string {
     switch (status) {
         case 'completed':
-            return 'var(--vscode-testing-iconPassed, #73c991)';
+            return 'var(--vscode-testing-iconPassed, var(--vscode-charts-green))';
         case 'failed':
-            return 'var(--vscode-testing-iconFailed, #f14c4c)';
+            return 'var(--vscode-testing-iconFailed, var(--vscode-errorForeground))';
         case 'timed_out':
-            return 'var(--vscode-charts-orange, #dda853)';
+            return 'var(--vscode-charts-orange, var(--vscode-editorWarning-foreground))';
         case 'cancelled':
-            return 'var(--vscode-disabledForeground, #888)';
+            return 'var(--vscode-disabledForeground, var(--vscode-descriptionForeground))';
         default:
             return 'var(--vscode-foreground)';
     }
@@ -379,7 +379,7 @@ function getStatusColor(status: string): string {
         justify-content: space-between;
         gap: 12px;
         padding-bottom: 8px;
-        border-bottom: 1px solid var(--vscode-panel-border, #333);
+        border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
         margin-bottom: 8px;
         flex-wrap: wrap;
     }
@@ -392,8 +392,8 @@ function getStatusColor(status: string): string {
     }
 
     .badge {
-        background-color: var(--vscode-badge-background, #333);
-        color: var(--vscode-badge-foreground, #fff);
+        background-color: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
         padding: 2px 6px;
         border-radius: 4px;
         font-weight: 600;
@@ -407,29 +407,34 @@ function getStatusColor(status: string): string {
     .filter-input {
         background-color: var(--vscode-input-background);
         color: var(--vscode-input-foreground);
-        border: 1px solid var(--vscode-input-border, #444);
+        border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
         padding: 4px 8px;
-        border-radius: 2px;
+        border-radius: 4px;
         font-size: 12px;
         width: 180px;
+    }
+
+    .filter-input:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
     }
 
     .btn {
         border: none;
         padding: 4px 10px;
-        border-radius: 2px;
+        border-radius: 4px;
         cursor: pointer;
         font-size: 12px;
     }
 
     .btn-danger {
-        background-color: var(--vscode-errorForeground, #e51400);
-        color: #fff;
+        background-color: var(--vscode-errorForeground);
+        color: var(--vscode-button-foreground);
     }
 
     .btn-secondary {
-        background-color: var(--vscode-button-secondaryBackground, #444);
-        color: var(--vscode-button-secondaryForeground, #fff);
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
     }
 
     .monitor-section {
@@ -458,7 +463,7 @@ function getStatusColor(status: string): string {
     }
 
     .tasks-table thead tr {
-        border-bottom: 1px solid var(--vscode-panel-border, #222);
+        border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
     }
 
     .tasks-table th {
@@ -476,11 +481,15 @@ function getStatusColor(status: string): string {
 
     .task-row {
         cursor: pointer;
-        border-bottom: 1px solid var(--vscode-panel-border, #222);
+        border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+    }
+
+    .task-row:hover {
+        background-color: var(--vscode-list-hoverBackground);
     }
 
     .task-row.expanded {
-        background-color: var(--vscode-list-activeSelectionBackground, rgba(255, 255, 255, 0.08));
+        background-color: var(--vscode-list-activeSelectionBackground);
     }
 
     .cell-expand {
@@ -534,22 +543,22 @@ function getStatusColor(status: string): string {
     }
 
     .btn-kill {
-        background-color: var(--vscode-errorForeground, #e51400);
-        color: #fff;
+        background-color: var(--vscode-errorForeground);
+        color: var(--vscode-button-foreground);
         border: none;
         padding: 3px 8px;
-        border-radius: 2px;
+        border-radius: 4px;
         cursor: pointer;
         font-size: 11px;
     }
 
     .detail-row {
-        border-bottom: 1px solid var(--vscode-panel-border, #333);
+        border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
     }
 
     .detail-row td {
         padding: 8px 12px 12px 12px;
-        background-color: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.2));
+        background-color: var(--vscode-textCodeBlock-background, var(--vscode-sideBar-background));
     }
 
     .detail-content {
@@ -571,11 +580,11 @@ function getStatusColor(status: string): string {
     }
 
     .btn-copy {
-        background-color: var(--vscode-button-secondaryBackground, #444);
-        color: var(--vscode-button-secondaryForeground, #fff);
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
         border: none;
         padding: 2px 6px;
-        border-radius: 2px;
+        border-radius: 4px;
         font-size: 11px;
         cursor: pointer;
     }
@@ -588,15 +597,15 @@ function getStatusColor(status: string): string {
     }
 
     .error-subhead {
-        color: var(--vscode-errorForeground, #f14c4c);
+        color: var(--vscode-errorForeground);
     }
 
     .code-block {
         font-family: var(--vscode-editor-font-family, monospace);
         font-size: 12px;
         background-color: var(--vscode-editor-background);
-        border: 1px solid var(--vscode-widget-border, #333);
-        border-radius: 4px;
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 6px;
         padding: 8px;
         white-space: pre-wrap;
         word-break: break-all;
@@ -615,7 +624,7 @@ function getStatusColor(status: string): string {
     .stderr-block {
         max-height: 200px;
         overflow-y: auto;
-        border-color: var(--vscode-inputValidation-errorBorder, #f14c4c);
-        color: var(--vscode-errorForeground, #f14c4c);
+        border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+        color: var(--vscode-errorForeground);
     }
 </style>

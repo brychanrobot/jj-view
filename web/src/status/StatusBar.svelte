@@ -10,11 +10,20 @@ import type { StatusBarService, StatusBarState } from './status-bar-service';
 interface Props {
     service: StatusBarService;
     notificationService?: NotificationService;
+    activeProcessCount?: number;
+    onOpenProcessMonitor?: () => void;
     onOpenOutput?: () => void;
     onOpenSettings?: () => void;
 }
 
-let { service, notificationService, onOpenOutput, onOpenSettings }: Props = $props();
+let {
+    service,
+    notificationService,
+    activeProcessCount = 0,
+    onOpenProcessMonitor,
+    onOpenOutput,
+    onOpenSettings,
+}: Props = $props();
 
 // svelte-ignore state_referenced_locally
 let state = $state<StatusBarState>(service.state);
@@ -126,6 +135,28 @@ const connection = $derived(state.connection);
             </button>
         {/if}
 
+        {#if onOpenProcessMonitor}
+            <button
+                type="button"
+                class="status-item status-btn monitor-item"
+                class:active-processes={activeProcessCount > 0}
+                data-testid="status-process-monitor-btn"
+                aria-label="Process & Performance Monitor"
+                title={activeProcessCount > 0
+                    ? `${activeProcessCount} JJ process(es) running — Click to open Process & Performance Monitor`
+                    : 'Process & Performance Monitor'}
+                onclick={() => onOpenProcessMonitor()}
+            >
+                <i
+                    class="codicon {activeProcessCount > 0 ? 'codicon-sync codicon-modifier-spin' : 'codicon-pulse'}"
+                    aria-hidden="true"
+                ></i>
+                {#if activeProcessCount > 0}
+                    <span class="notification-badge" data-testid="status-process-count-badge">{activeProcessCount}</span>
+                {/if}
+            </button>
+        {/if}
+
         {#if onOpenOutput}
             <button
                 type="button"
@@ -217,7 +248,8 @@ const connection = $derived(state.connection);
     color: var(--vscode-charts-blue, #69b1ff);
 }
 
-.progress-item i {
+.progress-item i,
+.monitor-item.active-processes i {
     animation: codicon-spin 1.2s infinite linear;
 }
 

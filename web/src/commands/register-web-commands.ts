@@ -72,6 +72,7 @@ import { BaseCommandContext, type CommandContext } from '../../../src/core/host/
 import type { HostEnvironment } from '../../../src/core/host/host-environment';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../../../src/core/host/ipc/log-view-schemas';
 import { resolveRepository } from '../../../src/core/host/ui-helpers';
+import type { JjProcessTracker } from '../../../src/core/jj-process-tracker';
 import type { JjRepository } from '../../../src/core/jj-repository';
 import type { JjRepositoryManager } from '../../../src/core/jj-repository-manager';
 import type { ScmModel } from '../../../src/core/scm-model';
@@ -140,6 +141,7 @@ export interface RegisterWebCommandsOptions {
     logViewController?: LogViewController;
     authManager?: CodeForgeAuthManager;
     commentsManager?: CommentsManager;
+    processTracker?: JjProcessTracker;
 }
 
 export function registerWebCommands(options: RegisterWebCommandsOptions): void {
@@ -152,6 +154,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         logViewController,
         authManager,
         commentsManager,
+        processTracker,
     } = options;
 
     function getActiveRepo(args?: unknown[]): JjRepository | undefined {
@@ -389,9 +392,17 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         await hostEnvironment.nav.openSettings(settingId);
     });
     hostEnvironment.commands.registerCommand('jj-view.showProcessMonitor', async () => {});
-    hostEnvironment.commands.registerCommand('jj-view.killProcess', async () => {});
-    hostEnvironment.commands.registerCommand('jj-view.killAllProcesses', async () => {});
-    hostEnvironment.commands.registerCommand('jj-view.clearProcessHistory', async () => {});
+    hostEnvironment.commands.registerCommand('jj-view.killProcess', async (opId?: unknown) => {
+        if (typeof opId === 'number') {
+            processTracker?.cancelProcess(opId);
+        }
+    });
+    hostEnvironment.commands.registerCommand('jj-view.killAllProcesses', async () => {
+        processTracker?.cancelAllProcesses();
+    });
+    hostEnvironment.commands.registerCommand('jj-view.clearProcessHistory', async () => {
+        processTracker?.clearHistory();
+    });
     hostEnvironment.commands.registerCommand('jj-view.manageAuth', async () => {
         const repo = getActiveRepo();
         const activeProvider = repo?.codeForge.activeProvider;
