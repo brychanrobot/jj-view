@@ -53,6 +53,10 @@ Gerrit requests use the credentials git itself would use for the host, in this o
 
 Outbound daemon requests are limited to HTTPS, plus plain HTTP for loopback hosts.
 
+### Review comments
+
+Commits with review comments show a comment badge in the log. Clicking it opens a **Comments** tab listing every thread for that change grouped by file; a file heading opens its diff. Threads are also rendered inline in single-file and multi-file diffs, anchored to the line the forge reported. From either place you can reply, reply-and-resolve, or toggle a thread's resolved state. Starting a new thread is not yet supported in the web UI.
+
 ## Requirements
 
 - **Jujutsu (jj)** on your `PATH`, or a `binaryPath` entry in the settings file. See the [installation guide](https://docs.jj-vcs.dev/latest/install-and-setup).

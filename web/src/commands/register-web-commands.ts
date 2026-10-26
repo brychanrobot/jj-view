@@ -66,6 +66,7 @@ import {
     workspaceOpenInCurrentWindowCommand,
     workspaceOpenInNewWindowCommand,
 } from '../../../src/core/commands/workspace-open';
+import type { CommentsManager } from '../../../src/core/comments-manager';
 import type { LogViewController } from '../../../src/core/controllers/log-view-controller';
 import { BaseCommandContext, type CommandContext } from '../../../src/core/host/command-context';
 import type { HostEnvironment } from '../../../src/core/host/host-environment';
@@ -136,17 +137,19 @@ export interface RegisterWebCommandsOptions {
     scmModel: ScmModel;
     logViewController?: LogViewController;
     authManager?: CodeForgeAuthManager;
+    commentsManager?: CommentsManager;
 }
 
 export function registerWebCommands(options: RegisterWebCommandsOptions): void {
-    const { repositoryManager, hostEnvironment, logger, scmModel, logViewController, authManager } = options;
+    const { repositoryManager, hostEnvironment, logger, scmModel, logViewController, authManager, commentsManager } =
+        options;
 
     function getActiveRepo(): JjRepository | undefined {
         return repositoryManager.focusedRepository ?? repositoryManager.repositories[0] ?? scmModel.repo;
     }
 
     function createCmdContext(repo: JjRepository): CommandContext {
-        return new BaseCommandContext(repo, hostEnvironment, logger);
+        return new BaseCommandContext(repo, hostEnvironment, logger, commentsManager);
     }
 
     function registerWithPayload<TPayload, TReturn = unknown>(

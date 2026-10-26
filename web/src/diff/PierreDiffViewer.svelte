@@ -3,10 +3,12 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { FileDiff, parseDiffFromFile } from '@pierre/diffs';
+import { type DiffLineAnnotation, FileDiff, type FileDiffOptions, parseDiffFromFile } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
+import type { CommentThreadHandle } from '../comments/comments-store.svelte';
+import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import { isBinaryFile } from './binary-detection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
@@ -23,6 +25,10 @@ interface Props {
     parentMutable?: boolean;
     theme?: string;
     initialDirty?: boolean;
+    /** Review threads anchored to this file; rendered inline under their line. */
+    commentThreads?: readonly CommentThreadHandle[];
+    onReplyToThread?: (handle: CommentThreadHandle, text: string, resolve: boolean) => Promise<void>;
+    onSetThreadResolved?: (handle: CommentThreadHandle, resolved: boolean) => Promise<void>;
     onSave?: (newContent: string) => Promise<void> | void;
     onDiscard?: () => Promise<void> | void;
     onResolveConflict?: () => Promise<void> | void;
@@ -43,6 +49,9 @@ let {
     parentMutable = false,
     theme: themeProp = '',
     initialDirty = false,
+    commentThreads = [],
+    onReplyToThread,
+    onSetThreadResolved,
     onSave,
     onDiscard,
     onResolveConflict,
@@ -63,8 +72,8 @@ let canRedo = $state(false);
 let currentContent = $state('');
 let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
 
-let fileDiffInstance: FileDiff | null = null;
-let editorInstance: Editor<'file-diff'> | null = null;
+let fileDiffInstance: FileDiff<CommentThreadHandle> | null = null;
+let editorInstance: Editor<'file-diff', CommentThreadHandle> | null = null;
 let detachEditor: (() => void) | null = null;
 // Incremented on every render/cleanup so a pending async editor attach can
 // detect it has been superseded and bail out instead of attaching to a stale
@@ -72,8 +81,63 @@ let detachEditor: (() => void) | null = null;
 let renderGeneration = 0;
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
+// Svelte components mounted into Pierre's annotation slots, by thread id.
+const threadMounts = new ThreadAnnotationMounts({
+    onReply: (handle, text, resolve) => onReplyToThread?.(handle, text, resolve) ?? Promise.resolve(),
+    onSetResolved: (handle, resolved) => onSetThreadResolved?.(handle, resolved) ?? Promise.resolve(),
+});
 
 const isBinary = $derived(isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent));
+
+/**
+ * Threads become Pierre line annotations on the new-file side (the side the
+ * forge's line numbers refer to). `lineNumber: 0` is Pierre's file-level slot,
+ * which is where file-level review comments belong.
+ */
+function buildLineAnnotations(
+    handles: readonly CommentThreadHandle[],
+    isDeleted: boolean,
+): DiffLineAnnotation<CommentThreadHandle>[] {
+    return handles.map((handle) => ({
+        side: isDeleted ? 'deletions' : 'additions',
+        lineNumber: Math.max(0, handle.thread.line ?? 0),
+        metadata: handle,
+    }));
+}
+
+/**
+ * Pierre's `setOptions` replaces the whole options object, so every options
+ * object (construction and diff-style toggles) is built here to keep
+ * `renderAnnotation` attached.
+ */
+function buildFileDiffOptions(
+    effectiveTheme: string,
+    themeType: 'light' | 'dark',
+): FileDiffOptions<CommentThreadHandle, undefined> {
+    return {
+        diffStyle,
+        expandUnchanged: false,
+        disableFileHeader: true,
+        theme: effectiveTheme,
+        themeType,
+        enableLineSelection: true,
+        onLineSelected: handleLineSelection,
+        onLineSelectionChange: handleLineSelection,
+        onLineSelectionEnd: handleLineSelection,
+        renderAnnotation: (annotation) => threadMounts.render(annotation.metadata),
+    };
+}
+
+$effect(() => {
+    const handles = commentThreads;
+    const instance = fileDiffInstance;
+    if (!instance) {
+        return;
+    }
+    const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !untrack(() => currentContent));
+    instance.setLineAnnotations(buildLineAnnotations(handles, isDeleted));
+    threadMounts.retainOnly(new Set(handles.map((h) => h.id)));
+});
 
 function cleanupInstances(): void {
     renderGeneration++;
@@ -95,6 +159,7 @@ function cleanupInstances(): void {
         detachEditor = null;
     }
     editorInstance = null;
+    threadMounts.unmountAll();
     if (fileDiffInstance) {
         fileDiffInstance.cleanUp();
         fileDiffInstance = null;
@@ -199,18 +264,8 @@ function renderDiff(): void {
     const themeType = isLight ? 'light' : 'dark';
     const workerManager = getOrCreateDiffWorkerPool(effectiveTheme);
 
-    fileDiffInstance = new FileDiff(
-        {
-            diffStyle,
-            expandUnchanged: false,
-            disableFileHeader: true,
-            theme: effectiveTheme,
-            themeType,
-            enableLineSelection: true,
-            onLineSelected: handleLineSelection,
-            onLineSelectionChange: handleLineSelection,
-            onLineSelectionEnd: handleLineSelection,
-        },
+    fileDiffInstance = new FileDiff<CommentThreadHandle>(
+        buildFileDiffOptions(effectiveTheme, themeType),
         workerManager,
     );
 
@@ -235,12 +290,15 @@ function renderDiff(): void {
     // Parse once so we hold the exact diff object the worker pool caches under;
     // that lets us await its highlight before attaching the editor (see below).
     const fileDiff = parseDiffFromFile(oldFile, newFile);
+    // Later thread changes are applied by the commentThreads effect, not by re-rendering.
+    const lineAnnotations = untrack(() => buildLineAnnotations(commentThreads, isDeleted));
     trace.phase('setup');
 
     const renderStart = performance.now();
     fileDiffInstance.render({
         containerWrapper: containerEl,
         fileDiff,
+        lineAnnotations,
     });
     const renderDuration = performance.now() - renderStart;
     trace.phase('render');
@@ -269,7 +327,7 @@ function renderDiff(): void {
  * working-copy diff.
  */
 async function attachEditorWhenHighlighted(
-    instance: FileDiff,
+    instance: FileDiff<CommentThreadHandle>,
     fileDiff: ReturnType<typeof parseDiffFromFile>,
     workerManager: ReturnType<typeof getOrCreateDiffWorkerPool>,
     label: string,
@@ -294,7 +352,7 @@ async function attachEditorWhenHighlighted(
 
     const attachStart = performance.now();
     try {
-        editorInstance = new Editor<'file-diff'>('file-diff', {
+        editorInstance = new Editor<'file-diff', CommentThreadHandle>('file-diff', {
             onChange: () => {
                 if (editorInstance) {
                     const text = editorInstance.getText();
@@ -335,17 +393,7 @@ function setDiffStyle(style: 'split' | 'unified'): void {
     const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
 
     if (fileDiffInstance) {
-        fileDiffInstance.setOptions({
-            diffStyle,
-            expandUnchanged: false,
-            disableFileHeader: true,
-            theme: effectiveTheme,
-            themeType,
-            enableLineSelection: true,
-            onLineSelected: handleLineSelection,
-            onLineSelectionChange: handleLineSelection,
-            onLineSelectionEnd: handleLineSelection,
-        });
+        fileDiffInstance.setOptions(buildFileDiffOptions(effectiveTheme, themeType));
         const contentToRender = untrack(() => currentContent);
         const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
         const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));

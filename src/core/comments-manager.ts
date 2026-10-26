@@ -15,11 +15,18 @@ import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
 
 export * from './comments-types';
 
+/** A forge change paired with the jj revision it was resolved from. */
+interface ResolvedChange {
+    changeInfo: CodeForgeChangeInfo;
+    jjChangeId: string;
+}
+
 export class CommentsManager implements Disposable {
     private _threads = new Map<string, CodeForgeCommentThread>();
     private _threadsList: CodeForgeCommentThread[] = [];
     private activeChangeId: string | undefined;
     private activeChangeInfo: CodeForgeChangeInfo | undefined;
+    private activeJjChangeId: string | undefined;
     private activeRepoPath: string | undefined;
     private disposables: Disposable[] = [];
     private repoDisposables: Disposable[] = [];
@@ -38,9 +45,7 @@ export class CommentsManager implements Disposable {
         this.disposables.push(
             this.repositoryManager.onDidChangeFocusedRepository(() => {
                 this.clearThreads();
-                this.activeChangeId = undefined;
-                this.activeChangeInfo = undefined;
-                this.activeRepoPath = undefined;
+                this.clearActiveChange();
                 this.explicitChangeId = undefined;
                 this.lastWorkingCopyId = undefined;
                 this.updateRepoSubscriptions();
@@ -62,12 +67,25 @@ export class CommentsManager implements Disposable {
         return this.activeChangeInfo;
     }
 
+    /** The forge's identifier for the change whose threads are loaded. */
     public get currentChangeId(): string | undefined {
         return this.activeChangeId;
     }
 
+    /** The jj change id of the revision whose threads are loaded. */
+    public get currentJjChangeId(): string | undefined {
+        return this.activeJjChangeId;
+    }
+
     public get currentRepoPath(): string | undefined {
         return this.activeRepoPath;
+    }
+
+    private clearActiveChange(): void {
+        this.activeChangeId = undefined;
+        this.activeChangeInfo = undefined;
+        this.activeJjChangeId = undefined;
+        this.activeRepoPath = undefined;
     }
 
     private updateRepoSubscriptions(): void {
@@ -108,7 +126,7 @@ export class CommentsManager implements Disposable {
         activeProvider: CodeForgeProvider,
         revision: string,
         logEntry?: JjLogEntry,
-    ): Promise<CodeForgeChangeInfo | undefined> {
+    ): Promise<ResolvedChange | undefined> {
         try {
             if (!logEntry) {
                 const logEntries = await repo.jj.getLog({ revision, omitChanges: true });
@@ -120,12 +138,16 @@ export class CommentsManager implements Disposable {
             const bookmarks = (logEntry.bookmarks ?? [])
                 .filter((b: JjBookmark) => !b.remote)
                 .map((b: JjBookmark) => b.name);
-            return activeProvider.getCachedChangeInfo(
+            const changeInfo = activeProvider.getCachedChangeInfo(
                 logEntry.change_id,
                 logEntry.description,
                 bookmarks,
                 logEntry.commit_id,
             );
+            if (!changeInfo) {
+                return undefined;
+            }
+            return { changeInfo, jjChangeId: logEntry.change_id };
         } catch {
             // Ignore error
         }
@@ -149,24 +171,21 @@ export class CommentsManager implements Disposable {
         activeProvider: CodeForgeProvider,
         signal: AbortSignal,
         workingCopyLogEntry?: JjLogEntry,
-    ): Promise<{ changeInfo: CodeForgeChangeInfo } | undefined> {
+    ): Promise<ResolvedChange | undefined> {
         if (this.explicitChangeId) {
-            const changeInfo = await this.resolveChangeInfo(repo, activeProvider, this.explicitChangeId);
+            const explicit = await this.resolveChangeInfo(repo, activeProvider, this.explicitChangeId);
             if (signal.aborted) {
                 return undefined;
             }
-            if (changeInfo) {
-                return { changeInfo };
-            }
-            return undefined;
+            return explicit;
         }
 
-        const workingCopyInfo = await this.resolveChangeInfo(repo, activeProvider, '@', workingCopyLogEntry);
+        const workingCopy = await this.resolveChangeInfo(repo, activeProvider, '@', workingCopyLogEntry);
         if (signal.aborted) {
             return undefined;
         }
-        if (workingCopyInfo) {
-            return { changeInfo: workingCopyInfo };
+        if (workingCopy) {
+            return workingCopy;
         }
 
         let parentLogEntry: JjLogEntry | undefined;
@@ -180,15 +199,11 @@ export class CommentsManager implements Disposable {
             // Ignore
         }
 
-        const parentInfo = await this.resolveChangeInfo(repo, activeProvider, '@-', parentLogEntry);
+        const parent = await this.resolveChangeInfo(repo, activeProvider, '@-', parentLogEntry);
         if (signal.aborted) {
             return undefined;
         }
-        if (parentInfo) {
-            return { changeInfo: parentInfo };
-        }
-
-        return undefined;
+        return parent;
     }
 
     /**
@@ -202,9 +217,7 @@ export class CommentsManager implements Disposable {
             const repo = this.repositoryManager.focusedRepository;
             if (!repo) {
                 this.clearThreads();
-                this.activeChangeId = undefined;
-                this.activeChangeInfo = undefined;
-                this.activeRepoPath = undefined;
+                this.clearActiveChange();
                 return;
             }
             if (signal.aborted) {
@@ -214,9 +227,7 @@ export class CommentsManager implements Disposable {
             const { activeProvider } = repo.codeForge;
             if (!activeProvider?.getCommentThreads) {
                 this.clearThreads();
-                this.activeChangeId = undefined;
-                this.activeChangeInfo = undefined;
-                this.activeRepoPath = undefined;
+                this.clearActiveChange();
                 return;
             }
 
@@ -252,12 +263,10 @@ export class CommentsManager implements Disposable {
             }
 
             if (target) {
-                await this.loadCommentsForChange(target.changeInfo, signal);
+                await this.loadCommentsForChange(target, signal);
             } else {
                 this.clearThreads();
-                this.activeChangeId = undefined;
-                this.activeChangeInfo = undefined;
-                this.activeRepoPath = undefined;
+                this.clearActiveChange();
             }
         } catch {
             // Ignore
@@ -270,17 +279,20 @@ export class CommentsManager implements Disposable {
      */
     public async refreshActiveChangeComments(): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
-        if (!repo || !this.activeChangeInfo) {
+        if (!repo || !this.activeChangeInfo || !this.activeJjChangeId) {
             return;
         }
         const signal = this.startNewLoad();
-        await this.loadCommentsForChange(this.activeChangeInfo, signal);
+        await this.loadCommentsForChange(
+            { changeInfo: this.activeChangeInfo, jjChangeId: this.activeJjChangeId },
+            signal,
+        );
     }
 
     /**
      * Loads comment threads from the forge provider for a specific revision.
      */
-    private async loadCommentsForChange(changeInfo: CodeForgeChangeInfo, signal: AbortSignal): Promise<void> {
+    private async loadCommentsForChange(target: ResolvedChange, signal: AbortSignal): Promise<void> {
         const repo = this.repositoryManager.focusedRepository;
         if (!repo) {
             return;
@@ -291,7 +303,7 @@ export class CommentsManager implements Disposable {
             return;
         }
 
-        const providerChangeId = changeInfo.id;
+        const providerChangeId = target.changeInfo.id;
         if (signal.aborted) {
             return;
         }
@@ -299,9 +311,7 @@ export class CommentsManager implements Disposable {
         // Clear existing threads immediately if switching to a different change to avoid stale state
         if (this.activeChangeId !== providerChangeId) {
             this.clearThreads();
-            this.activeChangeId = undefined;
-            this.activeChangeInfo = undefined;
-            this.activeRepoPath = undefined;
+            this.clearActiveChange();
         }
 
         const provider = activeProvider as Required<Pick<CodeForgeProvider, 'getCommentThreads'>> & CodeForgeProvider;
@@ -312,7 +322,8 @@ export class CommentsManager implements Disposable {
                 return;
             }
             this.activeChangeId = providerChangeId;
-            this.activeChangeInfo = changeInfo;
+            this.activeChangeInfo = target.changeInfo;
+            this.activeJjChangeId = target.jjChangeId;
             this.activeRepoPath = repo.rootUri.fsPath;
             this._threadsList = threadsList;
             this._threads = new Map(threadsList.map((t) => [t.id, t]));
@@ -335,18 +346,16 @@ export class CommentsManager implements Disposable {
             return;
         }
 
-        const changeInfo = await this.resolveChangeInfo(repo, activeProvider, changeId);
+        const target = await this.resolveChangeInfo(repo, activeProvider, changeId);
         if (signal.aborted) {
             return;
         }
 
-        if (changeInfo) {
-            await this.loadCommentsForChange(changeInfo, signal);
+        if (target) {
+            await this.loadCommentsForChange(target, signal);
         } else {
             this.clearThreads();
-            this.activeChangeId = undefined;
-            this.activeChangeInfo = undefined;
-            this.activeRepoPath = undefined;
+            this.clearActiveChange();
         }
     }
 

@@ -7,6 +7,7 @@ import { mount } from 'svelte';
 import { CodeForgeAuthManager } from '../../src/core/code-forge-auth';
 import type { CodeForgeProvider } from '../../src/core/code-forge-provider';
 import { CodeForgeRegistry } from '../../src/core/code-forge-registry';
+import { CommentsManager } from '../../src/core/comments-manager';
 import { LogViewController } from '../../src/core/controllers/log-view-controller';
 import { GerritProvider } from '../../src/core/gerrit-provider';
 import { GitHubProvider } from '../../src/core/github-provider';
@@ -395,6 +396,10 @@ export async function bootstrap(): Promise<void> {
             });
         });
 
+        // Same as the extension host: one manager that follows the focused
+        // repository and the working copy, and is retargeted by showComments.
+        const commentsManager = new CommentsManager(repoManager, webHostEnv);
+
         registerWebCommands({
             repositoryManager: repoManager,
             hostEnvironment: webHostEnv,
@@ -402,6 +407,7 @@ export async function bootstrap(): Promise<void> {
             scmModel,
             logViewController: logController,
             authManager,
+            commentsManager,
         });
 
         const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
@@ -452,6 +458,7 @@ export async function bootstrap(): Promise<void> {
                 editFs,
                 logTransport: logBridge.transport,
                 initialLayout,
+                commentsManager,
             },
         });
         markStartup('App mounted (first visible UI)');

@@ -503,17 +503,37 @@ describe('CommentsManager Tests', () => {
                 provider: unknown,
                 revision: string,
                 logEntry?: unknown,
-            ) => Promise<CodeForgeChangeInfo | undefined>
+            ) => Promise<{ changeInfo: CodeForgeChangeInfo; jjChangeId: string } | undefined>
         >(commentsManager, 'resolveChangeInfo');
 
-        const changeInfo = await resolveFn.call(commentsManager, repo, provider, '@', {
+        const resolved = await resolveFn.call(commentsManager, repo, provider, '@', {
             change_id: 'change-no-bookmarks',
             description: 'Test commit',
             bookmarks: [],
         });
 
-        expect(changeInfo).toBeDefined();
-        expect(changeInfo?.id).toBe('change-no-bookmarks');
+        expect(resolved).toBeDefined();
+        expect(resolved?.changeInfo.id).toBe('change-no-bookmarks');
+        expect(resolved?.jjChangeId).toBe('change-no-bookmarks');
+    });
+
+    test('currentJjChangeId tracks the revision whose threads are loaded and clears with it', async () => {
+        const ids = await buildGraph(testRepo, [
+            { label: 'c1', description: 'Parent commit' },
+            { label: 'c2', parents: ['c1'], description: 'Working copy' },
+        ]);
+        provider.setThreads([{ id: 'thread-1', filePath: 'file.txt', line: 1, isResolved: false, comments: [] }]);
+
+        await commentsManager.showCommentsForChange(ids.c1.changeId);
+        expect(commentsManager.currentJjChangeId).toBe(ids.c1.changeId);
+        expect(commentsManager.currentChangeId).toBe(ids.c1.changeId);
+
+        // A revision without a forge change clears the active change entirely.
+        testRepo.describe('Working copy no-change');
+        await commentsManager.showCommentsForChange('@');
+        expect(commentsManager.currentJjChangeId).toBeUndefined();
+        expect(commentsManager.activeChange).toBeUndefined();
+        expect(commentsManager.threads).toHaveLength(0);
     });
 
     test('formatUnresolvedComments and copyUnresolvedComments format markdown correctly', async () => {

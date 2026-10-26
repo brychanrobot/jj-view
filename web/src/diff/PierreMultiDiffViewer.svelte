@@ -3,8 +3,18 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { CodeView, type CodeViewDiffItem, type CodeViewFileItem, parseDiffFromFile } from '@pierre/diffs';
+import {
+    CodeView,
+    type CodeViewDiffItem,
+    type CodeViewFileItem,
+    type CodeViewOptions,
+    type DiffLineAnnotation,
+    type LineAnnotation,
+    parseDiffFromFile,
+} from '@pierre/diffs';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { CommentThreadHandle } from '../comments/comments-store.svelte';
+import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
 import { isBinaryFile } from './binary-detection';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
@@ -15,19 +25,83 @@ interface Props {
     theme?: string;
     onSave?: (filename: string, newContent: string) => Promise<void> | void;
     onDiscard?: (filename: string) => Promise<void> | void;
+    /** Review threads per entry, keyed by {@link MultiDiffFileEntry.filename}. */
+    commentThreads?: ReadonlyMap<string, readonly CommentThreadHandle[]>;
+    onReplyToThread?: (handle: CommentThreadHandle, text: string, resolve: boolean) => Promise<void>;
+    onSetThreadResolved?: (handle: CommentThreadHandle, resolved: boolean) => Promise<void>;
 }
 
-let { title, files, theme: themeProp = '', onSave: _onSave, onDiscard: _onDiscard }: Props = $props();
+let {
+    title,
+    files,
+    theme: themeProp = '',
+    onSave: _onSave,
+    onDiscard: _onDiscard,
+    commentThreads,
+    onReplyToThread,
+    onSetThreadResolved,
+}: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
 let diffStyle: 'split' | 'unified' = $state('split');
-let codeView: CodeView | null = null;
+let codeView: CodeView<CommentThreadHandle> | null = null;
+const threadMounts = new ThreadAnnotationMounts({
+    onReply: (handle, text, resolve) => onReplyToThread?.(handle, text, resolve) ?? Promise.resolve(),
+    onSetResolved: (handle, resolved) => onSetThreadResolved?.(handle, resolved) ?? Promise.resolve(),
+});
+
+/**
+ * Which threads are anchored where. Mounted thread views track edits to a
+ * thread on their own (the handle is reactive), so the view only needs to be
+ * rebuilt when threads appear or disappear, not on every comments poll.
+ */
+const threadLayoutKey = $derived(
+    files
+        .map((file) =>
+            (commentThreads?.get(file.filename) ?? [])
+                .map((handle) => `${handle.id}@${handle.thread.line ?? 0}`)
+                .join(','),
+        )
+        .join('|'),
+);
+
+function threadsFor(file: MultiDiffFileEntry): readonly CommentThreadHandle[] {
+    return commentThreads?.get(file.filename) ?? [];
+}
+
+function fileAnnotations(file: MultiDiffFileEntry): LineAnnotation<CommentThreadHandle>[] {
+    return threadsFor(file).map((handle) => ({ lineNumber: Math.max(0, handle.thread.line ?? 0), metadata: handle }));
+}
+
+function diffAnnotations(file: MultiDiffFileEntry, isDeleted: boolean): DiffLineAnnotation<CommentThreadHandle>[] {
+    return threadsFor(file).map((handle) => ({
+        side: isDeleted ? 'deletions' : 'additions',
+        lineNumber: Math.max(0, handle.thread.line ?? 0),
+        metadata: handle,
+    }));
+}
 
 function cleanup(): void {
+    threadMounts.unmountAll();
     if (codeView) {
         codeView.cleanUp();
         codeView = null;
     }
+}
+
+function buildCodeViewOptions(
+    effectiveTheme: string,
+    themeType: 'light' | 'dark',
+): CodeViewOptions<CommentThreadHandle, undefined> {
+    return {
+        diffStyle,
+        expandUnchanged: false,
+        disableFileHeader: false,
+        theme: effectiveTheme,
+        themeType,
+        renderAnnotation: (annotation: LineAnnotation<CommentThreadHandle> | DiffLineAnnotation<CommentThreadHandle>) =>
+            threadMounts.render(annotation.metadata),
+    };
 }
 
 function renderMultiDiff(): void {
@@ -47,17 +121,11 @@ function renderMultiDiff(): void {
     const isLight = isLightTheme(effectiveTheme);
     const themeType = isLight ? 'light' : 'dark';
 
-    codeView = new CodeView({
-        diffStyle,
-        expandUnchanged: false,
-        disableFileHeader: false,
-        theme: effectiveTheme,
-        themeType,
-    });
+    codeView = new CodeView<CommentThreadHandle>(buildCodeViewOptions(effectiveTheme, themeType));
 
     codeView.setup(containerEl);
 
-    const items: (CodeViewDiffItem | CodeViewFileItem)[] = [];
+    const items: (CodeViewDiffItem<CommentThreadHandle> | CodeViewFileItem<CommentThreadHandle>)[] = [];
     const currentFiles = untrack(() => files);
 
     for (const file of currentFiles) {
@@ -82,6 +150,7 @@ function renderMultiDiff(): void {
                 id: cleanName,
                 type: 'file',
                 file: { name: cleanName, contents: mod },
+                annotations: fileAnnotations(file),
             });
             continue;
         }
@@ -92,12 +161,14 @@ function renderMultiDiff(): void {
                 id: cleanName,
                 type: 'diff',
                 fileDiff,
+                annotations: diffAnnotations(file, isDeleted),
             });
         } catch {
             items.push({
                 id: cleanName,
                 type: 'file',
                 file: { name: cleanName, contents: mod || orig },
+                annotations: fileAnnotations(file),
             });
         }
     }
@@ -121,13 +192,7 @@ function setDiffStyle(style: 'split' | 'unified'): void {
     const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
 
     if (codeView) {
-        codeView.setOptions({
-            diffStyle,
-            expandUnchanged: false,
-            disableFileHeader: false,
-            theme: effectiveTheme,
-            themeType,
-        });
+        codeView.setOptions(buildCodeViewOptions(effectiveTheme, themeType));
         codeView.render(true);
         return;
     }
@@ -146,9 +211,10 @@ onDestroy(() => {
 });
 
 $effect(() => {
-    // Re-render if files list or theme changes
+    // Re-render if the files list, theme, or the set of anchored threads changes.
     const _f = files;
     const _t = themeProp;
+    const _k = threadLayoutKey;
     untrack(() => {
         if (containerEl) {
             renderMultiDiff();
