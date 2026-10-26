@@ -33,6 +33,7 @@ interface Props {
     onSave?: (newContent: string) => Promise<void> | void;
     onDiscard?: () => Promise<void> | void;
     onResolveConflict?: () => Promise<void> | void;
+    onOpenMergeEditor?: () => Promise<void> | void;
     onDirtyChange?: (isDirty: boolean) => void;
     onContentChange?: (newContent: string) => void;
     onSelectionChange?: (ranges: { startLine: number; endLine: number }[] | undefined) => void;
@@ -57,6 +58,7 @@ let {
     onSave,
     onDiscard,
     onResolveConflict,
+    onOpenMergeEditor,
     onDirtyChange,
     onContentChange,
     onSelectionChange,
@@ -119,8 +121,8 @@ function buildFileDiffOptions(
     themeType: 'light' | 'dark',
 ): FileDiffOptions<CommentThreadHandle, undefined> {
     return {
-        diffStyle,
-        expandUnchanged: false,
+        diffStyle: untrack(() => diffStyle),
+        expandUnchanged: untrack(() => isConflict),
         disableFileHeader: true,
         theme: effectiveTheme,
         themeType,
@@ -593,18 +595,31 @@ onDestroy(() => {
         </button>
     </div>
 
-    {#if isConflict && onResolveConflict}
+    {#if isConflict && (onResolveConflict || onOpenMergeEditor)}
         <div class="diff-conflict-floating">
-            <button
-                type="button"
-                class="resolve-btn"
-                onclick={handleResolveConflict}
-                title="Mark conflict as resolved"
-                data-testid="diff-resolve-conflict-btn"
-            >
-                <i class="codicon codicon-check" aria-hidden="true"></i>
-                <span>Mark Resolved</span>
-            </button>
+            {#if onOpenMergeEditor}
+                <button
+                    type="button"
+                    class="resolve-btn"
+                    onclick={() => onOpenMergeEditor?.()}
+                    title="Open in 3-Way Merge Editor"
+                    data-testid="diff-open-merge-editor-btn"
+                >
+                    <span>Open Merge Editor</span>
+                </button>
+            {/if}
+            {#if onResolveConflict}
+                <button
+                    type="button"
+                    class="resolve-btn"
+                    onclick={handleResolveConflict}
+                    title="Mark conflict as resolved"
+                    data-testid="diff-resolve-conflict-btn"
+                >
+                    <i class="codicon codicon-check" aria-hidden="true"></i>
+                    <span>Mark Resolved</span>
+                </button>
+            {/if}
         </div>
     {/if}
 
@@ -689,6 +704,7 @@ onDestroy(() => {
     z-index: 10;
     display: inline-flex;
     align-items: center;
+    gap: 6px;
 }
 
 .resolve-btn {

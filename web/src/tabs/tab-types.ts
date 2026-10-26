@@ -46,6 +46,17 @@ export type TabViewData =
           resourceState?: JjResourceState;
       }
     | {
+          type: 'merge';
+          uri: Uri;
+          title: string;
+          baseContent: string;
+          leftContent: string;
+          rightContent: string;
+          resolvedContent?: string;
+          resourceState?: JjResourceState;
+          loaded?: boolean;
+      }
+    | {
           /** The review comments for the CommentsManager's active change. One per app. */
           type: 'comments';
       };
@@ -77,6 +88,8 @@ export function getTabId(view: TabViewData): string {
             return `commit-details:${view.changeId}`;
         case 'file':
             return `file:${view.uri.toString()}`;
+        case 'merge':
+            return `merge:${view.uri.toString()}`;
         case 'comments':
             return COMMENTS_TAB_ID;
     }

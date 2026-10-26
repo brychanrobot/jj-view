@@ -50,6 +50,8 @@ import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from './menu/default-menus';
 import { MenuRegistry } from './menu/menu-registry';
 import type { ResolvedMenuItemGroup } from './menu/menu-types';
 import { WhenEvaluator } from './menu/when-evaluator';
+import MergeEditorView from './merge/MergeEditorView.svelte';
+import { parseConflictMarkersFallback } from './merge/three-way-merge';
 import NotificationContainer from './notifications/NotificationContainer.svelte';
 import { NotificationService } from './notifications/notification-service';
 import QuickInput from './quick-input/QuickInput.svelte';
@@ -133,6 +135,7 @@ let activeTabSelection = $state<{ startLine: number; endLine: number }[] | undef
 let activeDiffViewerRef = $state<ChatContextSelectionProvider | null>(null);
 let activeFileViewerRef = $state<ChatContextSelectionProvider | null>(null);
 let activeMultiDiffViewerRef = $state<ChatContextSelectionProvider | null>(null);
+let activeMergeViewerRef = $state<ChatContextSelectionProvider | null>(null);
 let contextMenuSelectionSnapshot = $state<EditorChatContextSelection | null>(null);
 let isSettingsOpen = $state(false);
 let activeTheme = $state('pierre-dark-soft');
@@ -143,7 +146,7 @@ $effect(() => {
     const uri =
         activeTab?.view.type === 'diff'
             ? (activeTab.view.rightUri ?? activeTab.view.leftUri)
-            : activeTab?.view.type === 'file'
+            : activeTab?.view.type === 'file' || activeTab?.view.type === 'merge'
               ? activeTab.view.uri
               : undefined;
     activeTabSelection = undefined;
@@ -523,6 +526,14 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         if (existingTab && view.type === 'multi-diff' && existingTab.view.type === 'multi-diff') {
             existingTab.view.files = view.files;
         }
+        if (existingTab && view.type === 'merge' && existingTab.view.type === 'merge') {
+            if (view.loaded) {
+                existingTab.view.baseContent = view.baseContent;
+                existingTab.view.leftContent = view.leftContent;
+                existingTab.view.rightContent = view.rightContent;
+                existingTab.view.loaded = true;
+            }
+        }
         if (options?.preview === false && existingTab.preview) {
             existingTab.preview = false;
         }
@@ -549,6 +560,10 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         title = view.title;
         tooltip = view.uri.fsPath;
         iconClass = 'codicon codicon-file';
+    } else if (view.type === 'merge') {
+        title = view.title;
+        tooltip = view.uri.fsPath || view.title;
+        iconClass = 'codicon codicon-git-merge';
     } else if (view.type === 'comments') {
         title = 'Comments';
         tooltip = 'Review comments';
@@ -605,7 +620,7 @@ function closeTabByUri(uri: Uri): void {
         if (t.view.type === 'diff') {
             return t.view.rightUri?.toString() === uriStr || t.view.leftUri?.toString() === uriStr;
         }
-        if (t.view.type === 'file') {
+        if (t.view.type === 'file' || t.view.type === 'merge') {
             return t.view.uri.toString() === uriStr;
         }
         return false;
@@ -902,7 +917,7 @@ async function handleSaveFile(newContent: string): Promise<void> {
     let targetUri: Uri | undefined;
     if (activeTab.view.type === 'diff') {
         targetUri = activeTab.view.rightUri;
-    } else if (activeTab.view.type === 'file') {
+    } else if (activeTab.view.type === 'file' || activeTab.view.type === 'merge') {
         targetUri = activeTab.view.uri;
     }
     if (!targetUri) {
@@ -917,6 +932,8 @@ async function handleSaveFile(newContent: string): Promise<void> {
         activeTab.view.modifiedContent = newContent;
     } else if (activeTab.view.type === 'file') {
         activeTab.view.content = newContent;
+    } else if (activeTab.view.type === 'merge') {
+        activeTab.view.resolvedContent = newContent;
     }
     activeTab.isDirty = false;
     webHostEnv?.documents.notifyDidSaveDocument(targetUri);
@@ -963,6 +980,90 @@ async function handleResolveConflict(): Promise<void> {
     await loadDiffContents(activeTab.view.resourceState, { preview: false });
 }
 
+async function loadConflictPartsForResource(
+    conflictPath: string,
+    uri: Uri,
+): Promise<{ base: string; left: string; right: string }> {
+    if (scmModel) {
+        try {
+            return await scmModel.jj.getConflictParts(conflictPath);
+        } catch {
+            // Fall through to conflict marker fallback parser if jj resolve capture fails
+        }
+    }
+    const rawContent = await resolveUriContent(uri);
+    const parsed = parseConflictMarkersFallback(rawContent);
+    if (parsed) {
+        return parsed;
+    }
+    return { base: rawContent, left: rawContent, right: rawContent };
+}
+
+async function openMergeEditorForResource(state: JjResourceState, options?: HostOpenOptions): Promise<void> {
+    const uri = state.resourceUri;
+    const normPath = state.relativePath || uri.path || uri.fsPath || '';
+    const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+    const conflictPath =
+        currentSnapshot?.conflictedPaths.find((p) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
+    const fileName = conflictPath.split('/').filter(Boolean).pop() || conflictPath || 'Merge';
+    const mergeTitle = `${fileName} (Merge)`;
+
+    openOrActivateTab(
+        {
+            type: 'merge',
+            uri,
+            title: mergeTitle,
+            baseContent: '',
+            leftContent: '',
+            rightContent: '',
+            resourceState: state,
+            loaded: false,
+        },
+        options ?? { preview: false },
+    );
+
+    try {
+        const parts = await loadConflictPartsForResource(conflictPath, uri);
+        const tabId = getTabId({
+            type: 'merge',
+            uri,
+            title: mergeTitle,
+            baseContent: '',
+            leftContent: '',
+            rightContent: '',
+        });
+        const targetTab = tabs.find((t) => t.id === tabId);
+        if (!targetTab || targetTab.view.type !== 'merge') {
+            return;
+        }
+        targetTab.view.baseContent = parts.base;
+        targetTab.view.leftContent = parts.left;
+        targetTab.view.rightContent = parts.right;
+        targetTab.view.loaded = true;
+    } catch (err) {
+        console.error('Failed to load conflict parts for merge editor:', err);
+    }
+}
+
+async function handleCompleteMerge(resolvedContent: string): Promise<void> {
+    if (!activeTab || activeTab.view.type !== 'merge') {
+        return;
+    }
+    const targetUri = activeTab.view.uri;
+    const closingTabId = activeTab.id;
+    if (targetUri.scheme === 'jj-edit' && editFs) {
+        await editFs.writeFile(targetUri, new TextEncoder().encode(resolvedContent));
+    } else if (host) {
+        await host.fs.writeTextFile(targetUri.fsPath, resolvedContent);
+    }
+    activeTab.isDirty = false;
+    webHostEnv?.documents.notifyDidSaveDocument(targetUri);
+    if (scmModel) {
+        await scmModel.refresh({ reason: 'complete-merge' });
+    }
+    closeTabById(closingTabId);
+}
+
 function resolveActiveChatContextSelection(): EditorChatContextSelection | null {
     if (!activeTab) {
         return null;
@@ -975,6 +1076,9 @@ function resolveActiveChatContextSelection(): EditorChatContextSelection | null 
     }
     if (activeTab.view.type === 'multi-diff') {
         return activeMultiDiffViewerRef?.getChatContextSelection() ?? null;
+    }
+    if (activeTab.view.type === 'merge') {
+        return activeMergeViewerRef?.getChatContextSelection() ?? null;
     }
     return null;
 }
@@ -1242,6 +1346,10 @@ async function handleAction(command: string, payload?: unknown): Promise<void> {
 }
 
 async function handleOpenResource(state: JjResourceState, options?: { preview?: boolean }): Promise<void> {
+    if (state.command?.command === 'jj-view.openMergeEditor') {
+        await openMergeEditorForResource(state, options);
+        return;
+    }
     if (state.leftUri && state.rightUri) {
         await loadDiffContents(state, options);
         return;
@@ -1338,7 +1446,7 @@ onMount(() => {
                 if (activeTab.view.type === 'diff') {
                     return activeTab.view.rightUri ?? activeTab.view.leftUri;
                 }
-                if (activeTab.view.type === 'file') {
+                if (activeTab.view.type === 'file' || activeTab.view.type === 'merge') {
                     return activeTab.view.uri;
                 }
                 return undefined;
@@ -1354,7 +1462,7 @@ onMount(() => {
                         if (t.view.leftUri) {
                             uris.push(t.view.leftUri);
                         }
-                    } else if (t.view.type === 'file') {
+                    } else if (t.view.type === 'file' || t.view.type === 'merge') {
                         uris.push(t.view.uri);
                     }
                 }
@@ -1388,6 +1496,8 @@ onMount(() => {
                         }
                     } else if (t.view.type === 'file' && t.view.uri.toString() === uriStr) {
                         return t.view.content;
+                    } else if (t.view.type === 'merge' && t.view.uri.toString() === uriStr) {
+                        return t.view.resolvedContent;
                     }
                 }
                 return undefined;
@@ -1398,7 +1508,7 @@ onMount(() => {
                     (t) =>
                         t.isDirty &&
                         ((t.view.type === 'diff' && t.view.rightUri?.toString() === uriStr) ||
-                            (t.view.type === 'file' && t.view.uri.toString() === uriStr)),
+                            ((t.view.type === 'file' || t.view.type === 'merge') && t.view.uri.toString() === uriStr)),
                 );
                 if (targetTab) {
                     let content = '';
@@ -1408,6 +1518,9 @@ onMount(() => {
                         targetUri = targetTab.view.rightUri;
                     } else if (targetTab.view.type === 'file') {
                         content = targetTab.view.content ?? '';
+                        targetUri = targetTab.view.uri;
+                    } else if (targetTab.view.type === 'merge') {
+                        content = targetTab.view.resolvedContent ?? '';
                         targetUri = targetTab.view.uri;
                     }
                     if (targetUri) {
@@ -1479,7 +1592,7 @@ onMount(() => {
                         workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
                     },
                 );
-                await loadDiffContents(state, { preview: false });
+                await openMergeEditorForResource(state, { preview: false });
             },
             onOpenCommitDetails: async (changeId, options) => {
                 openOrActivateTab({ type: 'commit-details', changeId }, options);
@@ -1661,6 +1774,11 @@ onMount(() => {
                                 onSave={handleSaveFile}
                                 onDiscard={handleDiscardFile}
                                 onResolveConflict={handleResolveConflict}
+                                onOpenMergeEditor={() => {
+                                    if (activeTab?.view.type === 'diff' && activeTab.view.resourceState) {
+                                        void openMergeEditorForResource(activeTab.view.resourceState, { preview: false });
+                                    }
+                                }}
                                 onDirtyChange={(d) => {
                                     if (activeTab) {
                                         activeTab.isDirty = d;
@@ -1678,6 +1796,41 @@ onMount(() => {
                                     activeTabSelection = ranges;
                                 }}
                                 onSquashSelection={handleSquashSelection}
+                                onAddSelectionToChat={() => handleAddSelectionToChat()}
+                            />
+                        {/key}
+                    {/if}
+                {:else if activeTab && activeTab.view.type === 'merge'}
+                    {#if activeTab.view.loaded === false}
+                        <div class="editor-loading-placeholder"></div>
+                    {:else}
+                        {#key activeTab.id}
+                            <MergeEditorView
+                                bind:this={activeMergeViewerRef}
+                                filePath={activeTab.view.resourceState?.relativePath || activeTab.view.uri.fsPath || activeTab.title}
+                                baseContent={activeTab.view.baseContent}
+                                leftContent={activeTab.view.leftContent}
+                                rightContent={activeTab.view.rightContent}
+                                onCompleteMerge={handleCompleteMerge}
+                                onSave={handleSaveFile}
+                                onDirtyChange={(d) => {
+                                    if (activeTab) {
+                                        activeTab.isDirty = d;
+                                        if (d) {
+                                            activeTab.preview = false;
+                                        }
+                                    }
+                                }}
+                                onContentChange={(text) => {
+                                    if (activeTab && activeTab.view.type === 'merge') {
+                                        activeTab.view.resolvedContent = text;
+                                    }
+                                }}
+                                onOpenTwoWayDiff={() => {
+                                    if (activeTab?.view.type === 'merge' && activeTab.view.resourceState) {
+                                        void loadDiffContents(activeTab.view.resourceState, { preview: false });
+                                    }
+                                }}
                                 onAddSelectionToChat={() => handleAddSelectionToChat()}
                             />
                         {/key}
