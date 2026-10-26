@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CodeForgeProvider } from '../core/code-forge-provider';
@@ -182,5 +183,74 @@ describe('JjRepository.refresh error handling', () => {
         expect(mockProvider.clearCache).not.toHaveBeenCalled();
         const afterRefresh = jjRepo.codeForge.activeProvider?.getCachedChangeInfo('change-1');
         expect(afterRefresh).toEqual(fakeChange);
+    });
+});
+
+describe('JjRepository.refresh cache invalidation', () => {
+    let repo: TestRepo;
+    let jjRepo: JjRepository;
+    let host: FakeHostEnvironment;
+
+    beforeEach(() => {
+        host = new FakeHostEnvironment();
+        repo = new TestRepo();
+        repo.init();
+        repo.writeFile('a.txt', 'one\n');
+        repo.snapshot();
+        repo.new();
+        jjRepo = new JjRepository(
+            Uri.file(repo.path),
+            path.join(repo.path, '.jj', 'repo'),
+            new CodeForgeRegistry(),
+            createMockLogOutputChannel(),
+            host,
+        );
+    });
+
+    afterEach(async () => {
+        await jjRepo.dispose();
+        await repo.dispose();
+    });
+
+    test('a refresh with no repository changes preserves the warmed diff cache', async () => {
+        await jjRepo.refresh({ reason: 'initial', forceSnapshot: true });
+
+        const warmed = await jjRepo.jj.getDiffForRevision('@');
+        expect(fs.existsSync(warmed.tempDir)).toBe(true);
+
+        await jjRepo.refresh({ reason: 'focus refresh', forceSnapshot: true });
+        await jjRepo.refresh({ reason: 'jj operation' });
+
+        const afterRefresh = await jjRepo.jj.getDiffForRevision('@');
+        expect(afterRefresh.tempDir).toBe(warmed.tempDir);
+        expect(fs.existsSync(warmed.tempDir)).toBe(true);
+    });
+
+    test('a refresh that snapshots a working-copy edit invalidates the diff cache', async () => {
+        await jjRepo.refresh({ reason: 'initial', forceSnapshot: true });
+        const warmed = await jjRepo.jj.getDiffForRevision('@');
+
+        repo.writeFile('a.txt', 'two\n');
+        await jjRepo.refresh({ reason: 'file watcher event', forceSnapshot: true });
+
+        const afterRefresh = await jjRepo.jj.getDiffForRevision('@');
+        expect(afterRefresh.tempDir).not.toBe(warmed.tempDir);
+        expect(fs.existsSync(warmed.tempDir)).toBe(false);
+        expect(await jjRepo.jj.getDiffContent('@', path.join(repo.path, 'a.txt'))).toEqual({
+            left: 'one\n',
+            right: 'two\n',
+        });
+    });
+
+    test('a refresh after an external jj operation invalidates the diff cache', async () => {
+        await jjRepo.refresh({ reason: 'initial', forceSnapshot: true });
+        const warmed = await jjRepo.jj.getDiffForRevision('@');
+
+        repo.describe('external edit');
+        await jjRepo.refresh({ reason: 'jj operation' });
+
+        const afterRefresh = await jjRepo.jj.getDiffForRevision('@');
+        expect(afterRefresh.tempDir).not.toBe(warmed.tempDir);
+        expect(fs.existsSync(warmed.tempDir)).toBe(false);
     });
 });

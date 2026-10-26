@@ -20,12 +20,21 @@ interface RefreshPayload {
     reasons: Set<string>;
 }
 
+function sameSortedList(a: readonly string[], b: readonly string[] | undefined): boolean {
+    if (!b || a.length !== b.length) {
+        return false;
+    }
+    return a.every((value, index) => value === b[index]);
+}
+
 export class JjRepository implements Disposable {
     private readonly _jj: JjService;
     private readonly _watcher: ChangeDetectionManager;
     private readonly _codeForge: CodeForgeService;
     private readonly _onDidStatusChange = new AsyncEventEmitter<{ reason: string }>();
     private readonly _refreshQueue: DebouncingQueue<RefreshPayload>;
+    /** Operation heads observed at the end of the last refresh; undefined until the first refresh. */
+    private _lastOpHeads: string[] | undefined;
 
     readonly onDidStatusChange = this._onDidStatusChange.event;
 
@@ -54,15 +63,25 @@ export class JjRepository implements Disposable {
 
                 this._isValid = undefined;
                 try {
-                    await this._jj.clearCache();
                     if (options?.forceSnapshot) {
-                        await this._jj.status();
+                        await this._jj.snapshotWorkingCopy();
                     }
-                    await this._jj.getRepoRoot(); // Warm the cache
+
+                    // Only invalidate caches when the operation log actually advanced
+                    // (snapshot recorded edits, or an external jj command ran). This keeps
+                    // warmed diff caches alive across no-op refreshes such as startup,
+                    // window focus, and spurious watcher events.
+                    const heads = await this._jj.getOperationHeads().catch(() => undefined);
+                    const changed = heads === undefined || !sameSortedList(heads, this._lastOpHeads);
+                    this._lastOpHeads = heads;
+                    if (changed) {
+                        await this._jj.clearCache();
+                        await this._jj.getRepoRoot(); // Warm the cache
+                    }
 
                     const duration = performance.now() - start;
                     outputChannel.info?.(
-                        `[timing] [Snapshot] refresh took ${duration.toFixed(0)}ms (reason: ${reason})`,
+                        `[timing] [Snapshot] refresh took ${duration.toFixed(0)}ms (reason: ${reason}, ops ${changed ? 'changed' : 'unchanged'})`,
                     );
 
                     if (!this._disposed) {

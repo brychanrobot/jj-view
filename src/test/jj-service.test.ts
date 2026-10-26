@@ -7,6 +7,7 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { JjProcessTracker } from '../core/jj-process-tracker';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
 
@@ -109,6 +110,25 @@ describe('JjService Unit Tests', () => {
 
         const gitRoot2 = await jjService.getGitRoot();
         expect(gitRoot2).toBe(gitRoot1);
+    });
+
+    test('concurrent getRepoRoot calls share a single jj root spawn', async () => {
+        const tracker = new JjProcessTracker();
+        const service = new JjService(repo.path, NO_OP_LOGGER, { processTracker: tracker });
+        try {
+            const roots = await Promise.all([service.getRepoRoot(), service.getRepoRoot(), service.getRepoRoot()]);
+            expect(new Set(roots).size).toBe(1);
+            expect(fs.realpathSync.native(roots[0])).toBe(fs.realpathSync.native(repo.path));
+
+            const rootSpawns = tracker.getHistory().filter((task) => task.label === 'getRepoRoot');
+            expect(rootSpawns).toHaveLength(1);
+
+            // Memoized afterwards: no further spawn.
+            await service.getRepoRoot();
+            expect(tracker.getHistory().filter((task) => task.label === 'getRepoRoot')).toHaveLength(1);
+        } finally {
+            tracker.dispose();
+        }
     });
 
     test('getRepoStorePath returns directory for main repo', async () => {

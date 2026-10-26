@@ -1177,6 +1177,26 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		}
 		return map[string]string{"path": path}, nil
 
+	case "process.execFileInScratchDir":
+		var params scratchExecParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		res, rpcErr := s.execFileInScratchDir(ctx, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return res, nil
+
+	case "fs.readFiles":
+		var params struct {
+			Paths []string `json:"paths"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		return s.readFiles(params.Paths), nil
+
 	case "fs.readFile":
 		var params struct {
 			Path string `json:"path"`

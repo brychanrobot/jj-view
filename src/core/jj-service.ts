@@ -7,7 +7,17 @@ import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
-import { type HostSystem, type ProcessExecOptions, ProcessExitError, type TrackableProcess } from './host/host-system';
+import {
+    HELPER_SCRIPT_TOKEN,
+    type HostSystem,
+    type ProcessExecOptions,
+    ProcessExitError,
+    type ProcessResult,
+    SCRATCH_DIR_TOKEN,
+    type ScratchExecRequest,
+    type ScratchExecResult,
+    type TrackableProcess,
+} from './host/host-system';
 import { NodeHostSystem } from './host/node-host-system';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import {
@@ -123,7 +133,9 @@ export class JjService {
     private static readonly MAX_LOG_ENTRY_CACHE_KEYS = 4000;
     private _cacheEpoch = 0;
     private readonly _logEntryCache = new Map<string, JjLogEntry>();
+    private _logRevsetPromise: Promise<string> | undefined;
     private readonly _diffCache: AsyncCache<string, { tempDir: string; expires: number }>;
+    private readonly _diffContentCache = new Map<string, Map<string, { left: string; right: string }>>();
     private readonly _changesCache = new AsyncCache<string, JjStatusEntry[]>({
         clone: (entries) => entries.map((e) => ({ ...e })),
     });
@@ -154,12 +166,30 @@ export class JjService {
     }
 
     private _repoRoot?: string;
+    private _repoRootPromise?: Promise<string>;
+    /**
+     * Resolves `jj root` for this service's workspaceRoot. Concurrent callers
+     * share one spawn: the result only depends on cwd, which is fixed per
+     * instance. Different instances (different cwds) still spawn separately.
+     */
     async getRepoRoot(): Promise<string> {
         if (this._repoRoot) {
             return this._repoRoot;
         }
-        this._repoRoot = await this.run('root', [], { useCachedSnapshot: true, label: 'getRepoRoot' });
-        return this._repoRoot;
+        if (this._repoRootPromise) {
+            return this._repoRootPromise;
+        }
+        const promise = this.run('root', [], { useCachedSnapshot: true, label: 'getRepoRoot' });
+        this._repoRootPromise = promise;
+        try {
+            const root = await promise;
+            this._repoRoot = root;
+            return root;
+        } finally {
+            if (this._repoRootPromise === promise) {
+                this._repoRootPromise = undefined;
+            }
+        }
     }
 
     /**
@@ -249,12 +279,29 @@ export class JjService {
         return filePath;
     }
 
+    private _realRootsPromise: Promise<{ repoReal: string; workspaceReal: string }> | null = null;
+
+    private async getRealRoots(): Promise<{ repoReal: string; workspaceReal: string }> {
+        if (!this._realRootsPromise) {
+            this._realRootsPromise = (async () => {
+                const repoRoot = await this.getRepoRoot();
+                const [repoReal, workspaceReal] = await Promise.all([
+                    this.system.fs.realpath(repoRoot).catch(() => repoRoot),
+                    this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot),
+                ]);
+                return { repoReal, workspaceReal };
+            })();
+        }
+        return this._realRootsPromise;
+    }
+
     private async toRepoRelative(filePath: string): Promise<string> {
-        const repoRoot = await this.getRepoRoot();
-        const repoReal = await this.system.fs.realpath(repoRoot).catch(() => repoRoot);
-        const workspaceReal = await this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+        const { repoReal, workspaceReal } = await this.getRealRoots();
 
         if (!path.isAbsolute(filePath)) {
+            if (repoReal === workspaceReal) {
+                return path.normalize(filePath);
+            }
             const repoToWorkspace = path.relative(repoReal, workspaceReal);
             return path.normalize(path.join(repoToWorkspace, filePath));
         }
@@ -326,9 +373,7 @@ export class JjService {
         return this.runInternal(command, args, options);
     }
 
-    private async runInternal(command: string, args: string[], options: JjRunOptions = {}): Promise<string> {
-        const opId = this._nextOpId++;
-
+    private buildGlobalArgs(options: JjRunOptions): string[] {
         const globalArgs = [
             '--config',
             'ui.log-word-wrap=false',
@@ -339,13 +384,62 @@ export class JjService {
             '--config',
             'ui.diff-instructions=false',
         ];
-
         if (options.useCachedSnapshot) {
             globalArgs.push('--ignore-working-copy');
         }
+        return globalArgs;
+    }
+
+    private async runInternal(command: string, args: string[], options: JjRunOptions = {}): Promise<string> {
+        const result = await this.execTracked(command, args, options, (allArgs, execOptions) =>
+            this.system.process.execFile(this.binaryPath, allArgs, execOptions),
+        );
+        const shouldTrim = options.trim !== false;
+        return shouldTrim ? result.stdout.trim() : result.stdout;
+    }
+
+    /**
+     * Runs a jj command that needs a fresh scratch directory (created by the host) and
+     * a helper script path, as a single host operation. `scratch.completionMarker`
+     * decides success: helper scripts intentionally exit non-zero to abort the jj
+     * operation after capturing output, so exit code alone is not meaningful.
+     */
+    private async runInScratchDir(
+        command: string,
+        args: string[],
+        scratch: Omit<ScratchExecRequest, 'file' | 'args' | 'options'>,
+        options: JjRunOptions = {},
+    ): Promise<ScratchExecResult> {
+        return this.execTracked(command, args, options, async (allArgs, execOptions) => {
+            const result = await this.system.process.execFileInScratchDir({
+                ...scratch,
+                file: this.binaryPath,
+                args: allArgs,
+                options: execOptions,
+            });
+            if (result.exitCode === 0 || result.markerPresent) {
+                return result;
+            }
+            await this.system.fs.rm(result.scratchDir, { recursive: true, force: true }).catch(() => {});
+            throw new ProcessExitError(
+                `Process ${this.binaryPath} failed with exit code ${result.exitCode}`,
+                result.exitCode,
+                result.stdout,
+                result.stderr,
+            );
+        });
+    }
+
+    private async execTracked<T extends ProcessResult>(
+        command: string,
+        args: string[],
+        options: JjRunOptions,
+        invoke: (allArgs: string[], execOptions: ProcessExecOptions) => Promise<T>,
+    ): Promise<T> {
+        const opId = this._nextOpId++;
 
         const start = performance.now();
-        const allArgs = [...globalArgs, command, ...args];
+        const allArgs = [...this.buildGlobalArgs(options), command, ...args];
         const prefix = options.label ? `[${options.label}] ` : '';
         const fullCommandStr = `jj ${[command, ...args].join(' ')}`;
         const logSummaryStr = `${prefix}jj ${[command, ...args].slice(0, 2).join(' ')}${[command, ...args].length > 2 ? '...' : ''}`;
@@ -404,10 +498,7 @@ export class JjService {
                 },
             };
 
-            const result = await Promise.race([
-                this.system.process.execFile(this.binaryPath, allArgs, execOptions),
-                timeoutPromise,
-            ]);
+            const result = await Promise.race([invoke(allArgs, execOptions), timeoutPromise]);
             const duration = performance.now() - start;
             if (globalThis.__JJ_VIEW_COMMAND_HOOK__) {
                 globalThis.__JJ_VIEW_COMMAND_HOOK__(command, args, duration);
@@ -420,8 +511,7 @@ export class JjService {
                 await this.clearCache().catch((err) => this.logger.warn(`Warning: failed to clear cache: ${err}`));
             }
 
-            const shouldTrim = options.trim !== false;
-            return shouldTrim ? result.stdout.trim() : result.stdout;
+            return result;
         } catch (err: unknown) {
             if (timedOut) {
                 throw new Error(
@@ -555,12 +645,17 @@ export class JjService {
         }
 
         const epoch = this._cacheEpoch;
+        // The nearest-ancestor search set needs the configured log revset when
+        // no explicit revision is given. Start that lookup now so it overlaps
+        // the main log query instead of adding a serial jj spawn afterwards.
+        const searchSet =
+            includeNearestVisibleAncestors && !revision ? this.getConfiguredLogRevset() : Promise.resolve(revision);
         const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
         const entries = this._parseJsonLines(output, JjLogEntrySchema, 'getLog');
 
         if (includeNearestVisibleAncestors) {
             const visibleIds = new Set<string>(entries.map((e) => e.change_id));
-            await this._resolveNearestVisibleAncestors(entries, visibleIds, revision);
+            await this._resolveNearestVisibleAncestors(entries, visibleIds, await searchSet);
         }
 
         if (omitChanges && this._cacheEpoch === epoch) {
@@ -577,25 +672,30 @@ export class JjService {
         return entries[0];
     }
 
+    private static readonly FALLBACK_LOG_REVSET = 'present(@) | ancestors(immutable_heads().., 2) | trunk()';
+
+    /**
+     * The user's configured `revsets.log`, memoized until the next cache clear.
+     * Falls back to jj's default when the key is unset or the lookup fails.
+     */
+    private getConfiguredLogRevset(): Promise<string> {
+        if (this._logRevsetPromise) {
+            return this._logRevsetPromise;
+        }
+        const promise = this.run('config', ['get', 'revsets.log'], {
+            useCachedSnapshot: true,
+            label: 'getLog:revsets.log',
+        }).catch(() => JjService.FALLBACK_LOG_REVSET);
+        this._logRevsetPromise = promise;
+        return promise;
+    }
+
     private async _resolveNearestVisibleAncestors(
         entries: JjLogEntry[],
         visibleIds: Set<string>,
-        revision?: string,
+        requestedSearchSet: string | undefined,
     ): Promise<void> {
-        // Determine the search set for nearest ancestors.
-        // If an explicit revision was provided, we use that.
-        // Otherwise, we default to the configured log revset (or a safe fallback).
-        let searchSet = revision;
-        if (!searchSet) {
-            try {
-                searchSet = await this.run('config', ['get', 'revsets.log'], {
-                    useCachedSnapshot: true,
-                    label: 'getLog:revsets.log',
-                });
-            } catch {
-                searchSet = 'present(@) | ancestors(immutable_heads().., 2) | trunk()';
-            }
-        }
+        const searchSet = requestedSearchSet || JjService.FALLBACK_LOG_REVSET;
 
         const followUps: Promise<void>[] = [];
         for (const entry of entries) {
@@ -745,31 +845,88 @@ export class JjService {
      * Uses the bulk cache, warming it if necessary.
      */
     async getDiffContent(revision: string, filePath: string): Promise<{ left: string; right: string }> {
-        const cache = await this.getDiffForRevision(revision);
+        const start = performance.now();
         const relativePath = await this.toRepoRelative(filePath);
-        const leftPath = path.join(cache.tempDir, 'left', relativePath);
-        const rightPath = path.join(cache.tempDir, 'right', relativePath);
 
-        const leftExists = await this.system.fs.exists(leftPath);
-        const rightExists = await this.system.fs.exists(rightPath);
-
-        if (leftExists || rightExists) {
-            const left = leftExists ? await this.system.fs.readTextFile(leftPath) : '';
-            const right = rightExists ? await this.system.fs.readTextFile(rightPath) : '';
-            return { left, right };
+        // Fast path: in-memory cache hit (0 RPCs, 0 ms)
+        const revisionContentCache = this._diffContentCache.get(revision);
+        const cached = revisionContentCache?.get(relativePath);
+        if (cached) {
+            const totalDuration = performance.now() - start;
+            const msg = `[Perf:JjService] getDiffContent(${revision}, ${relativePath}) MEMORY-HIT: ${totalDuration.toFixed(1)}ms`;
+            this.logger.debug(msg);
+            if (typeof console !== 'undefined' && console.log) {
+                console.log(msg);
+            }
+            return cached;
         }
 
-        // If not in cache, it means there are no differences for this file
-        // relative to the parent(s). Fallback to fetching file content directly.
-        // This handles "Quick Diff" on unchanged files where we need the base content.
-        try {
-            this.logger.debug(`getDiffContent fallback ${filePath} ${revision}`);
-            const content = await this.getFileContent(filePath, revision);
-            return { left: content, right: content };
-        } catch {
-            // If file doesn't exist in revision, return empty
-            return { left: '', right: '' };
+        let warmDuration = 0;
+        let readDuration = 0;
+        let left = '';
+        let right = '';
+        let bothMissing = false;
+
+        // The cache may be cleared between obtaining the tempDir and reading from it
+        // (an eviction removes the directory). Distinguish that from "file absent from
+        // the diff" by checking whether the entry we read from is still the live one.
+        const MAX_READ_ATTEMPTS = 2;
+        for (let attempt = 1; attempt <= MAX_READ_ATTEMPTS; attempt++) {
+            const warmStart = performance.now();
+            const cache = await this.getDiffForRevision(revision);
+            warmDuration += performance.now() - warmStart;
+
+            const leftPath = path.join(cache.tempDir, 'left', relativePath);
+            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+
+            // Read left and right in one host call; null means the side is absent from the diff.
+            const readStart = performance.now();
+            const [leftContent, rightContent] = await this.system.fs.readTextFiles([leftPath, rightPath]);
+            readDuration += performance.now() - readStart;
+
+            left = leftContent ?? '';
+            right = rightContent ?? '';
+            bothMissing = leftContent === null && rightContent === null;
+
+            const evictedDuringRead = this._diffCache.peek(revision)?.tempDir !== cache.tempDir;
+            if (!bothMissing || !evictedDuringRead || attempt === MAX_READ_ATTEMPTS) {
+                break;
+            }
+            this.logger.debug(`getDiffContent ${revision} ${relativePath}: diff cache evicted during read, retrying`);
         }
+
+        if (bothMissing) {
+            // If neither file exists in the bulk diff cache, it means there are no differences
+            // for this file relative to the parent(s). Fallback to fetching file content directly.
+            // This handles "Quick Diff" on unchanged files where we need the base content.
+            try {
+                this.logger.debug(`getDiffContent fallback ${filePath} ${revision}`);
+                const content = await this.getFileContent(filePath, revision);
+                left = content;
+                right = content;
+            } catch {
+                // If file doesn't exist in revision, return empty
+                left = '';
+                right = '';
+            }
+        }
+
+        const result = { left, right };
+
+        let contentMap = this._diffContentCache.get(revision);
+        if (!contentMap) {
+            contentMap = new Map();
+            this._diffContentCache.set(revision, contentMap);
+        }
+        contentMap.set(relativePath, result);
+
+        const totalDuration = performance.now() - start;
+        const msg = `[Perf:JjService] getDiffContent(${revision}, ${relativePath}) took ${totalDuration.toFixed(1)}ms (warm: ${warmDuration.toFixed(1)}ms, read: ${readDuration.toFixed(1)}ms)`;
+        this.logger.debug(msg);
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(msg);
+        }
+        return result;
     }
 
     /**
@@ -777,61 +934,63 @@ export class JjService {
      * Extracts all changed files into a temporary directory using a single 'jj diffedit' call.
      */
     async getDiffForRevision(revision: string, force: boolean = false): Promise<{ tempDir: string; expires: number }> {
+        const start = performance.now();
         if (force) {
+            this._diffContentCache.delete(revision);
             await this._diffCache.delete(revision);
         }
-        return this._diffCache.getOrFetch(revision, () => this._warmDiffCache(revision));
+        const isWarm = this._diffCache.has(revision);
+        const result = await this._diffCache.getOrFetch(revision, () => this._warmDiffCache(revision));
+        const duration = performance.now() - start;
+        const msg = `[Perf:JjService] getDiffForRevision(${revision}) ${isWarm ? 'HIT' : 'WARM'}: ${duration.toFixed(1)}ms`;
+        this.logger.debug(msg);
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(msg);
+        }
+        return result;
     }
 
     private async _warmDiffCache(revision: string): Promise<{ tempDir: string; expires: number }> {
-        const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-bulk-diff-'));
-        const leftDir = path.join(tempDir, 'left');
-        const rightDir = path.join(tempDir, 'right');
+        const toolName = 'vscode-bulk-capture';
+        const toolConfig = this.getToolConfigArgs(toolName, HELPER_SCRIPT_TOKEN, [
+            '$left',
+            '$right',
+            `${SCRATCH_DIR_TOKEN}/left`,
+            `${SCRATCH_DIR_TOKEN}/right`,
+        ]);
 
-        try {
-            await this.system.fs.mkdir(leftDir, { recursive: true });
-            await this.system.fs.mkdir(rightDir, { recursive: true });
+        // One host round trip: mkdtemp + mkdir left/right + resolve batch-diff + jj diffedit + marker check.
+        // batch-diff exits 1 by design (to abort the diffedit); the `.complete` marker signals success.
+        const result = await this.runInScratchDir(
+            'diffedit',
+            ['-r', revision, '--ignore-immutable', '--tool', toolName, ...toolConfig],
+            {
+                scratchPrefix: 'jj-bulk-diff-',
+                subdirs: ['left', 'right'],
+                helperScript: 'batch-diff',
+                completionMarker: 'right/.complete',
+            },
+            {
+                useCachedSnapshot: true,
+                label: `getDiffForRevision ${revision}`,
+            },
+        );
 
-            const normalizedScriptPath = await this.system.process.getHelperScriptPath('batch-diff');
-            const toolName = 'vscode-bulk-capture';
-            const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
-                '$left',
-                '$right',
-                path.normalize(leftDir),
-                path.normalize(rightDir),
-            ]);
-
-            try {
-                await this.run('diffedit', ['-r', revision, '--ignore-immutable', '--tool', toolName, ...toolConfig], {
-                    useCachedSnapshot: true,
-                    label: `getDiffForRevision ${revision}`,
-                });
-            } catch (err) {
-                // Verify that batch-diff actually ran and wrote the .complete marker
-                const marker = path.join(rightDir, '.complete');
-                const isCompleted = await this.system.fs.exists(marker);
-                if (!isCompleted) {
-                    throw err;
-                }
-            }
-
-            return {
-                tempDir,
-                expires: Date.now() + 5 * 60_000,
-            };
-        } catch (err) {
-            await this.system.fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-            throw err;
-        }
+        return {
+            tempDir: result.scratchDir,
+            expires: Date.now() + 5 * 60_000,
+        };
     }
 
     async clearCache(): Promise<void> {
         this._cacheEpoch++;
         this._repoRoot = undefined;
         this._logEntryCache.clear();
+        this._logRevsetPromise = undefined;
         this._gitRoot = undefined;
         this._gitRootPromise = undefined;
         this._gitBlobHashCache.clear();
+        this._diffContentCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -1224,6 +1383,26 @@ export class JjService {
 
     async status(): Promise<string> {
         return this.run('status', [], { isMutation: true, useCachedSnapshot: false, label: 'status' });
+    }
+
+    /**
+     * Snapshots the working copy (records any on-disk edits into `@`) without
+     * clearing caches. If the snapshot produced a new operation, the caller can
+     * detect it via {@link getOperationHeads} and invalidate selectively.
+     */
+    async snapshotWorkingCopy(): Promise<void> {
+        await this.run('status', [], { useCachedSnapshot: false, label: 'snapshot' });
+    }
+
+    /**
+     * Returns the current operation head IDs, sorted. Reads the op heads store
+     * directly (a single directory listing) rather than spawning `jj`, so it is
+     * cheap enough to call on every refresh to detect whether anything changed.
+     */
+    async getOperationHeads(): Promise<string[]> {
+        const storePath = await this.getRepoStorePath();
+        const heads = await this.system.fs.readdir(path.join(storePath, 'op_heads', 'heads'));
+        return heads.sort();
     }
 
     async getChanges(revision: string): Promise<JjFileChangeWithStats[]> {
