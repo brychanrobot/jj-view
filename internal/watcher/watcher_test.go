@@ -4,11 +4,76 @@
 package watcher
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestWatcherMaxDirsLimit(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "jj-view-watcher-limit-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	for i := 0; i < 6; i++ {
+		if err := os.MkdirAll(filepath.Join(tempDir, fmt.Sprintf("dir-%d", i)), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+	}
+
+	hub := NewHub()
+	defer hub.Close()
+
+	_, err = hub.Watch(tempDir, WatchOptions{
+		MaxDirs: 3,
+	}, func(subID string, events []FileEvent) {})
+	if !errors.Is(err, ErrWatchLimitExceeded) {
+		t.Fatalf("expected ErrWatchLimitExceeded when directory count exceeds MaxDirs, got: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = hub.Watch(tempDir, WatchOptions{
+		Context: ctx,
+	}, func(subID string, events []FileEvent) {})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled when context is already canceled, got: %v", err)
+	}
+}
+
+func TestIgnoreMatcherPatterns(t *testing.T) {
+	matcher := newIgnoreMatcher([]string{
+		"**/build/**",
+		"/custom-out/",
+		"packages/ignored-ws",
+		"**/*.tmp",
+	})
+
+	root := "/repo"
+	if !matcher.isIgnored("/repo/a/b/build", root) {
+		t.Error("expected /repo/a/b/build to match **/build/**")
+	}
+	if !matcher.isIgnored("/repo/a/b/build/output.js", root) {
+		t.Error("expected /repo/a/b/build/output.js to match **/build/**")
+	}
+	if !matcher.isIgnored("/repo/custom-out/file.txt", root) {
+		t.Error("expected /repo/custom-out/file.txt to match /custom-out/")
+	}
+	if !matcher.isIgnored("/repo/packages/ignored-ws/src/index.ts", root) {
+		t.Error("expected /repo/packages/ignored-ws/src/index.ts to match packages/ignored-ws")
+	}
+	if !matcher.isIgnored("/repo/deep/nested/file.tmp", root) {
+		t.Error("expected /repo/deep/nested/file.tmp to match **/*.tmp")
+	}
+	if matcher.isIgnored("/repo/packages/active-ws/src/index.ts", root) {
+		t.Error("did not expect /repo/packages/active-ws/src/index.ts to be ignored")
+	}
+}
 
 func TestWatcherHub(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "jj-view-watcher-test")

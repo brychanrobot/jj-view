@@ -233,7 +233,7 @@ export class WebHostUi implements HostUi {
 }
 
 export class WebHostConfig implements HostConfig {
-    private readonly values = new Map<string, unknown>([['fileWatcherMode', 'watch']]);
+    private readonly values = new Map<string, unknown>();
     private readonly _onDidChangeConfiguration = new EventEmitter<HostConfigurationChangeEvent>();
     public readonly onDidChangeConfiguration = this._onDidChangeConfiguration.event;
     private readonly _hostSystem?: RemoteHostSystem;
@@ -279,10 +279,16 @@ export class WebHostConfig implements HostConfig {
                 await this._hostSystem.ready;
             }
             const all = await this._hostSystem.getAllConfig('effective');
-            for (const [k, v] of Object.entries(all)) {
+            const entries = Object.entries(all);
+            for (const [k, v] of entries) {
                 this.values.set(k, v);
                 const norm = k.replace(/^jj-view\./, '');
                 this.values.set(norm, v);
+            }
+            if (entries.length > 0) {
+                this._onDidChangeConfiguration.fire({
+                    affectsConfiguration: () => true,
+                });
             }
         } catch (err) {
             console.warn('[WebHostConfig] Failed to load initial config:', err);

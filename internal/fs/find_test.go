@@ -4,6 +4,8 @@
 package fs
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -146,6 +148,80 @@ func TestFindFiles_Basic(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatal("expected error for directory outside sandbox, got nil")
+		}
+	})
+
+	t.Run("Built-in excludes skip node_modules and .jj/repo automatically", func(t *testing.T) {
+		repoInternalFile := filepath.Join(tempDir, ".jj", "repo", "nested", ".jj", "working_copy", "type")
+		if err := os.MkdirAll(filepath.Dir(repoInternalFile), 0755); err != nil {
+			t.Fatalf("failed to create .jj/repo dir: %v", err)
+		}
+		if err := os.WriteFile(repoInternalFile, []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to write file inside .jj/repo: %v", err)
+		}
+
+		res, err := sm.FindFiles(FindFilesOptions{
+			BaseDir: tempDir,
+			Pattern: "**/.jj/working_copy/type",
+		})
+		if err != nil {
+			t.Fatalf("FindFiles failed: %v", err)
+		}
+
+		for _, r := range res {
+			if r == repoInternalFile {
+				t.Errorf("expected .jj/repo internals to be skipped, but found: %s", r)
+			}
+			if r == filepath.Join(tempDir, "node_modules", "pkg", ".jj", "working_copy", "type") {
+				t.Errorf("expected node_modules to be skipped by default, but found: %s", r)
+			}
+		}
+	})
+
+	t.Run("MaxDirs stops walk gracefully without error", func(t *testing.T) {
+		res, err := sm.FindFiles(FindFilesOptions{
+			BaseDir: tempDir,
+			Pattern: "**/.jj/working_copy/type",
+			MaxDirs: 1,
+		})
+		if err != nil {
+			t.Fatalf("expected nil error when MaxDirs is reached, got: %v", err)
+		}
+		if len(res) != 0 {
+			t.Fatalf("expected 0 results when MaxDirs=1 stops before depth-2 .jj/working_copy/type, got %d: %v", len(res), res)
+		}
+	})
+
+	t.Run("Absolute path excludes and /** glob excludes prune directories", func(t *testing.T) {
+		res, err := sm.FindFiles(FindFilesOptions{
+			BaseDir: tempDir,
+			Pattern: "**/.jj/working_copy/type",
+			Excludes: []string{
+				filepath.Join(tempDir, "sub1"),
+				"**/sub2/**",
+			},
+		})
+		if err != nil {
+			t.Fatalf("FindFiles failed: %v", err)
+		}
+		expected := []string{
+			filepath.Join(tempDir, ".jj", "working_copy", "type"),
+		}
+		if len(res) != len(expected) || res[0] != expected[0] {
+			t.Fatalf("expected only root .jj/working_copy/type %v, got %v", expected, res)
+		}
+	})
+
+	t.Run("Context cancellation returns context error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := sm.FindFiles(FindFilesOptions{
+			Context: ctx,
+			BaseDir: tempDir,
+			Pattern: "**/.jj/working_copy/type",
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got: %v", err)
 		}
 	})
 }

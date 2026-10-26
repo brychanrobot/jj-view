@@ -64,6 +64,8 @@ describe('WebHostEnvironment', () => {
 
             expect(config.get('missingKey')).toBeUndefined();
             expect(config.get('missingKey', 'defaultVal')).toBe('defaultVal');
+            expect(config.get('jj-view.fileWatcherMode')).toBeUndefined();
+            expect(config.get('jj-view.fileWatcherMode', 'polling')).toBe('polling');
 
             await config.update('jj-view.fileWatcherMode', 'watch');
             expect(config.get('jj-view.fileWatcherMode')).toBe('watch');

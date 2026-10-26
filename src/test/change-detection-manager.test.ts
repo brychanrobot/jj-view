@@ -349,6 +349,27 @@ describe('ChangeDetectionManager', () => {
             expect(accessPrivate<boolean>(poller, '_isPolling')).toBe(true);
         });
 
+        it('falls back to polling mode without showing inotify warning toast when directory limit or timeout is exceeded', async () => {
+            let watchAttempts = 0;
+            vi.spyOn(host.system.watcher, 'watch').mockImplementation(async (dirPath: string) => {
+                if (dirPath === repo.path) {
+                    watchAttempts++;
+                    throw new Error('watcher: directory limit or timeout exceeded');
+                }
+                return { unsubscribe: async () => {} };
+            });
+            const warnSpy = vi.spyOn(host.ui, 'showWarning');
+
+            host.config.set('fileWatcherMode', 'watch');
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+
+            await waitForLog('Falling back to polling mode');
+            expect(watchAttempts).toBe(1);
+            expect(accessPrivate<string>(changeManager, '_fileWatcherMode')).toBe('polling');
+            expect(accessPrivate<DirectoryWatcher | undefined>(changeManager, '_workingCopyWatcher')).toBeUndefined();
+            expect(warnSpy).not.toHaveBeenCalled();
+        });
+
         it('cleans up op_heads watcher when reporting permanent failure', async () => {
             changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
             await waitForLog('OpHeads Watcher] Started');

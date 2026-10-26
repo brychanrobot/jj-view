@@ -317,6 +317,8 @@ export class ChangeDetectionManager implements HostDisposable {
             await this.startWorkingCopyWatcherInternal().catch((err) => {
                 this.outputChannel.error(`Failed to start working copy watcher: ${err}`);
                 this.outputChannel.info('Falling back to polling mode.');
+                void this._workingCopyWatcher?.stop().catch(() => {});
+                this._workingCopyWatcher = undefined;
                 this._fileWatcherMode = 'polling';
                 this.updatePollingState();
             });

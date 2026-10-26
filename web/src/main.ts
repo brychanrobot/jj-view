@@ -216,7 +216,7 @@ export async function bootstrap(): Promise<void> {
                     });
                     for (const folder of initialFolders) {
                         try {
-                            await hostSystem.request('workspace.addAllowedRoot', { path: folder.uri.fsPath });
+                            await hostSystem.addAllowedRoot(folder.uri.fsPath);
                         } catch (err) {
                             NO_OP_LOGGER.warn(
                                 `Failed to add allowed root for sidecar workspace: ${toError(err).message}`,
@@ -312,7 +312,7 @@ export async function bootstrap(): Promise<void> {
                 }
                 for (const folder of folders) {
                     try {
-                        await hostSystem.request('workspace.addAllowedRoot', { path: folder.uri.fsPath });
+                        await hostSystem.addAllowedRoot(folder.uri.fsPath);
                     } catch (e) {
                         NO_OP_LOGGER.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
                     }
@@ -324,20 +324,30 @@ export async function bootstrap(): Promise<void> {
                 webHostEnv.workspace.setWorkspaceFolders(folders);
                 await repoManager.restoreCachedRepositories();
                 for (const folder of folders) {
-                    await repoManager.maybeRegisterRepositoryContainingUri(folder.uri);
+                    await repoManager.maybeRegisterWorkspaceRoot(folder.uri);
                 }
-                await repoManager.scanForRepositories();
-                const matchedRepo = repoManager.repositories.find((r) =>
-                    folders.some(
-                        (f) =>
-                            r.rootUri.fsPath === f.uri.fsPath ||
-                            f.uri.fsPath.startsWith(`${r.rootUri.fsPath}/`) ||
-                            r.rootUri.fsPath.startsWith(`${f.uri.fsPath}/`),
-                    ),
-                );
-                if (matchedRepo) {
-                    repoManager.setFocusedRepository(matchedRepo);
-                }
+                const focusMatchedRepo = () => {
+                    const matchedRepo = repoManager.repositories.find((r) =>
+                        folders.some(
+                            (f) =>
+                                r.rootUri.fsPath === f.uri.fsPath ||
+                                f.uri.fsPath.startsWith(`${r.rootUri.fsPath}/`) ||
+                                r.rootUri.fsPath.startsWith(`${f.uri.fsPath}/`),
+                        ),
+                    );
+                    if (matchedRepo) {
+                        repoManager.setFocusedRepository(matchedRepo);
+                    }
+                };
+                focusMatchedRepo();
+                void repoManager
+                    .scanForRepositories()
+                    .then(() => {
+                        focusMatchedRepo();
+                    })
+                    .catch((e: unknown) => {
+                        NO_OP_LOGGER.error('Failed to scan repositories on workspace change', toError(e));
+                    });
             });
         }
 
@@ -351,14 +361,17 @@ export async function bootstrap(): Promise<void> {
                 return parsePersistedLayout(undefined);
             });
 
+        await webHostEnv.config.waitForInit();
         await repoManager.restoreCachedRepositories();
         markStartup('restoreCachedRepositories done');
 
         // A cached repository that still looks valid is enough to mount on.
-        // The scan only reconciles the repository list, and the SCM/log views
-        // fill in from change events, so neither should hold up first paint.
-        // Without a cache (first run) we must scan before we know what to show.
+        // Without a cache, resolve the workspace root via `jj root` first so
+        // nested sub-repository discovery (`findFiles`) can run in the background.
         let repo: JjRepository | undefined = await pickRestoredRepository(repoManager);
+        if (!repo) {
+            repo = await repoManager.maybeRegisterWorkspaceRoot(Uri.file(repoRoot));
+        }
         let backgroundScan: Promise<void> | undefined;
         if (repo) {
             backgroundScan = repoManager.scanForRepositories();
@@ -366,9 +379,6 @@ export async function bootstrap(): Promise<void> {
             await repoManager.scanForRepositories();
             markStartup('scanForRepositories done (blocking: no cached repository)');
             repo = repoManager.focusedRepository ?? repoManager.repositories[0];
-        }
-        if (!repo) {
-            repo = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repoRoot));
         }
         if (!repo) {
             const storePath = `${repoRoot}/.jj/repo`;

@@ -1364,6 +1364,27 @@ describe('RemoteHostSystem Unit Tests', () => {
                 (globalThis as unknown as { window: unknown }).window = origWindow;
             }
         });
+
+        it('sends workspace.addAllowedRoot RPC when addAllowedRoot is called', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            let capturedPath: unknown;
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method === 'workspace.addAllowedRoot') {
+                    capturedPath = (msg.params as { path?: string }).path;
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: { success: true },
+                    });
+                }
+            });
+
+            await host.addAllowedRoot('/enclosing/repo/root');
+            expect(capturedPath).toBe('/enclosing/repo/root');
+            host.dispose();
+        });
     });
 });
 

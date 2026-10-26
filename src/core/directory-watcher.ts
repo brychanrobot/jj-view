@@ -177,12 +177,19 @@ export class DirectoryWatcher implements HostDisposable {
             lower.includes('no space left on device') ||
             lower.includes('max_user_watches') ||
             lower.includes('inotify watch limit') ||
-            lower.includes('inotify limit')
+            lower.includes('inotify limit') ||
+            lower.includes('directory limit or timeout exceeded')
         );
     }
 
     private handleInotifyError(err: unknown): void {
         if (!this.host || !this.isInotifyLimitError(err)) {
+            return;
+        }
+        const errObj = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : undefined;
+        const errorMessage =
+            typeof errObj?.message === 'string' ? errObj.message : err instanceof Error ? err.message : String(err);
+        if (errorMessage.toLowerCase().includes('directory limit or timeout exceeded')) {
             return;
         }
 

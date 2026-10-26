@@ -421,14 +421,21 @@ func (s *Store) WatchWorkspaceRoot(workspaceRoot string) {
 	if workspaceRoot == "" {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cleaned := filepath.Clean(workspaceRoot)
+
+	s.mu.Lock()
+	_, alreadyLoaded := s.workspaces[cleaned]
 	if s.repoRoot == "" || !hasWorkspaceConfigOnDisk(s.repoRoot) {
 		s.repoRoot = cleaned
 	}
-	_ = s.ensureWorkspaceLoadedLocked(cleaned)
+	entry := s.ensureWorkspaceLoadedLocked(cleaned)
+	hasConfig := entry != nil && (len(entry.standaloneData) > 0 || len(entry.vscodeData) > 0)
+	onChange := s.onChange
+	s.mu.Unlock()
+
+	if !alreadyLoaded && hasConfig && onChange != nil {
+		onChange("", string(ScopeWorkspace))
+	}
 }
 
 func normalizeKey(k string) string {

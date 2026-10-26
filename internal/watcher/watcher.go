@@ -4,8 +4,10 @@
 package watcher
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,8 +16,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
 )
+
+const (
+	// DefaultMaxWatchDirs is the maximum number of directories a recursive watch walk will visit before aborting.
+	DefaultMaxWatchDirs = 500_000
+	// DefaultMaxWatchTimeout is the maximum duration a recursive watch setup walk may take before aborting.
+	DefaultMaxWatchTimeout = 20 * time.Second
+)
+
+// ErrWatchLimitExceeded is returned when setting up a recursive directory watcher exceeds DefaultMaxWatchDirs or DefaultMaxWatchTimeout.
+var ErrWatchLimitExceeded = errors.New("watcher: directory limit or timeout exceeded")
 
 // ChangeType represents the type of filesystem change.
 type ChangeType string
@@ -34,16 +47,109 @@ type FileEvent struct {
 
 // WatchOptions configures file watching behavior.
 type WatchOptions struct {
-	Ignore []string `json:"ignore,omitempty"`
+	Context context.Context `json:"-"`
+	Ignore  []string        `json:"ignore,omitempty"`
+	MaxDirs int             `json:"maxDirs,omitempty"`
+	Timeout time.Duration   `json:"-"`
 }
 
 // CallbackFunc is invoked when filesystem changes occur.
 type CallbackFunc func(subID string, events []FileEvent)
 
+type ignoreMatcher struct {
+	exact map[string]struct{}
+	globs []string
+}
+
+func normalizeIgnorePattern(pattern string) string {
+	cleanPat := strings.ReplaceAll(filepath.ToSlash(pattern), "\\", "/")
+	cleanPat = strings.TrimPrefix(cleanPat, "./")
+	cleanPat = strings.TrimPrefix(cleanPat, "/")
+	cleanPat = strings.TrimSuffix(cleanPat, "/")
+	return cleanPat
+}
+
+func newIgnoreMatcher(ignores []string) *ignoreMatcher {
+	m := &ignoreMatcher{
+		exact: make(map[string]struct{}, len(ignores)),
+	}
+	for _, pattern := range ignores {
+		cleanPat := normalizeIgnorePattern(pattern)
+		if cleanPat == "" {
+			continue
+		}
+		if strings.HasSuffix(cleanPat, "/**") {
+			prefix := strings.TrimSuffix(cleanPat, "/**")
+			if prefix == "" {
+				continue
+			}
+			if strings.ContainsAny(prefix, "*?[") {
+				m.globs = append(m.globs, prefix, cleanPat)
+			} else {
+				m.exact[prefix] = struct{}{}
+			}
+			continue
+		}
+		if strings.ContainsAny(cleanPat, "*?[") {
+			m.globs = append(m.globs, cleanPat)
+		} else {
+			m.exact[cleanPat] = struct{}{}
+		}
+	}
+	return m
+}
+
+func isBuiltInIgnoredSegment(part string) bool {
+	return part == ".jj" || part == ".git" || part == "node_modules" || part == ".vscode-test" || part == "dist" || part == "out"
+}
+
+func (m *ignoreMatcher) isIgnored(path string, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	relSlash := filepath.ToSlash(rel)
+
+	start := 0
+	for i := 0; i <= len(relSlash); i++ {
+		if i == len(relSlash) || relSlash[i] == '/' {
+			part := relSlash[start:i]
+			if isBuiltInIgnoredSegment(part) {
+				return true
+			}
+			if _, ok := m.exact[part]; ok {
+				return true
+			}
+			prefix := relSlash[:i]
+			if _, ok := m.exact[prefix]; ok {
+				return true
+			}
+			start = i + 1
+		}
+	}
+
+	if len(m.globs) > 0 {
+		base := filepath.Base(path)
+		for _, cleanPat := range m.globs {
+			if matched, _ := doublestar.Match(cleanPat, relSlash); matched {
+				return true
+			}
+			if matchedBase, _ := doublestar.Match(cleanPat, base); matchedBase {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 type subscription struct {
 	id       string
 	dirPath  string
 	ignores  []string
+	matcher  *ignoreMatcher
+	maxDirs  int
+	timeout  time.Duration
 	callback CallbackFunc
 	done     chan struct{}
 	watcher  *fsnotify.Watcher
@@ -80,17 +186,30 @@ func (h *Hub) Watch(dirPath string, opts WatchOptions, callback CallbackFunc) (s
 		return "", fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
 
+	maxDirs := opts.MaxDirs
+	if maxDirs <= 0 {
+		maxDirs = DefaultMaxWatchDirs
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultMaxWatchTimeout
+	}
+
+	matcher := newIgnoreMatcher(opts.Ignore)
 	sub := &subscription{
 		id:       subID,
 		dirPath:  absDir,
 		ignores:  opts.Ignore,
+		matcher:  matcher,
+		maxDirs:  maxDirs,
+		timeout:  timeout,
 		callback: callback,
 		done:     make(chan struct{}),
 		watcher:  fsw,
 	}
 
 	// Add directories recursively, skipping ignored paths
-	if err := h.addRecursive(fsw, absDir, opts.Ignore); err != nil {
+	if err := h.addRecursive(opts.Context, fsw, absDir, absDir, matcher, maxDirs, timeout); err != nil {
 		_ = fsw.Close()
 		return "", err
 	}
@@ -121,57 +240,46 @@ func (h *Hub) Unwatch(subscriptionID string) {
 	_ = sub.watcher.Close()
 }
 
-func (h *Hub) isIgnored(path string, root string, ignores []string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	relSlash := filepath.ToSlash(rel)
+func (h *Hub) addRecursive(
+	ctx context.Context,
+	w *fsnotify.Watcher,
+	walkRoot string,
+	baseRoot string,
+	matcher *ignoreMatcher,
+	maxDirs int,
+	timeout time.Duration,
+) error {
+	dirsVisited := 0
+	deadline := time.Now().Add(timeout)
 
-	parts := strings.Split(relSlash, "/")
-	for _, part := range parts {
-		if part == ".jj" || part == ".git" || part == "node_modules" || part == ".vscode-test" || part == "dist" || part == "out" {
-			return true
-		}
-	}
-
-	for _, pattern := range ignores {
-		cleanPat := filepath.ToSlash(pattern)
-
-		// Support globstar **
-		if strings.HasSuffix(cleanPat, "/**") {
-			prefix := strings.TrimSuffix(cleanPat, "/**")
-			if relSlash == prefix || strings.HasPrefix(relSlash, prefix+"/") {
-				return true
-			}
-		}
-
-		matched, _ := filepath.Match(cleanPat, relSlash)
-		if matched {
-			return true
-		}
-		matchedBase, _ := filepath.Match(cleanPat, filepath.Base(path))
-		if matchedBase {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *Hub) addRecursive(w *fsnotify.Watcher, root string, ignores []string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip inaccessible directories
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: walk exceeded %s", ErrWatchLimitExceeded, timeout)
 		}
 		if !d.IsDir() {
 			return nil
 		}
 
-		if path != root && h.isIgnored(path, root, ignores) {
+		if path != baseRoot && matcher.isIgnored(path, baseRoot) {
 			return filepath.SkipDir
 		}
 
-		_ = w.Add(path)
+		dirsVisited++
+		if dirsVisited > maxDirs {
+			return fmt.Errorf("%w: visited more than %d directories", ErrWatchLimitExceeded, maxDirs)
+		}
+
+		if addErr := w.Add(path); addErr != nil {
+			if !os.IsNotExist(addErr) && !os.IsPermission(addErr) {
+				return fmt.Errorf("failed to watch directory %s: %w", path, addErr)
+			}
+		}
 		return nil
 	})
 }
@@ -187,6 +295,13 @@ func (h *Hub) runSubscription(sub *subscription) {
 		timerCh       <-chan time.Time
 		firstEventAt  time.Time
 	)
+
+	subCtx, cancelSub := context.WithCancel(context.Background())
+	defer cancelSub()
+	go func() {
+		<-sub.done
+		cancelSub()
+	}()
 
 	flush := func() {
 		if len(pendingEvents) == 0 {
@@ -214,7 +329,7 @@ func (h *Hub) runSubscription(sub *subscription) {
 				return
 			}
 
-			if h.isIgnored(event.Name, sub.dirPath, sub.ignores) {
+			if sub.matcher.isIgnored(event.Name, sub.dirPath) {
 				continue
 			}
 
@@ -224,7 +339,9 @@ func (h *Hub) runSubscription(sub *subscription) {
 				cType = ChangeCreate
 				// Use Lstat to avoid recursively watching external symlinks
 				if fi, err := os.Lstat(event.Name); err == nil && fi.IsDir() && (fi.Mode()&os.ModeSymlink == 0) {
-					_ = h.addRecursive(sub.watcher, event.Name, sub.ignores)
+					go func(dir string) {
+						_ = h.addRecursive(subCtx, sub.watcher, dir, sub.dirPath, sub.matcher, sub.maxDirs, sub.timeout)
+					}(event.Name)
 				}
 			case event.Op&fsnotify.Write != 0:
 				cType = ChangeUpdate
