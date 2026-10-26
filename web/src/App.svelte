@@ -8,11 +8,13 @@ import { onMount, untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 import type { CommentsManager, CommentThread } from '../../src/core/comments-manager';
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
+import { ProcessMonitorController } from '../../src/core/controllers/process-monitor-controller';
 import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
 import type { FuzzyFileMatch } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
+import { JjProcessTracker } from '../../src/core/jj-process-tracker';
 import type { JjRepository } from '../../src/core/jj-repository';
 import type { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import type { JjStatusEntry } from '../../src/core/jj-types';
@@ -55,6 +57,7 @@ import type { ResolvedMenuItemGroup } from './menu/menu-types';
 import { WhenEvaluator } from './menu/when-evaluator';
 import MergeEditorView from './merge/MergeEditorView.svelte';
 import { parseConflictMarkersFallback } from './merge/three-way-merge';
+import ProcessMonitorView from './monitor/ProcessMonitorView.svelte';
 import NotificationContainer from './notifications/NotificationContainer.svelte';
 import { NotificationService } from './notifications/notification-service';
 import OutputPane from './output/OutputPane.svelte';
@@ -74,6 +77,7 @@ import {
     getTabId,
     type MultiDiffFileEntry,
     OUTPUT_TAB_ID,
+    PROCESS_MONITOR_TAB_ID,
     type TabEntry,
     type TabReorderPosition,
     type TabViewData,
@@ -99,6 +103,8 @@ interface Props {
     commentsManager?: CommentsManager;
     /** Diagnostic output channel viewer backing `showJjError` "Show Log" and Output tab. */
     outputChannel?: WebOutputChannel;
+    /** Tracker for running and historical `jj` CLI processes, powering the Process & Performance Monitor. */
+    processTracker?: JjProcessTracker;
 }
 
 let {
@@ -118,10 +124,16 @@ let {
     initialLayout,
     commentsManager,
     outputChannel,
+    processTracker,
 }: Props = $props();
 
 const fallbackOutputChannel = new WebOutputChannel('JJ View');
 const activeOutputChannel = $derived(outputChannel ?? fallbackOutputChannel);
+
+const fallbackProcessTracker = new JjProcessTracker();
+const activeProcessTracker = $derived(processTracker ?? fallbackProcessTracker);
+// svelte-ignore state_referenced_locally
+let activeProcessCount = $state<number>(activeProcessTracker.getMetrics().activeCount);
 
 function persistLayout(layout: PersistedLayout): void {
     webHostEnv?.storage.update(LAYOUT_STORAGE_KEY, layout).catch((err: unknown) => {
@@ -748,6 +760,50 @@ function openOutputTab(): void {
     openOrActivateTab({ type: 'output' }, { preview: false });
 }
 
+function openProcessMonitorTab(): void {
+    openOrActivateTab({ type: 'process-monitor' }, { preview: false });
+}
+
+let processMonitorController: ProcessMonitorController | undefined;
+const processMonitorBridge = createInMemoryBridge(async (msg) => {
+    if (processMonitorController) {
+        await processMonitorController.handleMessage(msg);
+    }
+});
+
+$effect(() => {
+    activeProcessCount = activeProcessTracker.getMetrics().activeCount;
+    const sub = activeProcessTracker.onDidChangeProcesses(() => {
+        activeProcessCount = activeProcessTracker.getMetrics().activeCount;
+    });
+    return () => {
+        sub.dispose();
+    };
+});
+
+$effect(() => {
+    const tracker = activeProcessTracker;
+    const hostEnv = webHostEnv;
+    const logger = new OutputChannel(activeOutputChannel, 'ProcessMonitor');
+    if (!hostEnv) {
+        return;
+    }
+    const controller = new ProcessMonitorController(tracker, hostEnv, {
+        messenger: processMonitorBridge.messenger,
+        logger,
+        onHidePanel: () => {
+            closeTabById(PROCESS_MONITOR_TAB_ID);
+        },
+    });
+    processMonitorController = controller;
+    return () => {
+        if (processMonitorController === controller) {
+            processMonitorController = undefined;
+        }
+        controller.dispose();
+    };
+});
+
 $effect(() => {
     const sub = activeOutputChannel.onDidRequestShow(() => {
         openOutputTab();
@@ -900,6 +956,10 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         title = 'Output';
         tooltip = 'JJ View diagnostic output channel';
         iconClass = 'codicon codicon-output';
+    } else if (view.type === 'process-monitor') {
+        title = 'Process Monitor';
+        tooltip = 'JJ Process & Performance Monitor';
+        iconClass = 'codicon codicon-pulse';
     }
 
     const isPreview = options?.preview ?? view.type === 'commit-details';
@@ -1903,6 +1963,10 @@ onMount(() => {
             openOutputTab();
         });
 
+        webHostEnv.commands.registerCommand('jj-view.showProcessMonitor', async () => {
+            openProcessMonitorTab();
+        });
+
         webHostEnv.commands.registerCommand('jj-view.addSelectionToChat', async () => {
             await handleAddSelectionToChat();
         });
@@ -2429,6 +2493,11 @@ onMount(() => {
                         channel={activeOutputChannel}
                         onClose={() => closeTabById(OUTPUT_TAB_ID)}
                     />
+                {:else if activeTab && activeTab.view.type === 'process-monitor'}
+                    <ProcessMonitorView
+                        transport={processMonitorBridge.transport}
+                        onClose={() => closeTabById(PROCESS_MONITOR_TAB_ID)}
+                    />
                 {:else}
                     <div class="empty-editor-message">
                         <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>
@@ -2443,6 +2512,10 @@ onMount(() => {
         <StatusBar
             service={activeStatusBar}
             notificationService={activeNotifications}
+            {activeProcessCount}
+            onOpenProcessMonitor={() => {
+                openProcessMonitorTab();
+            }}
             onOpenOutput={() => {
                 openOutputTab();
             }}

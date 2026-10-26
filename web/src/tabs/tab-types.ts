@@ -63,6 +63,10 @@ export type TabViewData =
     | {
           /** The diagnostic output channel log viewer. One per app. */
           type: 'output';
+      }
+    | {
+          /** The live process and performance monitor view. One per app. */
+          type: 'process-monitor';
       };
 
 export interface TabEntry {
@@ -79,6 +83,7 @@ export type TabReorderPosition = 'before' | 'after';
 
 export const COMMENTS_TAB_ID = 'comments';
 export const OUTPUT_TAB_ID = 'output';
+export const PROCESS_MONITOR_TAB_ID = 'process-monitor';
 
 export function getTabId(view: TabViewData): string {
     switch (view.type) {
@@ -99,5 +104,7 @@ export function getTabId(view: TabViewData): string {
             return COMMENTS_TAB_ID;
         case 'output':
             return OUTPUT_TAB_ID;
+        case 'process-monitor':
+            return PROCESS_MONITOR_TAB_ID;
     }
 }

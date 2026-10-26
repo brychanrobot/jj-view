@@ -29,12 +29,14 @@ import {
 export interface ProcessMonitorControllerOptions {
     messenger?: WebviewPostMessageLike;
     logger?: LoggerChannel;
+    onHidePanel?: () => void;
 }
 
 export class ProcessMonitorController implements Disposable {
     private _disposed = false;
     private readonly _disposables: Disposable[] = [];
     private readonly _logger?: LoggerChannel;
+    private readonly _onHidePanel?: () => void;
     private readonly _updateQueue: CoalescingQueue;
     private readonly _receiver: WebviewRpcReceiver<
         ProcessMonitorToHostMessage,
@@ -51,6 +53,7 @@ export class ProcessMonitorController implements Disposable {
         options?: ProcessMonitorControllerOptions,
     ) {
         this._logger = options?.logger;
+        this._onHidePanel = options?.onHidePanel;
 
         this._updateQueue = new CoalescingQueue(async () => {
             try {
@@ -89,6 +92,7 @@ export class ProcessMonitorController implements Disposable {
                 },
                 hidePanel: async () => {
                     await this._host.config.update?.('showProcessMonitorPanel', false);
+                    this._onHidePanel?.();
                 },
             },
             {

@@ -14,6 +14,7 @@ import { GitHubProvider } from '../../src/core/github-provider';
 import { GitLabProvider } from '../../src/core/gitlab-provider';
 import { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import { JjEditFsService } from '../../src/core/jj-edit-fs-service';
+import { JjProcessTracker } from '../../src/core/jj-process-tracker';
 import { JjRepository } from '../../src/core/jj-repository';
 import { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import { JjViewFsService } from '../../src/core/jj-view-fs-service';
@@ -271,7 +272,14 @@ export async function bootstrap(): Promise<void> {
             create: (channel, host) => new GerritProvider(channel, host),
         });
 
-        const repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, webHostEnv);
+        const processTracker = new JjProcessTracker();
+        const repoManager = new JjRepositoryManager(
+            codeForgeRegistry,
+            outputChannel,
+            webHostEnv,
+            undefined,
+            processTracker,
+        );
         if (typeof window !== 'undefined') {
             window.__JJ_VIEW_REPO_MANAGER__ = repoManager;
         }
@@ -428,7 +436,15 @@ export async function bootstrap(): Promise<void> {
         }
         if (!repo) {
             const storePath = `${repoRoot}/.jj/repo`;
-            repo = new JjRepository(Uri.file(repoRoot), storePath, codeForgeRegistry, outputChannel, webHostEnv);
+            repo = new JjRepository(
+                Uri.file(repoRoot),
+                storePath,
+                codeForgeRegistry,
+                outputChannel,
+                webHostEnv,
+                undefined,
+                processTracker,
+            );
         }
         repoManager.registerRepositoryInstance(repo);
         markStartup('repository registered');
@@ -495,6 +511,7 @@ export async function bootstrap(): Promise<void> {
             logViewController: logController,
             authManager,
             commentsManager,
+            processTracker,
         });
 
         const updateContextKeys = (provider: CodeForgeProvider | undefined) => {
@@ -565,6 +582,7 @@ export async function bootstrap(): Promise<void> {
                 initialLayout,
                 commentsManager,
                 outputChannel: webOutputChannel,
+                processTracker,
             },
         });
         markStartup('App mounted (first visible UI)');
