@@ -21,6 +21,7 @@ import {
     type WatcherSubscription,
     type WatchOptions,
 } from './host-system';
+import { type WebSocketFactory, type WebSocketLike, WsRpcChannel, WsTransportError } from './ws-rpc-channel';
 
 export const RPC_CODE_PARSE_ERROR = -32700;
 export const RPC_CODE_INVALID_REQUEST = -32600;
@@ -57,6 +58,14 @@ export interface RemoteHostSystemOptions {
     readonly clientId?: string;
     readonly fetch?: typeof fetch;
     readonly eventSourceFactory?: (url: string) => EventSourceLike;
+    /**
+     * Factory for the WebSocket RPC channel. Defaults to the global
+     * `WebSocket` when available. The channel is an accelerator: requests fall
+     * back to HTTP POST whenever it is not open.
+     */
+    readonly webSocketFactory?: WebSocketFactory;
+    /** Set false to never open the WebSocket channel. Default true. */
+    readonly useWebSocket?: boolean;
     readonly autoConnect?: boolean;
     readonly reconnect?: boolean;
     readonly reconnectDelayMs?: number;
@@ -267,7 +276,10 @@ function describeRpcParams(method: string, params: unknown): string {
             shownArgs.push(headOf(args[i], RPC_ARG_MAX));
         }
         const argv = [file, ...shownArgs].filter((a) => a !== undefined && a !== '').join(' ');
-        return headOf(argv, RPC_PARAM_SUMMARY_MAX);
+        // cwd decides what `jj root`/`jj log` resolve to; two spawns with the
+        // same argv but different cwds are not duplicates.
+        const cwd = typeof record.cwd === 'string' ? ` [cwd ${tailOf(record.cwd, 40)}]` : '';
+        return headOf(argv, RPC_PARAM_SUMMARY_MAX) + cwd;
     }
     if (isStringArray(record.paths)) {
         return `${record.paths.length} paths`;
@@ -296,6 +308,7 @@ export class RemoteHostSystem implements HostSystem {
     private readonly _baseUrl: string;
     private _clientId: string;
     private _eventSource: EventSourceLike | null = null;
+    private _wsChannel: WsRpcChannel | null = null;
     private _nextRequestId = 1;
     private readonly _activeRequests = new Map<number, AbortController>();
     private readonly _activeSubscriptions = new Map<string, ActiveWatcherSubscription>();
@@ -617,6 +630,56 @@ export class RemoteHostSystem implements HostSystem {
         return `${this._baseUrl}/api/events${qs ? `?${qs}` : ''}`;
     }
 
+    private _resolveWsUrl(): string {
+        const token = this._resolveToken();
+        const queryParams = new URLSearchParams();
+        if (this._clientId) {
+            queryParams.set('clientId', this._clientId);
+        }
+        if (token) {
+            queryParams.set('token', token);
+        }
+        const qs = queryParams.toString();
+        const wsBase = this._baseUrl.replace(/^http/, 'ws');
+        return `${wsBase}/api/ws${qs ? `?${qs}` : ''}`;
+    }
+
+    private get _defaultWebSocketFactory(): WebSocketFactory | undefined {
+        if (typeof WebSocket !== 'undefined') {
+            return (url: string): WebSocketLike => new WebSocket(url);
+        }
+        return undefined;
+    }
+
+    /**
+     * Opens the WebSocket RPC channel if configured and not already open.
+     * Called after `system.info` succeeds over HTTP so (a) the daemon is known
+     * reachable and (b) the browser has a primed connection with the right
+     * TLS SNI before the upgrade (see the 421 handling in the daemon's handleWS).
+     */
+    private _ensureWebSocket(): void {
+        if (this._isDisposed || this._wsChannel || (this._options.useWebSocket ?? true) === false) {
+            return;
+        }
+        const factory = this._options.webSocketFactory ?? this._defaultWebSocketFactory;
+        if (!factory) {
+            return;
+        }
+        this._wsChannel = new WsRpcChannel({
+            url: this._resolveWsUrl(),
+            factory,
+            reconnectDelayMs: this._options.reconnectDelayMs,
+            maxReconnectAttempts: this._options.reconnect === false ? 0 : this._options.maxReconnectAttempts,
+            onNotification: (method, params) => this._handleNotification(method, params),
+            log: (message) => {
+                if (typeof console !== 'undefined' && console.log) {
+                    console.log(message);
+                }
+            },
+        });
+        this._wsChannel.connect();
+    }
+
     private _handleOpen(): void {
         this._reconnectAttempts = 0;
 
@@ -631,6 +694,7 @@ export class RemoteHostSystem implements HostSystem {
                         this._tempDir = info.tempDir;
                     }
                 }
+                this._ensureWebSocket();
                 this._reconnectWatchers();
                 if (this._readyResolve) {
                     this._readyResolve();
@@ -863,13 +927,6 @@ export class RemoteHostSystem implements HostSystem {
             params,
         };
 
-        const fetchFn = this._options.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
-        if (!fetchFn) {
-            throw new Error(
-                'Fetch is not available in the current environment. Provide fetch in RemoteHostSystemOptions.',
-            );
-        }
-
         const timeoutMs = this._options.requestTimeoutMs ?? 60000;
         const abortController = new AbortController();
         this._activeRequests.set(id, abortController);
@@ -894,54 +951,19 @@ export class RemoteHostSystem implements HostSystem {
             signal.addEventListener('abort', abortListener, { once: true });
         }
 
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        };
-        if (this._clientId) {
-            headers['X-Client-ID'] = this._clientId;
-        }
-        const token = this._resolveToken();
-        if (token) {
-            headers['X-Sidecar-Token'] = token;
-            headers.Authorization = `Bearer ${token}`;
-        }
-        const csrfToken = this._resolveCsrfToken();
-        if (csrfToken) {
-            headers['X-CSRF-Token'] = csrfToken;
-        }
-
         const startTime = performance.now();
-        let netDuration = 0;
 
         try {
-            const fetchStart = performance.now();
-            this._trackPendingTiming(id, method);
-            const resp = await fetchFn(this._rpcUrl(id), {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(requestPayload),
-                signal: abortController.signal,
-                credentials: 'include',
-            });
-            netDuration = performance.now() - fetchStart;
-
-            if (!resp.ok) {
-                if (resp.status === 401) {
-                    throw new HostSystemError('Unauthorized', 'EACCES');
-                }
-                if (resp.status === 403) {
-                    throw new Error('Forbidden');
-                }
-                const errorText = await resp.text().catch(() => '');
-                throw new Error(`HTTP error ${resp.status}: ${errorText || resp.statusText}`);
-            }
-
-            const response = (await resp.json()) as JsonRpcResponse;
+            const frame = JSON.stringify(requestPayload);
+            const transport = this._wsChannel?.isOpen
+                ? this._wsTransport(id, method, frame, abortController.signal)
+                : this._httpTransport(id, method, frame, abortController.signal);
+            const { response, via, netDuration } = await transport;
             const totalDuration = performance.now() - startTime;
             if (typeof console !== 'undefined' && console.log) {
                 const summary = describeRpcParams(method, params);
                 console.log(
-                    `[Perf:RPC] ${method} (#${id}) completed in ${totalDuration.toFixed(1)}ms (net: ${netDuration.toFixed(1)}ms) start=+${startTime.toFixed(0)}ms${summary ? ` :: ${summary}` : ''}`,
+                    `[Perf:RPC] ${method} (#${id}) completed in ${totalDuration.toFixed(1)}ms (net: ${netDuration.toFixed(1)}ms, via: ${via}) start=+${startTime.toFixed(0)}ms${summary ? ` :: ${summary}` : ''}`,
                 );
             }
             if (response.error) {
@@ -1001,12 +1023,28 @@ export class RemoteHostSystem implements HostSystem {
             method,
             params,
         };
+        const frame = JSON.stringify(notification);
+
+        if (this._wsChannel?.notify(frame)) {
+            return;
+        }
 
         const fetchFn = this._options.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
         if (!fetchFn) {
             return;
         }
 
+        fetchFn(`${this._baseUrl}/api/rpc`, {
+            method: 'POST',
+            headers: this._rpcHeaders(),
+            body: frame,
+            credentials: 'include',
+        }).catch(() => {
+            // Notifications are best-effort
+        });
+    }
+
+    private _rpcHeaders(): Record<string, string> {
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
         };
@@ -1022,15 +1060,61 @@ export class RemoteHostSystem implements HostSystem {
         if (csrfToken) {
             headers['X-CSRF-Token'] = csrfToken;
         }
+        return headers;
+    }
 
-        fetchFn(`${this._baseUrl}/api/rpc`, {
+    private async _wsTransport(
+        id: number,
+        method: string,
+        frame: string,
+        signal: AbortSignal,
+    ): Promise<{ response: JsonRpcResponse; via: 'ws'; netDuration: number }> {
+        const channel = this._wsChannel;
+        if (!channel) {
+            throw new WsTransportError('WebSocket channel unavailable');
+        }
+        const start = performance.now();
+        const response = await channel.request(id, method, frame, signal);
+        return { response, via: 'ws', netDuration: performance.now() - start };
+    }
+
+    private async _httpTransport(
+        id: number,
+        method: string,
+        frame: string,
+        signal: AbortSignal,
+    ): Promise<{ response: JsonRpcResponse; via: 'http'; netDuration: number }> {
+        const fetchFn = this._options.fetch ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
+        if (!fetchFn) {
+            throw new Error(
+                'Fetch is not available in the current environment. Provide fetch in RemoteHostSystemOptions.',
+            );
+        }
+
+        const fetchStart = performance.now();
+        this._trackPendingTiming(id, method);
+        const resp = await fetchFn(this._rpcUrl(id), {
             method: 'POST',
-            headers,
-            body: JSON.stringify(notification),
+            headers: this._rpcHeaders(),
+            body: frame,
+            signal,
             credentials: 'include',
-        }).catch(() => {
-            // Notifications are best-effort
         });
+        const netDuration = performance.now() - fetchStart;
+
+        if (!resp.ok) {
+            if (resp.status === 401) {
+                throw new HostSystemError('Unauthorized', 'EACCES');
+            }
+            if (resp.status === 403) {
+                throw new Error('Forbidden');
+            }
+            const errorText = await resp.text().catch(() => '');
+            throw new Error(`HTTP error ${resp.status}: ${errorText || resp.statusText}`);
+        }
+
+        const response = (await resp.json()) as JsonRpcResponse;
+        return { response, via: 'http', netDuration };
     }
 
     public registerWatcherSubscription(sub: ActiveWatcherSubscription): void {
@@ -1152,6 +1236,11 @@ export class RemoteHostSystem implements HostSystem {
             this._timingObserver = null;
         }
         this._pendingTimings.clear();
+
+        if (this._wsChannel) {
+            this._wsChannel.dispose();
+            this._wsChannel = null;
+        }
 
         const disposeError = new Error('RemoteHostSystem is disposed');
         if (this._readyReject) {
