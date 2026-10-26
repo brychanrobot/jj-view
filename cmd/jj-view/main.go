@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -23,17 +24,28 @@ import (
 )
 
 var (
-	version = "2.9.0"
+	version = "2.10.0"
 )
 
+const installAntigravityPluginCommand = "install-antigravity-plugin"
+
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "install" || os.Args[1] == "install-sidecar") {
-		if err := runInstall(os.Args[2:]); err != nil {
+	if len(os.Args) > 1 && os.Args[1] == installAntigravityPluginCommand {
+		err := runInstallAntigravityPlugin(os.Args[2:])
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		if err != nil {
 			log.Fatalf("Install failed: %v", err)
 		}
 		return
 	}
 
+	flag.Usage = func() {
+		printUsage(flag.CommandLine, "jj-view [flags]",
+			"Serve the JJ View UI for a Jujutsu repository.",
+			"Subcommands:\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
+	}
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
 	repoFlag := flag.String("repo", ".", "Path to Jujutsu repository")
@@ -44,6 +56,15 @@ func main() {
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
+
+	// The standard flag package stops at the first positional argument and
+	// silently ignores the rest, so a mistyped subcommand would otherwise
+	// start the server with defaults.
+	if flag.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "jj-view: unknown command %q\n\n", flag.Arg(0))
+		flag.Usage()
+		os.Exit(2)
+	}
 
 	if *versionFlag {
 		fmt.Printf("jj-view version %s\n", version)

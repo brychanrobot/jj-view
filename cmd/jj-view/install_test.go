@@ -5,13 +5,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestRunInstall(t *testing.T) {
+func TestRunInstallAntigravityPlugin(t *testing.T) {
 	tempDir := t.TempDir()
 	configDir := filepath.Join(tempDir, "config")
 	fakeBinary := filepath.Join(tempDir, "fake-jj-view")
@@ -20,13 +21,13 @@ func TestRunInstall(t *testing.T) {
 	}
 
 	args := []string{
-		"-config-dir", configDir,
-		"-binary-path", fakeBinary,
-		"-no-restart",
+		"--config-dir", configDir,
+		"--binary-path", fakeBinary,
+		"--no-restart",
 	}
 
-	if err := runInstall(args); err != nil {
-		t.Fatalf("runInstall failed: %v", err)
+	if err := runInstallAntigravityPlugin(args); err != nil {
+		t.Fatalf("runInstallAntigravityPlugin failed: %v", err)
 	}
 
 	// 1. Verify plugin manifest
@@ -68,6 +69,9 @@ func TestRunInstall(t *testing.T) {
 	}
 	if sManifest["display_name"] != "jj view" {
 		t.Errorf("expected display_name 'jj view', got %v", sManifest["display_name"])
+	}
+	if got := fmt.Sprint(sManifest["args"]); got != "[--host 127.0.0.1 --no-open]" {
+		t.Errorf("unexpected sidecar args: %s", got)
 	}
 
 	// Verify legacy loose sidecar was cleaned up

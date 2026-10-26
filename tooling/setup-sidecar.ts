@@ -39,7 +39,7 @@ export function setupSidecar(options?: SetupSidecarOptions): void {
     const configDir = options?.globalConfigDir ?? path.join(homeDir, '.gemini', 'config');
 
     console.info(`[Setup Sidecar] Running native installer from ${binPath}...`);
-    execFileSync(binPath, ['install', '-config-dir', configDir, '-binary-path', binPath], {
+    execFileSync(binPath, ['install-antigravity-plugin', '--config-dir', configDir, '--binary-path', binPath], {
         stdio: 'inherit',
     });
 }

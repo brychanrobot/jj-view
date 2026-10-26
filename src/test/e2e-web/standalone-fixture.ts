@@ -64,15 +64,15 @@ export class StandaloneServer {
             const proc = cp.spawn(
                 binaryPath,
                 [
-                    '-host',
+                    '--host',
                     '127.0.0.1',
-                    '-port',
+                    '--port',
                     '0',
-                    '-repo',
+                    '--repo',
                     this.repo.path,
-                    '-user-data-dir',
+                    '--user-data-dir',
                     tempUserDataDir,
-                    '-no-open',
+                    '--no-open',
                 ],
                 {
                     stdio: ['ignore', 'pipe', 'pipe'],

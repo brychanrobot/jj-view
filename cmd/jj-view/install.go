@@ -22,11 +22,15 @@ type installOptions struct {
 	noRestart  bool
 }
 
-func parseInstallFlags(args []string) (*installOptions, error) {
-	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+func parseInstallAntigravityPluginFlags(args []string) (*installOptions, error) {
+	fs := flag.NewFlagSet(installAntigravityPluginCommand, flag.ContinueOnError)
 	configDirFlag := fs.String("config-dir", "", "Path to global Antigravity config directory (defaults to ~/.gemini/config)")
 	binaryPathFlag := fs.String("binary-path", "", "Path to jj-view executable (defaults to current binary)")
 	noRestartFlag := fs.Bool("no-restart", false, "Do not restart daemons currently running from the installed binary")
+	fs.Usage = func() {
+		printUsage(fs, "jj-view "+installAntigravityPluginCommand+" [flags]",
+			"Install JJ View as an Antigravity plugin and restart running daemons.", "")
+	}
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -73,8 +77,8 @@ func parseInstallFlags(args []string) (*installOptions, error) {
 	return opts, nil
 }
 
-func runInstall(args []string) error {
-	opts, err := parseInstallFlags(args)
+func runInstallAntigravityPlugin(args []string) error {
+	opts, err := parseInstallAntigravityPluginFlags(args)
 	if err != nil {
 		return err
 	}
@@ -117,7 +121,7 @@ func runInstall(args []string) error {
 	// 1c. Write sidecar.json inside plugin bundle
 	sidecarManifest := map[string]any{
 		"command":        opts.binaryPath,
-		"args":           []string{"-host", "127.0.0.1", "-no-open"},
+		"args":           []string{"--host", "127.0.0.1", "--no-open"},
 		"restart_policy": "always",
 		"has_web_ui":     true,
 		"description":    "jj view Jujutsu (jj) visual interface.",

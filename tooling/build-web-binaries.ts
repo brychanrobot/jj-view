@@ -54,7 +54,7 @@ function buildTarget(
     target: BuildTarget,
     version: string,
 ): { binaryName: string; checksum: string } {
-    const binaryName = `jj-view-web-${target.os}-${target.arch}${target.ext}`;
+    const binaryName = `jj-view-${target.os}-${target.arch}${target.ext}`;
     const binaryPath = path.join(releaseDir, binaryName);
 
     console.log(`[build-web-binaries] Compiling ${binaryName}...`);
@@ -103,14 +103,12 @@ export function buildAllWebBinaries(): void {
     const hostBinaryName = process.platform === 'win32' ? 'jj-view.exe' : 'jj-view';
     const hostArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
     const hostOs = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'darwin' : 'linux';
-    const matchingBinary = path.join(
-        releaseDir,
-        `jj-view-web-${hostOs}-${hostArch}${hostOs === 'windows' ? '.exe' : ''}`,
-    );
+    const matchingBinary = path.join(releaseDir, `jj-view-${hostOs}-${hostArch}${hostOs === 'windows' ? '.exe' : ''}`);
     const binDir = path.join(rootDir, 'dist', 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     if (fs.existsSync(matchingBinary)) {
         const targetPath = path.join(binDir, hostBinaryName);
+        fs.rmSync(targetPath, { force: true });
         fs.copyFileSync(matchingBinary, targetPath);
         fs.chmodSync(targetPath, 0o755);
     }
