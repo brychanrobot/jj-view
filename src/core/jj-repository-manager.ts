@@ -186,6 +186,23 @@ export class JjRepositoryManager implements HostDisposable {
         }
     }
 
+    private getWorkspaceStorageScope(): string {
+        const folders = this._host.workspace.workspaceFolders || [];
+        if (folders.length === 0) {
+            return '';
+        }
+        const normalized = folders.map((f) => this.normalizePath(f.uri.fsPath)).sort();
+        return `:${normalized.join('|')}`;
+    }
+
+    private getDiscoveredReposKey(): string {
+        return `${JjRepositoryManager.DISCOVERED_REPOS_KEY}${this.getWorkspaceStorageScope()}`;
+    }
+
+    private getLastFocusedRepoKey(): string {
+        return `${JjRepositoryManager.LAST_FOCUSED_REPO_KEY}${this.getWorkspaceStorageScope()}`;
+    }
+
     /**
      * Set the focused repository. Fires `onDidChangeFocusedRepository` if changed.
      */
@@ -204,7 +221,7 @@ export class JjRepositoryManager implements HostDisposable {
         this.fireEvent(this._onDidChangeFocusedRepository, repo);
 
         if (repo) {
-            this._host.storage.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, repo.rootUri.fsPath);
+            this._host.storage.update(this.getLastFocusedRepoKey(), repo.rootUri.fsPath);
         }
     }
 
@@ -213,7 +230,7 @@ export class JjRepositoryManager implements HostDisposable {
             rootPath: r.rootUri.fsPath,
             storePath: r.storePath,
         }));
-        this._host.storage.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, data);
+        this._host.storage.update(this.getDiscoveredReposKey(), data);
     }
 
     /**
@@ -228,7 +245,7 @@ export class JjRepositoryManager implements HostDisposable {
 
         const stored =
             (await this._host.storage.get<Array<{ rootPath: string; storePath: string }>>(
-                JjRepositoryManager.DISCOVERED_REPOS_KEY,
+                this.getDiscoveredReposKey(),
                 [],
             )) ?? [];
 
@@ -241,6 +258,11 @@ export class JjRepositoryManager implements HostDisposable {
         const loaded: JjRepository[] = [];
         for (const item of stored) {
             if (!(await this.isPathInOrAncestorOfWorkspace(item.rootPath))) {
+                continue;
+            }
+            const existing = this._repositories.find((r) => this.isSamePath(r.rootUri.fsPath, item.rootPath));
+            if (existing) {
+                loaded.push(existing);
                 continue;
             }
             try {
@@ -265,14 +287,21 @@ export class JjRepositoryManager implements HostDisposable {
 
         if (this._disposed) {
             for (const repo of loaded) {
-                await repo.dispose();
+                if (!this._repositories.includes(repo)) {
+                    await repo.dispose();
+                }
             }
             return;
         }
 
-        this.registerRepositories(loaded);
+        const newlyLoaded = loaded.filter(
+            (repo) => !this._repositories.some((r) => this.isSamePath(r.rootUri.fsPath, repo.rootUri.fsPath)),
+        );
+        if (newlyLoaded.length > 0) {
+            this.registerRepositories(newlyLoaded);
+        }
 
-        const lastPath = await this._host.storage.get<string>(JjRepositoryManager.LAST_FOCUSED_REPO_KEY);
+        const lastPath = await this._host.storage.get<string>(this.getLastFocusedRepoKey());
         const matched =
             (lastPath ? loaded.find((r) => this.isSamePath(r.rootUri.fsPath, lastPath)) : undefined) || loaded[0];
         this.setFocusedRepository(matched);
@@ -1231,8 +1260,12 @@ export class JjRepositoryManager implements HostDisposable {
             }
         }
 
-        await this._host.storage.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, undefined);
-        await this._host.storage.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, undefined);
+        await this._host.storage.update(this.getDiscoveredReposKey(), undefined);
+        await this._host.storage.update(this.getLastFocusedRepoKey(), undefined);
+        if (this.getWorkspaceStorageScope() !== '') {
+            await this._host.storage.update(JjRepositoryManager.DISCOVERED_REPOS_KEY, undefined);
+            await this._host.storage.update(JjRepositoryManager.LAST_FOCUSED_REPO_KEY, undefined);
+        }
 
         this.fireEvent(this._onDidChangeRepositories, []);
 

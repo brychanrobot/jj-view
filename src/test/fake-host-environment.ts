@@ -620,7 +620,7 @@ export class FakeHostEnvironment implements HostEnvironment {
     readonly nav: FakeHostNavigation;
     readonly config: FakeHostConfig;
     readonly documents: FakeHostDocuments;
-    readonly storage: FakeHostStorage;
+    public storage: FakeHostStorage;
     readonly secrets: FakeHostSecrets;
     readonly auth: FakeHostAuth;
     public http: HostHttp;

@@ -6,7 +6,7 @@
 import { toError } from '../utils/error-utils';
 import { canAbsorbCommit, canSquashCommit, formatDisplayChangeId, isMutableCommit } from '../utils/jj-utils';
 import type { LoggerChannel } from '../utils/output-channel';
-import { type AsyncEvent, AsyncEventEmitter, type Disposable } from './host/events';
+import { type AsyncEvent, AsyncEventEmitter, type Disposable, type Event, EventEmitter } from './host/events';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
@@ -40,6 +40,8 @@ export interface ScmSnapshot {
 export class ScmModel implements Disposable {
     private _disposed = false;
     private disposables: Disposable[] = [];
+    private _repoStatusDisposable: Disposable | undefined;
+    private _repo: JjRepository;
     private _snapshot: ScmSnapshot | undefined;
     private _selectedCommitIds: string[] = [];
     private _workingCopyStatuses = new Map<string, JjStatusEntry>();
@@ -53,19 +55,39 @@ export class ScmModel implements Disposable {
     private readonly _onDidChangeStatus = new AsyncEventEmitter<void>();
     public readonly onDidChangeStatus: AsyncEvent<void> = this._onDidChangeStatus.event;
 
+    private readonly _onDidChangeRepository = new EventEmitter<JjRepository>();
+    public readonly onDidChangeRepository: Event<JjRepository> = this._onDidChangeRepository.event;
+
     constructor(
-        public readonly repo: JjRepository,
+        repo: JjRepository,
         public readonly outputChannel: LoggerChannel,
     ) {
-        this.disposables.push(
-            this.repo.onDidStatusChange(async (event) => {
-                await this.updateSnapshot(event);
-            }),
-        );
+        this._repo = repo;
+        this._repoStatusDisposable = this._repo.onDidStatusChange(async (event) => {
+            await this.updateSnapshot(event);
+        });
+    }
+
+    get repo(): JjRepository {
+        return this._repo;
+    }
+
+    public setRepository(repo: JjRepository): void {
+        if (this._disposed || this._repo.rootUri.fsPath === repo.rootUri.fsPath) {
+            return;
+        }
+        this._repoStatusDisposable?.dispose();
+        this._repo = repo;
+        this._selectedCommitIds = [];
+        this._repoStatusDisposable = this._repo.onDidStatusChange(async (event) => {
+            await this.updateSnapshot(event);
+        });
+        this._onDidChangeRepository.fire(repo);
+        void this.refresh({ reason: 'repository-changed' });
     }
 
     get jj(): JjService {
-        return this.repo.jj;
+        return this._repo.jj;
     }
 
     get snapshot(): ScmSnapshot | undefined {
@@ -144,22 +166,30 @@ export class ScmModel implements Disposable {
         this.outputChannel.info(`Updating SCM Model${reasonStr}...`);
         const start = performance.now();
 
+        const targetRepo = this._repo;
+        const targetRepoPath = targetRepo.rootUri.fsPath;
+        const jj = targetRepo.jj;
+
         try {
-            const maxMutableAncestors = this.repo.host.config.get<number>('maxMutableAncestors', 10) ?? 10;
-            const minChangeIdLength = this.repo.host.config.get<number>('minChangeIdLength', 1) ?? 1;
+            const maxMutableAncestors = targetRepo.host.config.get<number>('maxMutableAncestors', 10) ?? 10;
+            const minChangeIdLength = targetRepo.host.config.get<number>('minChangeIdLength', 1) ?? 1;
             const limit = maxMutableAncestors + 1;
 
-            const bulkLogPromise = this.jj.getLog({
+            const bulkLogPromise = jj.getLog({
                 revision: `(::@ & mutable()) | parents(roots(::@ & mutable()))`,
                 limit,
             });
 
             const [bulkLog, workingCopyEntries, children, conflictedPaths] = await Promise.all([
                 bulkLogPromise,
-                this.jj.getLog({ revision: '@', limit: 1 }),
-                this.jj.getChildren('@'),
-                this.jj.getConflictedFiles(),
+                jj.getLog({ revision: '@', limit: 1 }),
+                jj.getChildren('@'),
+                jj.getConflictedFiles(),
             ]);
+
+            if (this._disposed || this._repo.rootUri.fsPath !== targetRepoPath) {
+                return;
+            }
 
             const currentEntry = workingCopyEntries[0] || bulkLog.find((e) => e.is_current_working_copy) || bulkLog[0];
             this._currentEntry = currentEntry;
@@ -355,11 +385,14 @@ export class ScmModel implements Disposable {
 
     public dispose(): void {
         this._disposed = true;
+        this._repoStatusDisposable?.dispose();
+        this._repoStatusDisposable = undefined;
         for (const d of this.disposables) {
             d.dispose();
         }
         this.disposables = [];
         this._onDidChangeSnapshot.dispose();
         this._onDidChangeStatus.dispose();
+        this._onDidChangeRepository.dispose();
     }
 }

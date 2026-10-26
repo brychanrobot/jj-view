@@ -303,21 +303,37 @@ export async function bootstrap(): Promise<void> {
                                 .pop() || 'Workspace',
                     };
                 });
+                const currentFolders = webHostEnv.workspace.workspaceFolders;
+                const unchanged =
+                    folders.length === currentFolders.length &&
+                    folders.every((f, idx) => f.uri.fsPath === currentFolders[idx]?.uri.fsPath);
+                if (unchanged) {
+                    return;
+                }
                 for (const folder of folders) {
                     try {
                         await hostSystem.request('workspace.addAllowedRoot', { path: folder.uri.fsPath });
                     } catch (e) {
                         NO_OP_LOGGER.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
                     }
-                    await repoManager.maybeRegisterRepositoryContainingUri(folder.uri);
                 }
                 if (folders[0] && folders[0].uri.fsPath !== hostSystem.repoRoot) {
                     hostSystem.setWorkspaceRoot(folders[0].uri.fsPath);
                     await webHostEnv.config.reload();
                 }
                 webHostEnv.workspace.setWorkspaceFolders(folders);
+                await repoManager.restoreCachedRepositories();
+                for (const folder of folders) {
+                    await repoManager.maybeRegisterRepositoryContainingUri(folder.uri);
+                }
+                await repoManager.scanForRepositories();
                 const matchedRepo = repoManager.repositories.find((r) =>
-                    folders.some((f) => r.rootUri.fsPath === f.uri.fsPath || f.uri.fsPath.startsWith(r.rootUri.fsPath)),
+                    folders.some(
+                        (f) =>
+                            r.rootUri.fsPath === f.uri.fsPath ||
+                            f.uri.fsPath.startsWith(`${r.rootUri.fsPath}/`) ||
+                            r.rootUri.fsPath.startsWith(`${f.uri.fsPath}/`),
+                    ),
                 );
                 if (matchedRepo) {
                     repoManager.setFocusedRepository(matchedRepo);
@@ -349,7 +365,7 @@ export async function bootstrap(): Promise<void> {
         } else {
             await repoManager.scanForRepositories();
             markStartup('scanForRepositories done (blocking: no cached repository)');
-            repo = repoManager.repositories[0];
+            repo = repoManager.focusedRepository ?? repoManager.repositories[0];
         }
         if (!repo) {
             repo = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repoRoot));
@@ -402,7 +418,7 @@ export async function bootstrap(): Promise<void> {
         // changes itself, but the log controller only refreshes on its own
         // mutations, so watcher-driven and external `jj` changes would otherwise
         // never reach the graph. The controller coalesces bursts.
-        repo.onDidStatusChange((event) => {
+        let repoStatusSub = repo.onDidStatusChange((event) => {
             logController?.refresh(event.reason).catch((err: unknown) => {
                 NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
             });
@@ -453,6 +469,19 @@ export async function bootstrap(): Promise<void> {
 
         repoManager.onDidChangeFocusedRepository((r) => {
             updateCodeForgeContext(r);
+            if (!r) {
+                return;
+            }
+            repoStatusSub.dispose();
+            repoStatusSub = r.onDidStatusChange((event) => {
+                logController?.refresh(event.reason).catch((err: unknown) => {
+                    NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
+                });
+            });
+            scmModel.setRepository(r);
+            if (logController) {
+                logController.repository = r;
+            }
         });
         updateCodeForgeContext(repo);
 
@@ -465,7 +494,7 @@ export async function bootstrap(): Promise<void> {
                 webHostEnv,
                 scmModel,
                 initialSnapshot: scmModel.snapshot,
-                workspaceRoot: repoRoot,
+                workspaceRoot: repo.rootUri.fsPath || repoRoot,
                 viewFs,
                 editFs,
                 logTransport: logBridge.transport,
