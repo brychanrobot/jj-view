@@ -33,6 +33,7 @@ import type {
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { Uri } from '../../../src/core/uri-utils';
 import { Uri as UriImpl } from '../../../src/core/uri-utils';
+import { writeClipboardText } from '../../../src/utils/clipboard';
 import { NotificationService } from '../notifications/notification-service';
 import type { NotificationPosition } from '../notifications/notification-types';
 import { QuickInputService } from '../quick-input/quick-input-service';
@@ -509,9 +510,7 @@ export class WebHostNavigation implements HostNavigation {
     }
 
     public async copyToClipboard(text: string): Promise<void> {
-        if (typeof navigator !== 'undefined' && navigator.clipboard) {
-            await navigator.clipboard.writeText(text);
-        }
+        await writeClipboardText(text);
     }
 
     public async openSettings(settingId?: string): Promise<void> {

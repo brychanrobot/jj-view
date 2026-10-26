@@ -222,4 +222,82 @@ test.describe('Standalone Web Review Comments', () => {
             await server.stop();
         }
     });
+
+    test('copies unresolved comments via execCommand fallback when navigator.clipboard is blocked by Permissions Policy', async ({
+        page,
+        testRepo,
+    }) => {
+        await page.addInitScript(() => {
+            Object.defineProperty(navigator, 'clipboard', {
+                value: {
+                    writeText: async () => {
+                        throw new DOMException(
+                            "Failed to execute 'writeText' on 'Clipboard': The Clipboard API has been blocked because of a permissions policy applied to the current document.",
+                            'NotAllowedError',
+                        );
+                    },
+                },
+                configurable: true,
+            });
+            const origExecCommand = document.execCommand.bind(document);
+            document.execCommand = (commandId: string, showUI?: boolean, value?: string): boolean => {
+                if (commandId === 'copy') {
+                    const active = document.activeElement as HTMLTextAreaElement | null;
+                    (window as Window & { __copiedViaExecCommand?: string }).__copiedViaExecCommand =
+                        active?.value ?? '';
+                    return true;
+                }
+                return origExecCommand(commandId, showUI, value);
+            };
+        });
+
+        testRepo.writeFile('clip.txt', 'hello\n');
+        const changeId = `I${'5'.repeat(40)}`;
+        testRepo.describe(`Clipboard test\n\nChange-Id: ${changeId}`);
+        const clNumber = gerrit.registerChange(changeId);
+        gerrit.updateChange(changeId, { unresolved_comment_count: 1 });
+        gerrit.registerComments(clNumber, {
+            'clip.txt': [
+                {
+                    id: 'clip-thread',
+                    line: 1,
+                    message: 'Check permissions policy fallback',
+                    updated: '2023-01-02T10:00:00.000Z',
+                    unresolved: true,
+                    author: { name: 'Reviewer', username: 'reviewer' },
+                },
+            ],
+        });
+
+        const server = new StandaloneServer(testRepo, {
+            prepareUserData: (userDataDir) => {
+                fs.writeFileSync(path.join(userDataDir, 'config.json'), JSON.stringify({ 'gerrit.host': gerrit.url }));
+            },
+        });
+        await server.start();
+        try {
+            await page.goto(server.serverUrl);
+            await waitForScmReady(page);
+
+            const row = page.locator('[data-testid="log-content"] .commit-row').filter({ hasText: 'Clipboard test' });
+            const commentsButton = row.locator('.comments-button');
+            await expect(commentsButton).toBeVisible({ timeout: 20000 });
+            await commentsButton.click();
+
+            const pane = page.locator('[data-testid="comments-pane"]');
+            await expect(pane).toBeVisible({ timeout: 20000 });
+
+            const copyBtn = pane.locator('[data-testid="comments-copy-unresolved"]');
+            await expect(copyBtn).toBeVisible();
+            await copyBtn.click();
+
+            const copiedText = await page.evaluate(() => {
+                return (window as Window & { __copiedViaExecCommand?: string }).__copiedViaExecCommand ?? '';
+            });
+            expect(copiedText).toContain('clip.txt:1');
+            expect(copiedText).toContain('Check permissions policy fallback');
+        } finally {
+            await server.stop();
+        }
+    });
 });

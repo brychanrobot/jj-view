@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 import { tick, untrack } from 'svelte';
+import { writeClipboardText } from '../../../utils/clipboard';
 import { formatCommitDescription } from '../../../utils/format-utils';
 import {
     type CommitDetailsHostToWebviewMessage,
@@ -150,20 +151,17 @@ let copiedId = $state<'change' | 'commit' | null>(null);
 let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function copyToClipboard(text: string, id: 'change' | 'commit') {
-    if (navigator.clipboard) {
-        navigator.clipboard
-            .writeText(text)
-            .then(() => {
-                copiedId = id;
-                if (copyTimeout) {
-                    clearTimeout(copyTimeout);
-                }
-                copyTimeout = setTimeout(() => {
-                    copiedId = null;
-                }, 1500);
-            })
-            .catch(() => {});
-    }
+    writeClipboardText(text)
+        .then(() => {
+            copiedId = id;
+            if (copyTimeout) {
+                clearTimeout(copyTimeout);
+            }
+            copyTimeout = setTimeout(() => {
+                copiedId = null;
+            }, 1500);
+        })
+        .catch(() => {});
 }
 
 function splitFilePath(filePath: string): { dir: string; name: string } {
