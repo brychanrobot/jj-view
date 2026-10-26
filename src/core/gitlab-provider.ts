@@ -66,6 +66,7 @@ interface GitLabAuthorGql {
 interface GitLabPositionGql {
     new_path?: string;
     new_line?: number;
+    head_sha?: string;
 }
 
 interface GitLabNoteGql {
@@ -1006,6 +1007,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 filePath: firstNote.position?.new_path || undefined,
                 line: firstNote.position?.new_line || undefined,
                 isResolved: notes.every((n) => n.resolved !== false),
+                ...(firstNote.position?.head_sha ? { metadata: { commitId: firstNote.position.head_sha } } : {}),
                 comments,
             });
         }
