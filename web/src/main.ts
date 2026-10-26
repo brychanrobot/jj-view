@@ -271,6 +271,31 @@ export async function bootstrap(): Promise<void> {
             window.__JJ_VIEW_REPO_MANAGER__ = repoManager;
         }
 
+        const scmModels = new Map<string, ScmModel>();
+        const getOrCreateScmModel = (r: JjRepository): ScmModel => {
+            const key = r.rootUri.fsPath;
+            let model = scmModels.get(key);
+            if (!model) {
+                model = new ScmModel(r, NO_OP_LOGGER);
+                scmModels.set(key, model);
+                model.refresh({ reason: 'initial' }).catch((err: unknown) => {
+                    NO_OP_LOGGER.error(`Initial SCM refresh failed for ${key}`, toError(err));
+                });
+            }
+            return model;
+        };
+
+        repoManager.onDidOpenRepository((r) => {
+            getOrCreateScmModel(r);
+        });
+        repoManager.onDidCloseRepository((r) => {
+            const model = scmModels.get(r.rootUri.fsPath);
+            if (model) {
+                model.dispose();
+                scmModels.delete(r.rootUri.fsPath);
+            }
+        });
+
         webHostEnv.workspace.onDidChangeWorkspaceFolders(() => {
             const firstFolder = webHostEnv.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (firstFolder && firstFolder !== hostSystem.repoRoot) {
@@ -373,11 +398,20 @@ export async function bootstrap(): Promise<void> {
         markStartup('restoreCachedRepositories done');
 
         // A cached repository that still looks valid is enough to mount on.
-        // Without a cache, resolve the workspace root via `jj root` first so
+        // Without a cache, resolve the workspace root(s) via `jj root` first so
         // nested sub-repository discovery (`findFiles`) can run in the background.
         let repo: JjRepository | undefined = await pickRestoredRepository(repoManager);
         if (!repo) {
-            repo = await repoManager.maybeRegisterWorkspaceRoot(Uri.file(repoRoot));
+            if (initialFolders && initialFolders.length > 0) {
+                const registered = await Promise.all(
+                    initialFolders.map((folder) => repoManager.maybeRegisterWorkspaceRoot(folder.uri)),
+                );
+                repo = registered.find((r): r is JjRepository => r !== undefined);
+            } else {
+                repo = await repoManager.maybeRegisterWorkspaceRoot(Uri.file(repoRoot));
+            }
+        } else if (initialFolders && initialFolders.length > 1) {
+            void Promise.all(initialFolders.map((folder) => repoManager.maybeRegisterWorkspaceRoot(folder.uri)));
         }
         let backgroundScan: Promise<void> | undefined;
         if (repo) {
@@ -394,13 +428,7 @@ export async function bootstrap(): Promise<void> {
         repoManager.registerRepositoryInstance(repo);
         markStartup('repository registered');
 
-        const scmModel = new ScmModel(repo, NO_OP_LOGGER);
-        const initialRefresh = scmModel.refresh({ reason: 'initial' });
-        initialRefresh
-            .then(() => markStartup('initial scm refresh done'))
-            .catch((err: unknown) => {
-                NO_OP_LOGGER.error('Initial SCM refresh failed', toError(err));
-            });
+        const scmModel = getOrCreateScmModel(repo);
         backgroundScan
             ?.then(() => markStartup('background scanForRepositories done'))
             .catch((err: unknown) => {
@@ -408,8 +436,8 @@ export async function bootstrap(): Promise<void> {
             });
 
         const viewFs = new JjViewFsService(repoManager);
-        const editFs = new JjEditFsService(repoManager, async () => {
-            await scmModel.refresh({ reason: 'edit-fs-write' });
+        const editFs = new JjEditFsService(repoManager, (writtenRepo) => {
+            void getOrCreateScmModel(writtenRepo).refresh({ reason: 'edit-fs-write' });
         });
 
         let logController: LogViewController | undefined;
@@ -423,12 +451,20 @@ export async function bootstrap(): Promise<void> {
             messenger: logBridge.messenger,
             logger: NO_OP_LOGGER,
             onSelectionChange: (ids) => {
-                scmModel.handleSelectionChange(ids);
+                const focused = repoManager.focusedRepository ?? repo;
+                if (focused) {
+                    getOrCreateScmModel(focused).handleSelectionChange(ids);
+                }
             },
         });
 
-        webHostEnv.nav.setHighlightDelegate((_repoRoot, changeId) => {
-            logController?.setHighlightedCommit(changeId);
+        webHostEnv.nav.setHighlightDelegate((targetRepoRoot, changeId) => {
+            if (
+                !logController?.repository ||
+                logController.repository.rootUri.toString() === targetRepoRoot.toString()
+            ) {
+                logController?.setHighlightedCommit(changeId);
+            }
         });
 
         // Same wiring as the extension host: the SCM pane subscribes to status
@@ -450,6 +486,7 @@ export async function bootstrap(): Promise<void> {
             hostEnvironment: webHostEnv,
             logger: NO_OP_LOGGER,
             scmModel,
+            getScmModel: (r) => getOrCreateScmModel(r),
             logViewController: logController,
             authManager,
             commentsManager,
@@ -489,13 +526,16 @@ export async function bootstrap(): Promise<void> {
             if (!r) {
                 return;
             }
+            if (r.rootUri.fsPath !== hostSystem.repoRoot) {
+                hostSystem.setWorkspaceRoot(r.rootUri.fsPath);
+                void webHostEnv.config.reload();
+            }
             repoStatusSub.dispose();
             repoStatusSub = r.onDidStatusChange((event) => {
                 logController?.refresh(event.reason).catch((err: unknown) => {
                     NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
                 });
             });
-            scmModel.setRepository(r);
             if (logController) {
                 logController.repository = r;
             }
@@ -509,7 +549,9 @@ export async function bootstrap(): Promise<void> {
             props: {
                 host: hostSystem,
                 webHostEnv,
+                repoManager,
                 scmModel,
+                getScmModel: getOrCreateScmModel,
                 initialSnapshot: scmModel.snapshot,
                 workspaceRoot: repo.rootUri.fsPath || repoRoot,
                 viewFs,

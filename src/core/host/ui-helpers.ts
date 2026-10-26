@@ -309,24 +309,28 @@ export function resolveRepository(
 
     // 1. Check if args contain URI, SCM object with rootUri, or resource group
     if (options?.args && options.args.length > 0) {
-        const firstArg = options.args[0];
-        if (firstArg && typeof firstArg === 'object') {
-            if ('rootUri' in firstArg) {
-                const scmObj = firstArg as { rootUri: unknown };
-                if (Uri.isUri(scmObj.rootUri)) {
-                    uri = scmObj.rootUri;
-                }
-            } else if ('resourceUri' in firstArg) {
-                const stateObj = firstArg as { resourceUri: unknown };
-                if (Uri.isUri(stateObj.resourceUri)) {
-                    uri = stateObj.resourceUri;
-                }
-            } else if ('resourceStates' in firstArg) {
-                const groupObj = firstArg as { resourceStates: unknown };
-                if (Array.isArray(groupObj.resourceStates) && groupObj.resourceStates.length > 0) {
-                    const firstState = groupObj.resourceStates[0] as { resourceUri?: unknown };
-                    if (firstState && Uri.isUri(firstState.resourceUri)) {
-                        uri = firstState.resourceUri;
+        for (const arg of options.args) {
+            if (arg && typeof arg === 'object') {
+                if ('rootUri' in arg) {
+                    const scmObj = arg as { rootUri: unknown };
+                    if (Uri.isUri(scmObj.rootUri)) {
+                        uri = scmObj.rootUri;
+                        break;
+                    }
+                } else if ('resourceUri' in arg) {
+                    const stateObj = arg as { resourceUri: unknown };
+                    if (Uri.isUri(stateObj.resourceUri)) {
+                        uri = stateObj.resourceUri;
+                        break;
+                    }
+                } else if ('resourceStates' in arg) {
+                    const groupObj = arg as { resourceStates: unknown };
+                    if (Array.isArray(groupObj.resourceStates) && groupObj.resourceStates.length > 0) {
+                        const firstState = groupObj.resourceStates[0] as { resourceUri?: unknown };
+                        if (firstState && Uri.isUri(firstState.resourceUri)) {
+                            uri = firstState.resourceUri;
+                            break;
+                        }
                     }
                 }
             }

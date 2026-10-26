@@ -9,10 +9,23 @@ import type { DescribePromptPayload } from '../../../../src/core/commands/descri
 import type { ScmModel } from '../../../../src/core/scm-model';
 
 export function createSetDescriptionPayload(args: unknown[], scmModel?: ScmModel): SetDescriptionPayload {
-    let description = typeof args[0] === 'string' ? args[0] : undefined;
-    const revisionArgs = description ? args.slice(1) : args;
+    const first = args[0];
+    let description: string | undefined;
+    if (typeof first === 'string') {
+        description = first;
+    } else if (
+        first &&
+        typeof first === 'object' &&
+        'description' in first &&
+        typeof (first as { description: unknown }).description === 'string'
+    ) {
+        description = (first as { description: string }).description;
+    }
+    const revisionArgs = typeof first === 'string' ? args.slice(1) : args;
     const revision =
-        (description && typeof args[1] === 'string' ? args[1] : undefined) ?? extractRevisions(revisionArgs)[0] ?? '@';
+        (typeof first === 'string' && typeof args[1] === 'string' ? args[1] : undefined) ??
+        extractRevisions(revisionArgs)[0] ??
+        '@';
 
     if (description === undefined && revision === '@') {
         description = scmModel?.snapshot?.description;

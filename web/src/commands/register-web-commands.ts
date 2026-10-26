@@ -71,6 +71,7 @@ import type { LogViewController } from '../../../src/core/controllers/log-view-c
 import { BaseCommandContext, type CommandContext } from '../../../src/core/host/command-context';
 import type { HostEnvironment } from '../../../src/core/host/host-environment';
 import { TOGGLEABLE_COMMIT_ACTIONS } from '../../../src/core/host/ipc/log-view-schemas';
+import { resolveRepository } from '../../../src/core/host/ui-helpers';
 import type { JjRepository } from '../../../src/core/jj-repository';
 import type { JjRepositoryManager } from '../../../src/core/jj-repository-manager';
 import type { ScmModel } from '../../../src/core/scm-model';
@@ -135,17 +136,34 @@ export interface RegisterWebCommandsOptions {
     hostEnvironment: HostEnvironment;
     logger: LoggerChannel;
     scmModel: ScmModel;
+    getScmModel?: (repo: JjRepository) => ScmModel | undefined;
     logViewController?: LogViewController;
     authManager?: CodeForgeAuthManager;
     commentsManager?: CommentsManager;
 }
 
 export function registerWebCommands(options: RegisterWebCommandsOptions): void {
-    const { repositoryManager, hostEnvironment, logger, scmModel, logViewController, authManager, commentsManager } =
-        options;
+    const {
+        repositoryManager,
+        hostEnvironment,
+        logger,
+        scmModel,
+        getScmModel,
+        logViewController,
+        authManager,
+        commentsManager,
+    } = options;
 
-    function getActiveRepo(): JjRepository | undefined {
-        return repositoryManager.focusedRepository ?? repositoryManager.repositories[0] ?? scmModel.repo;
+    function getActiveRepo(args?: unknown[]): JjRepository | undefined {
+        const resolved =
+            typeof repositoryManager.getRepositoryForUri === 'function'
+                ? resolveRepository(repositoryManager, { args, host: hostEnvironment })
+                : undefined;
+        return resolved ?? repositoryManager.focusedRepository ?? repositoryManager.repositories[0] ?? scmModel.repo;
+    }
+
+    function getScmForRepo(repo: JjRepository): ScmModel {
+        return getScmModel?.(repo) ?? scmModel;
     }
 
     function createCmdContext(repo: JjRepository): CommandContext {
@@ -154,18 +172,20 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
 
     function registerWithPayload<TPayload, TReturn = unknown>(
         commandId: string,
-        payloadCreator: (args: unknown[], hostEnvironment?: HostEnvironment) => TPayload,
+        payloadCreator: (args: unknown[], hostEnvironment?: HostEnvironment, activeScmModel?: ScmModel) => TPayload,
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
     ): void {
         hostEnvironment.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const repo = getActiveRepo();
+            const repo = getActiveRepo(args);
             if (!repo) {
                 logger.error(`[Command Error] No active repository for command: ${commandId}`);
                 await hostEnvironment.ui.showErrorMessage(`No active repository for command: ${commandId}`);
                 return;
             }
+            repositoryManager.setFocusedRepository?.(repo);
+            const activeScm = getScmForRepo(repo);
             const ctx = createCmdContext(repo);
-            const payload = payloadCreator(args, hostEnvironment);
+            const payload = payloadCreator(args, hostEnvironment, activeScm);
             const result = await handler(ctx, payload);
             await repo.refresh();
             return result;
@@ -177,12 +197,13 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         handler: (ctx: CommandContext, ...args: unknown[]) => Promise<TReturn>,
     ): void {
         hostEnvironment.commands.registerCommand(commandId, async (...args: unknown[]) => {
-            const repo = getActiveRepo();
+            const repo = getActiveRepo(args);
             if (!repo) {
                 logger.error(`[Command Error] No active repository for command: ${commandId}`);
                 await hostEnvironment.ui.showErrorMessage(`No active repository for command: ${commandId}`);
                 return;
             }
+            repositoryManager.setFocusedRepository?.(repo);
             const ctx = createCmdContext(repo);
             const result = await handler(ctx, ...args);
             await repo.refresh();
@@ -191,10 +212,10 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     }
 
     // 1. Navigation & Focus Commands
-    hostEnvironment.commands.registerCommand('jj-view.focusRepository', async () => {
-        const repo = getActiveRepo();
+    hostEnvironment.commands.registerCommand('jj-view.focusRepository', async (...args: unknown[]) => {
+        const repo = getActiveRepo(args);
         if (repo) {
-            repositoryManager.setFocusedRepository(repo);
+            repositoryManager.setFocusedRepository?.(repo);
         }
     });
 
@@ -208,28 +229,32 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     registerWithPayload('jj-view.newBefore', createNewBeforePayload, newBeforeCommand);
     registerWithPayload('jj-view.newAfter', createNewAfterPayload, newAfterCommand);
 
-    registerWithPayload('jj-view.commit', (args) => createCommitPayload(args, scmModel), commitCommand);
+    registerWithPayload(
+        'jj-view.commit',
+        (args, _host, activeScm) => createCommitPayload(args, activeScm ?? scmModel),
+        commitCommand,
+    );
 
     registerWithPayload(
         'jj-view.commitPrompt',
-        (args) => createCommitPromptPayload(args, scmModel),
+        (args, _host, activeScm) => createCommitPromptPayload(args, activeScm ?? scmModel),
         commitPromptCommand,
     );
 
     registerWithPayload(
         'jj-view.setDescription',
-        (args) => createSetDescriptionPayload(args, scmModel),
+        (args, _host, activeScm) => createSetDescriptionPayload(args, activeScm ?? scmModel),
         setDescriptionCommand,
     );
 
     registerWithPayload(
         'jj-view.describePrompt',
-        (args) => createDescribePromptPayload(args, scmModel),
+        (args, _host, activeScm) => createDescribePromptPayload(args, activeScm ?? scmModel),
         describePromptCommand,
     );
     registerWithPayload(
         'jj-view.describe',
-        (args) => createSetDescriptionPayload(args, scmModel),
+        (args, _host, activeScm) => createSetDescriptionPayload(args, activeScm ?? scmModel),
         setDescriptionCommand,
     );
 
@@ -249,14 +274,15 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     // 5. Revision Manipulation
     registerWithPayload(
         'jj-view.abandon',
-        (args) => createAbandonPayload(args, scmModel.getSelectedCommitIds()),
+        (args, _host, activeScm) => createAbandonPayload(args, (activeScm ?? scmModel).getSelectedCommitIds()),
         abandonCommand,
     );
     registerWithPayload('jj-view.edit', createEditPayload, editCommand);
     registerWithPayload('jj-view.duplicate', createDuplicatePayload, duplicateCommand);
     registerWithPayload(
         'jj-view.rebaseOntoSelected',
-        (args) => createRebaseOntoSelectedPayload(args, scmModel.getSelectedCommitIds()),
+        (args, _host, activeScm) =>
+            createRebaseOntoSelectedPayload(args, (activeScm ?? scmModel).getSelectedCommitIds()),
         rebaseOntoSelectedCommand,
     );
     registerWithPayload('jj-view.absorb', createAbsorbPayload, absorbCommand);
