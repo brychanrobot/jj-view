@@ -46,6 +46,12 @@ export const CommitDetailsPayloadSchema = z.object({
     changeIdOffset: z.number().optional(),
     commitId: z.string().optional(),
     description: z.string().optional(),
+    /**
+     * Unsaved description text, present only while it differs from
+     * `description`. Lets a (re)mounted view pick up an in-progress edit
+     * that the controller still holds.
+     */
+    unsavedDraft: z.string().optional(),
     files: z.array(JjStatusEntrySchema).optional(),
     isImmutable: z.boolean().optional(),
     isEmpty: z.boolean().optional(),

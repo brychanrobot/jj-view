@@ -99,6 +99,96 @@ test.describe('Standalone Web Log and Commit Details', () => {
         await expect(diffContainer.getByText('commit 2 original')).toBeVisible({ timeout: 5000 });
     });
 
+    test('should replace the contents of the preview details tab when another commit is clicked', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('first.txt', 'first\n');
+        testRepo.describe('feat: first commit');
+        testRepo.new();
+        testRepo.writeFile('second.txt', 'second\n');
+        testRepo.describe('feat: second commit');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        const detailsView = page.locator('[data-testid="commit-details-view"]');
+        const tabs = page.locator('[data-testid="tab-bar-container"] .tab');
+
+        await logContent
+            .locator('.commit-row')
+            .filter({ hasText: 'feat: first commit' })
+            .locator('.commit-desc')
+            .click();
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: first commit', { timeout: 10000 });
+        await expect(detailsView.locator('.file-row').filter({ hasText: 'first.txt' })).toBeVisible();
+        await expect(tabs).toHaveCount(1);
+        const firstTabTitle = await tabs.first().innerText();
+
+        // Clicking another commit reuses the preview tab. The tab title and
+        // the rendered details must both move to the new commit.
+        await logContent
+            .locator('.commit-row')
+            .filter({ hasText: 'feat: second commit' })
+            .locator('.commit-desc')
+            .click();
+        await expect(tabs).toHaveCount(1);
+        await expect(tabs.first()).not.toHaveText(firstTabTitle);
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: second commit', { timeout: 10000 });
+        await expect(detailsView.locator('.file-row').filter({ hasText: 'second.txt' })).toBeVisible();
+        await expect(detailsView.locator('.file-row').filter({ hasText: 'first.txt' })).toHaveCount(0);
+    });
+
+    test('should keep an edited description draft in its own tab when another commit is opened', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('first.txt', 'first\n');
+        testRepo.describe('feat: first commit');
+        testRepo.new();
+        testRepo.writeFile('second.txt', 'second\n');
+        testRepo.describe('feat: second commit');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        const textarea = page.locator('[data-testid="commit-details-view"] .commit-textarea');
+        const tabs = page.locator('[data-testid="tab-bar-container"] .tab');
+
+        await logContent
+            .locator('.commit-row')
+            .filter({ hasText: 'feat: first commit' })
+            .locator('.commit-desc')
+            .click();
+        await expect(textarea).toHaveValue('feat: first commit', { timeout: 10000 });
+        await expect(tabs.first()).toHaveClass(/preview/);
+
+        // Editing the description marks the tab dirty and pins it.
+        await textarea.fill('feat: first commit (draft)');
+        await expect(tabs.first()).toHaveClass(/dirty/);
+        await expect(tabs.first()).not.toHaveClass(/preview/);
+
+        // The next commit therefore opens in a second tab instead of
+        // replacing the one holding the draft.
+        await logContent
+            .locator('.commit-row')
+            .filter({ hasText: 'feat: second commit' })
+            .locator('.commit-desc')
+            .click();
+        await expect(tabs).toHaveCount(2);
+        await expect(textarea).toHaveValue('feat: second commit', { timeout: 10000 });
+
+        // Switching back shows the draft, not a reloaded description.
+        await tabs.first().click();
+        await expect(textarea).toHaveValue('feat: first commit (draft)');
+    });
+
     test('should render colorful graph lanes and allow vertical scrolling for long log history', async ({
         page,
         server,

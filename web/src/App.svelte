@@ -4,7 +4,8 @@
 -->
 <script lang="ts">
 import path from 'pathe';
-import { onMount } from 'svelte';
+import { onMount, untrack } from 'svelte';
+import { SvelteMap } from 'svelte/reactivity';
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
@@ -281,8 +282,100 @@ function handleWindowKeydown(e: KeyboardEvent): void {
     }
 }
 
-let commitDetailsBridge: InMemoryBridge | null = $state(null);
-let commitDetailsController: CommitDetailsController | null = null;
+/** Everything a commit-details tab owns; disposed together with the tab. */
+interface CommitDetailsSession {
+    readonly bridge: InMemoryBridge;
+    readonly controller: CommitDetailsController;
+    dispose(): void;
+}
+
+const commitDetailsSessions = new SvelteMap<string, CommitDetailsSession>();
+
+function ensureCommitDetailsSession(tab: TabEntry): void {
+    if (tab.view.type !== 'commit-details') {
+        return;
+    }
+    const model = scmModel;
+    const hostEnv = webHostEnv;
+    if (!model || !hostEnv) {
+        return;
+    }
+    const tabId = tab.id;
+    const changeId = tab.view.changeId;
+    untrack(() => {
+        if (commitDetailsSessions.has(tabId)) {
+            return;
+        }
+        const controller = new CommitDetailsController(changeId, model.repo, hostEnv, {
+            logger: NO_OP_LOGGER,
+            openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
+                const leftUri = Uri.from({
+                    scheme: 'jj-view',
+                    path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+                    fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'left' }),
+                });
+                const rightUri = isWorkingCopy
+                    ? Uri.file(path.join(workspaceRoot, file.path))
+                    : Uri.from({
+                          scheme: 'jj-view',
+                          path: file.path.startsWith('/') ? file.path : `/${file.path}`,
+                          fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'right' }),
+                      });
+                const matchingState = createJjResourceState(file, cId, workspaceRoot, {
+                    editable: isWorkingCopy,
+                    workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                });
+                await loadDiffFromUris(leftUri, rightUri, `${file.path} (${cId.slice(0, 8)})`, matchingState, {
+                    preview: true,
+                });
+            },
+        });
+        // An edited draft pins the tab, like a dirty file editor, so clicking
+        // another commit opens a fresh preview instead of discarding the text.
+        const syncDirty = (): void => {
+            const liveTab = tabs.find((t) => t.id === tabId);
+            if (!liveTab) {
+                return;
+            }
+            const dirty = controller.hasUnsavedDraft;
+            if (liveTab.isDirty === dirty) {
+                return;
+            }
+            liveTab.isDirty = dirty;
+            if (dirty) {
+                liveTab.preview = false;
+            }
+        };
+        const bridge = createInMemoryBridge(async (msg) => {
+            await controller.handleMessage(msg);
+            syncDirty();
+        });
+        const subscriptions = [
+            controller.addMessenger(bridge.messenger),
+            controller.onDidUpdate(syncDirty),
+            // Like the extension's editor provider: re-load on every repository
+            // status change so an external describe/abandon or a working-copy
+            // edit reaches the open details view. load() keeps an unsaved draft
+            // and closes the view when the revision no longer exists.
+            model.repo.onDidStatusChange(() => {
+                void controller.load();
+            }),
+        ];
+        void controller.load();
+        commitDetailsSessions.set(tabId, {
+            bridge,
+            controller,
+            dispose: () => {
+                for (const subscription of subscriptions) {
+                    subscription.dispose();
+                }
+                controller.dispose();
+            },
+        });
+    });
+}
+
+const activeCommitDetailsSession = $derived(activeTab ? commitDetailsSessions.get(activeTab.id) : undefined);
 
 function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
     const tabId = getTabId(view);
@@ -348,12 +441,14 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         if (previewIndex >= 0) {
             tabs[previewIndex] = newTab;
             activeTabId = newTab.id;
+            ensureCommitDetailsSession(tabs[previewIndex]);
             return;
         }
     }
 
     tabs.push(newTab);
     activeTabId = newTab.id;
+    ensureCommitDetailsSession(tabs[tabs.length - 1]);
 }
 
 function closeTabById(tabId: string): void {
@@ -674,61 +769,40 @@ $effect(() => {
     };
 });
 
+/**
+ * Keeps commit-details sessions in step with the tab list: every
+ * commit-details tab owns a session for its whole lifetime, and a session
+ * is disposed as soon as its tab disappears, whatever path removed it
+ * (close, close-others, preview replacement, ...). Creation normally
+ * happens synchronously in openOrActivateTab; this effect only backfills
+ * tabs opened before the SCM model or host environment were ready.
+ */
 $effect(() => {
-    if (activeTab?.view.type === 'commit-details' && scmModel && webHostEnv) {
-        const changeId = activeTab.view.changeId;
-        const bridge = createInMemoryBridge(async (msg) => {
-            if (commitDetailsController) {
-                await commitDetailsController.handleMessage(msg);
-            }
-        });
-        commitDetailsBridge = bridge;
-        commitDetailsController = new CommitDetailsController(changeId, scmModel.repo, webHostEnv, {
-            logger: NO_OP_LOGGER,
-            openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
-                const repo = scmModel?.repo;
-                if (!repo) {
-                    return;
-                }
-                const leftUri = Uri.from({
-                    scheme: 'jj-view',
-                    path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-                    fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'left' }),
-                });
-                const rightUri = isWorkingCopy
-                    ? Uri.file(path.join(workspaceRoot, file.path))
-                    : Uri.from({
-                          scheme: 'jj-view',
-                          path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-                          fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: cId, side: 'right' }),
-                      });
-                const matchingState = createJjResourceState(file, cId, workspaceRoot, {
-                    editable: isWorkingCopy,
-                    workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                });
-                await loadDiffFromUris(leftUri, rightUri, `${file.path} (${cId.slice(0, 8)})`, matchingState, {
-                    preview: true,
-                });
-            },
-        });
-        const messengerSub = bridge.messenger ? commitDetailsController.addMessenger(bridge.messenger) : undefined;
-        void commitDetailsController.load();
-        // Like the extension's editor provider: re-load on every repository
-        // status change so an external describe/abandon or a working-copy edit
-        // reaches the open details view. load() keeps an unsaved draft and
-        // closes the view when the revision no longer exists.
-        const controller = commitDetailsController;
-        const statusSub = scmModel.repo.onDidStatusChange(() => {
-            void controller.load();
-        });
-        return () => {
-            statusSub.dispose();
-            messengerSub?.dispose();
-            commitDetailsController?.dispose();
-            commitDetailsController = null;
-            commitDetailsBridge = null;
-        };
+    const liveIds = new Set<string>();
+    for (const tab of tabs) {
+        if (tab.view.type === 'commit-details') {
+            liveIds.add(tab.id);
+            ensureCommitDetailsSession(tab);
+        }
     }
+    untrack(() => {
+        for (const [tabId, session] of commitDetailsSessions) {
+            if (liveIds.has(tabId)) {
+                continue;
+            }
+            session.dispose();
+            commitDetailsSessions.delete(tabId);
+        }
+    });
+});
+
+$effect(() => {
+    return () => {
+        for (const session of commitDetailsSessions.values()) {
+            session.dispose();
+        }
+        commitDetailsSessions.clear();
+    };
 });
 
 interface ContextMenuState {
@@ -1313,15 +1387,14 @@ onMount(() => {
                             }}
                         />
                     {/key}
-                {:else if activeTab && activeTab.view.type === 'commit-details' && commitDetailsBridge}
-                    <CommitDetailsView
-                        transport={commitDetailsBridge.transport}
-                        onClose={() => {
-                            if (activeTab) {
-                                closeTabById(activeTab.id);
-                            }
-                        }}
-                    />
+                {:else if activeTab && activeTab.view.type === 'commit-details' && activeCommitDetailsSession}
+                    {#key activeTab.id}
+                        {@const sessionTabId = activeTab.id}
+                        <CommitDetailsView
+                            transport={activeCommitDetailsSession.bridge.transport}
+                            onClose={() => closeTabById(sessionTabId)}
+                        />
+                    {/key}
                 {:else}
                     <div class="empty-editor-message">
                         <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>

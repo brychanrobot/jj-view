@@ -79,6 +79,7 @@ $effect(() => {
         changeIdOffset={detailsCommit.changeIdOffset}
         commitId={detailsCommit.commitId || ''}
         description={detailsCommit.description || ''}
+        unsavedDraft={detailsCommit.unsavedDraft}
         files={detailsCommit.files || []}
         isLoadingFiles={detailsCommit.isLoadingFiles ?? false}
         isImmutable={detailsCommit.isImmutable || false}
