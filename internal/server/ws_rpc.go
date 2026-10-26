@@ -148,12 +148,26 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		wake:     make(chan struct{}, 1),
 		inflight: make(map[string]context.CancelFunc),
 	}
+	s.clientsMu.Lock()
+	s.wsClients[c] = struct{}{}
+	s.clientsMu.Unlock()
+
 	c.serve()
+}
+
+func (c *wsConn) close() {
+	c.cancel()
+	_ = c.conn.Close()
 }
 
 // serve runs the write pump in the background and the read loop in the
 // foreground. Returning closes the connection.
 func (c *wsConn) serve() {
+	defer func() {
+		c.s.clientsMu.Lock()
+		delete(c.s.wsClients, c)
+		c.s.clientsMu.Unlock()
+	}()
 	defer c.cancel()
 	defer c.conn.Close()
 
@@ -164,7 +178,7 @@ func (c *wsConn) serve() {
 	for {
 		msgType, payload, err := c.conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) && c.ctx.Err() == nil {
 				log.Printf("[WS] read ended after %s: %v", time.Since(opened).Round(time.Millisecond), err)
 			}
 			return

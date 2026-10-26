@@ -80,6 +80,7 @@ type Server struct {
 	assetVersion string
 	clientsMu    sync.Mutex
 	sseClients   map[string]*sseClient
+	wsClients    map[*wsConn]struct{}
 	mu           sync.RWMutex
 }
 
@@ -178,6 +179,7 @@ func NewServer(cfg Config) (*Server, error) {
 		watcherHub:   watcher.NewHub(),
 		readyCh:      make(chan struct{}),
 		sseClients:   make(map[string]*sseClient),
+		wsClients:    make(map[*wsConn]struct{}),
 		gitCreds:     gitcred.NewResolver(gitcred.Options{Logf: log.Printf}),
 		fileServer:   http.FileServer(http.FS(web.FS)),
 		assetVersion: computeAssetVersion(cfg.Version),
@@ -327,10 +329,22 @@ func (s *Server) Close(ctx context.Context) error {
 		client.close()
 	}
 	s.sseClients = make(map[string]*sseClient)
+	wsClients := make([]*wsConn, 0, len(s.wsClients))
+	for ws := range s.wsClients {
+		wsClients = append(wsClients, ws)
+	}
+	s.wsClients = make(map[*wsConn]struct{})
 	s.clientsMu.Unlock()
 
+	for _, ws := range wsClients {
+		ws.close()
+	}
+
 	if s.httpServer != nil {
-		return s.httpServer.Shutdown(ctx)
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			_ = s.httpServer.Close()
+			return err
+		}
 	}
 	return nil
 }

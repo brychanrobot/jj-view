@@ -364,3 +364,24 @@ func TestNextFrameInterleavesStreamsRoundRobin(t *testing.T) {
 		t.Fatalf("round-robin order = %q, want %q", got, want)
 	}
 }
+
+func TestWSClosedOnServerClose(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	conn := dialWS(t, srv)
+
+	sendFrame(t, conn, 1, wsPingMethod, nil)
+	_ = readFrame(t, conn, 2*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srv.Close(ctx); err != nil {
+		t.Fatalf("srv.Close failed: %v", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, _, err := conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected WebSocket read to fail after srv.Close")
+	}
+}
+
