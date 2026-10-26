@@ -151,6 +151,7 @@ describe('registerWebCommands', () => {
             'jj-view.absorb',
             'jj-view.showDetails',
             'jj-view.openChanges',
+            'jj-view.sync',
         ];
 
         for (const cmd of commands) {

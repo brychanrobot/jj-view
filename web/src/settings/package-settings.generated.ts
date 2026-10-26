@@ -118,6 +118,14 @@ export const PACKAGE_SETTINGS: readonly SettingDefinition[] = [
         default: '',
     },
     {
+        key: 'syncCommand',
+        title: 'Sync Command',
+        description: "Command to run for sync (prefixed with 'jj'). Defaults to 'git fetch'. Example: 'sync -a'.",
+        category: 'General',
+        type: 'string',
+        default: 'git fetch',
+    },
+    {
         key: 'minChangeIdLength',
         title: 'Min Change Id Length',
         description:

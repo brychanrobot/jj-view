@@ -55,6 +55,7 @@ import {
     squashHunkIntoParentCommand,
     squashSelectionIntoParentCommand,
 } from '../../../src/core/commands/squash-selection';
+import { syncCommand } from '../../../src/core/commands/sync';
 import { undoCommand } from '../../../src/core/commands/undo';
 import { uploadCommand } from '../../../src/core/commands/upload';
 import { uploadStackCommand } from '../../../src/core/commands/upload-stack';
@@ -335,6 +336,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     registerWithPayload('jj-view.deleteBookmark', createDeleteBookmarkPayload, deleteBookmarkCommand);
     registerWithPayload('jj-view.upload', createUploadPayload, uploadCommand);
     registerWithPayload('jj-view.uploadStack', createUploadStackPayload, uploadStackCommand);
+    registerDirect('jj-view.sync', syncCommand);
 
     // 8. Details & Multi-Diff
     registerWithPayload('jj-view.showDetails', createShowDetailsPayload, showDetailsCommand);

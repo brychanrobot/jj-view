@@ -1566,6 +1566,15 @@ export class JjService {
         });
     }
 
+    async sync(command: string = 'git', ...args: string[]): Promise<string> {
+        const finalArgs = command === 'git' && args.length === 0 ? ['fetch'] : args;
+        return this.run(command, finalArgs, {
+            isMutation: true,
+            label: 'sync',
+            timeout: UPLOAD_TIMEOUT_MS,
+        });
+    }
+
     /**
      * Squash specific line ranges (selection) from a file to its parent revision.
      *

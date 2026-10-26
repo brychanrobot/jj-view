@@ -208,10 +208,15 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(commands).toContain('jj-view.undo');
         expect(commands).toContain('jj-view.redo');
         expect(commands).toContain('jj-view.workspaceAdd');
+        expect(commands).toContain('jj-view.sync');
 
         const wsAction = actions.find((a) => a.command === 'jj-view.workspaceAdd');
         expect(wsAction?.title).toBe('Add Workspace');
         expect(wsAction?.iconClass).toContain('jj-icon-workspace-add');
         expect(wsAction?.iconClass).toContain('codicon-new-collection');
+
+        const syncAction = actions.find((a) => a.command === 'jj-view.sync');
+        expect(syncAction?.title).toBe('Sync');
+        expect(syncAction?.iconClass).toBe('codicon codicon-sync');
     });
 });
