@@ -22,7 +22,7 @@ import {
     type ResourceCommand,
     type ResourceDecorations,
 } from '../../src/core/scm-resource-state';
-import { encodeJjViewQuery, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
+import { getRevisionFromUri, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { toError } from '../../src/utils/error-utils';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
@@ -583,24 +583,36 @@ async function openFileDiffForChange(
     changeId: string,
     isWorkingCopy: boolean,
     options: HostOpenOptions,
+    isImmutable?: boolean,
 ): Promise<void> {
-    const leftUri = Uri.from({
-        scheme: 'jj-view',
-        path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-        fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: changeId, side: 'left' }),
-    });
-    const rightUri = isWorkingCopy
-        ? Uri.file(path.join(workspaceRoot, file.path))
-        : Uri.from({
-              scheme: 'jj-view',
-              path: file.path.startsWith('/') ? file.path : `/${file.path}`,
-              fragment: encodeJjViewQuery({ mode: 'diff', root: workspaceRoot, base: changeId, side: 'right' }),
-          });
+    let editable = isWorkingCopy;
+    if (!editable) {
+        if (isImmutable !== undefined) {
+            editable = !isImmutable;
+        } else {
+            const matchingAncestor = currentSnapshot?.ancestors.find(
+                (a) =>
+                    a.entry.change_id === changeId ||
+                    a.entry.change_id.startsWith(changeId) ||
+                    changeId.startsWith(a.entry.change_id),
+            );
+            if (matchingAncestor) {
+                editable = matchingAncestor.isMutable;
+            }
+        }
+    }
     const matchingState = createJjResourceState(file, changeId, workspaceRoot, {
-        editable: isWorkingCopy,
-        workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+        editable,
+        openDiffOnClick: true,
+        workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
     });
-    await loadDiffFromUris(leftUri, rightUri, `${file.path} (${changeId.slice(0, 8)})`, matchingState, options);
+    await loadDiffFromUris(
+        matchingState.leftUri,
+        matchingState.rightUri,
+        `${file.path} (${changeId.slice(0, 8)})`,
+        matchingState,
+        options,
+    );
 }
 
 // ---- Review comments ------------------------------------------------------
@@ -714,8 +726,8 @@ function ensureCommitDetailsSession(tab: TabEntry): void {
         }
         const controller = new CommitDetailsController(changeId, model.repo, hostEnv, {
             logger: NO_OP_LOGGER,
-            openDiff: async ({ file, changeId: cId, isWorkingCopy }) => {
-                await openFileDiffForChange(file, cId, isWorkingCopy, { preview: true });
+            openDiff: async ({ file, changeId: cId, isImmutable, isWorkingCopy }) => {
+                await openFileDiffForChange(file, cId, isWorkingCopy ?? false, { preview: true }, isImmutable);
             },
         });
         // An edited draft pins the tab, like a dirty file editor, so clicking
@@ -1133,13 +1145,25 @@ async function loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<voi
     const fileName = cleanPath.split('/').filter(Boolean).pop() || cleanPath || 'file';
 
     let matchingState: JjResourceState | undefined;
-    const change = currentSnapshot?.workingCopyChanges?.find((c) => c.path === cleanPath || normPath.endsWith(c.path));
-    if (change) {
-        matchingState = createJjResourceState(change, '@', workspaceRoot, {
-            squashable: currentSnapshot?.parentMutable ?? false,
-            multipleAncestors: (currentSnapshot?.ancestors.length ?? 0) > 1,
+    const uriRevision = uri.scheme === 'file' ? '@' : (getRevisionFromUri(uri) ?? '@');
+    const isWc = isWorkingCopyRevision(uriRevision, currentSnapshot?.currentEntry?.change_id);
+    if (isWc) {
+        const change = currentSnapshot?.workingCopyChanges?.find(
+            (c) => c.path === cleanPath || normPath.endsWith(c.path),
+        );
+        if (change) {
+            matchingState = createJjResourceState(change, '@', workspaceRoot, {
+                squashable: currentSnapshot?.parentMutable ?? false,
+                multipleAncestors: (currentSnapshot?.ancestors.length ?? 0) > 1,
+                openDiffOnClick: true,
+                hasChild: currentSnapshot?.hasChild ?? false,
+                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+            });
+        }
+    } else if (uri.scheme === 'jj-edit') {
+        matchingState = createJjResourceState({ path: cleanPath, status: 'modified' }, uriRevision, workspaceRoot, {
+            editable: true,
             openDiffOnClick: true,
-            hasChild: currentSnapshot?.hasChild ?? false,
             workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
         });
     }
@@ -1220,8 +1244,8 @@ async function handleDiscardFile(): Promise<void> {
             if (scmModel) {
                 await scmModel.refresh({ reason: 'discard-file' });
             }
-        } else if (activeTab.view.uri.scheme === 'file' && host) {
-            const content = await host.fs.readTextFile(activeTab.view.uri.fsPath);
+        } else if (activeTab.view.uri.scheme === 'file' || activeTab.view.uri.scheme === 'jj-edit') {
+            const content = await resolveUriContent(activeTab.view.uri);
             activeTab.view.content = content;
         }
         activeTab.isDirty = false;
@@ -1812,30 +1836,70 @@ onMount(() => {
             onOpenDiff: async (leftUri, rightUri, title, options) => {
                 const normPath = rightUri?.path || leftUri?.path || '';
                 const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+                const uriRev =
+                    rightUri?.scheme === 'file'
+                        ? '@'
+                        : (rightUri && getRevisionFromUri(rightUri)) || (leftUri && getRevisionFromUri(leftUri)) || '@';
+                const isWc = isWorkingCopyRevision(uriRev, currentSnapshot?.currentEntry?.change_id);
                 let matchingState: JjResourceState | undefined;
-                if (currentSnapshot?.conflictedPaths.some((p) => p === cleanPath || normPath.endsWith(p))) {
-                    matchingState = createJjResourceState(
-                        { path: cleanPath, status: 'modified', conflicted: true },
-                        '@',
-                        workspaceRoot,
-                        {
-                            openDiffOnClick: true,
-                            inConflictGroup: true,
-                            workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                        },
-                    );
+                if (isWc) {
+                    if (currentSnapshot?.conflictedPaths.some((p) => p === cleanPath || normPath.endsWith(p))) {
+                        matchingState = createJjResourceState(
+                            { path: cleanPath, status: 'modified', conflicted: true },
+                            '@',
+                            workspaceRoot,
+                            {
+                                openDiffOnClick: true,
+                                inConflictGroup: true,
+                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                            },
+                        );
+                    } else {
+                        const change = currentSnapshot?.workingCopyChanges?.find(
+                            (c) => c.path === cleanPath || normPath.endsWith(c.path),
+                        );
+                        if (change) {
+                            matchingState = createJjResourceState(change, '@', workspaceRoot, {
+                                squashable: currentSnapshot.parentMutable,
+                                multipleAncestors: (currentSnapshot.ancestors.length ?? 0) > 1,
+                                openDiffOnClick: true,
+                                hasChild: currentSnapshot.hasChild,
+                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                            });
+                        }
+                    }
                 } else {
-                    const change = currentSnapshot?.workingCopyChanges?.find(
-                        (c) => c.path === cleanPath || normPath.endsWith(c.path),
-                    );
-                    if (change) {
-                        matchingState = createJjResourceState(change, '@', workspaceRoot, {
-                            squashable: currentSnapshot.parentMutable,
-                            multipleAncestors: (currentSnapshot.ancestors.length ?? 0) > 1,
+                    const ancestorIdx =
+                        currentSnapshot?.ancestors.findIndex(
+                            (a) =>
+                                a.entry.change_id === uriRev ||
+                                a.entry.change_id.startsWith(uriRev) ||
+                                uriRev.startsWith(a.entry.change_id),
+                        ) ?? -1;
+                    if (ancestorIdx >= 0 && currentSnapshot?.ancestors[ancestorIdx]) {
+                        const ancestor = currentSnapshot.ancestors[ancestorIdx];
+                        const remainingAncestors = currentSnapshot.ancestors.length - 1 - ancestorIdx;
+                        const change = ancestor.changes.find(
+                            (c) => c.path === cleanPath || normPath.endsWith(c.path),
+                        ) ?? { path: cleanPath, status: 'modified' as const };
+                        matchingState = createJjResourceState(change, ancestor.entry.change_id, workspaceRoot, {
+                            editable: ancestor.isMutable || rightUri?.scheme === 'jj-edit',
+                            squashable: ancestor.canSquash,
+                            multipleAncestors: remainingAncestors > 0,
                             openDiffOnClick: true,
-                            hasChild: currentSnapshot.hasChild,
                             workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
                         });
+                    } else if (rightUri?.scheme === 'jj-edit') {
+                        matchingState = createJjResourceState(
+                            { path: cleanPath, status: 'modified' },
+                            uriRev,
+                            workspaceRoot,
+                            {
+                                editable: true,
+                                openDiffOnClick: true,
+                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                            },
+                        );
                     }
                 }
                 await loadDiffFromUris(leftUri, rightUri, title, matchingState, options);
@@ -1888,7 +1952,7 @@ onMount(() => {
                         ]);
                         const rawFilename = r.label || r.rightUri?.fsPath || r.leftUri?.fsPath || 'file';
                         const filename = rawFilename.replace(/^[/\\]+/, '');
-                        const isWorkingCopy = r.rightUri?.scheme === 'file';
+                        const isWorkingCopy = r.rightUri?.scheme === 'file' || r.rightUri?.scheme === 'jj-edit';
                         return {
                             filename,
                             originalContent: orig,
@@ -2025,12 +2089,14 @@ onMount(() => {
                                 originalContent={activeTab.view.originalContent ?? ''}
                                 modifiedContent={activeTab.view.modifiedContent ?? ''}
                                 fileStatus={activeTab.view.resourceState?.status}
-                                isWorkingCopy={activeTab.view.resourceState
-                                    ? isWorkingCopyRevision(
-                                          activeTab.view.resourceState.revision,
-                                          currentSnapshot?.currentEntry?.change_id,
-                                      )
-                                    : activeTab.view.rightUri?.scheme === 'file'}
+                                isWorkingCopy={activeTab.view.rightUri?.scheme === 'file' ||
+                                    activeTab.view.rightUri?.scheme === 'jj-edit' ||
+                                    (activeTab.view.resourceState
+                                        ? isWorkingCopyRevision(
+                                              activeTab.view.resourceState.revision,
+                                              currentSnapshot?.currentEntry?.change_id,
+                                          )
+                                        : false)}
                                 isConflict={activeTab.view.resourceState?.status === 'conflicted' ||
                                     (activeTab.view.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
                                 parentMutable={currentSnapshot?.parentMutable ?? false}
