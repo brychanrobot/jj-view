@@ -837,3 +837,50 @@ func TestWorkspaceAddAllowedRootRPC(t *testing.T) {
 		t.Fatalf("expected isFile=true, got %+v", statMap)
 	}
 }
+
+func TestServerPreloadAndSidecarEndpoints(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", srv.Port())
+
+	// 1. Unauthenticated GET /preload.js must succeed with 200 and javascript content-type
+	resp, err := http.Get(baseURL + "/preload.js")
+	if err != nil {
+		t.Fatalf("failed to fetch /preload.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for /preload.js, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "window.sidecar") {
+		t.Fatalf("expected preload.js to define window.sidecar, got:\n%s", string(body))
+	}
+
+	// 2. Unauthenticated POST to /_sidecar/send-message should return 401
+	unauthPost, err := http.Post(baseURL+"/_sidecar/send-message", "application/json", strings.NewReader(`{"message":"test"}`))
+	if err != nil {
+		t.Fatalf("failed to post unauth /_sidecar/send-message: %v", err)
+	}
+	defer unauthPost.Body.Close()
+	if unauthPost.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauth /_sidecar/send-message, got %d", unauthPost.StatusCode)
+	}
+
+	// 3. Authenticated POST to /_sidecar/send-message with session token
+	client := &http.Client{}
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/_sidecar/send-message?token="+srv.SessionToken(), strings.NewReader(`{"message":"test"}`))
+	if err != nil {
+		t.Fatalf("failed to create req: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	authResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to send authenticated /_sidecar request: %v", err)
+	}
+	defer authResp.Body.Close()
+	// Should not be 401 Unauthorized or 404 Not Found (might be 500 if agentapi binary isn't mocked or 200 if agentapi succeeds)
+	if authResp.StatusCode == http.StatusUnauthorized || authResp.StatusCode == http.StatusNotFound {
+		t.Fatalf("expected authorized /_sidecar endpoint (not 401 or 404), got %d", authResp.StatusCode)
+	}
+}
+

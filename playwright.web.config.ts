@@ -17,11 +17,12 @@ export default defineConfig({
     use: {
         headless: true,
         launchOptions: {
+            executablePath: process.env.PLAYWRIGHT_CHROME_PATH || '/usr/bin/google-chrome',
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
         },
         actionTimeout: 10000,
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
-        video: 'retain-on-failure',
+        video: 'off',
     },
 });

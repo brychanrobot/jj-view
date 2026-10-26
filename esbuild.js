@@ -76,6 +76,7 @@ async function main() {
     const standaloneWebCtx = await esbuild.context({
         entryPoints: {
             app: 'web/src/main.ts',
+            preload: 'web/src/sidecar/preload.ts',
         },
         bundle: true,
         format: 'iife',

@@ -15,6 +15,7 @@ const __dirname = path.dirname(__filename);
 export interface SetupSidecarOptions {
     workspaceRoot?: string;
     globalConfigDir?: string;
+    forceRebuild?: boolean;
 }
 
 export function setupSidecar(options?: SetupSidecarOptions): void {
@@ -22,8 +23,8 @@ export function setupSidecar(options?: SetupSidecarOptions): void {
     const binName = process.platform === 'win32' ? 'jj-view.exe' : 'jj-view';
     const binPath = path.join(rootDir, 'dist', 'bin', binName);
 
-    if (!fs.existsSync(binPath)) {
-        console.info(`[Setup Sidecar] Binary not found at dist/bin/${binName}. Compiling...`);
+    if (!fs.existsSync(binPath) || options?.forceRebuild) {
+        console.info(`[Setup Sidecar] Compiling binary at dist/bin/${binName}...`);
         execSync(`go build -o dist/bin/${binName} ./cmd/jj-view`, {
             cwd: rootDir,
             stdio: 'inherit',
@@ -44,10 +45,10 @@ export function setupSidecar(options?: SetupSidecarOptions): void {
 
     const manifestPath = path.join(sidecarDir, 'sidecar.json');
     const manifest = {
-        description: 'JJ View Jujutsu (jj) visual interface.',
+        description: 'JJ View Jujutsu (jj) visual interface (v2.10.0).',
         display_name: 'JJ View',
         command: binPath,
-        args: ['-host', '127.0.0.1', '-port', '{{.port}}', '-no-open'],
+        args: ['-host', '127.0.0.1', '-no-open'],
         restart_policy: 'always',
         has_web_ui: true,
         ui_config: {
