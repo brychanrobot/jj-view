@@ -1002,5 +1002,72 @@ describe('RemoteHostSystem Unit Tests', () => {
 
             await expect(host.fs.exists('/mock/repo/after.txt')).rejects.toThrow('RemoteHostSystem is disposed');
         });
+
+        it('restores token from sessionStorage and persists token to sessionStorage', async () => {
+            const mockStorage = new Map<string, string>();
+            const fakeSessionStorage = {
+                getItem: (k: string) => mockStorage.get(k) ?? null,
+                setItem: (k: string, v: string) => mockStorage.set(k, v),
+                removeItem: (k: string) => mockStorage.delete(k),
+                clear: () => mockStorage.clear(),
+                length: 0,
+                key: () => null,
+            };
+
+            const origWindow = globalThis.window;
+            let capturedUrl = '';
+
+            try {
+                // Pre-populate sessionStorage
+                mockStorage.set('jj_view_token', 'stored-token-123');
+
+                (globalThis as unknown as { window: unknown }).window = {
+                    location: {
+                        host: '127.0.0.1:5173',
+                        protocol: 'http:',
+                        search: '',
+                    },
+                    sessionStorage: fakeSessionStorage,
+                };
+
+                const fakeWs = new FakeWebSocket();
+                const host1 = new RemoteHostSystem({
+                    webSocketFactory: (u) => {
+                        capturedUrl = u;
+                        return fakeWs;
+                    },
+                    reconnect: false,
+                });
+
+                expect(capturedUrl).toContain('token=stored-token-123');
+                host1.dispose();
+
+                // Test persistence: query token gets stored
+                mockStorage.clear();
+                (globalThis as unknown as { window: unknown }).window = {
+                    location: {
+                        host: '127.0.0.1:5173',
+                        protocol: 'http:',
+                        search: '?token=query-token-456',
+                    },
+                    sessionStorage: fakeSessionStorage,
+                };
+
+                const fakeWs2 = new FakeWebSocket();
+                const host2 = new RemoteHostSystem({
+                    webSocketFactory: (u) => {
+                        capturedUrl = u;
+                        return fakeWs2;
+                    },
+                    reconnect: false,
+                });
+
+                expect(capturedUrl).toContain('token=query-token-456');
+                expect(mockStorage.get('jj_view_token')).toBe('query-token-456');
+                host2.dispose();
+            } finally {
+                (globalThis as unknown as { window: unknown }).window = origWindow;
+            }
+        });
     });
 });
