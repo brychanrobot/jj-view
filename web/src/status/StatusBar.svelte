@@ -10,10 +10,11 @@ import type { StatusBarService, StatusBarState } from './status-bar-service';
 interface Props {
     service: StatusBarService;
     notificationService?: NotificationService;
+    onOpenOutput?: () => void;
     onOpenSettings?: () => void;
 }
 
-let { service, notificationService, onOpenSettings }: Props = $props();
+let { service, notificationService, onOpenOutput, onOpenSettings }: Props = $props();
 
 // svelte-ignore state_referenced_locally
 let state = $state<StatusBarState>(service.state);
@@ -122,6 +123,19 @@ const connection = $derived(state.connection);
                 {#if notificationCount > 0}
                     <span class="notification-badge" data-testid="status-notification-badge">{notificationCount}</span>
                 {/if}
+            </button>
+        {/if}
+
+        {#if onOpenOutput}
+            <button
+                type="button"
+                class="status-item status-btn output-item"
+                data-testid="status-output-btn"
+                aria-label="Output Log"
+                title="Output Log"
+                onclick={() => onOpenOutput()}
+            >
+                <i class="codicon codicon-output" aria-hidden="true"></i>
             </button>
         {/if}
 
