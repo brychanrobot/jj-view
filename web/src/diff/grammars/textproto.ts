@@ -7,6 +7,7 @@ import type { LanguageRegistration } from 'shiki';
 
 export const textprotoGrammar: LanguageRegistration = {
     name: 'textproto',
+    aliases: ['pbtxt', 'prototxt'],
     scopeName: 'source.textproto',
     displayName: 'Protocol Buffer Text Format',
     patterns: [

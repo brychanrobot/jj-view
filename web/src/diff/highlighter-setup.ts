@@ -7,12 +7,15 @@ import { registerCustomLanguage, registerCustomTheme } from '@pierre/diffs';
 import { getOrCreateWorkerPoolSingleton, type WorkerPoolManager } from '@pierre/diffs/worker';
 import { normalizeTheme, type ThemeRegistration } from 'shiki';
 import { loadBazelGrammar } from './grammars/bazel';
+import { CPP_RAW_STRING_LANGUAGES, loadCppWithRawStringsGrammar } from './grammars/cpp-raw-strings';
 import { loadMojomGrammar, mojomGrammar } from './grammars/mojom';
 import { loadProguardGrammar, proguardGrammar } from './grammars/proguard';
 import { loadTextprotoGrammar, textprotoGrammar } from './grammars/textproto';
 
 export {
+    CPP_RAW_STRING_LANGUAGES,
     loadBazelGrammar,
+    loadCppWithRawStringsGrammar,
     loadMojomGrammar,
     loadProguardGrammar,
     loadTextprotoGrammar,
@@ -260,8 +263,8 @@ export function ensureHighlighterRegistered(): void {
     registerLangOnce('shellscript', () => import('@shikijs/langs/shellscript'), ['sh', 'bash', 'zsh', 'gradlew']);
     registerLangOnce('bat', () => import('@shikijs/langs/bat'), ['bat', 'cmd', 'gradlew.bat']);
     registerLangOnce('diff', () => import('@shikijs/langs/diff'), ['diff', 'patch']);
-    registerLangOnce('c', () => import('@shikijs/langs/c'), ['c', 'h']);
-    registerLangOnce('cpp', () => import('@shikijs/langs/cpp'), ['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx']);
+    registerLangOnce('c', () => import('@shikijs/langs/c'), ['c']);
+    registerLangOnce('cpp', loadCppWithRawStringsGrammar, ['cpp', 'cc', 'cxx', 'h', 'hpp', 'hh', 'hxx', 'mm']);
     registerLangOnce('csharp', () => import('@shikijs/langs/csharp'), ['cs']);
     registerLangOnce('java', () => import('@shikijs/langs/java'), ['java', 'aidl']);
     registerLangOnce('dockerfile', () => import('@shikijs/langs/dockerfile'), ['dockerfile', 'Dockerfile']);
@@ -292,11 +295,7 @@ export function ensureHighlighterRegistered(): void {
     registerLangOnce('proto', () => import('@shikijs/langs/proto'), []);
 
     registerLangOnce('textproto', loadTextprotoGrammar, ['textproto', 'pbtxt', 'prototxt']);
-    registerLangOnce(
-        'pbtxt',
-        async () => ({ default: [{ ...textprotoGrammar, name: 'pbtxt', aliases: ['textproto'] }] }),
-        [],
-    );
+    registerLangOnce('pbtxt', loadTextprotoGrammar, []);
 
     registerLangOnce('kotlin', () => import('@shikijs/langs/kotlin'), [
         'kt',
