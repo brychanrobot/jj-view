@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
@@ -26,8 +27,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"github.com/brychanrobot/jj-view/internal/config"
 	"github.com/brychanrobot/jj-view/internal/fs"
 	"github.com/brychanrobot/jj-view/internal/process"
@@ -39,7 +38,7 @@ import (
 )
 
 const (
-	maxWSReadLimit = 100 * 1024 * 1024 // 100 MB
+	maxRPCReadLimit = 100 * 1024 * 1024 // 100 MB
 )
 
 // Config configures the server instance.
@@ -74,12 +73,42 @@ type Server struct {
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
-	upgrader     websocket.Upgrader
 	allowedHosts map[string]bool
 	fileServer   http.Handler
+	assetVersion string
 	clientsMu    sync.Mutex
-	clients      map[*wsClient]bool
+	sseClients   map[string]*sseClient
 	mu           sync.RWMutex
+}
+
+// versionedAssets are the embedded files whose contents feed the asset
+// cache-buster. Any change to these files must produce a new ?v= tag;
+// otherwise browsers holding an "immutable" cached copy keep serving the
+// previous build's JS/CSS.
+var versionedAssets = []string{"dist/app.js", "dist/app.css", "dist/preload.js", "preload.js"}
+
+// computeAssetVersion returns "<version>-<hash>" where hash is derived from the
+// embedded asset contents. The semver string alone is not a safe cache key:
+// successive dev builds share the same version yet ship different assets.
+func computeAssetVersion(version string) string {
+	if version == "" {
+		version = "dev"
+	}
+	h := sha256.New()
+	for _, name := range versionedAssets {
+		content, err := web.FS.ReadFile(name)
+		if err != nil {
+			continue
+		}
+		_, _ = h.Write([]byte(name))
+		_, _ = h.Write(content)
+	}
+	return fmt.Sprintf("%s-%s", version, hex.EncodeToString(h.Sum(nil))[:12])
+}
+
+// AssetVersion returns the cache-busting tag applied to embedded asset URLs.
+func (s *Server) AssetVersion() string {
+	return s.assetVersion
 }
 
 // NewServer initializes a new Server.
@@ -146,18 +175,14 @@ func NewServer(cfg Config) (*Server, error) {
 		fsMgr:      fsMgr,
 		watcherHub: watcher.NewHub(),
 		readyCh:    make(chan struct{}),
-		clients:    make(map[*wsClient]bool),
+		sseClients: make(map[string]*sseClient),
 		allowedHosts: map[string]bool{
 			"api.github.com": true,
 			"github.com":     true,
 			"gitlab.com":     true,
 		},
-		fileServer: http.FileServer(http.FS(web.FS)),
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024 * 1024,
-			WriteBufferSize: 1024 * 1024,
-			CheckOrigin:     func(r *http.Request) bool { return true },
-		},
+		fileServer:   http.FileServer(http.FS(web.FS)),
+		assetVersion: computeAssetVersion(cfg.Version),
 	}
 
 	configStore, err := config.NewStore(config.Options{
@@ -259,13 +284,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/_sidecar/", s.handleSidecarProxy)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/forge-proxy", s.handleForgeProxy)
-	mux.HandleFunc("/ws/system", s.handleWebSocket)
-	mux.HandleFunc("/api/ws", s.handleWebSocket)
+	mux.HandleFunc("/api/rpc", s.handleRPC)
+	mux.HandleFunc("/api/events", s.handleEvents)
 
 	s.httpServer = &http.Server{
 		Handler:      mux,
 		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 0,
 	}
 
 	return s.httpServer.Serve(s.listener)
@@ -307,10 +332,10 @@ func (s *Server) Close(ctx context.Context) error {
 	}
 
 	s.clientsMu.Lock()
-	for client := range s.clients {
+	for _, client := range s.sseClients {
 		client.close()
 	}
-	s.clients = make(map[*wsClient]bool)
+	s.sseClients = make(map[string]*sseClient)
 	s.clientsMu.Unlock()
 
 	if s.httpServer != nil {
@@ -321,8 +346,8 @@ func (s *Server) Close(ctx context.Context) error {
 
 func (s *Server) broadcastNotification(method string, params any) {
 	s.clientsMu.Lock()
-	clients := make([]*wsClient, 0, len(s.clients))
-	for client := range s.clients {
+	clients := make([]*sseClient, 0, len(s.sseClients))
+	for _, client := range s.sseClients {
 		clients = append(clients, client)
 	}
 	s.clientsMu.Unlock()
@@ -330,6 +355,47 @@ func (s *Server) broadcastNotification(method string, params any) {
 	notification := protocol.NewNotification(method, params)
 	for _, client := range clients {
 		_ = client.send(notification)
+	}
+}
+
+func (s *Server) notifyClient(clientID string, method string, params any) {
+	if clientID == "" {
+		s.broadcastNotification(method, params)
+		return
+	}
+	s.clientsMu.Lock()
+	client := s.sseClients[clientID]
+	s.clientsMu.Unlock()
+	if client != nil {
+		_ = client.send(protocol.NewNotification(method, params))
+	}
+}
+
+func (s *Server) trackClientSubscription(clientID, subID string) {
+	if clientID == "" {
+		return
+	}
+	s.clientsMu.Lock()
+	client := s.sseClients[clientID]
+	s.clientsMu.Unlock()
+	if client != nil {
+		client.subsMu.Lock()
+		client.subscriptions[subID] = true
+		client.subsMu.Unlock()
+	}
+}
+
+func (s *Server) untrackClientSubscription(clientID, subID string) {
+	if clientID == "" {
+		return
+	}
+	s.clientsMu.Lock()
+	client := s.sseClients[clientID]
+	s.clientsMu.Unlock()
+	if client != nil {
+		client.subsMu.Lock()
+		delete(client.subscriptions, subID)
+		client.subsMu.Unlock()
 	}
 }
 
@@ -460,7 +526,7 @@ func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Sidecar-Token, X-CSRF-Token, X-Antigravity-CSRF-Token, Cache-Control")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Sidecar-Token, X-CSRF-Token, X-Antigravity-CSRF-Token, Cache-Control, X-Client-ID")
 		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 	}
@@ -476,6 +542,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "ok",
 		"version": s.cfg.Version,
+		"build":   s.assetVersion,
 		"repo":    s.cfg.RepoRoot,
 		"sidecar": s.cfg.SidecarToken != "",
 	})
@@ -498,7 +565,7 @@ func (s *Server) handlePreload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(content)
 }
 
@@ -638,15 +705,31 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			stat, statErr := file.Stat()
 			_ = file.Close()
 			if statErr == nil && !stat.IsDir() {
+				if r.URL.Query().Get("v") != "" {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					w.Header().Set("Cache-Control", "public, max-age=86400")
+				}
 				s.fileServer.ServeHTTP(w, r)
 				return
 			}
 		}
 	}
 
-	// For root, /index.html, or client-side SPA routes (fallback to index.html):
-	// Authenticate to prevent local processes from scraping the session token
-	if !s.authenticateRequest(r) {
+	// In sidecar mode, allow loading the root UI without an explicit token so iframes
+	// can load index.html and receive the session token and fresh cookie.
+	// If an explicit token is provided, it must be valid.
+	hasExplicitToken := r.Header.Get("X-Sidecar-Token") != "" ||
+		r.Header.Get("Authorization") != "" ||
+		r.URL.Query().Get("token") != "" ||
+		r.URL.Query().Get("sidecar_token") != ""
+
+	if s.cfg.SidecarToken != "" {
+		if hasExplicitToken && !s.authenticateRequest(r) {
+			http.Error(w, "Unauthorized: invalid session token", http.StatusUnauthorized)
+			return
+		}
+	} else if !s.authenticateRequest(r) {
 		http.Error(w, "Unauthorized: missing or invalid session token", http.StatusUnauthorized)
 		return
 	}
@@ -657,8 +740,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activeToken := s.cfg.SessionToken
+	if s.cfg.SidecarToken != "" {
+		activeToken = s.cfg.SidecarToken
+	}
+
 	configPayload := map[string]any{
-		"token":    s.cfg.SessionToken,
+		"token":    activeToken,
 		"port":     s.cfg.Port,
 		"repoRoot": s.cfg.RepoRoot,
 	}
@@ -673,9 +761,14 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n</head>", string(configJSON))
 	html := strings.Replace(string(content), "</head>", injected, 1)
 
+	versionTag := s.assetVersion
+	html = strings.ReplaceAll(html, "/dist/app.js", fmt.Sprintf("/dist/app.js?v=%s", url.QueryEscape(versionTag)))
+	html = strings.ReplaceAll(html, "/dist/app.css", fmt.Sprintf("/dist/app.css?v=%s", url.QueryEscape(versionTag)))
+	html = strings.ReplaceAll(html, "/preload.js", fmt.Sprintf("/preload.js?v=%s", url.QueryEscape(versionTag)))
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "jj_view_token",
-		Value:    s.cfg.SessionToken,
+		Value:    activeToken,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -771,7 +864,93 @@ func (s *Server) handleForgeProxy(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
-func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
+	handlerStart := time.Now()
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !s.authenticateRequest(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	origin := r.Header.Get("Origin")
+	if origin != "" && !s.isOriginAllowed(origin, r.Host) {
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRPCReadLimit))
+	if err != nil {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	var req protocol.Request
+	if err := json.Unmarshal(body, &req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(protocol.NewErrorResponse(nil, protocol.CodeParseError, "parse error", nil))
+		return
+	}
+
+	if req.JSONRPC != "2.0" {
+		if !req.IsNotification() {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(protocol.NewErrorResponse(req.ID, protocol.CodeInvalidRequest, "invalid jsonrpc version", nil))
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
+
+	clientID := r.Header.Get("X-Client-ID")
+	if clientID == "" {
+		clientID = r.URL.Query().Get("clientId")
+	}
+
+	dispatchStart := time.Now()
+	res, rpcErr := s.dispatch(r.Context(), clientID, &req)
+	dispatchDur := time.Since(dispatchStart)
+
+	// Server-Timing lets the browser (DevTools Timing tab and
+	// PerformanceResourceTiming.serverTiming) separate daemon time from
+	// proxy/network transit. "dispatch" is the RPC method body; "total" is the
+	// whole handler including auth and body parsing. Must be set before the
+	// first write.
+	setServerTiming := func() {
+		total := time.Since(handlerStart)
+		w.Header().Set("Server-Timing", fmt.Sprintf(
+			"dispatch;dur=%.3f, total;dur=%.3f",
+			float64(dispatchDur.Microseconds())/1000.0,
+			float64(total.Microseconds())/1000.0,
+		))
+	}
+
+	if req.IsNotification() {
+		setServerTiming()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	var resp protocol.Response
+	if rpcErr != nil {
+		resp = protocol.NewErrorResponse(req.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data)
+	} else {
+		resp = protocol.NewSuccessResponse(req.ID, res)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	setServerTiming()
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	s.applyCORS(w, r)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -783,228 +962,152 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate Origin to prevent Cross-Site WebSocket Hijacking (CSWSH)
 	origin := r.Header.Get("Origin")
 	if origin != "" && !s.isOriginAllowed(origin, r.Host) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
 
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 
-	// CRITICAL FIX: Clear http.Server Read/Write timeouts on the hijacked TCP connection!
-	_ = conn.UnderlyingConn().SetDeadline(time.Time{})
-	_ = conn.UnderlyingConn().SetReadDeadline(time.Time{})
-	_ = conn.UnderlyingConn().SetWriteDeadline(time.Time{})
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
 
-	const pongWait = 60 * time.Second
-	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
-	conn.SetPongHandler(func(string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
+	clientID := r.URL.Query().Get("clientId")
+	if clientID == "" {
+		clientID = r.Header.Get("X-Client-ID")
+	}
+	if clientID == "" {
+		tokenBytes := make([]byte, 16)
+		_, _ = rand.Read(tokenBytes)
+		clientID = hex.EncodeToString(tokenBytes)
+	}
 
-	conn.SetReadLimit(maxWSReadLimit)
-
-	client := newWsClient(conn, s)
+	client := newSSEClient(clientID, w, flusher)
 
 	s.clientsMu.Lock()
-	s.clients[client] = true
+	s.sseClients[clientID] = client
 	s.clientsMu.Unlock()
 
-	go func() {
-		ticker := time.NewTicker(25 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-client.done:
-				return
-			case <-ticker.C:
-				if err := client.ping(); err != nil {
-					return
-				}
-			}
-		}
-	}()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	// Send initial connected event
+	_ = client.send(protocol.NewNotification("system.connected", map[string]any{
+		"clientId": clientID,
+	}))
+
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
 
 	defer func() {
 		s.clientsMu.Lock()
-		delete(s.clients, client)
+		delete(s.sseClients, clientID)
 		s.clientsMu.Unlock()
-		client.cleanup()
-		_ = conn.Close()
+
+		client.cleanup(s)
 	}()
 
-	client.serve()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-client.done:
+			return
+		case <-ticker.C:
+			if err := client.ping(); err != nil {
+				return
+			}
+		}
+	}
 }
 
-type wsClient struct {
-	conn          *websocket.Conn
-	server        *Server
+type sseClient struct {
+	id            string
+	w             http.ResponseWriter
+	flusher       http.Flusher
 	writeMu       sync.Mutex
-	reqMu         sync.Mutex
-	cancelFunc    map[string]context.CancelFunc
 	subsMu        sync.Mutex
 	subscriptions map[string]bool
-	closed        bool
 	done          chan struct{}
+	closed        bool
 }
 
-func newWsClient(conn *websocket.Conn, s *Server) *wsClient {
-	return &wsClient{
-		conn:          conn,
-		server:        s,
-		cancelFunc:    make(map[string]context.CancelFunc),
+func newSSEClient(id string, w http.ResponseWriter, flusher http.Flusher) *sseClient {
+	return &sseClient{
+		id:            id,
+		w:             w,
+		flusher:       flusher,
 		subscriptions: make(map[string]bool),
 		done:          make(chan struct{}),
 	}
 }
 
-func (c *wsClient) ping() error {
+func (c *sseClient) send(notification any) error {
+	data, err := json.Marshal(notification)
+	if err != nil {
+		return err
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.closed {
-		return errors.New("connection closed")
+		return errors.New("client closed")
 	}
-	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	return c.conn.WriteMessage(websocket.PingMessage, nil)
+	_, err = fmt.Fprintf(c.w, "data: %s\n\n", data)
+	if err != nil {
+		return err
+	}
+	c.flusher.Flush()
+	return nil
 }
 
-func (c *wsClient) send(v any) error {
+func (c *sseClient) ping() error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.closed {
-		return errors.New("connection closed")
+		return errors.New("client closed")
 	}
-	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	return c.conn.WriteJSON(v)
+	_, err := fmt.Fprintf(c.w, ": ping\n\n")
+	if err != nil {
+		return err
+	}
+	c.flusher.Flush()
+	return nil
 }
 
-func (c *wsClient) trackSubscription(subID string) {
-	c.subsMu.Lock()
-	if c.closed {
-		c.subsMu.Unlock()
-		c.server.watcherHub.Unwatch(subID)
-		return
-	}
-	c.subscriptions[subID] = true
-	c.subsMu.Unlock()
-}
-
-func (c *wsClient) untrackSubscription(subID string) {
-	c.subsMu.Lock()
-	defer c.subsMu.Unlock()
-	delete(c.subscriptions, subID)
-}
-
-func (c *wsClient) close() {
-	c.writeMu.Lock()
-	if !c.closed {
-		c.closed = true
-		close(c.done)
-		_ = c.conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-		_ = c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		_ = c.conn.Close()
-	}
-	c.writeMu.Unlock()
-}
-
-func (c *wsClient) cleanup() {
-	// Cancel all in-flight request contexts
-	c.reqMu.Lock()
-	for _, cancel := range c.cancelFunc {
-		cancel()
-	}
-	c.cancelFunc = make(map[string]context.CancelFunc)
-	c.reqMu.Unlock()
-
-	// Clean up all active watcher subscriptions to prevent inotify leaks
-	c.subsMu.Lock()
+func (c *sseClient) close() {
 	c.writeMu.Lock()
 	if !c.closed {
 		c.closed = true
 		close(c.done)
 	}
 	c.writeMu.Unlock()
+}
+
+func (c *sseClient) cleanup(s *Server) {
+	c.close()
+	c.subsMu.Lock()
+	subs := make([]string, 0, len(c.subscriptions))
 	for subID := range c.subscriptions {
-		c.server.watcherHub.Unwatch(subID)
+		subs = append(subs, subID)
 	}
 	c.subscriptions = make(map[string]bool)
 	c.subsMu.Unlock()
-}
 
-func (c *wsClient) serve() {
-	for {
-		var req protocol.Request
-		if err := c.conn.ReadJSON(&req); err != nil {
-			break
-		}
-
-		if req.JSONRPC != "2.0" {
-			if !req.IsNotification() {
-				_ = c.send(protocol.NewErrorResponse(req.ID, protocol.CodeInvalidRequest, "invalid jsonrpc version", nil))
-			}
-			continue
-		}
-
-		// Handle cancellation notification
-		if req.Method == "$/cancelRequest" {
-			var cancelParams struct {
-				ID any `json:"id"`
-			}
-			if err := json.Unmarshal(req.Params, &cancelParams); err == nil {
-				key := fmt.Sprintf("%v", cancelParams.ID)
-				c.reqMu.Lock()
-				cancel, ok := c.cancelFunc[key]
-				c.reqMu.Unlock()
-				if ok {
-					cancel()
-				}
-			}
-			continue
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		var cancelKey string
-		if req.ID != nil {
-			cancelKey = protocol.NormalizeID(req.ID)
-			c.reqMu.Lock()
-			c.cancelFunc[cancelKey] = cancel
-			c.reqMu.Unlock()
-		}
-
-		go c.handleRequest(&req, ctx, cancel, cancelKey)
+	for _, subID := range subs {
+		s.watcherHub.Unwatch(subID)
 	}
 }
 
-func (c *wsClient) handleRequest(req *protocol.Request, ctx context.Context, cancel context.CancelFunc, cancelKey string) {
-	defer cancel()
-
-	if cancelKey != "" {
-		defer func() {
-			c.reqMu.Lock()
-			delete(c.cancelFunc, cancelKey)
-			c.reqMu.Unlock()
-		}()
-	}
-
-	res, rpcErr := c.dispatch(ctx, req)
-	if req.IsNotification() {
-		return
-	}
-
-	if rpcErr != nil {
-		_ = c.send(protocol.NewErrorResponse(req.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data))
-		return
-	}
-
-	_ = c.send(protocol.NewSuccessResponse(req.ID, res))
-}
-
-func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *protocol.RPCError) {
+func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Request) (any, *protocol.RPCError) {
 	switch req.Method {
 	case "system.info":
 		var plat string
@@ -1018,9 +1121,10 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		}
 		return map[string]any{
 			"platform": plat,
-			"version":  c.server.cfg.Version,
-			"repoRoot": c.server.cfg.RepoRoot,
-			"tempDir":  c.server.fsMgr.DaemonTempDir(),
+			"version":  s.cfg.Version,
+			"build":    s.assetVersion,
+			"repoRoot": s.cfg.RepoRoot,
+			"tempDir":  s.fsMgr.DaemonTempDir(),
 		}, nil
 
 	case "process.execFile":
@@ -1029,17 +1133,17 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
 		if params.Cwd == "" {
-			params.Cwd = c.server.cfg.RepoRoot
+			params.Cwd = s.cfg.RepoRoot
 		} else {
 			// Validate cwd inside sandbox
-			validatedCwd, err := c.server.fsMgr.ValidatePath(params.Cwd)
+			validatedCwd, err := s.fsMgr.ValidatePath(params.Cwd)
 			if err != nil {
 				return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: err.Error()}
 			}
 			params.Cwd = validatedCwd
 		}
 
-		res, err := c.server.procMgr.ExecFile(ctx, params)
+		res, err := s.procMgr.ExecFile(ctx, params)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
@@ -1067,7 +1171,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		path, err := c.server.procMgr.GetHelperScriptPath(params.Name)
+		path, err := s.procMgr.GetHelperScriptPath(params.Name)
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
@@ -1080,7 +1184,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		data, err := c.server.fsMgr.ReadFile(params.Path)
+		data, err := s.fsMgr.ReadFile(params.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil, &protocol.RPCError{
@@ -1105,7 +1209,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: "content must be base64 encoded"}
 		}
-		if err := c.server.fsMgr.WriteFile(params.Path, data); err != nil {
+		if err := s.fsMgr.WriteFile(params.Path, data); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1118,7 +1222,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.fsMgr.Mkdir(params.Path, params.Recursive); err != nil {
+		if err := s.fsMgr.Mkdir(params.Path, params.Recursive); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1130,7 +1234,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		st, err := c.server.fsMgr.Stat(params.Path)
+		st, err := s.fsMgr.Stat(params.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: "ENOENT: file not found"}
@@ -1146,7 +1250,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		st, err := c.server.fsMgr.Lstat(params.Path)
+		st, err := s.fsMgr.Lstat(params.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: "ENOENT: file not found"}
@@ -1162,7 +1266,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		files, err := c.server.fsMgr.Readdir(params.Path)
+		files, err := s.fsMgr.Readdir(params.Path)
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
@@ -1175,7 +1279,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		exists := c.server.fsMgr.Exists(params.Path)
+		exists := s.fsMgr.Exists(params.Path)
 		return map[string]bool{"exists": exists}, nil
 
 	case "fs.realpath":
@@ -1185,7 +1289,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		resolved, err := c.server.fsMgr.Realpath(params.Path)
+		resolved, err := s.fsMgr.Realpath(params.Path)
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
@@ -1198,7 +1302,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		dir, err := c.server.fsMgr.Mkdtemp(params.Prefix)
+		dir, err := s.fsMgr.Mkdtemp(params.Prefix)
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
@@ -1213,7 +1317,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.fsMgr.Rm(params.Path, params.Recursive, params.Force); err != nil {
+		if err := s.fsMgr.Rm(params.Path, params.Recursive, params.Force); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1228,7 +1332,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		files, err := c.server.fsMgr.FindFiles(fs.FindFilesOptions{
+		files, err := s.fsMgr.FindFiles(fs.FindFilesOptions{
 			BaseDir:    params.BaseDir,
 			Pattern:    params.Pattern,
 			MaxResults: params.MaxResults,
@@ -1247,20 +1351,20 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		validatedDir, err := c.server.fsMgr.ValidatePath(params.DirPath)
+		validatedDir, err := s.fsMgr.ValidatePath(params.DirPath)
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: err.Error()}
 		}
-		subID, err := c.server.watcherHub.Watch(validatedDir, watcher.WatchOptions{Ignore: params.Ignore}, func(reportedSubID string, events []watcher.FileEvent) {
-			_ = c.send(protocol.NewNotification("watcher.change", map[string]any{
+		subID, err := s.watcherHub.Watch(validatedDir, watcher.WatchOptions{Ignore: params.Ignore}, func(reportedSubID string, events []watcher.FileEvent) {
+			s.notifyClient(clientID, "watcher.change", map[string]any{
 				"subscriptionId": reportedSubID,
 				"events":         events,
-			}))
+			})
 		})
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
-		c.trackSubscription(subID)
+		s.trackClientSubscription(clientID, subID)
 		return map[string]string{"subscriptionId": subID}, nil
 
 	case "watcher.unwatch":
@@ -1270,8 +1374,8 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		c.untrackSubscription(params.SubscriptionID)
-		c.server.watcherHub.Unwatch(params.SubscriptionID)
+		s.untrackClientSubscription(clientID, params.SubscriptionID)
+		s.watcherHub.Unwatch(params.SubscriptionID)
 		return map[string]bool{"success": true}, nil
 
 	case "config.get":
@@ -1282,7 +1386,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		val, ok := c.server.configStore.GetScoped(params.Scope, params.Key)
+		val, ok := s.configStore.GetScoped(params.Scope, params.Key)
 		return map[string]any{"value": val, "found": ok}, nil
 
 	case "config.set":
@@ -1294,7 +1398,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.configStore.SetScoped(params.Scope, params.Key, params.Value); err != nil {
+		if err := s.configStore.SetScoped(params.Scope, params.Key, params.Value); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1306,7 +1410,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if len(req.Params) > 0 {
 			_ = json.Unmarshal(req.Params, &params)
 		}
-		return c.server.configStore.GetAllScoped(params.Scope), nil
+		return s.configStore.GetAllScoped(params.Scope), nil
 
 	case "state.get":
 		var params struct {
@@ -1315,7 +1419,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		val, ok := c.server.stateStore.Get(params.Key)
+		val, ok := s.stateStore.Get(params.Key)
 		if !ok {
 			return map[string]any{"found": false}, nil
 		}
@@ -1329,7 +1433,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.stateStore.Set(params.Key, params.Value); err != nil {
+		if err := s.stateStore.Set(params.Key, params.Value); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1341,13 +1445,13 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.stateStore.Delete(params.Key); err != nil {
+		if err := s.stateStore.Delete(params.Key); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
 
 	case "state.getAll":
-		return c.server.stateStore.GetAll(), nil
+		return s.stateStore.GetAll(), nil
 
 	case "secrets.get":
 		var params struct {
@@ -1356,7 +1460,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		val, ok := c.server.secretStore.Get(params.Key)
+		val, ok := s.secretStore.Get(params.Key)
 		if !ok {
 			return map[string]any{"found": false}, nil
 		}
@@ -1370,7 +1474,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.secretStore.Store(params.Key, params.Value); err != nil {
+		if err := s.secretStore.Store(params.Key, params.Value); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1382,7 +1486,7 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := c.server.secretStore.Delete(params.Key); err != nil {
+		if err := s.secretStore.Delete(params.Key); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
@@ -1409,9 +1513,9 @@ func (c *wsClient) dispatch(ctx context.Context, req *protocol.Request) (any, *p
 		if err != nil {
 			resolvedPath = absPath
 		}
-		c.server.fsMgr.AddAllowedRoot(absPath)
+		s.fsMgr.AddAllowedRoot(absPath)
 		if resolvedPath != absPath {
-			c.server.fsMgr.AddAllowedRoot(resolvedPath)
+			s.fsMgr.AddAllowedRoot(resolvedPath)
 		}
 		return map[string]any{"success": true, "path": resolvedPath}, nil
 

@@ -6,35 +6,26 @@
 import { describe, expect, it } from 'vitest';
 import { ProcessExitError, type TrackableProcess } from '../core/host/host-system';
 import {
+    type EventSourceLike,
     HostSystemError,
     RemoteHostSystem,
     RPC_CODE_INTERNAL_ERROR,
     RPC_CODE_PROCESS_ERROR,
-    type WebSocketLike,
 } from '../core/host/remote-host-system';
 
-class FakeCloseEvent extends Event {
-    readonly code: number;
-    readonly reason: string;
-    readonly wasClean: boolean;
-
-    constructor(type: string, init?: { code?: number; reason?: string; wasClean?: boolean }) {
-        super(type);
-        this.code = init?.code ?? 1000;
-        this.reason = init?.reason ?? '';
-        this.wasClean = init?.wasClean ?? true;
-    }
-}
-
-class FakeWebSocket implements WebSocketLike {
-    public readyState: number = 0; // 0 = CONNECTING
+class FakeDaemonTransport implements EventSourceLike {
+    public readyState: number = 0; // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
     public sentMessages: string[] = [];
     public onopen: ((ev: Event) => void) | null = null;
     public onmessage: ((ev: MessageEvent) => void) | null = null;
     public onerror: ((ev: Event) => void) | null = null;
-    public onclose: ((ev: CloseEvent) => void) | null = null;
 
     private readonly _messageHandlers: Array<(msg: Record<string, unknown>) => void> = [];
+    private readonly _pendingRpc = new Map<number | string, (resp: Response) => void>();
+
+    constructor() {
+        this.fetch = this.fetch.bind(this);
+    }
 
     send(data: string): void {
         this.sentMessages.push(data);
@@ -46,11 +37,13 @@ class FakeWebSocket implements WebSocketLike {
         });
     }
 
-    close(code: number = 1000, reason: string = ''): void {
-        this.readyState = 3; // CLOSED
-        if (this.onclose) {
-            const CloseEventCtor = typeof CloseEvent !== 'undefined' ? CloseEvent : FakeCloseEvent;
-            this.onclose(new CloseEventCtor('close', { code, reason }));
+    close(_code?: number, _reason?: string): void {
+        if (this.readyState === 2) {
+            return;
+        }
+        this.readyState = 2; // CLOSED
+        if (this.onerror) {
+            this.onerror(new Event('error'));
         }
     }
 
@@ -62,6 +55,20 @@ class FakeWebSocket implements WebSocketLike {
     }
 
     simulateMessage(data: unknown): void {
+        if (typeof data === 'object' && data !== null && 'id' in data) {
+            const id = (data as { id: number | string }).id;
+            const resolver = this._pendingRpc.get(id);
+            if (resolver) {
+                this._pendingRpc.delete(id);
+                resolver(
+                    new Response(JSON.stringify(data), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    }),
+                );
+                return;
+            }
+        }
         if (this.onmessage) {
             this.onmessage(new MessageEvent('message', { data: JSON.stringify(data) }));
         }
@@ -70,6 +77,51 @@ class FakeWebSocket implements WebSocketLike {
     onClientRequest(handler: (msg: Record<string, unknown>) => void): void {
         this._messageHandlers.push(handler);
     }
+
+    async fetch(_input: string | URL | Request, init?: RequestInit): Promise<Response> {
+        const bodyStr = typeof init?.body === 'string' ? init.body : '';
+        let parsed: Record<string, unknown> = {};
+        try {
+            parsed = JSON.parse(bodyStr) as Record<string, unknown>;
+        } catch {
+            return new Response('Invalid JSON', { status: 400 });
+        }
+
+        const id = parsed.id as number | string | undefined;
+
+        if (id === undefined) {
+            queueMicrotask(() => {
+                for (const handler of [...this._messageHandlers]) {
+                    handler(parsed);
+                }
+            });
+            return new Response(null, { status: 204 });
+        }
+
+        return new Promise<Response>((resolve, reject) => {
+            const onAbort = () => {
+                this._pendingRpc.delete(id);
+                reject(new Error('Request aborted'));
+            };
+
+            if (init?.signal?.aborted) {
+                onAbort();
+                return;
+            }
+            init?.signal?.addEventListener('abort', onAbort, { once: true });
+
+            this._pendingRpc.set(id, (resp) => {
+                init?.signal?.removeEventListener('abort', onAbort);
+                resolve(resp);
+            });
+
+            queueMicrotask(() => {
+                for (const handler of [...this._messageHandlers]) {
+                    handler(parsed);
+                }
+            });
+        });
+    }
 }
 
 function setupRemoteHost(options?: {
@@ -77,12 +129,14 @@ function setupRemoteHost(options?: {
     tempDir?: string;
     repoRoot?: string;
     version?: string;
-}): { host: RemoteHostSystem; fakeWs: FakeWebSocket } {
-    const fakeWs: FakeWebSocket = new FakeWebSocket();
+}): { host: RemoteHostSystem; fakeWs: FakeDaemonTransport } {
+    const fakeWs = new FakeDaemonTransport();
 
     const host = new RemoteHostSystem({
-        url: 'ws://127.0.0.1:8080/ws/system?token=test-token',
-        webSocketFactory: () => fakeWs,
+        url: 'http://127.0.0.1:8080?token=test-token',
+        clientId: 'mock-client-id',
+        eventSourceFactory: () => fakeWs,
+        fetch: fakeWs.fetch,
         reconnect: false,
     });
 
@@ -124,7 +178,7 @@ describe('RemoteHostSystem Unit Tests', () => {
             expect(host.version).toBe('2.5.0');
 
             host.dispose();
-            expect(fakeWs.readyState).toBe(3);
+            expect(fakeWs.readyState).toBe(2);
         });
 
         it('resolves wss protocol and host in https browser environment', async () => {
@@ -148,16 +202,20 @@ describe('RemoteHostSystem Unit Tests', () => {
                 });
 
                 let connectedUrl = '';
-                const fakeWs = new FakeWebSocket();
+                const fakeWs = new FakeDaemonTransport();
                 const host = new RemoteHostSystem({
-                    webSocketFactory: (url) => {
+                    clientId: 'test-client-id',
+                    eventSourceFactory: (url: string) => {
                         connectedUrl = url;
                         return fakeWs;
                     },
+                    fetch: fakeWs.fetch,
                     reconnect: false,
                 });
 
-                expect(connectedUrl).toBe('wss://code.example.com:8443/ws/system?token=browser-token');
+                expect(connectedUrl).toBe(
+                    'https://code.example.com:8443/api/events?clientId=test-client-id&token=browser-token',
+                );
                 host.dispose();
             } finally {
                 Object.defineProperty(globalThis, 'window', {
@@ -187,16 +245,20 @@ describe('RemoteHostSystem Unit Tests', () => {
                 });
 
                 let connectedUrl = '';
-                const fakeWs = new FakeWebSocket();
+                const fakeWs = new FakeDaemonTransport();
                 const host = new RemoteHostSystem({
-                    webSocketFactory: (url) => {
+                    clientId: 'test-client-id',
+                    eventSourceFactory: (url: string) => {
                         connectedUrl = url;
                         return fakeWs;
                     },
+                    fetch: fakeWs.fetch,
                     reconnect: false,
                 });
 
-                expect(connectedUrl).toBe('ws://127.0.0.1:5173/ws/system?token=vite-dev-token');
+                expect(connectedUrl).toBe(
+                    'http://127.0.0.1:5173/api/events?clientId=test-client-id&token=vite-dev-token',
+                );
                 host.dispose();
             } finally {
                 Object.defineProperty(globalThis, 'window', {
@@ -469,7 +531,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                     fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { success: true } });
                 }
                 if (msg.method === 'fs.readFile') {
-                    fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { content: storedBase64 } });
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: { content: storedBase64 },
+                    });
                 }
             });
 
@@ -553,7 +619,9 @@ describe('RemoteHostSystem Unit Tests', () => {
 
             host.dispose();
         });
+    });
 
+    describe('Filesystem Metadata Operations (HostFs)', () => {
         it('handles stat and lstat queries', async () => {
             const { host, fakeWs } = setupRemoteHost();
             await host.ready;
@@ -637,6 +705,8 @@ describe('RemoteHostSystem Unit Tests', () => {
 
             const real = await host.fs.realpath('/mock/repo/symlink');
             expect(real).toBe('/real/path');
+            const realCached = await host.fs.realpath('/mock/repo/symlink');
+            expect(realCached).toBe('/real/path');
 
             const temp = await host.fs.mkdtemp('test-prefix-');
             expect(temp).toBe('/tmp/temp-dir-123');
@@ -697,14 +767,14 @@ describe('RemoteHostSystem Unit Tests', () => {
         });
 
         it('unregisters updated subscriptionId on unsubscribe after reconnection', async () => {
-            let currentWs = new FakeWebSocket();
+            let currentWs = new FakeDaemonTransport();
             let subIdCounter = 0;
             const unwatchCalls: string[] = [];
 
             const host = new RemoteHostSystem({
-                url: 'ws://127.0.0.1:8080/ws/system?token=test-token',
-                webSocketFactory: () => {
-                    const ws = new FakeWebSocket();
+                url: 'http://127.0.0.1:8080?token=test-token',
+                eventSourceFactory: () => {
+                    const ws = new FakeDaemonTransport();
                     currentWs = ws;
                     ws.onClientRequest((msg) => {
                         if (msg.method === 'system.info') {
@@ -736,6 +806,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     });
                     return ws;
                 },
+                fetch: (input, init) => currentWs.fetch(input, init),
                 reconnect: true,
                 reconnectDelayMs: 20,
             });
@@ -835,7 +906,11 @@ describe('RemoteHostSystem Unit Tests', () => {
                     fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { success: true } });
                 }
                 if (msg.method === 'fs.readFile') {
-                    fakeWs.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { content: storedBase64 } });
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: { content: storedBase64 },
+                    });
                 }
             });
 
@@ -847,10 +922,11 @@ describe('RemoteHostSystem Unit Tests', () => {
         });
 
         it('times out requests when daemon does not respond', async () => {
-            const fakeWs: FakeWebSocket = new FakeWebSocket();
+            const fakeWs = new FakeDaemonTransport();
             const host = new RemoteHostSystem({
-                url: 'ws://127.0.0.1:8080/ws/system?token=test-token',
-                webSocketFactory: () => fakeWs,
+                url: 'http://127.0.0.1:8080?token=test-token',
+                eventSourceFactory: () => fakeWs,
+                fetch: fakeWs.fetch,
                 requestTimeoutMs: 50,
                 reconnect: false,
             });
@@ -882,10 +958,10 @@ describe('RemoteHostSystem Unit Tests', () => {
             host.dispose();
         });
 
-        it('rejects ready promise when webSocketFactory throws synchronously', async () => {
+        it('rejects ready promise when eventSourceFactory throws synchronously', async () => {
             const host = new RemoteHostSystem({
-                url: 'ws://invalid-url',
-                webSocketFactory: () => {
+                url: 'http://invalid-url',
+                eventSourceFactory: () => {
                     throw new Error('CSP blocked');
                 },
                 reconnect: false,
@@ -896,10 +972,11 @@ describe('RemoteHostSystem Unit Tests', () => {
         });
 
         it('rejects ready promise when reconnection fails and stops', async () => {
-            const fakeWs = new FakeWebSocket();
+            const fakeWs = new FakeDaemonTransport();
             const host = new RemoteHostSystem({
-                url: 'ws://127.0.0.1:8080/ws/system?token=test-token',
-                webSocketFactory: () => fakeWs,
+                url: 'http://127.0.0.1:8080?token=test-token',
+                eventSourceFactory: () => fakeWs,
+                fetch: fakeWs.fetch,
                 reconnect: false,
             });
 
@@ -918,14 +995,14 @@ describe('RemoteHostSystem Unit Tests', () => {
         });
 
         it('re-subscribes active file watchers on reconnection', async () => {
-            let currentWs = new FakeWebSocket();
+            let currentWs = new FakeDaemonTransport();
             let connectionCount = 0;
 
             const host = new RemoteHostSystem({
-                url: 'ws://127.0.0.1:8080/ws/system?token=test-token',
-                webSocketFactory: () => {
+                url: 'http://127.0.0.1:8080?token=test-token',
+                eventSourceFactory: () => {
                     connectionCount++;
-                    const ws = new FakeWebSocket();
+                    const ws = new FakeDaemonTransport();
                     currentWs = ws;
                     ws.onClientRequest((msg) => {
                         if (msg.method === 'system.info') {
@@ -938,6 +1015,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     });
                     return ws;
                 },
+                fetch: (input, init) => currentWs.fetch(input, init),
                 reconnect: true,
                 reconnectDelayMs: 20,
             });
@@ -998,7 +1076,7 @@ describe('RemoteHostSystem Unit Tests', () => {
 
             await expect(pendingPromise).rejects.toThrow('RemoteHostSystem is disposed');
             expect(host.isConnected).toBe(false);
-            expect(fakeWs.readyState).toBe(3); // CLOSED
+            expect(fakeWs.readyState).toBe(2); // CLOSED
 
             await expect(host.fs.exists('/mock/repo/after.txt')).rejects.toThrow('RemoteHostSystem is disposed');
         });
@@ -1030,12 +1108,14 @@ describe('RemoteHostSystem Unit Tests', () => {
                     sessionStorage: fakeSessionStorage,
                 };
 
-                const fakeWs = new FakeWebSocket();
+                const fakeWs = new FakeDaemonTransport();
                 const host1 = new RemoteHostSystem({
-                    webSocketFactory: (u) => {
+                    clientId: 'test-client-id',
+                    eventSourceFactory: (u: string) => {
                         capturedUrl = u;
                         return fakeWs;
                     },
+                    fetch: fakeWs.fetch,
                     reconnect: false,
                 });
 
@@ -1053,12 +1133,14 @@ describe('RemoteHostSystem Unit Tests', () => {
                     sessionStorage: fakeSessionStorage,
                 };
 
-                const fakeWs2 = new FakeWebSocket();
+                const fakeWs2 = new FakeDaemonTransport();
                 const host2 = new RemoteHostSystem({
-                    webSocketFactory: (u) => {
+                    clientId: 'test-client-id',
+                    eventSourceFactory: (u: string) => {
                         capturedUrl = u;
                         return fakeWs2;
                     },
+                    fetch: fakeWs2.fetch,
                     reconnect: false,
                 });
 
