@@ -59,6 +59,10 @@ export type TabViewData =
     | {
           /** The review comments for the CommentsManager's active change. One per app. */
           type: 'comments';
+      }
+    | {
+          /** The diagnostic output channel log viewer. One per app. */
+          type: 'output';
       };
 
 export interface TabEntry {
@@ -74,6 +78,7 @@ export interface TabEntry {
 export type TabReorderPosition = 'before' | 'after';
 
 export const COMMENTS_TAB_ID = 'comments';
+export const OUTPUT_TAB_ID = 'output';
 
 export function getTabId(view: TabViewData): string {
     switch (view.type) {
@@ -92,5 +97,7 @@ export function getTabId(view: TabViewData): string {
             return `merge:${view.uri.toString()}`;
         case 'comments':
             return COMMENTS_TAB_ID;
+        case 'output':
+            return OUTPUT_TAB_ID;
     }
 }

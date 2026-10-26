@@ -20,12 +20,13 @@ import { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import { ScmModel } from '../../src/core/scm-model';
 import { Uri } from '../../src/core/uri-utils';
 import { toError } from '../../src/utils/error-utils';
-import { NO_OP_LOGGER } from '../../src/utils/output-channel';
+import { OutputChannel } from '../../src/utils/output-channel';
 import App from './App.svelte';
 import { createInMemoryBridge } from './bridge/in-memory-bridge';
 import { registerWebCommands } from './commands/register-web-commands';
 import { WebHostEnvironment } from './host/web-host-environment';
 import { LAYOUT_STORAGE_KEY, parsePersistedLayout } from './layout/layout-state';
+import { WebOutputChannel } from './output/web-output-channel';
 import './styles/vscode-theme.css';
 import '../../media/themes.generated.css';
 import '../../media/main.css';
@@ -159,6 +160,9 @@ export async function bootstrap(): Promise<void> {
     markStartup('bootstrap begin');
     logPreBootstrapTiming();
 
+    const webOutputChannel = new WebOutputChannel('JJ View');
+    const outputChannel = new OutputChannel(webOutputChannel);
+
     try {
         const hostSystem = new RemoteHostSystem();
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -168,6 +172,7 @@ export async function bootstrap(): Promise<void> {
         });
         await Promise.race([hostSystem.ready, timeoutPromise]);
         markStartup('host ready (SSE open + system.info)');
+        outputChannel.info('[Startup] Host daemon connected');
 
         const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
         if (typeof window !== 'undefined' && urlParams?.has('token')) {
@@ -218,7 +223,7 @@ export async function bootstrap(): Promise<void> {
                         try {
                             await hostSystem.addAllowedRoot(folder.uri.fsPath);
                         } catch (err) {
-                            NO_OP_LOGGER.warn(
+                            outputChannel.warn(
                                 `Failed to add allowed root for sidecar workspace: ${toError(err).message}`,
                             );
                         }
@@ -231,14 +236,14 @@ export async function bootstrap(): Promise<void> {
                     }
                 }
             } catch (err) {
-                NO_OP_LOGGER.warn(`Failed to get initial workspace URIs from sidecar: ${toError(err).message}`);
+                outputChannel.warn(`Failed to get initial workspace URIs from sidecar: ${toError(err).message}`);
             }
         }
         if (repoRoot && repoRoot !== '.' && repoRoot !== hostSystem.repoRoot) {
             try {
                 await hostSystem.addAllowedRoot(repoRoot);
             } catch (err) {
-                NO_OP_LOGGER.warn(`Failed to add allowed root for repoRoot: ${toError(err).message}`);
+                outputChannel.warn(`Failed to add allowed root for repoRoot: ${toError(err).message}`);
             }
         }
         markStartup('workspace roots resolved (sidecar.getWorkspaceUris + addAllowedRoot)');
@@ -252,21 +257,21 @@ export async function bootstrap(): Promise<void> {
         }
 
         const codeForgeRegistry = new CodeForgeRegistry();
-        const authManager = new CodeForgeAuthManager(webHostEnv, NO_OP_LOGGER);
+        const authManager = new CodeForgeAuthManager(webHostEnv, outputChannel);
         codeForgeRegistry.register({
             id: 'github',
-            create: (outputChannel, host) => new GitHubProvider(authManager, outputChannel, host),
+            create: (channel, host) => new GitHubProvider(authManager, channel, host),
         });
         codeForgeRegistry.register({
             id: 'gitlab',
-            create: (outputChannel, host) => new GitLabProvider(authManager, outputChannel, host),
+            create: (channel, host) => new GitLabProvider(authManager, channel, host),
         });
         codeForgeRegistry.register({
             id: 'gerrit',
-            create: (outputChannel, host) => new GerritProvider(outputChannel, host),
+            create: (channel, host) => new GerritProvider(channel, host),
         });
 
-        const repoManager = new JjRepositoryManager(codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
+        const repoManager = new JjRepositoryManager(codeForgeRegistry, outputChannel, webHostEnv);
         if (typeof window !== 'undefined') {
             window.__JJ_VIEW_REPO_MANAGER__ = repoManager;
         }
@@ -276,10 +281,10 @@ export async function bootstrap(): Promise<void> {
             const key = r.rootUri.fsPath;
             let model = scmModels.get(key);
             if (!model) {
-                model = new ScmModel(r, NO_OP_LOGGER);
+                model = new ScmModel(r, outputChannel);
                 scmModels.set(key, model);
                 model.refresh({ reason: 'initial' }).catch((err: unknown) => {
-                    NO_OP_LOGGER.error(`Initial SCM refresh failed for ${key}`, toError(err));
+                    outputChannel.error(`Initial SCM refresh failed for ${key}`, toError(err));
                 });
             }
             return model;
@@ -314,7 +319,7 @@ export async function bootstrap(): Promise<void> {
                         }
                     })
                     .catch((e: unknown) => {
-                        NO_OP_LOGGER.error('Failed to refresh after authentication', toError(e));
+                        outputChannel.error('Failed to refresh after authentication', toError(e));
                     });
             }
         });
@@ -346,7 +351,7 @@ export async function bootstrap(): Promise<void> {
                     try {
                         await hostSystem.addAllowedRoot(folder.uri.fsPath);
                     } catch (e) {
-                        NO_OP_LOGGER.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
+                        outputChannel.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
                     }
                 }
                 if (folders[0] && folders[0].uri.fsPath !== hostSystem.repoRoot) {
@@ -378,7 +383,7 @@ export async function bootstrap(): Promise<void> {
                         focusMatchedRepo();
                     })
                     .catch((e: unknown) => {
-                        NO_OP_LOGGER.error('Failed to scan repositories on workspace change', toError(e));
+                        outputChannel.error('Failed to scan repositories on workspace change', toError(e));
                     });
             });
         }
@@ -389,7 +394,7 @@ export async function bootstrap(): Promise<void> {
             .get<unknown>(LAYOUT_STORAGE_KEY)
             .then(parsePersistedLayout)
             .catch((err: unknown) => {
-                NO_OP_LOGGER.error('Failed to load persisted layout', toError(err));
+                outputChannel.error('Failed to load persisted layout', toError(err));
                 return parsePersistedLayout(undefined);
             });
 
@@ -423,7 +428,7 @@ export async function bootstrap(): Promise<void> {
         }
         if (!repo) {
             const storePath = `${repoRoot}/.jj/repo`;
-            repo = new JjRepository(Uri.file(repoRoot), storePath, codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
+            repo = new JjRepository(Uri.file(repoRoot), storePath, codeForgeRegistry, outputChannel, webHostEnv);
         }
         repoManager.registerRepositoryInstance(repo);
         markStartup('repository registered');
@@ -432,7 +437,7 @@ export async function bootstrap(): Promise<void> {
         backgroundScan
             ?.then(() => markStartup('background scanForRepositories done'))
             .catch((err: unknown) => {
-                NO_OP_LOGGER.error('Background repository scan failed', toError(err));
+                outputChannel.error('Background repository scan failed', toError(err));
             });
 
         const viewFs = new JjViewFsService(repoManager);
@@ -449,7 +454,7 @@ export async function bootstrap(): Promise<void> {
 
         logController = new LogViewController(repo, webHostEnv, {
             messenger: logBridge.messenger,
-            logger: NO_OP_LOGGER,
+            logger: outputChannel,
             onSelectionChange: (ids) => {
                 const focused = repoManager.focusedRepository ?? repo;
                 if (focused) {
@@ -473,7 +478,7 @@ export async function bootstrap(): Promise<void> {
         // never reach the graph. The controller coalesces bursts.
         let repoStatusSub = repo.onDidStatusChange((event) => {
             logController?.refresh(event.reason).catch((err: unknown) => {
-                NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
+                outputChannel.error('Log refresh on status change failed', toError(err));
             });
         });
 
@@ -484,7 +489,7 @@ export async function bootstrap(): Promise<void> {
         registerWebCommands({
             repositoryManager: repoManager,
             hostEnvironment: webHostEnv,
-            logger: NO_OP_LOGGER,
+            logger: outputChannel,
             scmModel,
             getScmModel: (r) => getOrCreateScmModel(r),
             logViewController: logController,
@@ -533,7 +538,7 @@ export async function bootstrap(): Promise<void> {
             repoStatusSub.dispose();
             repoStatusSub = r.onDidStatusChange((event) => {
                 logController?.refresh(event.reason).catch((err: unknown) => {
-                    NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
+                    outputChannel.error('Log refresh on status change failed', toError(err));
                 });
             });
             if (logController) {
@@ -559,6 +564,7 @@ export async function bootstrap(): Promise<void> {
                 logTransport: logBridge.transport,
                 initialLayout,
                 commentsManager,
+                outputChannel: webOutputChannel,
             },
         });
         markStartup('App mounted (first visible UI)');

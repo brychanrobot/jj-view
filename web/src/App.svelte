@@ -27,7 +27,7 @@ import {
 import { getRevisionFromUri, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { toError } from '../../src/utils/error-utils';
-import { NO_OP_LOGGER } from '../../src/utils/output-channel';
+import { OutputChannel } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
 import CommentsPane from './comments/CommentsPane.svelte';
 import { CommentsStore, type CommentThreadHandle, normalizeThreadPath } from './comments/comments-store.svelte';
@@ -57,6 +57,8 @@ import MergeEditorView from './merge/MergeEditorView.svelte';
 import { parseConflictMarkersFallback } from './merge/three-way-merge';
 import NotificationContainer from './notifications/NotificationContainer.svelte';
 import { NotificationService } from './notifications/notification-service';
+import OutputPane from './output/OutputPane.svelte';
+import { WebOutputChannel } from './output/web-output-channel';
 import { scoreFuzzyPath } from './quick-input/fuzzy-score';
 import QuickInput from './quick-input/QuickInput.svelte';
 import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
@@ -71,6 +73,7 @@ import {
     COMMENTS_TAB_ID,
     getTabId,
     type MultiDiffFileEntry,
+    OUTPUT_TAB_ID,
     type TabEntry,
     type TabReorderPosition,
     type TabViewData,
@@ -94,6 +97,8 @@ interface Props {
     initialLayout?: PersistedLayout;
     /** Review comments for the active change; drives the Comments tab and inline diff threads. */
     commentsManager?: CommentsManager;
+    /** Diagnostic output channel viewer backing `showJjError` "Show Log" and Output tab. */
+    outputChannel?: WebOutputChannel;
 }
 
 let {
@@ -112,7 +117,11 @@ let {
     statusBarService,
     initialLayout,
     commentsManager,
+    outputChannel,
 }: Props = $props();
+
+const fallbackOutputChannel = new WebOutputChannel('JJ View');
+const activeOutputChannel = $derived(outputChannel ?? fallbackOutputChannel);
 
 function persistLayout(layout: PersistedLayout): void {
     webHostEnv?.storage.update(LAYOUT_STORAGE_KEY, layout).catch((err: unknown) => {
@@ -266,6 +275,12 @@ function openCommandPalette(): void {
             title: 'Color Theme',
             category: 'Preferences',
             iconClass: 'codicon codicon-color-mode',
+        },
+        {
+            id: 'jj-view.showOutput',
+            title: 'Show Output Log',
+            category: 'View',
+            iconClass: 'codicon codicon-output',
         },
     ];
 
@@ -729,6 +744,19 @@ function openCommentsTab(): void {
     openOrActivateTab({ type: 'comments' }, { preview: false });
 }
 
+function openOutputTab(): void {
+    openOrActivateTab({ type: 'output' }, { preview: false });
+}
+
+$effect(() => {
+    const sub = activeOutputChannel.onDidRequestShow(() => {
+        openOutputTab();
+    });
+    return () => {
+        sub.dispose();
+    };
+});
+
 /** Everything a commit-details tab owns; disposed together with the tab. */
 interface CommitDetailsSession {
     readonly bridge: InMemoryBridge;
@@ -754,7 +782,7 @@ function ensureCommitDetailsSession(tab: TabEntry): void {
             return;
         }
         const controller = new CommitDetailsController(changeId, model.repo, hostEnv, {
-            logger: NO_OP_LOGGER,
+            logger: new OutputChannel(activeOutputChannel, 'CommitDetails'),
             openDiff: async ({ file, changeId: cId, isImmutable, isWorkingCopy }) => {
                 await openFileDiffForChange(file, cId, isWorkingCopy ?? false, { preview: true }, isImmutable);
             },
@@ -868,6 +896,10 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         title = 'Comments';
         tooltip = 'Review comments';
         iconClass = 'codicon codicon-comment-discussion';
+    } else if (view.type === 'output') {
+        title = 'Output';
+        tooltip = 'JJ View diagnostic output channel';
+        iconClass = 'codicon codicon-output';
     }
 
     const isPreview = options?.preview ?? view.type === 'commit-details';
@@ -1863,6 +1895,14 @@ onMount(() => {
             openCommentsTab();
         });
 
+        webHostEnv.commands.registerCommand('jj-view.showOutput', async () => {
+            openOutputTab();
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.output.toggleOutput', async () => {
+            openOutputTab();
+        });
+
         webHostEnv.commands.registerCommand('jj-view.addSelectionToChat', async () => {
             await handleAddSelectionToChat();
         });
@@ -2384,6 +2424,11 @@ onMount(() => {
                         }}
                         onClose={() => closeTabById(COMMENTS_TAB_ID)}
                     />
+                {:else if activeTab && activeTab.view.type === 'output'}
+                    <OutputPane
+                        channel={activeOutputChannel}
+                        onClose={() => closeTabById(OUTPUT_TAB_ID)}
+                    />
                 {:else}
                     <div class="empty-editor-message">
                         <i class="codicon codicon-source-control large-icon" aria-hidden="true"></i>
@@ -2398,6 +2443,9 @@ onMount(() => {
         <StatusBar
             service={activeStatusBar}
             notificationService={activeNotifications}
+            onOpenOutput={() => {
+                openOutputTab();
+            }}
             onOpenSettings={() => {
                 isSettingsOpen = true;
             }}
