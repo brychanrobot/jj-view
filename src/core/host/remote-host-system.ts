@@ -310,6 +310,7 @@ export class RemoteHostSystem implements HostSystem {
     private _platform: HostPlatform;
     private _tempDir: string;
     private _repoRoot: string = '';
+    private _workspaceRoot: string = '';
     private _version: string = '';
 
     private readonly _options: RemoteHostSystemOptions;
@@ -440,7 +441,11 @@ export class RemoteHostSystem implements HostSystem {
     }
 
     public get repoRoot(): string {
-        return this._repoRoot;
+        return this._workspaceRoot || this._repoRoot;
+    }
+
+    public setWorkspaceRoot(repoRoot: string): void {
+        this._workspaceRoot = repoRoot;
     }
 
     public get version(): string {
@@ -1145,18 +1150,27 @@ export class RemoteHostSystem implements HostSystem {
 
     public async getConfig<T = unknown>(
         key: string,
-        scope?: 'effective' | 'user' | 'workspace',
+        scope?: 'effective' | 'user' | 'vscode-user' | 'workspace' | 'vscode-workspace',
     ): Promise<T | undefined> {
-        const res = await this.request<{ value: T; found: boolean }>('config.get', { key, scope });
+        const workspaceRoot = this._workspaceRoot || this._repoRoot || undefined;
+        const res = await this.request<{ value: T; found: boolean }>('config.get', {
+            key,
+            scope,
+            workspaceRoot,
+        });
         return res.found ? res.value : undefined;
     }
 
     public async setConfig(key: string, value: unknown, scope?: 'user' | 'workspace'): Promise<void> {
-        await this.request<{ success: boolean }>('config.set', { key, value, scope });
+        const workspaceRoot = this._workspaceRoot || this._repoRoot || undefined;
+        await this.request<{ success: boolean }>('config.set', { key, value, scope, workspaceRoot });
     }
 
-    public async getAllConfig(scope?: 'effective' | 'user' | 'workspace'): Promise<Record<string, unknown>> {
-        return this.request<Record<string, unknown>>('config.getAll', { scope });
+    public async getAllConfig(
+        scope?: 'effective' | 'user' | 'vscode-user' | 'workspace' | 'vscode-workspace',
+    ): Promise<Record<string, unknown>> {
+        const workspaceRoot = this._workspaceRoot || this._repoRoot || undefined;
+        return this.request<Record<string, unknown>>('config.getAll', { scope, workspaceRoot });
     }
 
     public onStateDidChange(listener: (key: string) => void): { dispose: () => void } {

@@ -14,5 +14,6 @@ media/themes.generated.css
 build/
 *.log
 .workspaces/
+.jj-view/
 web/dist/*
 !web/dist/.gitkeep

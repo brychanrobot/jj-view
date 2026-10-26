@@ -244,11 +244,10 @@ export class VsCodeHostConfig implements HostConfig {
         return getJjViewConfig<T>(normalizedKey, defaultValue) ?? defaultValue;
     }
 
-    async update<T>(key: string, value: T): Promise<void> {
+    async update<T>(key: string, value: T, scope: 'user' | 'workspace' = 'user'): Promise<void> {
         const normalizedKey = key.startsWith('jj-view.') ? key.slice('jj-view.'.length) : key;
-        await vscode.workspace
-            .getConfiguration('jj-view')
-            .update(normalizedKey, value, vscode.ConfigurationTarget.Global);
+        const target = scope === 'workspace' ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+        await vscode.workspace.getConfiguration('jj-view').update(normalizedKey, value, target);
     }
 }
 

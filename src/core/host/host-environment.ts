@@ -55,7 +55,7 @@ export interface HostUi {
 export interface HostConfig {
     get<T>(key: string): T | undefined;
     get<T>(key: string, defaultValue: T): T;
-    update?<T>(key: string, value: T): Promise<void>;
+    update?<T>(key: string, value: T, scope?: 'user' | 'workspace'): Promise<void>;
     readonly onDidChangeConfiguration?: Event<HostConfigurationChangeEvent>;
 }
 

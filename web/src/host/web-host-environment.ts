@@ -333,6 +333,7 @@ export class WebHostConfig implements HostConfig {
         }
         try {
             const all = await this._hostSystem.getAllConfig('effective');
+            this.values.clear();
             for (const [k, v] of Object.entries(all)) {
                 this.values.set(k, v);
                 const norm = k.replace(/^jj-view\./, '');
@@ -341,6 +342,13 @@ export class WebHostConfig implements HostConfig {
         } catch (err) {
             console.warn('[WebHostConfig] Failed to reload config:', err);
         }
+    }
+
+    public async reload(): Promise<void> {
+        await this._reloadConfig();
+        this._onDidChangeConfiguration.fire({
+            affectsConfiguration: () => true,
+        });
     }
 
     public async waitForInit(): Promise<void> {
@@ -379,6 +387,9 @@ export class WebHostConfig implements HostConfig {
         if (this._hostSystem?.isConnected && typeof this._hostSystem.setConfig === 'function') {
             try {
                 await this._hostSystem.setConfig(key, value, scope);
+                if (value === undefined || value === null) {
+                    await this._reloadConfig();
+                }
             } catch (err) {
                 console.error('[WebHostConfig] Failed to persist config to daemon:', err);
             }
@@ -971,6 +982,9 @@ export class WebHostEnvironment implements HostEnvironment {
         statusBarService?: StatusBarService,
     ) {
         this.system = hostSystem;
+        if (repoRoot && repoRoot !== '.' && typeof hostSystem.setWorkspaceRoot === 'function') {
+            hostSystem.setWorkspaceRoot(repoRoot);
+        }
         this.sidecar = new SidecarService();
         this.storage = new WebHostStorage(hostSystem);
         this.secrets = new WebHostSecrets(hostSystem);
