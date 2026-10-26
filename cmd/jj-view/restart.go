@@ -9,10 +9,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
+)
+
+const (
+	reloadPortEnvVar         = "JJ_VIEW_RELOAD_PORT"
+	reloadSessionTokenEnvVar = "JJ_VIEW_RELOAD_SESSION_TOKEN"
 )
 
 // runningProcess is one entry from the process table.
@@ -66,26 +72,79 @@ func findRunningDaemons(binaryPath string, procs []runningProcess, selfPid int) 
 	return pids
 }
 
-// terminateProcess sends SIGTERM so the daemon can shut down gracefully.
-func terminateProcess(pid int) error {
+// reloadProcess sends SIGHUP so the daemon reloads its binary in-place via
+// execve without exiting or changing its PID (preserving the Antigravity
+// sidecar gateway port).
+func reloadProcess(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return err
 	}
-	return proc.Signal(syscall.SIGTERM)
+	return proc.Signal(syscall.SIGHUP)
 }
 
-// restartRunningDaemons terminates daemons currently running from binaryPath.
-// The Antigravity hub launches sidecars with restart_policy "always", so a
-// terminated daemon is respawned from the freshly installed binary. Without
-// this, a rebuilt binary on disk is never picked up: the running daemon keeps
-// executing the old (deleted) inode together with its embedded web assets.
-func restartRunningDaemons(binaryPath string, procs []runningProcess, selfPid int, terminate func(pid int) error) []int {
+// resolveExecutablePath returns the absolute filesystem path of the running
+// binary so SIGHUP can exec the newly installed inode at that path even after
+// the original binary on disk has been replaced.
+func resolveExecutablePath(arg0 string) string {
+	if exe, err := os.Executable(); err == nil {
+		exe = strings.TrimSuffix(exe, " (deleted)")
+		if abs, err := filepath.Abs(exe); err == nil {
+			return abs
+		}
+		return exe
+	}
+	if lookedUp, err := exec.LookPath(arg0); err == nil {
+		if abs, err := filepath.Abs(lookedUp); err == nil {
+			return abs
+		}
+		return lookedUp
+	}
+	if abs, err := filepath.Abs(arg0); err == nil {
+		return abs
+	}
+	return arg0
+}
+
+// buildReloadEnv returns a copy of environ with the bound port and session
+// token recorded for the post-exec process image.
+func buildReloadEnv(environ []string, port int, sessionToken string) []string {
+	prefixPort := reloadPortEnvVar + "="
+	prefixToken := reloadSessionTokenEnvVar + "="
+	env := make([]string, 0, len(environ)+2)
+	for _, entry := range environ {
+		if strings.HasPrefix(entry, prefixPort) || strings.HasPrefix(entry, prefixToken) {
+			continue
+		}
+		env = append(env, entry)
+	}
+	if port > 0 {
+		env = append(env, fmt.Sprintf("%s=%d", reloadPortEnvVar, port))
+	}
+	if sessionToken != "" {
+		env = append(env, fmt.Sprintf("%s=%s", reloadSessionTokenEnvVar, sessionToken))
+	}
+	return env
+}
+
+// execInPlace replaces the current process image with execPath while preserving
+// its PID, bound port, and session token.
+func execInPlace(execPath string, args []string, environ []string, port int, sessionToken string) error {
+	env := buildReloadEnv(environ, port, sessionToken)
+	return syscall.Exec(execPath, args, env)
+}
+
+// restartRunningDaemons signals daemons currently running from binaryPath to
+// reload in-place via SIGHUP (or be respawned by the Antigravity hub if running
+// an older binary without SIGHUP handling). Without this, a rebuilt binary on
+// disk is never picked up: the running daemon keeps executing the old (deleted)
+// inode together with its embedded web assets.
+func restartRunningDaemons(binaryPath string, procs []runningProcess, selfPid int, signalFn func(pid int) error) []int {
 	pids := findRunningDaemons(binaryPath, procs, selfPid)
 	var restarted []int
 	for _, pid := range pids {
-		if err := terminate(pid); err != nil {
-			fmt.Printf("[Install] Warning: failed to stop daemon pid %d: %v\n", pid, err)
+		if err := signalFn(pid); err != nil {
+			fmt.Printf("[Install] Warning: failed to reload daemon pid %d: %v\n", pid, err)
 			continue
 		}
 		restarted = append(restarted, pid)

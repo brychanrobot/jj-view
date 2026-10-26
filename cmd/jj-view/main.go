@@ -71,6 +71,13 @@ func main() {
 		os.Exit(0)
 	}
 
+	execPath := resolveExecutablePath(os.Args[0])
+	reloadPortStr := os.Getenv(reloadPortEnvVar)
+	reloadSessionToken := os.Getenv(reloadSessionTokenEnvVar)
+	_ = os.Unsetenv(reloadPortEnvVar)
+	_ = os.Unsetenv(reloadSessionTokenEnvVar)
+	isReload := reloadPortStr != "" || reloadSessionToken != ""
+
 	passedFlags := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) {
 		passedFlags[f.Name] = true
@@ -82,7 +89,11 @@ func main() {
 		os.Getenv("JJ_VIEW_AGY_SIDECAR") != ""
 
 	port := *portFlag
-	if !passedFlags["port"] {
+	if reloadPortStr != "" {
+		if p, err := strconv.Atoi(reloadPortStr); err == nil && p > 0 && p <= 65535 {
+			port = p
+		}
+	} else if !passedFlags["port"] {
 		if pStr := os.Getenv("ANTIGRAVITY_SIDECAR_WEB_PORT"); pStr != "" {
 			if p, err := strconv.Atoi(pStr); err == nil && p >= 0 && p <= 65535 {
 				port = p
@@ -93,7 +104,7 @@ func main() {
 	}
 
 	noOpen := *noOpenFlag
-	if !passedFlags["no-open"] && isSidecar {
+	if isReload || (!passedFlags["no-open"] && isSidecar) {
 		noOpen = true
 	}
 
@@ -131,6 +142,7 @@ func main() {
 		Host:           *hostFlag,
 		Port:           port,
 		RepoRoot:       absRepo,
+		SessionToken:   reloadSessionToken,
 		SidecarToken:   os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN"),
 		CSRFToken:      os.Getenv("ANTIGRAVITY_CSRF_TOKEN"),
 		Version:        version,
@@ -144,7 +156,7 @@ func main() {
 		log.Fatalf("Failed to initialize server: %v", err)
 	}
 
-	if err := srv.Listen(); err != nil {
+	if err := listenWithReloadRetry(srv, isReload); err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
@@ -161,18 +173,43 @@ func main() {
 		go openBrowser(serverURL)
 	}
 
-	// Handle graceful shutdown
+	// Handle graceful shutdown and in-place reload (SIGHUP)
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	sig := <-sigChan
 
-	fmt.Println("\nShutting down JJ View server...")
+	if sig == syscall.SIGHUP {
+		fmt.Println("\nReloading JJ View server in-place (SIGHUP)...")
+	} else {
+		fmt.Println("\nShutting down JJ View server...")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Close(ctx); err != nil {
 		log.Printf("Error during shutdown: %v", err)
 	}
+
+	if sig == syscall.SIGHUP {
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		if err := execInPlace(execPath, os.Args, os.Environ(), srv.Port(), srv.SessionToken()); err != nil {
+			log.Fatalf("In-place reload failed: %v", err)
+		}
+	}
+}
+
+func listenWithReloadRetry(srv *server.Server, isReload bool) error {
+	err := srv.Listen()
+	if err == nil || !isReload {
+		return err
+	}
+	for i := 0; i < 50; i++ {
+		time.Sleep(10 * time.Millisecond)
+		if err = srv.Listen(); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 func openBrowser(targetURL string) {

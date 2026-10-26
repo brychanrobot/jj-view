@@ -204,11 +204,11 @@ func runInstallAntigravityPlugin(args []string) error {
 		fmt.Printf("[Install] Skipping daemon restart: %v\n", err)
 		return nil
 	}
-	restarted := restartRunningDaemons(opts.binaryPath, procs, os.Getpid(), terminateProcess)
+	restarted := restartRunningDaemons(opts.binaryPath, procs, os.Getpid(), reloadProcess)
 	if len(restarted) == 0 {
 		fmt.Printf("[Install] No running daemons to restart.\n")
 		return nil
 	}
-	fmt.Printf("[Install] Stopped %d running daemon(s) %v; the hub will respawn them on the new binary. Reload the jj view tab.\n", len(restarted), restarted)
+	fmt.Printf("[Install] Reloaded %d running daemon(s) in-place %v.\n", len(restarted), restarted)
 	return nil
 }

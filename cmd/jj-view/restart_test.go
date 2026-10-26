@@ -4,9 +4,19 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
+	"net/http"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"runtime"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestFindRunningDaemons(t *testing.T) {
@@ -63,3 +73,109 @@ func TestRestartRunningDaemonsNoMatches(t *testing.T) {
 		t.Fatalf("expected no restarts, got %v (called=%v)", restarted, called)
 	}
 }
+
+func TestBuildReloadEnvReplacesExistingReloadVars(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		reloadPortEnvVar + "=1111",
+		reloadSessionTokenEnvVar + "=old-token",
+		"ANTIGRAVITY_SIDECAR_WEB_PORT=43523",
+	}
+	got := buildReloadEnv(base, 43523, "new-token")
+	want := []string{
+		"PATH=/usr/bin",
+		"ANTIGRAVITY_SIDECAR_WEB_PORT=43523",
+		reloadPortEnvVar + "=43523",
+		reloadSessionTokenEnvVar + "=new-token",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildReloadEnv = %v, want %v", got, want)
+	}
+}
+
+func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGHUP in-place exec is not supported on Windows")
+	}
+
+	tempDir := t.TempDir()
+	binPath := filepath.Join(tempDir, "jj-view")
+	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build failed: %v\n%s", err, string(out))
+	}
+
+	cmd := exec.Command(binPath, "--host", "127.0.0.1", "--port", "0", "--repo", tempDir, "--no-open")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+			_, _ = cmd.Process.Wait()
+		}
+	})
+
+	origPID := cmd.Process.Pid
+	urlRe := regexp.MustCompile(`http://127\.0\.0\.1:(\d+)/\?token=([a-f0-9]+)`)
+	lines := make(chan string, 16)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+
+	waitForServerURL := func() (port string, token string) {
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					t.Fatalf("daemon stdout closed before printing server URL")
+				}
+				if m := urlRe.FindStringSubmatch(line); m != nil {
+					return m[1], m[2]
+				}
+			case <-deadline:
+				t.Fatalf("timed out waiting for server URL")
+			}
+		}
+	}
+
+	port1, token1 := waitForServerURL()
+
+	// Send SIGHUP via reloadProcess and verify the daemon reloads in-place
+	// without exiting, keeping the exact same PID, port, and session token.
+	if err := reloadProcess(origPID); err != nil {
+		t.Fatalf("reloadProcess(%d) failed: %v", origPID, err)
+	}
+
+	port2, token2 := waitForServerURL()
+	if port2 != port1 {
+		t.Fatalf("port changed across SIGHUP reload: got %s, want %s", port2, port1)
+	}
+	if token2 != token1 {
+		t.Fatalf("session token changed across SIGHUP reload: got %s, want %s", token2, token1)
+	}
+	if cmd.Process.Pid != origPID {
+		t.Fatalf("PID changed across SIGHUP reload: got %d, want %d", cmd.Process.Pid, origPID)
+	}
+
+	// Verify the reloaded server answers authenticated requests with the preserved token.
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/?token=%s", port2, token2))
+	if err != nil {
+		t.Fatalf("GET after SIGHUP reload failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status after SIGHUP reload = %d, want 200", resp.StatusCode)
+	}
+	_ = strings.TrimSpace(port2)
+}
+
