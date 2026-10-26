@@ -13,6 +13,9 @@ const os = require('node:os');
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 const webOnly = process.argv.includes('--web');
+// --metafile writes web/dist/app.meta.json (esbuild metafile) so bundle size
+// can be attributed per input with `npx esbuild --analyze` or a script.
+const metafile = process.argv.includes('--metafile');
 
 /**
  * @type {import('esbuild').Plugin}
@@ -73,11 +76,52 @@ function formatFile(filePath, { ignoreUnmatched = false } = {}) {
 }
 
 async function main() {
-    const standaloneWebCtx = await esbuild.context({
-        entryPoints: {
-            app: 'web/src/main.ts',
-            preload: 'web/src/sidecar/preload.ts',
-        },
+    const webDefine = {
+        'process.env.NODE_ENV': production ? '"production"' : '"development"',
+    };
+    const webBanner = {
+        js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
+    };
+    const webPlugins = () => [
+        browserShimsPlugin,
+        sveltePlugin({
+            compilerOptions: {
+                dev: !production,
+                css: 'external',
+            },
+        }),
+        esbuildProblemMatcherPlugin,
+    ];
+
+    // The app is an ES module with code splitting. Without splitting, every
+    // `import()` in the dependency graph is inlined: @pierre/diffs pulls in
+    // shiki's `bundledLanguages`/theme maps, whose lazy loaders then drag all
+    // ~220 grammars, every theme and the oniguruma wasm into app.js (~10 MB of
+    // a 12 MB bundle) even though a diff view needs one or two of them. With
+    // splitting they become hashed chunks under web/dist/chunks/ that the
+    // browser fetches the first time a language or theme is actually used.
+    const standaloneAppCtx = await esbuild.context({
+        entryPoints: { app: 'web/src/main.ts' },
+        bundle: true,
+        format: 'esm',
+        splitting: true,
+        chunkNames: 'chunks/[name]-[hash]',
+        minify: production,
+        sourcemap: !production,
+        sourcesContent: false,
+        platform: 'browser',
+        outdir: 'web/dist',
+        logLevel: 'silent',
+        define: webDefine,
+        plugins: webPlugins(),
+        banner: webBanner,
+        metafile,
+    });
+
+    // preload.js is loaded with a synchronous <script> in <head> (it must run
+    // before the body) so it stays a classic script.
+    const preloadCtx = await esbuild.context({
+        entryPoints: { preload: 'web/src/sidecar/preload.ts' },
         bundle: true,
         format: 'iife',
         minify: production,
@@ -86,30 +130,24 @@ async function main() {
         platform: 'browser',
         outdir: 'web/dist',
         logLevel: 'silent',
-        define: {
-            'process.env.NODE_ENV': production ? '"production"' : '"development"',
-        },
-        plugins: [
-            browserShimsPlugin,
-            sveltePlugin({
-                compilerOptions: {
-                    dev: !production,
-                    css: 'external',
-                },
-            }),
-            esbuildProblemMatcherPlugin,
-        ],
-        banner: {
-            js: `var process = { env: { NODE_ENV: ${production ? '"production"' : '"development"'} } };`,
-        },
+        define: webDefine,
+        plugins: webPlugins(),
+        banner: webBanner,
     });
+
+    const webContexts = [standaloneAppCtx, preloadCtx];
 
     if (webOnly) {
         if (watch) {
-            await standaloneWebCtx.watch();
+            await Promise.all(webContexts.map((ctx) => ctx.watch()));
         } else {
-            await standaloneWebCtx.rebuild();
-            await standaloneWebCtx.dispose();
+            const [appResult] = await Promise.all(webContexts.map((ctx) => ctx.rebuild()));
+            if (metafile && appResult.metafile) {
+                const metaPath = path.join('web', 'dist', 'app.meta.json');
+                fs.writeFileSync(metaPath, JSON.stringify(appResult.metafile));
+                console.log(`[build] Wrote ${metaPath}`);
+            }
+            await Promise.all(webContexts.map((ctx) => ctx.dispose()));
         }
         return;
     }
@@ -167,11 +205,12 @@ async function main() {
         },
     });
 
+    const allContexts = [extensionCtx, webviewCtx, ...webContexts];
     if (watch) {
-        await Promise.all([extensionCtx.watch(), webviewCtx.watch(), standaloneWebCtx.watch()]);
+        await Promise.all(allContexts.map((ctx) => ctx.watch()));
     } else {
-        await Promise.all([extensionCtx.rebuild(), webviewCtx.rebuild(), standaloneWebCtx.rebuild()]);
-        await Promise.all([extensionCtx.dispose(), webviewCtx.dispose(), standaloneWebCtx.dispose()]);
+        await Promise.all(allContexts.map((ctx) => ctx.rebuild()));
+        await Promise.all(allContexts.map((ctx) => ctx.dispose()));
     }
 }
 
@@ -202,6 +241,10 @@ async function copyAssets() {
         {
             src: 'media/custom-icons/jj-view-icons.woff2',
             dest: 'web/dist/custom-icons/jj-view-icons.woff2',
+        },
+        {
+            src: 'web/node_modules/@pierre/diffs/dist/worker/worker-portable.js',
+            dest: 'web/dist/pierre-worker.js',
         },
     ];
 

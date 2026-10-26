@@ -3,13 +3,14 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { FileDiff } from '@pierre/diffs';
+import { FileDiff, parseDiffFromFile } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
 import { isBinaryFile } from './binary-detection';
 import { handleEditorKeyDown } from './editor-shortcuts';
-import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
+import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
+import { startRenderTrace } from './render-perf';
 
 interface Props {
     filename: string;
@@ -65,12 +66,17 @@ let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined
 let fileDiffInstance: FileDiff | null = null;
 let editorInstance: Editor<'file-diff'> | null = null;
 let detachEditor: (() => void) | null = null;
+// Incremented on every render/cleanup so a pending async editor attach can
+// detect it has been superseded and bail out instead of attaching to a stale
+// FileDiff instance.
+let renderGeneration = 0;
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
 
 const isBinary = $derived(isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent));
 
 function cleanupInstances(): void {
+    renderGeneration++;
     selectedRanges = undefined;
     onSelectionChange?.(undefined);
     if (saveDebounceTimer) {
@@ -177,6 +183,9 @@ function renderDiff(): void {
         return;
     }
 
+    const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
+    const trace = startRenderTrace(cleanName);
+
     cleanupInstances();
     containerEl.innerHTML = '';
 
@@ -188,55 +197,126 @@ function renderDiff(): void {
         'pierre-dark-soft';
     const isLight = isLightTheme(effectiveTheme);
     const themeType = isLight ? 'light' : 'dark';
+    const workerManager = getOrCreateDiffWorkerPool(effectiveTheme);
 
-    fileDiffInstance = new FileDiff({
-        diffStyle,
-        expandUnchanged: false,
-        disableFileHeader: true,
-        theme: effectiveTheme,
-        themeType,
-        enableLineSelection: true,
-        onLineSelected: handleLineSelection,
-        onLineSelectionChange: handleLineSelection,
-        onLineSelectionEnd: handleLineSelection,
-    });
+    fileDiffInstance = new FileDiff(
+        {
+            diffStyle,
+            expandUnchanged: false,
+            disableFileHeader: true,
+            theme: effectiveTheme,
+            themeType,
+            enableLineSelection: true,
+            onLineSelected: handleLineSelection,
+            onLineSelectionChange: handleLineSelection,
+            onLineSelectionEnd: handleLineSelection,
+        },
+        workerManager,
+    );
 
     const contentToRender = untrack(() => currentContent);
 
-    const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
-
     const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
     const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
-    const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
-    const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
+    const oldFile = isAdded
+        ? null
+        : {
+              name: cleanName,
+              contents: originalContent,
+              cacheKey: `${cleanName}:orig:${originalContent.length}`,
+          };
+    const newFile = isDeleted
+        ? null
+        : {
+              name: cleanName,
+              contents: contentToRender,
+              cacheKey: `${cleanName}:mod:${contentToRender.length}`,
+          };
+    // Parse once so we hold the exact diff object the worker pool caches under;
+    // that lets us await its highlight before attaching the editor (see below).
+    const fileDiff = parseDiffFromFile(oldFile, newFile);
+    trace.phase('setup');
 
+    const renderStart = performance.now();
     fileDiffInstance.render({
         containerWrapper: containerEl,
-        oldFile,
-        newFile,
+        fileDiff,
     });
+    const renderDuration = performance.now() - renderStart;
+    trace.phase('render');
+    const oldLines = oldFile?.contents ? oldFile.contents.split('\n').length : 0;
+    const newLines = newFile?.contents ? newFile.contents.split('\n').length : 0;
+    if (typeof console !== 'undefined' && console.log) {
+        console.log(
+            `[Perf:Pierre] renderDiff(${cleanName}) rendered in ${renderDuration.toFixed(1)}ms [oldLines: ${oldLines}, newLines: ${newLines}, theme: ${effectiveTheme}, style: ${diffStyle}]`,
+        );
+    }
 
-    if (isWorkingCopy) {
+    if (!isWorkingCopy) {
+        trace.finish(`[lines: ${oldLines}+${newLines}, style: ${diffStyle}, editor: false]`);
+        return;
+    }
+
+    trace.finish(`[lines: ${oldLines}+${newLines}, style: ${diffStyle}, editor: deferred]`);
+    void attachEditorWhenHighlighted(fileDiffInstance, fileDiff, workerManager, cleanName);
+}
+
+/**
+ * Attaches the editor only after the worker pool has delivered the highlighted
+ * render for `fileDiff`. `Editor.edit()` can reuse that result as-is; attaching
+ * before it lands forces a synchronous main-thread re-highlight of the whole
+ * file (~1s for a 2.4k-line diff), which was the dominant cost of opening a
+ * working-copy diff.
+ */
+async function attachEditorWhenHighlighted(
+    instance: FileDiff,
+    fileDiff: ReturnType<typeof parseDiffFromFile>,
+    workerManager: ReturnType<typeof getOrCreateDiffWorkerPool>,
+    label: string,
+): Promise<void> {
+    const generation = ++renderGeneration;
+    const waitStart = performance.now();
+    let waitedFor = 'none';
+    if (workerManager && fileDiff.cacheKey != null) {
         try {
-            editorInstance = new Editor<'file-diff'>('file-diff', {
-                onChange: () => {
-                    if (editorInstance) {
-                        const text = editorInstance.getText();
-                        currentContent = text;
-                        lastLoadedModified = text;
-                        isDirty = true;
-                        canUndo = editorInstance.canUndo;
-                        canRedo = editorInstance.canRedo;
-                        onDirtyChange?.(true);
-                        onContentChange?.(text);
-                        scheduleAutoSave();
-                    }
-                },
-            });
-            detachEditor = editorInstance.edit(fileDiffInstance);
+            await workerManager.primeDiffHighlightCache(fileDiff);
+            waitedFor = 'worker-highlight';
         } catch {
-            // Fallback gracefully in testing or headless environments
+            waitedFor = 'worker-unavailable';
         }
+    }
+    const waited = performance.now() - waitStart;
+
+    // The user may have navigated away while the highlight was in flight.
+    if (generation !== renderGeneration || fileDiffInstance !== instance) {
+        return;
+    }
+
+    const attachStart = performance.now();
+    try {
+        editorInstance = new Editor<'file-diff'>('file-diff', {
+            onChange: () => {
+                if (editorInstance) {
+                    const text = editorInstance.getText();
+                    currentContent = text;
+                    lastLoadedModified = text;
+                    isDirty = true;
+                    canUndo = editorInstance.canUndo;
+                    canRedo = editorInstance.canRedo;
+                    onDirtyChange?.(true);
+                    onContentChange?.(text);
+                    scheduleAutoSave();
+                }
+            },
+        });
+        detachEditor = editorInstance.edit(instance);
+    } catch {
+        // Fallback gracefully in testing or headless environments
+    }
+    if (typeof console !== 'undefined' && console.log) {
+        console.log(
+            `[Perf:Pierre] editorAttach(${label}) waited=${waited.toFixed(1)}ms (${waitedFor}) attach=${(performance.now() - attachStart).toFixed(1)}ms`,
+        );
     }
 }
 
@@ -270,8 +350,20 @@ function setDiffStyle(style: 'split' | 'unified'): void {
         const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
         const isAdded = fileStatus === 'added' || (!originalContent && Boolean(contentToRender));
         const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !contentToRender);
-        const oldFile = isAdded ? null : { name: cleanName, contents: originalContent };
-        const newFile = isDeleted ? null : { name: cleanName, contents: contentToRender };
+        const oldFile = isAdded
+            ? null
+            : {
+                  name: cleanName,
+                  contents: originalContent,
+                  cacheKey: `${cleanName}:orig:${originalContent.length}`,
+              };
+        const newFile = isDeleted
+            ? null
+            : {
+                  name: cleanName,
+                  contents: contentToRender,
+                  cacheKey: `${cleanName}:mod:${contentToRender.length}`,
+              };
         fileDiffInstance.render({
             containerWrapper: containerEl,
             forceRender: true,
@@ -331,6 +423,15 @@ $effect(() => {
     const wc = isWorkingCopy;
 
     if (fn !== lastRenderedFilename) {
+        if (!orig && !mod && status !== 'added' && status !== 'deleted') {
+            lastRenderedFilename = fn;
+            return;
+        }
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(
+                `[Perf:Pierre] $effect filename changed to "${fn}" (modLen: ${mod.length}, origLen: ${orig.length})`,
+            );
+        }
         lastRenderedFilename = fn;
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
@@ -341,6 +442,11 @@ $effect(() => {
         onDirtyChange?.(initialDirty);
         renderDiff();
     } else if (!isDirty && (mod !== lastLoadedModified || orig !== lastLoadedOriginal)) {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(
+                `[Perf:Pierre] $effect content updated for "${fn}" (modLen: ${mod.length}, origLen: ${orig.length})`,
+            );
+        }
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
         currentContent = mod;

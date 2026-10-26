@@ -26,6 +26,7 @@ export type TabViewData =
           resourceState?: JjResourceState;
           originalContent?: string;
           modifiedContent?: string;
+          loaded?: boolean;
       }
     | {
           type: 'multi-diff';

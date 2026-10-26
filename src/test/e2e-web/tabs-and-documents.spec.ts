@@ -63,21 +63,30 @@ test.describe('Standalone Web Tabs, Preview Mode & Document Management', () => {
         await expect(currentTab).toHaveClass(/preview/);
         await expect(currentTab.locator('.tab-label')).toContainText('file2.txt');
 
-        // 3. Double-click file1.txt -> opens pinned (preview: false)
+        // 3. Double-click file1.txt. As in VS Code the first click of the
+        // double-click replaces the clean preview (file2.txt) with file1.txt,
+        // and the dblclick event then pins that same tab: still one tab.
         await item1.dblclick();
-        // Now there should be 2 tabs: file2.txt (preview) and file1.txt (pinned)
-        await expect(tabs).toHaveCount(2);
+        await expect(tabs).toHaveCount(1);
 
         const pinnedTab = tabs.filter({ hasText: 'file1.txt' });
         await expect(pinnedTab).toBeVisible();
         await expect(pinnedTab).not.toHaveClass(/preview/);
         await expect(pinnedTab).toHaveClass(/active/);
 
-        // 4. Double-click file2.txt tab header -> pins file2.txt tab as well
+        // 4. Single click file2.txt -> no clean preview left to replace, so it
+        // opens as a new preview tab next to the pinned one
+        await item2.click();
+        await expect(tabs).toHaveCount(2);
         const file2Tab = tabs.filter({ hasText: 'file2.txt' });
         await expect(file2Tab).toHaveClass(/preview/);
+        await expect(file2Tab).toHaveClass(/active/);
+        await expect(pinnedTab).not.toHaveClass(/preview/);
+
+        // 5. Double-click file2.txt tab header -> pins it as well
         await file2Tab.dblclick();
         await expect(file2Tab).not.toHaveClass(/preview/);
+        await expect(tabs).toHaveCount(2);
     });
 
     test('should pin tab on edit and show dirty dot with hover close button', async ({ page, server, testRepo }) => {

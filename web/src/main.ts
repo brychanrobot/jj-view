@@ -34,11 +34,127 @@ declare global {
     }
 }
 
+/**
+ * Logs a startup phase boundary with its offset from navigation start.
+ * Bootstrap is a serial chain and nothing is on screen until it finishes, so
+ * these markers are what attribute "startup feels slow" to a concrete phase.
+ */
+function markStartup(label: string): void {
+    if (typeof console === 'undefined' || !console.log) {
+        return;
+    }
+    console.log(`[Perf:Startup] ${label} at +${performance.now().toFixed(0)}ms`);
+}
+
+function ms(value: number): string {
+    return `${value.toFixed(0)}ms`;
+}
+
+function resourceName(url: string): string {
+    try {
+        const u = new URL(url);
+        return u.pathname;
+    } catch {
+        return url;
+    }
+}
+
+/**
+ * Attributes the time between the iframe's navigation start and the first
+ * line of bootstrap(). Nothing we control runs in that window, so the only
+ * way to see it is the browser's own timeline: the HTML request itself
+ * (daemon spawn / proxy path), each render-blocking subresource (stylesheets,
+ * the sync preload.js and app.js), and script evaluation (the gap between
+ * app.js responseEnd and bootstrap begin). Long tasks are logged when the
+ * buffer has them; Chrome only buffers a bounded number.
+ */
+function logPreBootstrapTiming(): void {
+    if (typeof console === 'undefined' || !console.log || typeof performance === 'undefined') {
+        return;
+    }
+    const bootstrapAt = performance.now();
+    const origin = new Date(performance.timeOrigin).toISOString();
+
+    const [nav] = performance.getEntriesByType('navigation');
+    if (nav instanceof PerformanceNavigationTiming) {
+        console.log(
+            `[Perf:Startup:nav] origin=${origin} type=${nav.type} redirects=${nav.redirectCount} ` +
+                `proto=${nav.nextHopProtocol || '?'} ` +
+                `fetchStart=+${ms(nav.fetchStart)} ` +
+                `connect=${ms(nav.connectEnd - nav.connectStart)} ` +
+                `requestStart=+${ms(nav.requestStart)} ttfb=${ms(nav.responseStart - nav.requestStart)} ` +
+                `responseStart=+${ms(nav.responseStart)} responseEnd=+${ms(nav.responseEnd)} ` +
+                `domInteractive=+${ms(nav.domInteractive)} ` +
+                `transfer=${nav.transferSize}B`,
+        );
+    }
+
+    const resources = performance
+        .getEntriesByType('resource')
+        .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)
+        .filter((entry) => entry.startTime < bootstrapAt)
+        .sort((a, b) => a.startTime - b.startTime);
+    for (const r of resources) {
+        const queued = r.requestStart > 0 ? r.requestStart - r.startTime : Number.NaN;
+        const ttfb = r.requestStart > 0 ? r.responseStart - r.requestStart : Number.NaN;
+        console.log(
+            `[Perf:Startup:res] ${resourceName(r.name)} (${r.initiatorType}) ` +
+                `start=+${ms(r.startTime)} end=+${ms(r.responseEnd)} dur=${ms(r.duration)} ` +
+                `queued=${Number.isNaN(queued) ? '?' : ms(queued)} ttfb=${Number.isNaN(ttfb) ? '?' : ms(ttfb)} ` +
+                `proto=${r.nextHopProtocol || '?'} transfer=${r.transferSize}B ` +
+                `${r.transferSize === 0 && r.decodedBodySize > 0 ? '(cache)' : ''}`,
+        );
+    }
+
+    const appJs = resources.find((r) => resourceName(r.name).endsWith('/app.js'));
+    if (appJs) {
+        console.log(
+            `[Perf:Startup:eval] app.js responseEnd=+${ms(appJs.responseEnd)} -> bootstrap begin=+${ms(bootstrapAt)} ` +
+                `(script parse+eval+module init ≈ ${ms(bootstrapAt - appJs.responseEnd)})`,
+        );
+    }
+
+    if (typeof PerformanceObserver === 'undefined') {
+        return;
+    }
+    try {
+        const observer = new PerformanceObserver((list) => {
+            for (const task of list.getEntries()) {
+                if (task.startTime >= bootstrapAt) {
+                    continue;
+                }
+                console.log(`[Perf:Startup:longtask] ${ms(task.duration)} at +${ms(task.startTime)}`);
+            }
+            observer.disconnect();
+        });
+        observer.observe({ type: 'longtask', buffered: true });
+    } catch {
+        // longtask not supported; nothing to log
+    }
+}
+
+/**
+ * Returns the repository restored from cache that the UI can mount on
+ * immediately, or undefined if there is none or it no longer looks like a
+ * repository. The validity probe is a single `fs.exists`, memoized on the
+ * repository so the subsequent scan does not repeat it.
+ */
+async function pickRestoredRepository(repoManager: JjRepositoryManager): Promise<JjRepository | undefined> {
+    const candidate = repoManager.focusedRepository ?? repoManager.repositories[0];
+    if (!candidate) {
+        return undefined;
+    }
+    const valid = await candidate.isValid().catch(() => false);
+    return valid ? candidate : undefined;
+}
+
 export async function bootstrap(): Promise<void> {
     const target = document.getElementById('app');
     if (!target) {
         return;
     }
+    markStartup('bootstrap begin');
+    logPreBootstrapTiming();
 
     try {
         const hostSystem = new RemoteHostSystem();
@@ -48,6 +164,7 @@ export async function bootstrap(): Promise<void> {
             }, 15000);
         });
         await Promise.race([hostSystem.ready, timeoutPromise]);
+        markStartup('host ready (SSE open + system.info)');
 
         const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
         if (typeof window !== 'undefined' && urlParams?.has('token')) {
@@ -114,6 +231,7 @@ export async function bootstrap(): Promise<void> {
                 NO_OP_LOGGER.warn(`Failed to get initial workspace URIs from sidecar: ${toError(err).message}`);
             }
         }
+        markStartup('workspace roots resolved (sidecar.getWorkspaceUris + addAllowedRoot)');
 
         const webHostEnv = new WebHostEnvironment(hostSystem, repoRoot);
         if (initialFolders && initialFolders.length > 0) {
@@ -189,8 +307,21 @@ export async function bootstrap(): Promise<void> {
         }
 
         await repoManager.restoreCachedRepositories();
-        await repoManager.scanForRepositories();
-        let repo: JjRepository | undefined = repoManager.repositories[0];
+        markStartup('restoreCachedRepositories done');
+
+        // A cached repository that still looks valid is enough to mount on.
+        // The scan only reconciles the repository list, and the SCM/log views
+        // fill in from change events, so neither should hold up first paint.
+        // Without a cache (first run) we must scan before we know what to show.
+        let repo: JjRepository | undefined = await pickRestoredRepository(repoManager);
+        let backgroundScan: Promise<void> | undefined;
+        if (repo) {
+            backgroundScan = repoManager.scanForRepositories();
+        } else {
+            await repoManager.scanForRepositories();
+            markStartup('scanForRepositories done (blocking: no cached repository)');
+            repo = repoManager.repositories[0];
+        }
         if (!repo) {
             repo = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(repoRoot));
         }
@@ -199,9 +330,20 @@ export async function bootstrap(): Promise<void> {
             repo = new JjRepository(Uri.file(repoRoot), storePath, codeForgeRegistry, NO_OP_LOGGER, webHostEnv);
         }
         repoManager.registerRepositoryInstance(repo);
+        markStartup('repository registered');
 
         const scmModel = new ScmModel(repo, NO_OP_LOGGER);
-        await scmModel.refresh({ reason: 'initial' });
+        const initialRefresh = scmModel.refresh({ reason: 'initial' });
+        initialRefresh
+            .then(() => markStartup('initial scm refresh done'))
+            .catch((err: unknown) => {
+                NO_OP_LOGGER.error('Initial SCM refresh failed', toError(err));
+            });
+        backgroundScan
+            ?.then(() => markStartup('background scanForRepositories done'))
+            .catch((err: unknown) => {
+                NO_OP_LOGGER.error('Background repository scan failed', toError(err));
+            });
 
         const viewFs = new JjViewFsService(repoManager);
         const editFs = new JjEditFsService(repoManager, async () => {
@@ -251,8 +393,10 @@ export async function bootstrap(): Promise<void> {
                 activeProviderSub = activeRepo.codeForge.onDidActiveProviderChange((provider) => {
                     updateContextKeys(provider);
                 });
+                // Detection already started in the service constructor; wait
+                // for it rather than forcing a second `jj git remote list`.
                 activeRepo.codeForge
-                    .detectActiveProvider(true)
+                    .awaitReady()
                     .then(() => {
                         updateContextKeys(activeRepo.codeForge.activeProvider);
                     })
@@ -281,6 +425,7 @@ export async function bootstrap(): Promise<void> {
                 logTransport: logBridge.transport,
             },
         });
+        markStartup('App mounted (first visible UI)');
     } catch (err) {
         console.error('Failed to bootstrap JJ View standalone web application:', err);
         if (target) {
