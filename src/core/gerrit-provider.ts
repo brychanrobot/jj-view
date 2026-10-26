@@ -80,6 +80,8 @@ interface GerritCommentGql {
     unresolved?: boolean;
     in_reply_to?: string;
     patch_set?: number;
+    commit_id?: string;
+    side?: string;
 }
 
 export type GerritCommentWithDraftStatus = GerritCommentGql & {
@@ -1023,6 +1025,30 @@ export class GerritProvider implements CodeForgeProvider {
         const commentsMap = await this.fetchMergedCommentsAndDrafts(changeInfo.number, signal);
         const threads: CodeForgeCommentThread[] = [];
 
+        let needsPortedComments = false;
+        for (const commentsList of Object.values(commentsMap)) {
+            const commentIds = new Set(commentsList.map((c) => c.id));
+            for (const c of commentsList) {
+                if (
+                    (!c.in_reply_to || !commentIds.has(c.in_reply_to)) &&
+                    c.line &&
+                    c.commit_id &&
+                    changeInfo.currentRevision &&
+                    c.commit_id !== changeInfo.currentRevision
+                ) {
+                    needsPortedComments = true;
+                    break;
+                }
+            }
+            if (needsPortedComments) {
+                break;
+            }
+        }
+
+        const portedLinesById = needsPortedComments
+            ? await this.fetchPortedCommentLines(changeInfo.number, signal)
+            : undefined;
+
         for (const [filePath, commentsList] of Object.entries(commentsMap)) {
             // Roots: comments that do not have in_reply_to, or whose parent is not in commentsList
             const commentIds = new Set(commentsList.map((c) => c.id));
@@ -1051,6 +1077,7 @@ export class GerritProvider implements CodeForgeProvider {
 
                 const lastComment = threadComments[threadComments.length - 1];
                 const isResolved = !lastComment.unresolved;
+                const portedLine = portedLinesById?.get(root.id);
 
                 threads.push({
                     id: root.id,
@@ -1059,6 +1086,10 @@ export class GerritProvider implements CodeForgeProvider {
                     isResolved,
                     metadata: {
                         patchSet: root.patch_set,
+                        ...(root.commit_id ? { commitId: root.commit_id } : {}),
+                        ...(root.line ? { originalLine: root.line } : {}),
+                        ...(root.side ? { side: root.side } : {}),
+                        ...(portedLine !== undefined ? { portedLine } : {}),
                     },
                     comments: threadComments.map((c) => ({
                         id: c.id,
@@ -1075,6 +1106,35 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         return threads;
+    }
+
+    private async fetchPortedCommentLines(changeNumber: number, signal?: AbortSignal): Promise<Map<string, number>> {
+        const result = new Map<string, number>();
+        if (!this.gerritHost) {
+            return result;
+        }
+        try {
+            const url = `${this.gerritHost}/changes/${changeNumber}/revisions/current/ported_comments/`;
+            const response = await this.fetchGerrit(url, { signal });
+            if (!response.ok) {
+                return result;
+            }
+            const text = await response.text();
+            const portedMap = parseGerritJsonResponse<Record<string, GerritCommentGql[]>>(text);
+            for (const list of Object.values(portedMap)) {
+                if (!Array.isArray(list)) {
+                    continue;
+                }
+                for (const item of list) {
+                    if (item.id && typeof item.line === 'number' && item.line > 0) {
+                        result.set(item.id, item.line);
+                    }
+                }
+            }
+        } catch {
+            // Ported comments endpoint is optional; fall back to local git diff
+        }
+        return result;
     }
 
     public async replyToCommentThread(
@@ -1101,10 +1161,8 @@ export class GerritProvider implements CodeForgeProvider {
         const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const filePath = thread.filePath || '/PATCHSET_LEVEL';
-        const line =
-            typeof thread.line === 'number' && Number.isSafeInteger(thread.line) && thread.line > 0
-                ? thread.line
-                : undefined;
+        const rawLine = typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
+        const line = typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0 ? rawLine : undefined;
 
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
@@ -1204,10 +1262,8 @@ export class GerritProvider implements CodeForgeProvider {
         const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const filePath = thread.filePath || '/PATCHSET_LEVEL';
-        const line =
-            typeof thread.line === 'number' && Number.isSafeInteger(thread.line) && thread.line > 0
-                ? thread.line
-                : undefined;
+        const rawLine = typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
+        const line = typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0 ? rawLine : undefined;
 
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',

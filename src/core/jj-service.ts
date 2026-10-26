@@ -6,6 +6,7 @@ import path from 'pathe';
 import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
+import { type DiffHunkRange, parseDiffHunks, parseMultiFileDiffHunks } from '../utils/line-drift';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import {
     HELPER_SCRIPT_TOKEN,
@@ -1722,5 +1723,142 @@ export class JjService {
         }
 
         return resultMap;
+    }
+
+    private _diffHunksCache = new Map<string, DiffHunkRange[] | null>();
+    private static readonly MAX_DIFF_HUNKS_CACHE_KEYS = 500;
+
+    private _setDiffHunksCache(key: string, value: DiffHunkRange[] | null): void {
+        if (this._diffHunksCache.size >= JjService.MAX_DIFF_HUNKS_CACHE_KEYS) {
+            const firstKey = this._diffHunksCache.keys().next().value;
+            if (firstKey !== undefined) {
+                this._diffHunksCache.delete(firstKey);
+            }
+        }
+        this._diffHunksCache.set(key, value);
+    }
+
+    /**
+     * Computes zero-context unified diff hunks (`git diff -U0`) between two commits
+     * for the requested repo-relative file paths. Returns `undefined` if either commit
+     * does not exist in the local git object store.
+     */
+    async getCommitDiffHunks(
+        fromCommitId: string,
+        toCommitId: string,
+        filePaths: readonly string[],
+    ): Promise<Map<string, DiffHunkRange[]> | undefined> {
+        const resultMap = new Map<string, DiffHunkRange[]>();
+        if (filePaths.length === 0) {
+            return resultMap;
+        }
+        if (fromCommitId === toCommitId) {
+            for (const filePath of filePaths) {
+                resultMap.set(filePath, []);
+            }
+            return resultMap;
+        }
+
+        const missingPaths: string[] = [];
+        for (const filePath of filePaths) {
+            const cacheKey = `commit:${fromCommitId}:${toCommitId}:${filePath}`;
+            const cached = this._diffHunksCache.get(cacheKey);
+            if (cached === null) {
+                return undefined;
+            }
+            if (cached !== undefined) {
+                resultMap.set(filePath, cached);
+            } else {
+                missingPaths.push(filePath);
+            }
+        }
+
+        if (missingPaths.length === 0) {
+            return resultMap;
+        }
+
+        try {
+            const gitRoot = await this.getGitRoot();
+            const res = await this.system.process.execFile(
+                'git',
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    ...(gitRoot ? [`--git-dir=${gitRoot}`] : []),
+                    'diff',
+                    '-U0',
+                    '--no-ext-diff',
+                    '--no-color',
+                    fromCommitId,
+                    toCommitId,
+                    '--',
+                    ...missingPaths,
+                ],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout: 10000,
+                },
+            );
+
+            const parsedByFile = parseMultiFileDiffHunks(res.stdout);
+            for (const filePath of missingPaths) {
+                const hunks = parsedByFile.get(filePath) ?? [];
+                this._setDiffHunksCache(`commit:${fromCommitId}:${toCommitId}:${filePath}`, hunks);
+                resultMap.set(filePath, hunks);
+            }
+            return resultMap;
+        } catch {
+            for (const filePath of missingPaths) {
+                this._setDiffHunksCache(`commit:${fromCommitId}:${toCommitId}:${filePath}`, null);
+            }
+            return undefined;
+        }
+    }
+
+    /**
+     * Computes zero-context unified diff hunks (`git diff -U0`) between two git blob
+     * SHAs or `<rev>:<path>` specs. Returns `undefined` if either object is missing
+     * from the local git store.
+     */
+    async getBlobDiffHunks(fromSpec: string, toSpec: string): Promise<DiffHunkRange[] | undefined> {
+        if (fromSpec === toSpec) {
+            return [];
+        }
+        const cacheKey = `blob:${fromSpec}:${toSpec}`;
+        const cached = this._diffHunksCache.get(cacheKey);
+        if (cached !== undefined) {
+            return cached ?? undefined;
+        }
+
+        try {
+            const gitRoot = await this.getGitRoot();
+            const res = await this.system.process.execFile(
+                'git',
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    ...(gitRoot ? [`--git-dir=${gitRoot}`] : []),
+                    'diff',
+                    '-U0',
+                    '--no-ext-diff',
+                    '--no-color',
+                    fromSpec,
+                    toSpec,
+                ],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout: 10000,
+                },
+            );
+
+            const hunks = parseDiffHunks(res.stdout);
+            this._setDiffHunksCache(cacheKey, hunks);
+            return hunks;
+        } catch {
+            this._setDiffHunksCache(cacheKey, null);
+            return undefined;
+        }
     }
 }

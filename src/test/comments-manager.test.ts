@@ -34,6 +34,7 @@ class MockCommentsProvider implements CodeForgeProvider {
 
     public lastRequestedChangeId?: string;
     public commentThreadsWaiter?: CallbackWaiter<string>;
+    public customChangeInfo?: Partial<CodeForgeChangeInfo>;
 
     createCommentThreadsWaiter(): CallbackWaiter<string> {
         const waiter = new CallbackWaiter<string>();
@@ -54,6 +55,7 @@ class MockCommentsProvider implements CodeForgeProvider {
             submittable: true,
             unresolvedComments: 0,
             url: 'url',
+            ...this.customChangeInfo,
         };
     }
 
@@ -760,5 +762,92 @@ describe('CommentsManager Tests', () => {
         const pullSpy = vi.spyOn(commentsManager, 'pullCommentsAutomatically');
         provider.onDidUpdateEmitter.fire();
         expect(pullSpy).toHaveBeenCalled();
+    });
+
+    test('adjusts comment line numbers for local edits using commit-level diff hunks', async () => {
+        testRepo.writeFile('file.txt', 'line 1\nline 2\nline 3\nline 4\nline 5\n');
+        testRepo.describe('Initial snapshot');
+        const anchorCommitId = testRepo.getCommitId('@');
+
+        // Insert 2 lines at the top of file.txt locally
+        testRepo.writeFile('file.txt', 'header 1\nheader 2\nline 1\nline 2\nline 3\nline 4\nline 5\n');
+        testRepo.describe('Local edit with 2 inserted lines');
+
+        provider.setThreads([
+            {
+                id: 'thread-drift-commit',
+                filePath: 'file.txt',
+                line: 3,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'c1',
+                        author: { name: 'Reviewer' },
+                        body: 'Comment on line 3',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+                metadata: {
+                    commitId: anchorCommitId,
+                    originalLine: 3,
+                },
+            },
+        ]);
+
+        await commentsManager.showCommentsForChange('@');
+
+        expect(commentsManager.threads).toHaveLength(1);
+        expect(commentsManager.threads[0].line).toBe(5);
+        expect(commentsManager.threads[0].metadata?.originalLine).toBe(3);
+    });
+
+    test('falls back to blob-level diff and portedLine when comment commit is not in local git store', async () => {
+        testRepo.writeFile('file.txt', 'line 1\nline 2\nline 3\nline 4\nline 5\n');
+        testRepo.describe('Uploaded patchset 2');
+        const ps2CommitId = testRepo.getCommitId('@');
+
+        // Local working copy inserts 3 lines before line 4
+        testRepo.writeFile('file.txt', 'line 1\nline 2\nline 3\ninserted A\ninserted B\ninserted C\nline 4\nline 5\n');
+        testRepo.describe('Local edits after patchset 2');
+
+        provider.customChangeInfo = {
+            currentRevision: 'deadbeef00000000000000000000000000000002',
+            contentSynced: false,
+            files: {
+                'file.txt': {
+                    status: 'M',
+                    newSha: `${ps2CommitId}:file.txt`,
+                },
+            },
+        };
+
+        provider.setThreads([
+            {
+                id: 'thread-drift-blob',
+                filePath: 'file.txt',
+                line: 2,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'c1',
+                        author: { name: 'Reviewer' },
+                        body: 'Comment originally on line 2 of PS1, ported to line 4 on PS2',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+                metadata: {
+                    commitId: 'deadbeef00000000000000000000000000000001',
+                    originalLine: 2,
+                    portedLine: 4,
+                },
+            },
+        ]);
+
+        await commentsManager.showCommentsForChange('@');
+
+        expect(commentsManager.threads).toHaveLength(1);
+        // Ported to line 4 on PS2, then shifted by +3 local insertions -> line 7
+        expect(commentsManager.threads[0].line).toBe(7);
+        expect(commentsManager.threads[0].metadata?.originalLine).toBe(2);
     });
 });

@@ -4,6 +4,7 @@
  */
 
 import path from 'pathe';
+import { type DiffHunkRange, mapLineAcrossHunks } from '../utils/line-drift';
 import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { CommentThread } from './comments-types';
 import { type Disposable, type Event, EventEmitter } from './host/events';
@@ -19,6 +20,7 @@ export * from './comments-types';
 interface ResolvedChange {
     changeInfo: CodeForgeChangeInfo;
     jjChangeId: string;
+    localCommitId?: string;
 }
 
 export class CommentsManager implements Disposable {
@@ -27,6 +29,7 @@ export class CommentsManager implements Disposable {
     private activeChangeId: string | undefined;
     private activeChangeInfo: CodeForgeChangeInfo | undefined;
     private activeJjChangeId: string | undefined;
+    private activeLocalCommitId: string | undefined;
     private activeRepoPath: string | undefined;
     private disposables: Disposable[] = [];
     private repoDisposables: Disposable[] = [];
@@ -85,6 +88,7 @@ export class CommentsManager implements Disposable {
         this.activeChangeId = undefined;
         this.activeChangeInfo = undefined;
         this.activeJjChangeId = undefined;
+        this.activeLocalCommitId = undefined;
         this.activeRepoPath = undefined;
     }
 
@@ -147,7 +151,7 @@ export class CommentsManager implements Disposable {
             if (!changeInfo) {
                 return undefined;
             }
-            return { changeInfo, jjChangeId: logEntry.change_id };
+            return { changeInfo, jjChangeId: logEntry.change_id, localCommitId: logEntry.commit_id };
         } catch {
             // Ignore error
         }
@@ -284,7 +288,11 @@ export class CommentsManager implements Disposable {
         }
         const signal = this.startNewLoad();
         await this.loadCommentsForChange(
-            { changeInfo: this.activeChangeInfo, jjChangeId: this.activeJjChangeId },
+            {
+                changeInfo: this.activeChangeInfo,
+                jjChangeId: this.activeJjChangeId,
+                localCommitId: this.activeLocalCommitId,
+            },
             signal,
         );
     }
@@ -317,13 +325,18 @@ export class CommentsManager implements Disposable {
         const provider = activeProvider as Required<Pick<CodeForgeProvider, 'getCommentThreads'>> & CodeForgeProvider;
 
         try {
-            const threadsList = await provider.getCommentThreads(providerChangeId, signal);
+            const rawThreadsList = await provider.getCommentThreads(providerChangeId, signal);
+            if (signal.aborted) {
+                return;
+            }
+            const threadsList = await this.applyDriftCorrection(repo, target, rawThreadsList, signal);
             if (signal.aborted) {
                 return;
             }
             this.activeChangeId = providerChangeId;
             this.activeChangeInfo = target.changeInfo;
             this.activeJjChangeId = target.jjChangeId;
+            this.activeLocalCommitId = target.localCommitId;
             this.activeRepoPath = repo.rootUri.fsPath;
             this._threadsList = threadsList;
             this._threads = new Map(threadsList.map((t) => [t.id, t]));
@@ -331,6 +344,151 @@ export class CommentsManager implements Disposable {
         } catch {
             // Ignore/log
         }
+    }
+
+    /**
+     * Adjusts comment thread line numbers for local edits made since the comment's anchor revision.
+     */
+    private async applyDriftCorrection(
+        repo: JjRepository,
+        target: ResolvedChange,
+        threadsList: CodeForgeCommentThread[],
+        signal: AbortSignal,
+    ): Promise<CodeForgeCommentThread[]> {
+        const localCommitId = target.localCommitId;
+        if (!localCommitId || threadsList.length === 0) {
+            return threadsList;
+        }
+
+        const repoRoot = repo.rootUri.fsPath;
+        const remoteCurrentRev = target.changeInfo.currentRevision;
+        const filesByAnchorCommit = new Map<string, Set<string>>();
+        const threadTargets = new Map<
+            string,
+            {
+                relPath: string;
+                anchorCommitId?: string;
+                threadCommitId?: string;
+                originalLine: number;
+            }
+        >();
+
+        for (const thread of threadsList) {
+            if (!thread.filePath || typeof thread.line !== 'number' || thread.line <= 0) {
+                continue;
+            }
+            if (thread.metadata?.side === 'PARENT') {
+                continue;
+            }
+            if (thread.filePath.startsWith('/') && !thread.filePath.startsWith(repoRoot)) {
+                continue;
+            }
+
+            const fullPath = path.isAbsolute(thread.filePath) ? thread.filePath : path.join(repoRoot, thread.filePath);
+            const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
+            const threadCommitId =
+                typeof thread.metadata?.commitId === 'string' && thread.metadata.commitId.length > 0
+                    ? thread.metadata.commitId
+                    : undefined;
+            const anchorCommitId = threadCommitId ?? remoteCurrentRev;
+
+            if (anchorCommitId === localCommitId) {
+                continue;
+            }
+            if (anchorCommitId && anchorCommitId === remoteCurrentRev && target.changeInfo.contentSynced === true) {
+                continue;
+            }
+            if (!anchorCommitId && !target.changeInfo.files?.[relPath]?.newSha) {
+                continue;
+            }
+
+            const originalLine =
+                typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
+            threadTargets.set(thread.id, {
+                relPath,
+                anchorCommitId,
+                threadCommitId,
+                originalLine,
+            });
+
+            if (anchorCommitId) {
+                let fileSet = filesByAnchorCommit.get(anchorCommitId);
+                if (!fileSet) {
+                    fileSet = new Set<string>();
+                    filesByAnchorCommit.set(anchorCommitId, fileSet);
+                }
+                fileSet.add(relPath);
+            }
+        }
+
+        if (threadTargets.size === 0) {
+            return threadsList;
+        }
+
+        const commitDiffsByAnchor = new Map<string, Map<string, DiffHunkRange[]> | undefined>();
+        for (const [anchorCommitId, fileSet] of filesByAnchorCommit) {
+            const diffMap = await repo.jj.getCommitDiffHunks(anchorCommitId, localCommitId, Array.from(fileSet));
+            if (signal.aborted) {
+                return threadsList;
+            }
+            commitDiffsByAnchor.set(anchorCommitId, diffMap);
+        }
+
+        const adjusted: CodeForgeCommentThread[] = [];
+        for (const thread of threadsList) {
+            const info = threadTargets.get(thread.id);
+            if (!info) {
+                adjusted.push(thread);
+                continue;
+            }
+
+            const commitDiffMap = info.anchorCommitId ? commitDiffsByAnchor.get(info.anchorCommitId) : undefined;
+            let hunks: DiffHunkRange[] | undefined;
+            let baseLine = info.originalLine;
+
+            if (commitDiffMap !== undefined) {
+                hunks = commitDiffMap.get(info.relPath) ?? [];
+            } else {
+                const remoteBlobSha = target.changeInfo.files?.[info.relPath]?.newSha;
+                if (!remoteBlobSha) {
+                    adjusted.push(thread);
+                    continue;
+                }
+                if (info.threadCommitId && remoteCurrentRev && info.threadCommitId !== remoteCurrentRev) {
+                    if (typeof thread.metadata?.portedLine !== 'number') {
+                        adjusted.push(thread);
+                        continue;
+                    }
+                    baseLine = thread.metadata.portedLine;
+                }
+                hunks = await repo.jj.getBlobDiffHunks(remoteBlobSha, `${localCommitId}:${info.relPath}`);
+                if (signal.aborted) {
+                    return threadsList;
+                }
+            }
+
+            if (!hunks) {
+                adjusted.push(thread);
+                continue;
+            }
+
+            const driftedLine = mapLineAcrossHunks(baseLine, hunks);
+            if (driftedLine === thread.line) {
+                adjusted.push(thread);
+                continue;
+            }
+
+            adjusted.push({
+                ...thread,
+                line: driftedLine,
+                metadata: {
+                    ...thread.metadata,
+                    originalLine: info.originalLine,
+                },
+            });
+        }
+
+        return adjusted;
     }
 
     public async showCommentsForChange(changeId: string): Promise<void> {
