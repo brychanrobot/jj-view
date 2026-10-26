@@ -29,6 +29,7 @@ import type { CodeForgeChangeInfo, JjStatusEntry } from './jj-types';
 export const GerritFileSchema = z.object({
     status: z.string().optional(),
     new_sha: z.string().optional(),
+    old_path: z.string().optional(),
 });
 export type GerritFile = z.infer<typeof GerritFileSchema>;
 
@@ -596,10 +597,10 @@ export class GerritProvider implements CodeForgeProvider {
                     info.addressedThreads = metrics.addressedThreads;
                     info.hasDraftResponses = metrics.hasDraftResponses;
                 }
-                if (!results.has(change.change_id)) {
+                if (this.shouldPreferChange(results.get(change.change_id), info)) {
                     results.set(change.change_id, info);
                 }
-                if (!results.has(String(change._number))) {
+                if (this.shouldPreferChange(results.get(String(change._number)), info)) {
                     results.set(String(change._number), info);
                 }
 
@@ -611,7 +612,7 @@ export class GerritProvider implements CodeForgeProvider {
                         key === String(change._number) ||
                         (lowerKey.length >= 6 && lowerChangeId.startsWith(lowerKey))
                     ) {
-                        if (!results.has(key)) {
+                        if (this.shouldPreferChange(results.get(key), info)) {
                             results.set(key, info);
                         }
                     }
@@ -647,6 +648,22 @@ export class GerritProvider implements CodeForgeProvider {
         return results;
     }
 
+    private shouldPreferChange(existing: CodeForgeChangeInfo | undefined, candidate: CodeForgeChangeInfo): boolean {
+        if (!existing) {
+            return true;
+        }
+        const priority = (status: CodeForgeChangeInfo['status']): number => {
+            if (status === 'NEW') {
+                return 3;
+            }
+            if (status === 'MERGED') {
+                return 2;
+            }
+            return 1;
+        };
+        return priority(candidate.status) > priority(existing.status);
+    }
+
     private parseBatchResponse(text: string): GerritChange[][] {
         const jsonStr = text.replace(/^\)]}'\r?\n/, '');
         let parsed: unknown;
@@ -677,7 +694,7 @@ export class GerritProvider implements CodeForgeProvider {
 
     private parseGerritChange(change: GerritChange): CodeForgeChangeInfo | undefined {
         const currentRev = change.current_revision;
-        let files: Record<string, { newSha?: string; status?: string }> | undefined;
+        let files: Record<string, { newSha?: string; status?: string; oldPath?: string }> | undefined;
         let remoteDescription: string | undefined;
 
         const rev = currentRev && change.revisions ? change.revisions[currentRev] : undefined;
@@ -688,11 +705,15 @@ export class GerritProvider implements CodeForgeProvider {
                 files = Object.entries(rev.files).reduce(
                     (acc, [path, fileInfo]) => {
                         if (!path.startsWith('/')) {
-                            acc[path] = { newSha: fileInfo.new_sha, status: fileInfo.status };
+                            acc[path] = {
+                                newSha: fileInfo.new_sha,
+                                status: fileInfo.status,
+                                oldPath: fileInfo.old_path,
+                            };
                         }
                         return acc;
                     },
-                    {} as Record<string, { newSha?: string; status?: string }>,
+                    {} as Record<string, { newSha?: string; status?: string; oldPath?: string }>,
                 );
             }
         }
@@ -735,8 +756,8 @@ export class GerritProvider implements CodeForgeProvider {
         }
 
         if (
-            info.remoteDescription &&
-            description &&
+            info.remoteDescription !== undefined &&
+            description !== undefined &&
             stripGerritTrailers(description) !== stripGerritTrailers(info.remoteDescription)
         ) {
             this.setContentSyncCache(syncCacheKey, false);
@@ -757,12 +778,33 @@ export class GerritProvider implements CodeForgeProvider {
                 getChangesMs = performance.now() - changesStart;
             }
             const localPaths = new Set(localChanges.filter((c) => c.status !== 'deleted').map((c) => c.path));
+            const localDeletedPaths = new Set<string>();
+            for (const c of localChanges) {
+                if (c.status === 'deleted' && !localPaths.has(c.path)) {
+                    localDeletedPaths.add(c.path);
+                } else if (c.status === 'renamed' && c.oldPath && !localPaths.has(c.oldPath)) {
+                    localDeletedPaths.add(c.oldPath);
+                }
+            }
 
             const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
             gerritFileCount = gerritPaths.length;
             const gerritPathSet = new Set(gerritPaths);
+            const gerritDeletedPaths = new Set<string>();
+            for (const [p, f] of Object.entries(gerritFiles)) {
+                if (f.status === 'D' && !gerritPathSet.has(p)) {
+                    gerritDeletedPaths.add(p);
+                } else if (f.status === 'R' && f.oldPath && !gerritPathSet.has(f.oldPath)) {
+                    gerritDeletedPaths.add(f.oldPath);
+                }
+            }
 
-            if (localPaths.difference(gerritPathSet).size > 0 || gerritPathSet.difference(localPaths).size > 0) {
+            if (
+                localPaths.difference(gerritPathSet).size > 0 ||
+                gerritPathSet.difference(localPaths).size > 0 ||
+                localDeletedPaths.difference(gerritDeletedPaths).size > 0 ||
+                gerritDeletedPaths.difference(localDeletedPaths).size > 0
+            ) {
                 this.setContentSyncCache(syncCacheKey, false);
                 return 'checked';
             }

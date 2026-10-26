@@ -125,6 +125,7 @@ export const CodeForgeChangeInfoSchema = z.object({
             z.object({
                 newSha: z.string().optional(),
                 status: z.string().optional(),
+                oldPath: z.string().optional(),
             }),
         )
         .optional(),

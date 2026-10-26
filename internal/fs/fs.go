@@ -52,6 +52,41 @@ func appendRoot(roots []string, r string) []string {
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved != abs {
 		roots = appendIfMissing(roots, resolved)
 	}
+
+	// If abs is a JJ workspace whose .jj/repo is a pointer file to a shared
+	// repository (e.g. `jj workspace add`), allow the target .jj/repo and its
+	// backing git store (store/git_target) so git/jj config and ref reads work.
+	jjRepoPath := filepath.Join(abs, ".jj", "repo")
+	repoDir := jjRepoPath
+	if info, err := os.Stat(jjRepoPath); err == nil && !info.IsDir() {
+		if data, err := os.ReadFile(jjRepoPath); err == nil {
+			target := strings.TrimSpace(string(data))
+			if target != "" {
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(jjRepoPath), target)
+				}
+				repoDir = filepath.Clean(target)
+				roots = appendIfMissing(roots, repoDir)
+				if resolved, err := filepath.EvalSymlinks(repoDir); err == nil && resolved != repoDir {
+					roots = appendIfMissing(roots, resolved)
+				}
+			}
+		}
+	}
+	gitTargetFile := filepath.Join(repoDir, "store", "git_target")
+	if data, err := os.ReadFile(gitTargetFile); err == nil {
+		target := strings.TrimSpace(string(data))
+		if target != "" {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(gitTargetFile), target)
+			}
+			gitDir := filepath.Clean(target)
+			roots = appendIfMissing(roots, gitDir)
+			if resolved, err := filepath.EvalSymlinks(gitDir); err == nil && resolved != gitDir {
+				roots = appendIfMissing(roots, resolved)
+			}
+		}
+	}
 	return roots
 }
 

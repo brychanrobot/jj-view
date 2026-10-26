@@ -309,6 +309,9 @@ export class CodeForgeService implements Disposable {
 
         const remoteSet = new Set(remoteParents);
         const matches = parents.every((localParent) => {
+            if (localParent.is_immutable && remoteSet.has(localParent.commit_id)) {
+                return true;
+            }
             const parentCommit = commitMap.get(localParent.commit_id);
             const parentBookmarks = parentCommit
                 ? (parentCommit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name)
@@ -336,6 +339,7 @@ export class CodeForgeService implements Disposable {
 
         const commitMap = new Map<string, JjLogEntry>();
         for (const commit of commits) {
+            commit.codeForgeNeedsUpload = undefined;
             if (commit.commit_id) {
                 commitMap.set(commit.commit_id, commit);
                 const info = activeProvider.getCachedChangeInfo(
@@ -365,7 +369,7 @@ export class CodeForgeService implements Disposable {
             }
 
             const commit = commitMap.get(commitId);
-            if (!commit) {
+            if (!commit || commit.is_immutable) {
                 return false;
             }
 
@@ -403,7 +407,12 @@ export class CodeForgeService implements Disposable {
         };
 
         for (const commit of commits) {
-            if (commit.commit_id && commit.codeForgeChange && commit.codeForgeChange.status === 'NEW') {
+            if (
+                !commit.is_immutable &&
+                commit.commit_id &&
+                commit.codeForgeChange &&
+                commit.codeForgeChange.status === 'NEW'
+            ) {
                 const needsUpload = computeNeedsUpload(commit.commit_id);
                 commit.codeForgeNeedsUpload = needsUpload;
             }
