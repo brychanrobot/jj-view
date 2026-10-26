@@ -7,7 +7,7 @@ import { onDestroy, onMount } from 'svelte';
 import type { HostConfig } from '../../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { WebHostEnvironment } from '../host/web-host-environment';
-import { loadScopedSettings, saveScopedSetting } from './settings-helpers';
+import { loadScopedSettings, resolveSettingDisplayInfo, saveScopedSetting } from './settings-helpers';
 import { ALL_SETTINGS, filterSettings, getCategories, type SettingDefinition } from './settings-schema';
 
 interface Props {
@@ -28,7 +28,9 @@ let activeScope: Scope = $state('user');
 let searchQuery: string = $state('');
 let selectedCategory: string = $state('All');
 let userConfig: Record<string, unknown> = $state({});
+let vscodeUserConfig: Record<string, unknown> = $state({});
 let workspaceConfig: Record<string, unknown> = $state({});
+let vscodeWorkspaceConfig: Record<string, unknown> = $state({});
 let isLoading: boolean = $state(false);
 let searchInputEl: HTMLInputElement | null = $state(null);
 
@@ -37,12 +39,16 @@ const filteredSettings = $derived(filterSettings(ALL_SETTINGS, searchQuery, sele
 
 async function loadConfigs(): Promise<void> {
     try {
-        const [user, ws] = await Promise.all([
+        const [user, vscodeUser, ws, vscodeWs] = await Promise.all([
             loadScopedSettings(activeHostSystem, 'user'),
+            loadScopedSettings(activeHostSystem, 'vscode-user'),
             loadScopedSettings(activeHostSystem, 'workspace'),
+            loadScopedSettings(activeHostSystem, 'vscode-workspace'),
         ]);
         userConfig = user;
+        vscodeUserConfig = vscodeUser;
         workspaceConfig = ws;
+        vscodeWorkspaceConfig = vscodeWs;
     } catch (err) {
         console.error('[SettingsModal] Failed to load scoped configs:', err);
     } finally {
@@ -70,51 +76,6 @@ function handleKeydown(event: KeyboardEvent): void {
         event.preventDefault();
         onClose();
     }
-}
-
-function normalizeKey(key: string): string {
-    return key.replace(/^jj-view\./, '');
-}
-
-function getValueInActiveScope(setting: SettingDefinition): unknown {
-    const norm = normalizeKey(setting.key);
-    const scopeData = activeScope === 'workspace' ? workspaceConfig : userConfig;
-
-    if (scopeData[setting.key] !== undefined) {
-        return scopeData[setting.key];
-    }
-    if (scopeData[norm] !== undefined) {
-        return scopeData[norm];
-    }
-    if (scopeData[`jj-view.${norm}`] !== undefined) {
-        return scopeData[`jj-view.${norm}`];
-    }
-    return undefined;
-}
-
-function getEffectiveValue(setting: SettingDefinition): unknown {
-    const scopedVal = getValueInActiveScope(setting);
-    if (scopedVal !== undefined) {
-        return scopedVal;
-    }
-    // If viewing workspace scope, fall back to userConfig before effective config / default
-    if (activeScope === 'workspace') {
-        const norm = normalizeKey(setting.key);
-        const userVal = userConfig[setting.key] ?? userConfig[norm] ?? userConfig[`jj-view.${norm}`];
-        if (userVal !== undefined) {
-            return userVal;
-        }
-    }
-    // Fall back to effective config or schema default
-    const effective = activeHostConfig?.get(setting.key, undefined);
-    if (effective !== undefined) {
-        return effective;
-    }
-    return setting.default;
-}
-
-function isModifiedInActiveScope(setting: SettingDefinition): boolean {
-    return getValueInActiveScope(setting) !== undefined;
 }
 
 async function handleChange(setting: SettingDefinition, newValue: unknown): Promise<void> {
@@ -231,6 +192,19 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
 
             <!-- Settings Content -->
             <main class="settings-content" data-testid="settings-content">
+                <div class="scope-banner" data-testid="settings-scope-banner">
+                    <i class="codicon codicon-info scope-banner-icon" aria-hidden="true"></i>
+                    {#if activeScope === 'workspace'}
+                        <span>
+                            <strong>Workspace Settings</strong> — Saved to <code>.jj-view/config.json</code> (takes precedence over <code>.vscode/settings.json</code> and User settings).
+                        </span>
+                    {:else}
+                        <span>
+                            <strong>User Settings</strong> — Saved to <code>~/.config/jj-view/config.json</code> (takes precedence over VS Code <code>User/settings.json</code>).
+                        </span>
+                    {/if}
+                </div>
+
                 {#if isLoading}
                     <div class="loading-state">
                         <i class="codicon codicon-loading codicon-modifier-spin" aria-hidden="true"></i>
@@ -244,8 +218,14 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
                 {:else}
                     <div class="settings-list">
                         {#each filteredSettings as setting (setting.key)}
-                            {@const val = getEffectiveValue(setting)}
-                            {@const isModified = isModifiedInActiveScope(setting)}
+                            {@const displayInfo = resolveSettingDisplayInfo(
+                                setting,
+                                activeScope,
+                                { userConfig, vscodeUserConfig, workspaceConfig, vscodeWorkspaceConfig },
+                                activeHostConfig,
+                            )}
+                            {@const val = displayInfo.value}
+                            {@const isModified = displayInfo.isModifiedInScope}
                             <div class="setting-item" data-testid={`setting-item-${setting.key}`}>
                                 <div class="setting-header">
                                     <div class="setting-title-row">
@@ -254,9 +234,18 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
                                         {/if}
                                         <h3 class="setting-title">{setting.title}</h3>
                                         <code class="setting-key">{setting.key}</code>
+                                        {#each displayInfo.badges as badge}
+                                            <span
+                                                class={`source-badge source-badge-${badge.kind}`}
+                                                title={badge.tooltip}
+                                                data-testid={`setting-badge-${setting.key}`}
+                                            >
+                                                {badge.label}
+                                            </span>
+                                        {/each}
                                     </div>
 
-                                    {#if isModified}
+                                    {#if displayInfo.canResetInScope}
                                         <button
                                             type="button"
                                             class="reset-btn"
@@ -556,7 +545,40 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
     flex: 1;
     overflow-y: auto;
     padding: 16px 24px;
-    background: var(--vscode-editor-background, #171717);
+    background: var(--vscode-editor-background);
+}
+
+.scope-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-widget-border);
+    background: var(--vscode-sideBar-background);
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.scope-banner strong {
+    color: var(--vscode-foreground);
+}
+
+.scope-banner code {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-input-background);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.scope-banner-icon {
+    font-size: 14px;
+    color: var(--vscode-focusBorder);
+    flex-shrink: 0;
 }
 
 .settings-list {
@@ -566,7 +588,7 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
 }
 
 .setting-item {
-    border-bottom: 1px solid var(--vscode-widget-border, #1d1d1d);
+    border-bottom: 1px solid var(--vscode-widget-border);
     padding-bottom: 16px;
 }
 
@@ -593,7 +615,7 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--vscode-focusBorder, #69b1ff);
+    background: var(--vscode-focusBorder);
     display: inline-block;
 }
 
@@ -601,16 +623,47 @@ async function handleReset(setting: SettingDefinition): Promise<void> {
     margin: 0;
     font-size: 13px;
     font-weight: 600;
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-foreground);
 }
 
 .setting-key {
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 11px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
-    background: var(--vscode-input-background, #262626);
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-input-background);
     padding: 2px 6px;
     border-radius: 3px;
+}
+
+.source-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-widget-border);
+    background: var(--vscode-input-background);
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+}
+
+.source-badge-standalone {
+    border-color: var(--vscode-focusBorder);
+    color: var(--vscode-foreground);
+}
+
+.source-badge-vscode {
+    border-color: var(--vscode-input-border);
+    color: var(--vscode-foreground);
+}
+
+.source-badge-inherited {
+    border-color: var(--vscode-widget-border);
+    color: var(--vscode-descriptionForeground);
+}
+
+.source-badge-overridden {
+    border-color: var(--vscode-focusBorder);
+    color: var(--vscode-descriptionForeground);
 }
 
 .reset-btn {

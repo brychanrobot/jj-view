@@ -7,8 +7,18 @@ import { describe, expect, it, vi } from 'vitest';
 import '../../src/test/vitest-utils';
 import type { HostConfig } from '../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
-import { loadScopedSettings, saveScopedSetting } from '../src/settings/settings-helpers';
+import { loadScopedSettings, resolveSettingDisplayInfo, saveScopedSetting } from '../src/settings/settings-helpers';
+import type { SettingDefinition } from '../src/settings/settings-schema';
 import { createMock } from './test-mock';
+
+const UPLOAD_SETTING: SettingDefinition = {
+    key: 'uploadCommand',
+    title: 'Upload Command',
+    description: 'Command run by upload',
+    type: 'string',
+    default: 'git push',
+    category: 'Git & Remote',
+};
 
 describe('settings-helpers', () => {
     describe('loadScopedSettings', () => {
@@ -47,7 +57,7 @@ describe('settings-helpers', () => {
             await saveScopedSetting(mockSystem, mockConfig, 'appearance.theme', 'pierre-light', 'user');
 
             expect(setConfigMock).toHaveBeenCalledWith('appearance.theme', 'pierre-light', 'user');
-            expect(updateConfigMock).toHaveBeenCalledWith('appearance.theme', 'pierre-light');
+            expect(updateConfigMock).toHaveBeenCalledWith('appearance.theme', 'pierre-light', 'user');
         });
 
         it('handles null/undefined system or config gracefully', async () => {
@@ -63,7 +73,52 @@ describe('settings-helpers', () => {
                 update: updateConfigMock,
             });
             await saveScopedSetting(undefined, mockConfig, 'appearance.theme', 'pierre-light', 'workspace');
-            expect(updateConfigMock).toHaveBeenCalledWith('appearance.theme', 'pierre-light');
+            expect(updateConfigMock).toHaveBeenCalledWith('appearance.theme', 'pierre-light', 'workspace');
+        });
+    });
+
+    describe('resolveSettingDisplayInfo', () => {
+        it('shows VS Code User Settings provenance and workspace override badge in user tab', () => {
+            const info = resolveSettingDisplayInfo(UPLOAD_SETTING, 'user', {
+                userConfig: {},
+                vscodeUserConfig: { 'jj-view.uploadCommand': 'upload -d --allow-warnings --parallel' },
+                workspaceConfig: { 'jj-view.uploadCommand': 'upload --ws' },
+                vscodeWorkspaceConfig: {},
+            });
+
+            expect(info.value).toBe('upload -d --allow-warnings --parallel');
+            expect(info.isModifiedInScope).toBe(false);
+            expect(info.badges.map((b) => b.label)).toEqual([
+                'From VS Code User Settings',
+                'Overridden in .jj-view/config.json',
+            ]);
+        });
+
+        it('shows .vscode/settings.json provenance in workspace tab when standalone workspace config is unset', () => {
+            const info = resolveSettingDisplayInfo(UPLOAD_SETTING, 'workspace', {
+                userConfig: { uploadCommand: 'upload --user' },
+                vscodeUserConfig: {},
+                workspaceConfig: {},
+                vscodeWorkspaceConfig: { 'jj-view.uploadCommand': 'upload --vscode-ws' },
+            });
+
+            expect(info.value).toBe('upload --vscode-ws');
+            expect(info.isModifiedInScope).toBe(true);
+            expect(info.canResetInScope).toBe(true);
+            expect(info.badges.map((b) => b.label)).toEqual(['From .vscode/settings.json']);
+        });
+
+        it('prefers .jj-view/config.json over .vscode/settings.json in workspace tab', () => {
+            const info = resolveSettingDisplayInfo(UPLOAD_SETTING, 'workspace', {
+                userConfig: {},
+                vscodeUserConfig: {},
+                workspaceConfig: { 'jj-view.uploadCommand': 'upload --jj-view-ws' },
+                vscodeWorkspaceConfig: { 'jj-view.uploadCommand': 'upload --vscode-ws' },
+            });
+
+            expect(info.value).toBe('upload --jj-view-ws');
+            expect(info.isModifiedInScope).toBe(true);
+            expect(info.badges.map((b) => b.label)).toEqual(['.jj-view/config.json']);
         });
     });
 });

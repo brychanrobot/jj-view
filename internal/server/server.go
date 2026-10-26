@@ -1346,37 +1346,60 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 
 	case "config.get":
 		var params struct {
-			Key   string `json:"key"`
-			Scope string `json:"scope,omitempty"`
+			Key           string `json:"key"`
+			Scope         string `json:"scope,omitempty"`
+			WorkspaceRoot string `json:"workspaceRoot,omitempty"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		val, ok := s.configStore.GetScoped(params.Scope, params.Key)
+		wsRoot := ""
+		if params.WorkspaceRoot != "" {
+			if validated, err := s.fsMgr.ValidatePath(params.WorkspaceRoot); err == nil {
+				wsRoot = validated
+			}
+		}
+		val, ok := s.configStore.GetScopedForWorkspace(params.Scope, params.Key, wsRoot)
 		return map[string]any{"value": val, "found": ok}, nil
 
 	case "config.set":
 		var params struct {
-			Key   string `json:"key"`
-			Value any    `json:"value"`
-			Scope string `json:"scope,omitempty"`
+			Key           string `json:"key"`
+			Value         any    `json:"value"`
+			Scope         string `json:"scope,omitempty"`
+			WorkspaceRoot string `json:"workspaceRoot,omitempty"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
-		if err := s.configStore.SetScoped(params.Scope, params.Key, params.Value); err != nil {
+		wsRoot := ""
+		if params.WorkspaceRoot != "" {
+			validated, err := s.fsMgr.ValidatePath(params.WorkspaceRoot)
+			if err != nil {
+				return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: err.Error()}
+			}
+			wsRoot = validated
+		}
+		if err := s.configStore.SetScopedForWorkspace(params.Scope, params.Key, params.Value, wsRoot); err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string]bool{"success": true}, nil
 
 	case "config.getAll":
 		var params struct {
-			Scope string `json:"scope,omitempty"`
+			Scope         string `json:"scope,omitempty"`
+			WorkspaceRoot string `json:"workspaceRoot,omitempty"`
 		}
 		if len(req.Params) > 0 {
 			_ = json.Unmarshal(req.Params, &params)
 		}
-		return s.configStore.GetAllScoped(params.Scope), nil
+		wsRoot := ""
+		if params.WorkspaceRoot != "" {
+			if validated, err := s.fsMgr.ValidatePath(params.WorkspaceRoot); err == nil {
+				wsRoot = validated
+			}
+		}
+		return s.configStore.GetAllScopedForWorkspace(params.Scope, wsRoot), nil
 
 	case "state.get":
 		var params struct {
@@ -1492,6 +1515,9 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		s.fsMgr.AddAllowedRoot(absPath)
 		if resolvedPath != absPath {
 			s.fsMgr.AddAllowedRoot(resolvedPath)
+		}
+		if s.configStore != nil {
+			s.configStore.WatchWorkspaceRoot(resolvedPath)
 		}
 		return map[string]any{"success": true, "path": resolvedPath}, nil
 

@@ -264,6 +264,14 @@ export async function bootstrap(): Promise<void> {
             window.__JJ_VIEW_REPO_MANAGER__ = repoManager;
         }
 
+        webHostEnv.workspace.onDidChangeWorkspaceFolders(() => {
+            const firstFolder = webHostEnv.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (firstFolder && firstFolder !== hostSystem.repoRoot) {
+                hostSystem.setWorkspaceRoot(firstFolder);
+                void webHostEnv.config.reload();
+            }
+        });
+
         authManager.onDidAuthenticate(() => {
             for (const r of repoManager.repositories) {
                 r.codeForge
@@ -302,6 +310,10 @@ export async function bootstrap(): Promise<void> {
                         NO_OP_LOGGER.warn(`Failed to add allowed root for workspace: ${toError(e).message}`);
                     }
                     await repoManager.maybeRegisterRepositoryContainingUri(folder.uri);
+                }
+                if (folders[0] && folders[0].uri.fsPath !== hostSystem.repoRoot) {
+                    hostSystem.setWorkspaceRoot(folders[0].uri.fsPath);
+                    await webHostEnv.config.reload();
                 }
                 webHostEnv.workspace.setWorkspaceFolders(folders);
                 const matchedRepo = repoManager.repositories.find((r) =>

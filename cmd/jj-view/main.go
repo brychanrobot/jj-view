@@ -40,11 +40,22 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == configCommand {
+		err := runConfigCommand(os.Args[2:], os.Stdout, os.Stderr)
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	flag.Usage = func() {
 		printUsage(flag.CommandLine, "jj-view [flags]",
 			"Serve the JJ View UI for a Jujutsu repository.",
-			"Subcommands:\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
+			"Subcommands:\n  "+configCommand+"                      Query and modify JJ View configuration.\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
 	}
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
@@ -166,6 +177,11 @@ func main() {
 		}
 	}()
 
+	// Register signal handler before printing the ready URL so callers that
+	// signal SIGHUP immediately upon seeing the URL cannot race with setup.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
 	serverURL := fmt.Sprintf("http://%s:%d/?token=%s", *hostFlag, srv.Port(), srv.SessionToken())
 	fmt.Printf("\n  JJ View is running at:\n  %s\n\n", serverURL)
 
@@ -173,9 +189,6 @@ func main() {
 		go openBrowser(serverURL)
 	}
 
-	// Handle graceful shutdown and in-place reload (SIGHUP)
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	sig := <-sigChan
 
 	if sig == syscall.SIGHUP {
