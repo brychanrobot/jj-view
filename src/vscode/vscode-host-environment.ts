@@ -640,6 +640,11 @@ export class VsCodeHostSecrets implements HostSecrets {
         return await this.secrets?.get(key);
     }
 
+    async has(key: string): Promise<boolean> {
+        const value = await this.secrets?.get(key);
+        return value !== undefined && value !== '';
+    }
+
     async store(key: string, value: string): Promise<void> {
         await this.secrets?.store(key, value);
     }

@@ -6,9 +6,15 @@
 import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthManageItem } from './code-forge-provider';
 import { type Disposable, type Event, EventEmitter } from './host/events';
-import type { HostEnvironment, HostSecrets } from './host/host-environment';
+import type { HostEnvironment, HostHttpAuth, HostSecrets } from './host/host-environment';
 
-export type AuthToken = string;
+/**
+ * A credential a forge provider passes to `host.http.fetch` as `auth`. Tokens
+ * from environment variables or OAuth sessions are carried as bearer tokens;
+ * stored PATs are referenced by their secret key and attached by the host, so
+ * the PAT itself never has to be read back out of the credential store.
+ */
+export type AuthCredential = Extract<HostHttpAuth, { kind: 'bearer' | 'secret' }>;
 
 export interface ExtensionInstaller {
     extensionId: string;
@@ -17,7 +23,7 @@ export interface ExtensionInstaller {
 }
 
 export type AuthResult =
-    | { status: 'success'; token: AuthToken }
+    | { status: 'success'; credential: AuthCredential }
     | { status: 'cancelled' }
     | { status: 'failure'; error: unknown };
 
@@ -148,7 +154,7 @@ export class CodeForgeAuthManager implements Disposable {
         }
     }
 
-    public async getSessionToken(
+    public async getSessionCredential(
         providerId: string,
         options: {
             scopes: string[];
@@ -161,20 +167,21 @@ export class CodeForgeAuthManager implements Disposable {
             shouldSkipPrompt?: () => boolean;
             extensionInstaller?: ExtensionInstaller;
         },
-    ): Promise<AuthToken | undefined> {
+    ): Promise<AuthCredential | undefined> {
         this.registerProvider(providerId);
 
         // 1. Check environment variables
-        if (process.env[options.envTokenKey]) {
-            return process.env[options.envTokenKey];
+        const envToken = process.env[options.envTokenKey];
+        if (envToken) {
+            return { kind: 'bearer', token: envToken };
         }
 
-        // 2. Check stored token in secrets
+        // 2. Check for a stored PAT. Only its presence is read; the host
+        // attaches the value when the request is made.
         if (options.secretTokenKey) {
             try {
-                const storedToken = await this.secrets.get(options.secretTokenKey);
-                if (storedToken) {
-                    return storedToken;
+                if (await this.secrets.has(options.secretTokenKey)) {
+                    return { kind: 'secret', key: options.secretTokenKey };
                 }
             } catch (err) {
                 this.outputChannel?.error(
@@ -201,7 +208,7 @@ export class CodeForgeAuthManager implements Disposable {
                 );
                 this.setProviderUnavailable(providerId, false);
                 if (session) {
-                    return session.accessToken;
+                    return { kind: 'bearer', token: session.accessToken };
                 }
             } catch (e) {
                 const errorStr = String(e);
@@ -353,11 +360,11 @@ export class CodeForgeAuthManager implements Disposable {
     private async promptInstallOrPat(
         extensionInstaller: ExtensionInstaller,
         alternativeChoice?: AlternativeChoice,
-    ): Promise<AuthToken | undefined> {
+    ): Promise<AuthCredential | undefined> {
         if (!this.host.extensions) {
             if (alternativeChoice) {
                 const result = await alternativeChoice.execute();
-                return result.status === 'success' ? result.token : undefined;
+                return result.status === 'success' ? result.credential : undefined;
             }
             return undefined;
         }
@@ -379,7 +386,7 @@ export class CodeForgeAuthManager implements Disposable {
             await this.host.extensions?.openExtensionSearch?.(extensionId);
         } else if (alternativeChoice && choice === patAction) {
             const result = await alternativeChoice.execute();
-            return result.status === 'success' ? result.token : undefined;
+            return result.status === 'success' ? result.credential : undefined;
         }
         return undefined;
     }
@@ -391,7 +398,7 @@ export class CodeForgeAuthManager implements Disposable {
             extensionInstaller?: ExtensionInstaller;
             alternativeChoice?: AlternativeChoice;
         },
-    ): Promise<AuthToken | undefined> {
+    ): Promise<AuthCredential | undefined> {
         const errorStr = String(error);
         const isCancelled = errorStr.toLowerCase().includes('cancelled') || errorStr.toLowerCase().includes('canceled');
         if (isCancelled) {
@@ -432,7 +439,7 @@ export class CodeForgeAuthManager implements Disposable {
         const supportsOAuth = this.host.auth.supportsOAuth !== false;
         let hasPat = false;
         try {
-            hasPat = !!(await this.secrets.get(options.secretTokenKey));
+            hasPat = await this.secrets.has(options.secretTokenKey);
         } catch {}
         const hasEnv = !!process.env[options.envTokenKey];
         const hasOAuth = supportsOAuth && !hasPat && !hasEnv && (await options.hasAuth());
@@ -492,29 +499,20 @@ export class CodeForgeAuthManager implements Disposable {
     }
 
     /**
-     * Clears a stored PAT from SecretStorage when a 401 Unauthorized response is received,
-     * provided the token in use matches the stored one. This prevents the extension from
-     * repeatedly retrying with a known-invalid token. Tokens supplied via environment
-     * variables are never deleted (the env var would take precedence on the next request).
+     * Clears a stored PAT when a 401 Unauthorized response is received with it,
+     * so the provider does not keep retrying a known-invalid token. Bearer
+     * credentials (environment variables, OAuth sessions) are not stored here
+     * and are left untouched.
      */
-    public async clearInvalidToken(options: {
-        providerId: string;
-        secretTokenKey: string;
-        currentToken: string;
-        envTokenKey: string;
-    }): Promise<void> {
-        if (process.env[options.envTokenKey]) {
-            // The token came from an env var — don't touch SecretStorage.
+    public async clearInvalidCredential(options: { providerId: string; credential: AuthCredential }): Promise<void> {
+        if (options.credential.kind !== 'secret') {
             return;
         }
         try {
-            const storedToken = await this.secrets.get(options.secretTokenKey);
-            if (storedToken === options.currentToken) {
-                this.outputChannel?.info(
-                    `[CodeForgeAuthManager] Clearing invalid stored PAT for '${options.providerId}'...`,
-                );
-                await this.secrets.delete(options.secretTokenKey);
-            }
+            this.outputChannel?.info(
+                `[CodeForgeAuthManager] Clearing invalid stored PAT for '${options.providerId}'...`,
+            );
+            await this.secrets.delete(options.credential.key);
         } catch (err) {
             this.outputChannel?.error(
                 `[CodeForgeAuthManager] Failed to delete token for '${options.providerId}': ${err}`,
@@ -551,7 +549,7 @@ export class CodeForgeAuthManager implements Disposable {
             this.setProviderUnavailable(options.providerId, false);
             options.clearCache();
             this._onDidAuthenticate.fire(options.providerId);
-            return { status: 'success', token: token.trim() };
+            return { status: 'success', credential: { kind: 'secret', key: options.secretTokenKey } };
         } catch (err) {
             this.outputChannel?.info(
                 `[${options.displayName}Provider] Secrets storage is not available to save PAT: ${err}`,

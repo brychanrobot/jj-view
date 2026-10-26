@@ -45,9 +45,11 @@ When the hub launches the daemon it configures it through environment variables 
 
 ## Code forges
 
-GitHub, GitLab and Gerrit integrations work the same as in the extension.
+GitHub, GitLab and Gerrit integrations work the same as in the extension, and all forge requests are made by the daemon rather than the browser page.
 
-Gerrit requests are made by the daemon, not the browser page (Gerrit's API does not allow cross-origin requests), using the credentials git itself would use for the host, in this order: `git-remote-sso` (Google hosts), the git cookie file (`http.cookiefile`, `$GIT_COOKIES_PATH`, or `~/.gitcookies`), then `git credential fill`. The credential never reaches the page. If `git fetch` against the Gerrit host works from your shell, JJ View is authenticated too.
+GitHub and GitLab personal access tokens are kept in the daemon's credential store: `<user-data-dir>/credentials.json` when `--user-data-dir` is set, otherwise `credentials.json` next to the platform config file described above. The page only ever holds the name of the stored token; the daemon attaches the value to outgoing requests and never returns it to the page.
+
+Gerrit requests use the credentials git itself would use for the host, in this order: `git-remote-sso` (Google hosts), the git cookie file (`http.cookiefile`, `$GIT_COOKIES_PATH`, or `~/.gitcookies`), then `git credential fill`. The credential never reaches the page. If `git fetch` against the Gerrit host works from your shell, JJ View is authenticated too.
 
 Outbound daemon requests are limited to HTTPS, plus plain HTTP for loopback hosts.
 

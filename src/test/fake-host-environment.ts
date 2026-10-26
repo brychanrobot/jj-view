@@ -514,6 +514,10 @@ export class FakeHostSecrets implements HostSecrets {
         return this.secrets.get(key);
     }
 
+    async has(key: string): Promise<boolean> {
+        return this.secrets.has(key);
+    }
+
     async store(key: string, value: string): Promise<void> {
         this.secrets.set(key, value);
         this._onDidChange.fire({ key });

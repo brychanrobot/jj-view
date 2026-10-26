@@ -1418,6 +1418,16 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		}
 		return map[string]any{"value": val, "found": true}, nil
 
+	case "secrets.has":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		_, ok := s.secretStore.Get(params.Key)
+		return map[string]any{"found": ok}, nil
+
 	case "secrets.store":
 		var params struct {
 			Key   string `json:"key"`

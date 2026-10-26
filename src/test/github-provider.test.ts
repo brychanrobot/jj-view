@@ -4,12 +4,13 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import type { CodeForgeAuthManager } from '../core/code-forge-auth';
+import type { AuthCredential, CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
 import { GitHubProvider } from '../core/github-provider';
 import type { HostSecrets } from '../core/host/host-environment';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
+import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGitHubServer } from './helpers/fake-github-server';
 import { TestRepo } from './test-repo';
 import {
@@ -62,6 +63,7 @@ function withForkCheck(batchMock: (url: string, init?: { body?: string }) => Pro
 
 describe('GitHubProvider', () => {
     let provider: GitHubProvider;
+    let host: FakeHostEnvironment;
     let mockOutputChannel: vscode.LogOutputChannel;
     let mockAuthManager: CodeForgeAuthManager;
     let originalEnv: string | undefined;
@@ -77,19 +79,21 @@ describe('GitHubProvider', () => {
             markPromptedThisSession: vi.fn(),
             setAuthSkipped: vi.fn(),
             registerProvider: vi.fn(),
-            getSessionToken: vi.fn().mockResolvedValue('test-token'),
-            clearInvalidToken: vi.fn().mockResolvedValue(undefined),
+            getSessionCredential: vi.fn().mockResolvedValue({ kind: 'bearer', token: 'test-token' }),
+            clearInvalidCredential: vi.fn().mockResolvedValue(undefined),
             hasOAuthSession: vi.fn().mockResolvedValue(false),
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
             promptForPat: vi.fn(),
             secrets: createMock<HostSecrets>({
                 get: vi.fn(),
+                has: vi.fn().mockResolvedValue(false),
                 store: vi.fn(),
                 delete: vi.fn(),
             }),
         });
-        provider = new GitHubProvider(mockAuthManager, mockOutputChannel);
+        host = new FakeHostEnvironment();
+        provider = new GitHubProvider(mockAuthManager, mockOutputChannel, host);
         vi.mocked(vscode.window.showWarningMessage).mockReset();
     });
 
@@ -411,14 +415,14 @@ describe('GitHubProvider', () => {
         expect(cachedEntry?.status).toBe('NEW');
     });
 
-    test('getSessionToken delegates to authManager.getSessionToken', async () => {
-        vi.mocked(mockAuthManager.getSessionToken).mockResolvedValue('delegated-token');
-        const getSession = exposePrivate<{ getSessionToken(): Promise<string | undefined> }>(
+    test('getSessionCredential delegates to authManager.getSessionCredential', async () => {
+        vi.mocked(mockAuthManager.getSessionCredential).mockResolvedValue({ kind: 'secret', key: 'github_token' });
+        const getSession = exposePrivate<{ getSessionCredential(): Promise<AuthCredential | undefined> }>(
             provider,
-        ).getSessionToken.bind(provider);
-        const token = await getSession();
-        expect(token).toBe('delegated-token');
-        expect(mockAuthManager.getSessionToken).toHaveBeenCalledWith('github', {
+        ).getSessionCredential.bind(provider);
+        const credential = await getSession();
+        expect(credential).toEqual({ kind: 'secret', key: 'github_token' });
+        expect(mockAuthManager.getSessionCredential).toHaveBeenCalledWith('github', {
             scopes: ['repo'],
             envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
             secretTokenKey: 'github_token',
@@ -437,12 +441,13 @@ describe('GitHubProvider', () => {
 
     test('hasAuth returns true if stored token is found, false otherwise', async () => {
         delete process.env.JJ_VIEW_GITHUB_TOKEN;
-        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+        vi.mocked(mockAuthManager.secrets.has).mockResolvedValue(true);
         let hasAuth = await provider.hasAuth();
         expect(hasAuth).toBe(true);
-        expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('github_token');
+        expect(mockAuthManager.secrets.has).toHaveBeenCalledWith('github_token');
+        expect(mockAuthManager.secrets.get).not.toHaveBeenCalled();
 
-        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+        vi.mocked(mockAuthManager.secrets.has).mockResolvedValue(false);
         vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
         hasAuth = await provider.hasAuth();
         expect(hasAuth).toBe(true);
@@ -474,7 +479,7 @@ describe('GitHubProvider', () => {
     });
 
     test('promptForPat delegates to authManager.promptForPat', async () => {
-        const expectedResult = { status: 'success', token: 'mock-token' } as const;
+        const expectedResult = { status: 'success', credential: { kind: 'secret', key: 'github_token' } } as const;
         vi.mocked(mockAuthManager.promptForPat).mockResolvedValue(expectedResult);
 
         const result = await provider.promptForPat();
@@ -1509,10 +1514,11 @@ describe('GitHubProvider', () => {
 
             expect(changed).toBe(false);
             expect(batchQueries()).toHaveLength(0);
-            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledTimes(1);
-            expect(mockAuthManager.clearInvalidToken).toHaveBeenCalledWith(
-                expect.objectContaining({ providerId: 'github', currentToken: 'test-token' }),
-            );
+            expect(mockAuthManager.clearInvalidCredential).toHaveBeenCalledTimes(1);
+            expect(mockAuthManager.clearInvalidCredential).toHaveBeenCalledWith({
+                providerId: 'github',
+                credential: { kind: 'bearer', token: 'test-token' },
+            });
 
             // Once the token has been replaced the check runs again, and the batches go out.
             unauthorized = false;
