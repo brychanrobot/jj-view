@@ -3,7 +3,69 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { expect, test, waitForScmReady } from './standalone-fixture';
+import * as path from 'node:path';
+import * as zlib from 'node:zlib';
+import { ARTIFACT_DIR, expect, recordGifFlow, test, waitForScmReady } from './standalone-fixture';
+
+function crc32(buf: Buffer): number {
+    let crc = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) {
+        crc ^= buf[i];
+        for (let j = 0; j < 8; j++) {
+            crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+        }
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makePngChunk(type: string, data: Buffer): Buffer {
+    const typeBuf = Buffer.from(type, 'ascii');
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32BE(data.length, 0);
+    const crcInput = Buffer.concat([typeBuf, data]);
+    const crcBuf = Buffer.alloc(4);
+    crcBuf.writeUInt32BE(crc32(crcInput), 0);
+    return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
+}
+
+function createTestPng(
+    width: number,
+    height: number,
+    pixelFn: (x: number, y: number) => [number, number, number, number],
+): Buffer {
+    const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width, 0);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr[8] = 8; // bit depth
+    ihdr[9] = 6; // RGBA
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
+
+    const stride = width * 4 + 1;
+    const raw = Buffer.alloc(stride * height);
+    for (let y = 0; y < height; y++) {
+        const rowStart = y * stride;
+        raw[rowStart] = 0; // filter type 0
+        for (let x = 0; x < width; x++) {
+            const [r, g, b, a] = pixelFn(x, y);
+            const idx = rowStart + 1 + x * 4;
+            raw[idx] = r;
+            raw[idx + 1] = g;
+            raw[idx + 2] = b;
+            raw[idx + 3] = a;
+        }
+    }
+
+    const idat = zlib.deflateSync(raw);
+    return Buffer.concat([
+        signature,
+        makePngChunk('IHDR', ihdr),
+        makePngChunk('IDAT', idat),
+        makePngChunk('IEND', Buffer.alloc(0)),
+    ]);
+}
 
 test.describe('Standalone Web Diff Viewer', () => {
     test('should mount PierreDiffViewer and show side-by-side diff when clicking a modified resource', async ({
@@ -60,20 +122,20 @@ test.describe('Standalone Web Diff Viewer', () => {
         await expect(splitBtn).toHaveClass(/active/);
     });
 
-    test('should display binary diff fallback card for binary files', async ({ page, server, testRepo }) => {
+    test('should display binary diff fallback card for non-image binary files', async ({ page, server, testRepo }) => {
         testRepo.writeFile('init.txt', 'init\n');
         testRepo.describe('initial commit');
         testRepo.new();
 
-        // Write a binary file with null bytes
-        testRepo.writeFile('logo.png', '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR');
+        // Write a non-image binary file with null bytes
+        testRepo.writeFile('module.wasm', '\x00asm\x01\x00\x00\x00');
 
         await page.goto(server.serverUrl);
         await waitForScmReady(page);
 
         const item = page
             .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
-            .filter({ hasText: 'logo.png' });
+            .filter({ hasText: 'module.wasm' });
         await expect(item).toBeVisible();
         await item.click();
 
@@ -81,7 +143,95 @@ test.describe('Standalone Web Diff Viewer', () => {
         const binaryCard = page.locator('[data-testid="binary-diff-card"]');
         await expect(binaryCard).toBeVisible({ timeout: 5000 });
         await expect(binaryCard).toContainText('Binary file not shown');
-        await expect(binaryCard.locator('.binary-filename')).toContainText('logo.png');
+        await expect(binaryCard.locator('.binary-filename')).toContainText('module.wasm');
+    });
+
+    test('should render interactive image diff viewer with 2-Up, Swipe, Onion Skin, and Difference modes', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        const beforePng = createTestPng(200, 140, (x, y) => {
+            const dx = x - 75;
+            const dy = y - 70;
+            if (dx * dx + dy * dy <= 38 * 38) {
+                return [56, 189, 248, 255]; // cyan circle on left
+            }
+            if (x > 16 && x < 184 && y > 16 && y < 124) {
+                return [30, 58, 138, 230]; // deep blue card
+            }
+            return [0, 0, 0, 0]; // transparent border
+        });
+
+        const afterPng = createTestPng(200, 140, (x, y) => {
+            const dx = x - 125;
+            const dy = y - 70;
+            if (dx * dx + dy * dy <= 42 * 42) {
+                return [251, 146, 60, 255]; // vibrant orange circle shifted right
+            }
+            if (x > 16 && x < 184 && y > 16 && y < 124) {
+                return [20, 83, 45, 240]; // emerald green card
+            }
+            return [0, 0, 0, 0];
+        });
+
+        testRepo.writeBinaryFile('banner.png', beforePng);
+        testRepo.describe('feat: add initial banner image');
+        testRepo.new();
+        testRepo.writeBinaryFile('banner.png', afterPng);
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const item = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'banner.png' });
+        await expect(item).toBeVisible();
+        await item.click();
+
+        const imageDiff = page.locator('[data-testid="image-diff-viewer"]');
+        await expect(imageDiff).toBeVisible({ timeout: 5000 });
+        await expect(imageDiff.locator('[data-testid="image-pane-before"]')).toBeVisible();
+        await expect(imageDiff.locator('[data-testid="image-pane-after"]')).toBeVisible();
+
+        // Wait for both images to decode and populate natural dimensions
+        await expect(imageDiff.locator('[data-testid="image-meta-before"]')).toContainText('200 × 140 px');
+        await expect(imageDiff.locator('[data-testid="image-meta-after"]')).toContainText('200 × 140 px');
+        await expect(imageDiff.locator('[data-testid="image-diff-dimension-summary"]')).toContainText('200 × 140 px');
+        await expect(imageDiff.locator('[data-testid="image-diff-byte-delta"]')).toBeVisible();
+
+        await page.screenshot({ path: path.join(ARTIFACT_DIR, 'image-diff-2up.png') });
+
+        await recordGifFlow(
+            page,
+            async (capture) => {
+                await capture(); // 2-Up view
+
+                // Switch to Swipe mode
+                await imageDiff.locator('[data-testid="image-diff-mode-swipe"]').click();
+                await expect(imageDiff.locator('[data-testid="image-diff-swipe-view"]')).toBeVisible();
+                await capture();
+
+                // Adjust swipe slider to 30%
+                const swipeSlider = imageDiff.locator('[data-testid="image-diff-swipe-slider"]');
+                await swipeSlider.fill('30');
+                await swipeSlider.dispatchEvent('input');
+                await page.screenshot({ path: path.join(ARTIFACT_DIR, 'image-diff-swipe.png') });
+                await capture();
+
+                // Switch to Onion Skin mode
+                await imageDiff.locator('[data-testid="image-diff-mode-onion"]').click();
+                await expect(imageDiff.locator('[data-testid="image-diff-onion-view"]')).toBeVisible();
+                await capture();
+
+                // Switch to Difference mode
+                await imageDiff.locator('[data-testid="image-diff-mode-difference"]').click();
+                await expect(imageDiff.locator('[data-testid="image-diff-difference-view"]')).toBeVisible();
+                await page.screenshot({ path: path.join(ARTIFACT_DIR, 'image-diff-difference.png') });
+                await capture();
+            },
+            { outputPath: path.join(ARTIFACT_DIR, 'image-diff-flow.gif') },
+        );
     });
 
     test('should render syntax highlighted code tokens with Pierre theme in diff viewer', async ({

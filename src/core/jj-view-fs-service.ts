@@ -19,7 +19,7 @@ export class JjViewFsService implements Disposable {
     readonly onDidChangeFile: Event<Uri[]>;
 
     // Cache keyed by "base|filePath" → { left, right }
-    private readonly _diffCache = new AsyncCache<string, { left: string; right: string }>({
+    private readonly _diffCache = new AsyncCache<string, { left: Uint8Array; right: Uint8Array }>({
         maxEntries: MAX_CACHE_ENTRIES,
     });
     private _cacheGeneration = 0;
@@ -94,8 +94,7 @@ export class JjViewFsService implements Disposable {
 
     private async _readRevisionContent(repo: JjRepository, filePath: string, revision: string): Promise<Uint8Array> {
         try {
-            const content = await repo.jj.getFileContent(filePath, revision);
-            return new TextEncoder().encode(content);
+            return await repo.jj.getFileBinaryContent(filePath, revision);
         } catch (err: unknown) {
             this._repositoryManager.outputChannel.debug(
                 `[JjViewFsService] Failed to read revision file ${filePath}@${revision}: ${String(err)}`,
@@ -111,8 +110,7 @@ export class JjViewFsService implements Disposable {
         side: 'left' | 'right',
     ): Promise<Uint8Array> {
         const cacheKey = `${base}|${filePath}`;
-        const content = await this._diffCache.getOrFetch(cacheKey, () => repo.jj.getDiffContent(base, filePath));
-        const text = side === 'left' ? content.left : content.right;
-        return new TextEncoder().encode(text);
+        const content = await this._diffCache.getOrFetch(cacheKey, () => repo.jj.getDiffBinaryContent(base, filePath));
+        return side === 'left' ? content.left : content.right;
     }
 }

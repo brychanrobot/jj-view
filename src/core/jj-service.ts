@@ -137,6 +137,7 @@ export class JjService {
     private _logRevsetPromise: Promise<string> | undefined;
     private readonly _diffCache: AsyncCache<string, { tempDir: string; expires: number }>;
     private readonly _diffContentCache = new Map<string, Map<string, { left: string; right: string }>>();
+    private readonly _diffBinaryCache = new Map<string, Map<string, { left: Uint8Array; right: Uint8Array }>>();
     private readonly _changesCache = new AsyncCache<string, JjStatusEntry[]>({
         clone: (entries) => entries.map((e) => ({ ...e })),
     });
@@ -930,6 +931,102 @@ export class JjService {
         return result;
     }
 
+    private async readOptionalBinaryFile(filePath: string): Promise<Uint8Array | null> {
+        try {
+            return await this.system.fs.readBinaryFile(filePath);
+        } catch (error: unknown) {
+            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+                return null;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Get the left (auto-merged parents) and right (revision) binary bytes for a file's diff.
+     * Uses the bulk cache, warming it if necessary.
+     */
+    async getDiffBinaryContent(revision: string, filePath: string): Promise<{ left: Uint8Array; right: Uint8Array }> {
+        const start = performance.now();
+        const relativePath = await this.toRepoRelative(filePath);
+
+        const revisionBinaryCache = this._diffBinaryCache.get(revision);
+        const cached = revisionBinaryCache?.get(relativePath);
+        if (cached) {
+            const totalDuration = performance.now() - start;
+            const msg = `[Perf:JjService] getDiffBinaryContent(${revision}, ${relativePath}) MEMORY-HIT: ${totalDuration.toFixed(1)}ms`;
+            this.logger.debug(msg);
+            if (typeof console !== 'undefined' && console.log) {
+                console.log(msg);
+            }
+            return cached;
+        }
+
+        let warmDuration = 0;
+        let readDuration = 0;
+        let left: Uint8Array = new Uint8Array(0);
+        let right: Uint8Array = new Uint8Array(0);
+        let bothMissing = false;
+
+        const MAX_READ_ATTEMPTS = 2;
+        for (let attempt = 1; attempt <= MAX_READ_ATTEMPTS; attempt++) {
+            const warmStart = performance.now();
+            const cache = await this.getDiffForRevision(revision);
+            warmDuration += performance.now() - warmStart;
+
+            const leftPath = path.join(cache.tempDir, 'left', relativePath);
+            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+
+            const readStart = performance.now();
+            const [leftBytes, rightBytes] = await Promise.all([
+                this.readOptionalBinaryFile(leftPath),
+                this.readOptionalBinaryFile(rightPath),
+            ]);
+            readDuration += performance.now() - readStart;
+
+            left = leftBytes ?? new Uint8Array(0);
+            right = rightBytes ?? new Uint8Array(0);
+            bothMissing = leftBytes === null && rightBytes === null;
+
+            const evictedDuringRead = this._diffCache.peek(revision)?.tempDir !== cache.tempDir;
+            if (!bothMissing || !evictedDuringRead || attempt === MAX_READ_ATTEMPTS) {
+                break;
+            }
+            this.logger.debug(
+                `getDiffBinaryContent ${revision} ${relativePath}: diff cache evicted during read, retrying`,
+            );
+        }
+
+        if (bothMissing) {
+            try {
+                this.logger.debug(`getDiffBinaryContent fallback ${filePath} ${revision}`);
+                const bytes = await this.getFileBinaryContent(filePath, revision);
+                left = bytes;
+                right = bytes;
+            } catch {
+                left = new Uint8Array(0);
+                right = new Uint8Array(0);
+            }
+        }
+
+        const result = { left, right };
+
+        let binaryMap = this._diffBinaryCache.get(revision);
+        if (!binaryMap) {
+            binaryMap = new Map();
+            this._diffBinaryCache.set(revision, binaryMap);
+        }
+        binaryMap.set(relativePath, result);
+
+        const totalDuration = performance.now() - start;
+        const msg = `[Perf:JjService] getDiffBinaryContent(${revision}, ${relativePath}) took ${totalDuration.toFixed(1)}ms (warm: ${warmDuration.toFixed(1)}ms, read: ${readDuration.toFixed(1)}ms)`;
+        this.logger.debug(msg);
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(msg);
+        }
+        return result;
+    }
+
     /**
      * Ensures that the diff cache for a revision is warm and valid.
      * Extracts all changed files into a temporary directory using a single 'jj diffedit' call.
@@ -938,6 +1035,7 @@ export class JjService {
         const start = performance.now();
         if (force) {
             this._diffContentCache.delete(revision);
+            this._diffBinaryCache.delete(revision);
             await this._diffCache.delete(revision);
         }
         const isWarm = this._diffCache.has(revision);
@@ -992,6 +1090,7 @@ export class JjService {
         this._gitRootPromise = undefined;
         this._gitBlobHashCache.clear();
         this._diffContentCache.clear();
+        this._diffBinaryCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -1331,6 +1430,68 @@ export class JjService {
             args.push('--config=ui.conflict-marker-style=git');
         }
         return this.run('file', args, { trim: false, useCachedSnapshot: true, label: 'getFileContent' });
+    }
+
+    async getFileBinaryContent(filePath: string, revision: string = '@'): Promise<Uint8Array> {
+        const relativePath = await this.toRepoRelative(filePath);
+        try {
+            const cache = await this.getDiffForRevision(revision);
+            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+            return await this.system.fs.readBinaryFile(rightPath);
+        } catch {
+            // Fall through if not in cache (e.g. file not changed in this revision)
+        }
+
+        const workspaceRelPath = this.toRelative(filePath);
+        if (revision === '@') {
+            try {
+                const fullPath = path.resolve(this.workspaceRoot, workspaceRelPath);
+                return await this.system.fs.readBinaryFile(fullPath);
+            } catch {
+                // Fall through if disk file is missing/unreadable
+            }
+        }
+
+        const toolName = 'vscode-bulk-capture';
+        const toolConfig = this.getToolConfigArgs(toolName, HELPER_SCRIPT_TOKEN, [
+            '$left',
+            '$right',
+            `${SCRATCH_DIR_TOKEN}/left`,
+            `${SCRATCH_DIR_TOKEN}/right`,
+        ]);
+
+        const result = await this.runInScratchDir(
+            'diffedit',
+            [
+                '--from',
+                'root()',
+                '--to',
+                revision,
+                '--ignore-immutable',
+                '--tool',
+                toolName,
+                ...toolConfig,
+                '--',
+                workspaceRelPath,
+            ],
+            {
+                scratchPrefix: 'jj-file-bin-',
+                subdirs: ['left', 'right'],
+                helperScript: 'batch-diff',
+                completionMarker: 'right/.complete',
+            },
+            {
+                useCachedSnapshot: true,
+                label: `getFileBinaryContent ${revision} ${workspaceRelPath}`,
+            },
+        );
+
+        try {
+            const rightPath = path.join(result.scratchDir, 'right', relativePath);
+            return await this.system.fs.readBinaryFile(rightPath);
+        } finally {
+            await this.system.fs.rm(result.scratchDir, { recursive: true, force: true }).catch(() => {});
+        }
     }
 
     async resolve(revision: string): Promise<void> {

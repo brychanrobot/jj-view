@@ -186,4 +186,44 @@ describe('JjViewFsService Unit Tests', () => {
         expect(Buffer.from(leftBytes).toString('utf8')).toBe('v1\n');
         expect(Buffer.from(rightBytes).toString('utf8')).toBe('v2\n');
     });
+
+    it('preserves exact non-UTF-8 binary bytes for image diffs and revision reads', async () => {
+        const pngV1 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
+        const pngV2 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x80, 0x99, 0xab]);
+
+        repo.writeBinaryFile('logo.png', pngV1);
+        repo.describe('v1 binary');
+        const v1ChangeId = repo.getChangeId('@');
+
+        repo.new();
+        repo.writeBinaryFile('logo.png', pngV2);
+        repo.describe('v2 binary');
+        const v2ChangeId = repo.getChangeId('@');
+
+        const leftUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/logo.png',
+            fragment: `root=${encodeURIComponent(repo.path)}&base=${v2ChangeId}&side=left`,
+        });
+        const rightUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/logo.png',
+            fragment: `root=${encodeURIComponent(repo.path)}&base=${v2ChangeId}&side=right`,
+        });
+        const revUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/logo.png',
+            fragment: `root=${encodeURIComponent(repo.path)}&revision=${v1ChangeId}`,
+        });
+
+        const [leftBytes, rightBytes, revBytes] = await Promise.all([
+            service.readFile(leftUri),
+            service.readFile(rightUri),
+            service.readFile(revUri),
+        ]);
+
+        expect(Buffer.from(leftBytes).equals(pngV1)).toBe(true);
+        expect(Buffer.from(rightBytes).equals(pngV2)).toBe(true);
+        expect(Buffer.from(revBytes).equals(pngV1)).toBe(true);
+    });
 });

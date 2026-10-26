@@ -34,6 +34,7 @@ import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-br
 import CommentsPane from './comments/CommentsPane.svelte';
 import { CommentsStore, type CommentThreadHandle, normalizeThreadPath } from './comments/comments-store.svelte';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
+import { getImageMimeType, uint8ArrayToDataUrl } from './diff/binary-detection';
 import {
     type EditorChatContextSelection,
     formatChatContextMessage,
@@ -1071,8 +1072,24 @@ async function resolveUriContent(uri?: Uri): Promise<string> {
         return '';
     }
     const start = performance.now();
+    const uriPath = uri.path || uri.fsPath || '';
+    const imageMimeType = getImageMimeType(uriPath);
     let content = '';
-    if (uri.scheme === 'file' && host) {
+    if (imageMimeType) {
+        let bytes: Uint8Array = new Uint8Array(0);
+        try {
+            if (uri.scheme === 'file' && host) {
+                bytes = await host.fs.readBinaryFile(uri.fsPath);
+            } else if (uri.scheme === 'jj-view' && viewFs) {
+                bytes = await viewFs.readFile(uri);
+            } else if (uri.scheme === 'jj-edit' && editFs) {
+                bytes = await editFs.readFile(uri);
+            }
+        } catch {
+            bytes = new Uint8Array(0);
+        }
+        content = uint8ArrayToDataUrl(bytes, imageMimeType);
+    } else if (uri.scheme === 'file' && host) {
         content = await host.fs.readTextFile(uri.fsPath);
     } else if (uri.scheme === 'jj-view' && viewFs) {
         const bytes = await viewFs.readFile(uri);

@@ -389,6 +389,13 @@ export class TestRepo {
         this.snapshot();
     }
 
+    writeBinaryFile(relativePath: string, content: Uint8Array) {
+        const fullPath = path.join(this.path, relativePath);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, content);
+        this.snapshot();
+    }
+
     async writeFiles(files: Record<string, string>): Promise<void> {
         await Promise.all(
             Object.entries(files).map(async ([file, content]) => {

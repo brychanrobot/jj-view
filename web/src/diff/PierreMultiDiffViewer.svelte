@@ -16,10 +16,11 @@ import { onDestroy, onMount, untrack } from 'svelte';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
-import { isBinaryFile } from './binary-detection';
+import { isBinaryFile, isImageByExtension } from './binary-detection';
 import { type EditorChatContextSelection, resolveMultiDiffSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
+import ImageDiffViewer from './ImageDiffViewer.svelte';
 
 interface Props {
     title: string;
@@ -68,6 +69,8 @@ const threadLayoutKey = $derived(
         )
         .join('|'),
 );
+
+const imageFiles = $derived(files.filter((file) => isImageByExtension(file.filename)));
 
 function threadsFor(file: MultiDiffFileEntry): readonly CommentThreadHandle[] {
     return commentThreads?.get(file.filename) ?? [];
@@ -282,16 +285,34 @@ $effect(() => {
         </button>
     </div>
 
-    <div
-        class="diff-content-container"
-        data-testid="multi-diff-content-container"
-        bind:this={containerEl}
-        data-vscode-context={JSON.stringify({
-            menuId: 'editor/context',
-            isInDiffEditor: true,
-            preventDefaultContextMenuItems: true,
-        })}
-    ></div>
+    <div class="multi-diff-scroll-area">
+        <div
+            class="diff-content-container"
+            data-testid="multi-diff-content-container"
+            bind:this={containerEl}
+            data-vscode-context={JSON.stringify({
+                menuId: 'editor/context',
+                isInDiffEditor: true,
+                preventDefaultContextMenuItems: true,
+            })}
+        ></div>
+
+        {#if imageFiles.length > 0}
+            <div class="multi-diff-image-list" data-testid="multi-diff-image-list">
+                {#each imageFiles as imgFile (imgFile.filename)}
+                    <div class="multi-diff-image-card" data-testid="multi-diff-image-card">
+                        <ImageDiffViewer
+                            filename={imgFile.filename}
+                            originalContent={imgFile.originalContent ?? ''}
+                            modifiedContent={imgFile.modifiedContent ?? ''}
+                            fileStatus={imgFile.fileStatus}
+                            showHeader={true}
+                        />
+                    </div>
+                {/each}
+            </div>
+        {/if}
+    </div>
 </div>
 
 <style>
@@ -352,7 +373,7 @@ $effect(() => {
     font-weight: 600;
 }
 
-.diff-content-container {
+.multi-diff-scroll-area {
     flex: 1 1 0;
     min-height: 0;
     min-width: 0;
@@ -361,5 +382,23 @@ $effect(() => {
     position: relative;
     width: 100%;
     height: 100%;
+}
+
+.diff-content-container {
+    position: relative;
+    width: 100%;
+}
+
+.multi-diff-image-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px;
+}
+
+.multi-diff-image-card {
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 6px;
+    overflow: hidden;
 }
 </style>

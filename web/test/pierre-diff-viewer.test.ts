@@ -5,8 +5,20 @@
 
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
-import { isBinaryBuffer, isBinaryByExtension, isBinaryFile, isBinaryString } from '../src/diff/binary-detection';
+import {
+    formatByteSize,
+    getDataUrlByteLength,
+    getImageMimeType,
+    isBinaryBuffer,
+    isBinaryByExtension,
+    isBinaryFile,
+    isBinaryString,
+    isImageByExtension,
+    isSvgByExtension,
+    uint8ArrayToDataUrl,
+} from '../src/diff/binary-detection';
 import { ensureHighlighterRegistered } from '../src/diff/highlighter-setup';
+import ImageDiffViewer from '../src/diff/ImageDiffViewer.svelte';
 import PierreDiffViewer from '../src/diff/PierreDiffViewer.svelte';
 
 describe('Binary Detection Utilities', () => {
@@ -52,15 +64,37 @@ describe('Binary Detection Utilities', () => {
         expect(isBinaryFile('sneaky.txt', 'Text with null \x00 byte')).toBe(true);
         expect(isBinaryFile('folder.with.dot/clean.txt', 'Normal text')).toBe(false);
     });
+
+    it('detects image files and computes data URLs and byte sizes accurately', () => {
+        expect(isImageByExtension('icon.png')).toBe(true);
+        expect(isImageByExtension('photo.jpeg (abcd1234)')).toBe(true);
+        expect(isImageByExtension('hero.webp')).toBe(true);
+        expect(isImageByExtension('archive.zip')).toBe(false);
+        expect(isImageByExtension('vector.svg')).toBe(false);
+        expect(isSvgByExtension('vector.svg (12345678)')).toBe(true);
+        expect(getImageMimeType('logo.png')).toBe('image/png');
+        expect(getImageMimeType('archive.zip')).toBeUndefined();
+
+        const rawBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const dataUrl = uint8ArrayToDataUrl(rawBytes, 'image/png');
+        expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true);
+        expect(getDataUrlByteLength(dataUrl)).toBe(8);
+        expect(uint8ArrayToDataUrl(new Uint8Array(0), 'image/png')).toBe('');
+        expect(getDataUrlByteLength('')).toBe(0);
+
+        expect(formatByteSize(512)).toBe('512 B');
+        expect(formatByteSize(2048)).toBe('2.0 KB');
+        expect(formatByteSize(2 * 1024 * 1024)).toBe('2.00 MB');
+    });
 });
 
 describe('PierreDiffViewer Component', () => {
-    it('renders binary suppression card when file is binary', () => {
+    it('renders binary suppression card when file is a non-image binary', () => {
         const result = render(PierreDiffViewer, {
             props: {
-                filename: 'icon.png',
+                filename: 'archive.zip',
                 originalContent: '',
-                modifiedContent: 'PNG_DATA_WITH_\x00_BYTE',
+                modifiedContent: 'PK\x03\x04\x00_BINARY_DATA',
                 isWorkingCopy: true,
             },
         });
@@ -68,8 +102,51 @@ describe('PierreDiffViewer Component', () => {
 
         expect(html).toContain('binary-diff-card');
         expect(html).toContain('Binary file not shown');
-        expect(html).toContain('icon.png');
+        expect(html).toContain('archive.zip');
         expect(html).toContain('The file cannot be displayed in the text diff viewer.');
+    });
+
+    it('renders ImageDiffViewer when file is an image', () => {
+        const samplePng = uint8ArrayToDataUrl(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), 'image/png');
+        const updatedPng = uint8ArrayToDataUrl(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02]), 'image/png');
+        const result = render(PierreDiffViewer, {
+            props: {
+                filename: 'icon.png',
+                originalContent: samplePng,
+                modifiedContent: updatedPng,
+                isWorkingCopy: true,
+            },
+        });
+        const html = result.body;
+
+        expect(html).toContain('image-diff-viewer');
+        expect(html).toContain('image-pane-before');
+        expect(html).toContain('image-pane-after');
+        expect(html).toContain('image-diff-mode-2up');
+        expect(html).toContain('image-diff-mode-swipe');
+        expect(html).toContain('image-diff-mode-onion');
+        expect(html).toContain('image-diff-mode-difference');
+        expect(html).toContain('+2 B (+50.0%)');
+        expect(html).not.toContain('binary-diff-card');
+    });
+
+    it('renders single Added card in ImageDiffViewer when original is empty', () => {
+        const addedPng = uint8ArrayToDataUrl(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), 'image/png');
+        const result = render(ImageDiffViewer, {
+            props: {
+                filename: 'new-banner.png',
+                originalContent: '',
+                modifiedContent: addedPng,
+                fileStatus: 'added',
+            },
+        });
+        const html = result.body;
+
+        expect(html).toContain('image-diff-viewer');
+        expect(html).toContain('Added');
+        expect(html).toContain('image-pane-after');
+        expect(html).not.toContain('image-pane-before');
+        expect(html).not.toContain('image-diff-mode-swipe');
     });
 
     it('renders text diff viewer and toolbar for text files', () => {
