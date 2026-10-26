@@ -51,4 +51,50 @@ test.describe('Standalone Web File Watcher', () => {
         await expect(modifiedItem).toBeVisible({ timeout: 10000 });
         await expect(modifiedItem.locator('.status-badge')).toHaveText('M');
     });
+
+    test('should refresh the log graph after an external jj operation without page reload', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('tracked.txt', 'original\n');
+        testRepo.describe('before external change');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        await expect(logContent.getByText('before external change')).toBeVisible({ timeout: 10000 });
+
+        // Rewrite the working-copy description from outside the UI. Only the
+        // operation log changes here, so this exercises the status-change path
+        // rather than the working-copy file watcher.
+        testRepo.describe('after external change');
+
+        await expect(logContent.getByText('after external change')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('should refresh an open commit details view after an external jj describe', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('tracked.txt', 'original\n');
+        testRepo.describe('details before external change');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        await logContent.getByText('details before external change').click();
+
+        const textarea = page.locator('[data-testid="commit-details-view"] .commit-textarea');
+        await expect(textarea).toHaveValue('details before external change', { timeout: 10000 });
+
+        testRepo.describe('details after external change', '@-');
+
+        await expect(textarea).toHaveValue('details after external change', { timeout: 10000 });
+    });
 });

@@ -713,7 +713,16 @@ $effect(() => {
         });
         const messengerSub = bridge.messenger ? commitDetailsController.addMessenger(bridge.messenger) : undefined;
         void commitDetailsController.load();
+        // Like the extension's editor provider: re-load on every repository
+        // status change so an external describe/abandon or a working-copy edit
+        // reaches the open details view. load() keeps an unsaved draft and
+        // closes the view when the revision no longer exists.
+        const controller = commitDetailsController;
+        const statusSub = scmModel.repo.onDidStatusChange(() => {
+            void controller.load();
+        });
         return () => {
+            statusSub.dispose();
             messengerSub?.dispose();
             commitDetailsController?.dispose();
             commitDetailsController = null;
