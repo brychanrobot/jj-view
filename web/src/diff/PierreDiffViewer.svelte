@@ -490,6 +490,8 @@ let lastRenderedFilename = '';
 let lastLoadedModified = modifiedContent;
 // svelte-ignore state_referenced_locally
 let lastLoadedOriginal = originalContent;
+// svelte-ignore state_referenced_locally
+let lastRenderedWorkingCopy = isWorkingCopy;
 
 // Synchronize and re-render when filename, content, or mode change
 $effect(() => {
@@ -512,13 +514,17 @@ $effect(() => {
         lastRenderedFilename = fn;
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
+        lastRenderedWorkingCopy = wc;
         currentContent = mod;
         isDirty = initialDirty;
         canUndo = false;
         canRedo = false;
         onDirtyChange?.(initialDirty);
         renderDiff();
-    } else if (!isDirty && (mod !== lastLoadedModified || orig !== lastLoadedOriginal)) {
+    } else if (
+        !isDirty &&
+        (mod !== lastLoadedModified || orig !== lastLoadedOriginal || wc !== lastRenderedWorkingCopy)
+    ) {
         if (typeof console !== 'undefined' && console.log) {
             console.log(
                 `[Perf:Pierre] $effect content updated for "${fn}" (modLen: ${mod.length}, origLen: ${orig.length})`,
@@ -526,11 +532,11 @@ $effect(() => {
         }
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
+        lastRenderedWorkingCopy = wc;
         currentContent = mod;
         renderDiff();
     } else {
         void status;
-        void wc;
     }
 });
 

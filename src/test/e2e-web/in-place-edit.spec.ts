@@ -86,7 +86,10 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
             .locator('[data-testid="scm-resource-item"]')
             .filter({ hasText: 'merge-conflict.txt' });
         await expect(conflictItem).toBeVisible();
-        await conflictItem.click();
+        await conflictItem.hover();
+        const openChangesBtn = conflictItem.locator('[data-testid="scm-resource-action-jj-view.openChanges"]');
+        await expect(openChangesBtn).toBeVisible();
+        await openChangesBtn.click();
 
         // Verify Diff Viewer is mounted with conflict resolution button
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
@@ -126,5 +129,83 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await save(page);
 
         await expect.poll(() => testRepo.getFileContent('@', 'editable.txt'), { timeout: 5000 }).toContain('edit');
+    });
+
+    test('should allow editing jj-edit files in diffs for mutable parent commits', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('parent-file.txt', 'base line 1\n');
+        testRepo.describe('base commit');
+        testRepo.new();
+
+        testRepo.writeFile('parent-file.txt', 'base line 1\nparent line 2\n');
+        testRepo.describe('mutable parent');
+        const parentChangeId = testRepo.getChangeId('@');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const ancestorItem = page
+            .locator('[data-testid="scm-group-ancestor-0"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'parent-file.txt' });
+        await expect(ancestorItem).toBeVisible();
+        await ancestorItem.click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible();
+
+        const editor = diffViewer.getByRole('textbox');
+        await expect(editor).toBeVisible();
+        await editor.click();
+        await page.waitForTimeout(200);
+        await page.keyboard.type('\nparent edit via diff', { delay: 50 });
+        await page.waitForTimeout(200);
+
+        await page.keyboard.press('ControlOrMeta+s');
+
+        await expect
+            .poll(() => testRepo.getFileContent(parentChangeId, 'parent-file.txt'), { timeout: 5000 })
+            .toContain('parent edit via diff');
+    });
+
+    test('should open editable jj-edit diff when clicking a file in Commit Details of a mutable commit', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('details-edit.txt', 'initial\n');
+        testRepo.describe('mutable ancestor');
+        const ancestorChangeId = testRepo.getChangeId('@');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        await logContent.locator('.commit-row').filter({ hasText: 'mutable ancestor' }).locator('.commit-desc').click();
+
+        const detailsView = page.locator('[data-testid="commit-details-view"]');
+        const fileRow = detailsView.locator('.file-row').filter({ hasText: 'details-edit.txt' });
+        await expect(fileRow).toBeVisible({ timeout: 10000 });
+        await fileRow.locator('.file-name').click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible();
+
+        const editor = diffViewer.getByRole('textbox');
+        await expect(editor).toBeVisible();
+        await editor.click();
+        await page.waitForTimeout(200);
+        await page.keyboard.type('\nedited from commit details diff', { delay: 50 });
+        await page.waitForTimeout(200);
+
+        await page.keyboard.press('ControlOrMeta+s');
+
+        await expect
+            .poll(() => testRepo.getFileContent(ancestorChangeId, 'details-edit.txt'), { timeout: 5000 })
+            .toContain('edited from commit details diff');
     });
 });
