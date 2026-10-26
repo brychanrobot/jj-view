@@ -487,6 +487,7 @@ export class JjService {
                     JJ_VIEW_EXTENSION: '1',
                 },
                 maxBuffer: 100 * 1024 * 1024,
+                timeout: maxDuration,
                 signal: abortController.signal,
                 onSpawn: (childProcess) => {
                     spawnedProc = childProcess;

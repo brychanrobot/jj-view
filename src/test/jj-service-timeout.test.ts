@@ -53,6 +53,36 @@ describe('JjService Timeout Tests', () => {
         await expect(uploadPromise).rejects.toThrow('Mutation operation timed out after 360s');
     });
 
+    test('sync command uses 6 minute timeout and forwards timeout to execFile', async () => {
+        let capturedTimeout: number | undefined;
+        vi.mocked(cp.execFile).mockImplementation((_cmd, _args, opts) => {
+            if (opts && typeof opts === 'object' && 'timeout' in opts) {
+                capturedTimeout = opts.timeout;
+            }
+            return {} as cp.ChildProcess;
+        });
+
+        const syncPromise = jjService.sync('sync', '-a');
+        await Promise.resolve();
+        expect(capturedTimeout).toBe(360_000);
+
+        // Advance 2 minutes - should still be pending (sync timeout is 6 mins)
+        await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+
+        let rejected = false;
+        syncPromise.catch(() => {
+            rejected = true;
+        });
+
+        await new Promise((resolve) => process.nextTick(resolve));
+        expect(rejected).toBe(false);
+
+        // Advance past 6 minutes (total time)
+        await vi.advanceTimersByTimeAsync(4 * 60 * 1000 + 100);
+
+        await expect(syncPromise).rejects.toThrow('Mutation operation timed out after 360s');
+    });
+
     test('other mutations use 1 minute timeout', async () => {
         vi.mocked(cp.execFile).mockImplementation(() => {
             return {} as cp.ChildProcess;
