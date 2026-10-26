@@ -19,12 +19,14 @@ const scmIconSVG = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http:
 type installOptions struct {
 	configDir  string
 	binaryPath string
+	noRestart  bool
 }
 
 func parseInstallFlags(args []string) (*installOptions, error) {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	configDirFlag := fs.String("config-dir", "", "Path to global Antigravity config directory (defaults to ~/.gemini/config)")
 	binaryPathFlag := fs.String("binary-path", "", "Path to jj-view executable (defaults to current binary)")
+	noRestartFlag := fs.Bool("no-restart", false, "Do not restart daemons currently running from the installed binary")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -33,6 +35,7 @@ func parseInstallFlags(args []string) (*installOptions, error) {
 	opts := &installOptions{
 		configDir:  *configDirFlag,
 		binaryPath: *binaryPathFlag,
+		noRestart:  *noRestartFlag,
 	}
 
 	if opts.binaryPath == "" {
@@ -188,5 +191,20 @@ func runInstall(args []string) error {
 	fmt.Printf("[Install] Successfully installed plugin to: %s\n", pluginDir)
 	fmt.Printf("[Install] Custom SCM icon registered at: %s\n", iconPath)
 	fmt.Printf("[Install] Enabled 'jj-view' in: %s\n", configPath)
+
+	if opts.noRestart {
+		return nil
+	}
+	procs, err := listProcesses()
+	if err != nil {
+		fmt.Printf("[Install] Skipping daemon restart: %v\n", err)
+		return nil
+	}
+	restarted := restartRunningDaemons(opts.binaryPath, procs, os.Getpid(), terminateProcess)
+	if len(restarted) == 0 {
+		fmt.Printf("[Install] No running daemons to restart.\n")
+		return nil
+	}
+	fmt.Printf("[Install] Stopped %d running daemon(s) %v; the hub will respawn them on the new binary. Reload the jj view tab.\n", len(restarted), restarted)
 	return nil
 }

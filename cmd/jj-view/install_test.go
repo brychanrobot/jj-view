@@ -22,6 +22,7 @@ func TestRunInstall(t *testing.T) {
 	args := []string{
 		"-config-dir", configDir,
 		"-binary-path", fakeBinary,
+		"-no-restart",
 	}
 
 	if err := runInstall(args); err != nil {
