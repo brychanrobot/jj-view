@@ -142,6 +142,11 @@
                     "type": "string",
                     "description": "Custom command to run for upload. Example: 'git push'. The command will be prefixed with 'jj' and suffixed with '-r <revision>' or repeated '-r'/'-c' arguments for stacked uploads."
                 },
+                "jj-view.syncCommand": {
+                    "type": "string",
+                    "default": "git fetch",
+                    "description": "Command to run for sync (prefixed with 'jj'). Defaults to 'git fetch'. Example: 'sync -a'."
+                },
                 "jj-view.minChangeIdLength": {
                     "type": "number",
                     "default": 1,
@@ -270,6 +275,12 @@
                 "title": "Upload Stack",
                 "category": "JJ View",
                 "icon": "$(layers)"
+            },
+            {
+                "command": "jj-view.sync",
+                "title": "Sync",
+                "category": "JJ View",
+                "icon": "$(sync)"
             },
             {
                 "command": "jj-view.focusRepository",
@@ -840,6 +851,11 @@
                 {
                     "command": "jj-view.workspaceAdd",
                     "group": "navigation@10",
+                    "when": "view == jj-view.logView"
+                },
+                {
+                    "command": "jj-view.sync",
+                    "group": "navigation@11",
                     "when": "view == jj-view.logView"
                 },
                 {

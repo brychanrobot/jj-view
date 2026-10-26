@@ -51,6 +51,7 @@ import {
     squashRevisionIntoParentCommand,
 } from '../core/commands/squash-revision';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
+import { syncCommand } from '../core/commands/sync';
 import { undoCommand } from '../core/commands/undo';
 import { uploadCommand } from '../core/commands/upload';
 import { uploadStackCommand } from '../core/commands/upload-stack';
@@ -277,6 +278,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.newAfter', createNewAfterPayload, newAfterCommand),
         registerCommandWithPayload('jj-view.upload', createUploadPayload, uploadCommand),
         registerCommandWithPayload('jj-view.uploadStack', createUploadStackPayload, uploadStackCommand),
+        registerCommand('jj-view.sync', syncCommand),
         registerCommandWithPayload('jj-view.setBookmark', createSetBookmarkPayload, setBookmarkCommand),
         registerCommandWithPayload('jj-view.advanceBookmark', createAdvanceBookmarkPayload, advanceBookmarkCommand),
         registerCommandWithPayload(

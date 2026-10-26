@@ -236,6 +236,12 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(cloud-upload)',
         },
         {
+            command: 'jj-view.sync',
+            title: 'Sync',
+            category: 'JJ View',
+            icon: '$(sync)',
+        },
+        {
             command: 'jj-view.deleteBookmark',
             title: 'Delete Bookmark',
             category: 'JJ View',
@@ -595,6 +601,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             {
                 command: 'jj-view.workspaceAdd',
                 group: 'navigation@10',
+                when: 'view == jj-view.logView',
+            },
+            {
+                command: 'jj-view.sync',
+                group: 'navigation@11',
                 when: 'view == jj-view.logView',
             },
             {

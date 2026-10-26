@@ -4,7 +4,8 @@
  */
 
 import * as path from 'node:path';
-import { ARTIFACT_DIR, expect, test, waitForScmReady } from './standalone-fixture';
+import { TestRepo } from '../test-repo';
+import { ARTIFACT_DIR, expect, recordGifFlow, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web Context Menus and Actions', () => {
     test('should create a new revision when clicking the New header button', async ({ page, server, testRepo }) => {
@@ -272,5 +273,52 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         // Press Escape to dismiss
         await page.keyboard.press('Escape');
         await expect(contextMenu).not.toBeVisible();
+    });
+
+    test('should sync repository when clicking the Sync button in the JJ Log title bar', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        const remoteRepo = new TestRepo();
+        remoteRepo.init();
+        try {
+            remoteRepo.writeFile('remote.txt', 'from remote\n');
+            remoteRepo.describe('feat: upstream remote commit');
+            remoteRepo.bookmark('main', '@');
+
+            testRepo.addRemote('origin', remoteRepo.path);
+            testRepo.writeFile('local.txt', 'local change\n');
+            testRepo.describe('feat: local work');
+
+            await page.goto(server.serverUrl);
+            await waitForScmReady(page);
+
+            const syncBtn = page.locator('[data-testid="log-title-action-jj-view.sync"]');
+            await expect(syncBtn).toBeVisible();
+            await expect(syncBtn).toHaveAttribute('title', 'Sync');
+
+            const logContent = page.locator('[data-testid="log-content"]');
+            await expect(logContent.getByText('feat: local work')).toBeVisible();
+            await expect(logContent.getByText('feat: upstream remote commit')).toHaveCount(0);
+
+            await recordGifFlow(
+                page,
+                async (capture) => {
+                    await capture();
+                    await syncBtn.click();
+                    await expect(logContent.getByText('feat: upstream remote commit')).toBeVisible({
+                        timeout: 10000,
+                    });
+                    await capture();
+                },
+                { outputPath: path.join(ARTIFACT_DIR, 'log-sync-flow.gif') },
+            );
+
+            expect(testRepo.getLog('main@origin', 'description')).toContain('feat: upstream remote commit');
+            await page.screenshot({ path: path.join(ARTIFACT_DIR, 'log-sync-button.png') });
+        } finally {
+            await remoteRepo.dispose();
+        }
     });
 });
