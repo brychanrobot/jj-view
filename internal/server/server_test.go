@@ -884,3 +884,153 @@ func TestServerPreloadAndSidecarEndpoints(t *testing.T) {
 	}
 }
 
+func TestOriginValidationAndPNAHeaders(t *testing.T) {
+	srv := startServerWithConfig(t, Config{
+		Host:           "127.0.0.1",
+		Port:           0,
+		RepoRoot:       t.TempDir(),
+		AllowedOrigins: []string{"*.proxy.example.com"},
+	})
+
+	// 1. OPTIONS preflight to /health with an allow-listed proxy origin
+	proxyOrigin := "https://0123456789abcdef.proxy.example.com"
+	req, _ := http.NewRequest(http.MethodOptions, fmt.Sprintf("http://127.0.0.1:%d/health", srv.Port()), nil)
+	req.Header.Set("Origin", proxyOrigin)
+	req.Header.Set("Access-Control-Request-Private-Network", "true")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("options request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != proxyOrigin {
+		t.Errorf("expected Access-Control-Allow-Origin %q, got %q", proxyOrigin, got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Private-Network"); got != "true" {
+		t.Errorf("expected Access-Control-Allow-Private-Network 'true', got %q", got)
+	}
+
+	// 2. WebSocket dial with an allow-listed origin should succeed
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
+	wsHeader := http.Header{}
+	wsHeader.Set("Origin", proxyOrigin)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, wsHeader)
+	if err != nil {
+		t.Fatalf("failed to dial websocket with allow-listed origin: %v", err)
+	}
+	_ = conn.Close()
+
+	// 3. Sidecar mode allows any origin
+	sidecarSrv, err := NewServer(Config{
+		Host:         "127.0.0.1",
+		Port:         0,
+		RepoRoot:     t.TempDir(),
+		SidecarToken: "sidecar-ui-token-xyz",
+	})
+	if err != nil {
+		t.Fatalf("failed to create sidecar server: %v", err)
+	}
+	if err := sidecarSrv.Listen(); err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go func() {
+		_ = sidecarSrv.Start()
+	}()
+	defer func() { _ = sidecarSrv.Close(context.Background()) }()
+
+	sidecarWSURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=sidecar-ui-token-xyz", sidecarSrv.Port())
+	anyOriginHeader := http.Header{}
+	anyOriginHeader.Set("Origin", "https://arbitrary-custom-subdomain.example.net")
+	sConn, _, err := websocket.DefaultDialer.Dial(sidecarWSURL, anyOriginHeader)
+	if err != nil {
+		t.Fatalf("failed to dial sidecar websocket with arbitrary origin: %v", err)
+	}
+	_ = sConn.Close()
+}
+
+func TestOriginRejectedWhenNotAllowListed(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	foreignOrigin := "https://0123456789abcdef.proxy.example.com"
+	client := &http.Client{}
+
+	// Preflight from an unknown origin gets no CORS grant.
+	req, _ := http.NewRequest(http.MethodOptions, fmt.Sprintf("http://127.0.0.1:%d/health", srv.Port()), nil)
+	req.Header.Set("Origin", foreignOrigin)
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("options request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no Access-Control-Allow-Origin for unknown origin, got %q", got)
+	}
+
+	// WebSocket dial from an unknown origin is refused even with a valid token.
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/ws/system?token=%s", srv.Port(), srv.SessionToken())
+	foreignHeader := http.Header{}
+	foreignHeader.Set("Origin", foreignOrigin)
+	conn, wsResp, err := websocket.DefaultDialer.Dial(wsURL, foreignHeader)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatalf("expected websocket dial from unknown origin to fail")
+	}
+	if wsResp == nil || wsResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for unknown origin, got %v", wsResp)
+	}
+
+	// An origin matching the request host is still accepted without configuration.
+	sameHostHeader := http.Header{}
+	sameHostHeader.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", srv.Port()))
+	sameHostConn, _, err := websocket.DefaultDialer.Dial(wsURL, sameHostHeader)
+	if err != nil {
+		t.Fatalf("expected same-host origin to be accepted: %v", err)
+	}
+	_ = sameHostConn.Close()
+}
+
+func TestOriginHostMatches(t *testing.T) {
+	cases := []struct {
+		host, pattern string
+		want          bool
+	}{
+		{"ui.example.com", "ui.example.com", true},
+		{"ui.example.com", " UI.Example.COM ", true},
+		{"ui.example.com", "example.com", false},
+		{"a.proxy.example.com", "*.proxy.example.com", true},
+		{"a.b.proxy.example.com", "*.proxy.example.com", true},
+		{"proxy.example.com", "*.proxy.example.com", false},
+		{"evilproxy.example.com", "*.proxy.example.com", false},
+		{"ui.example.com", "", false},
+		{"ui.example.com", "*.", false},
+	}
+	for _, tc := range cases {
+		if got := originHostMatches(tc.host, tc.pattern); got != tc.want {
+			t.Errorf("originHostMatches(%q, %q) = %v, want %v", tc.host, tc.pattern, got, tc.want)
+		}
+	}
+}
+
+// startServerWithConfig creates, listens and starts a server for the given
+// config and closes it when the test ends.
+func startServerWithConfig(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	if err := srv.Listen(); err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	go func() {
+		_ = srv.Start()
+	}()
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	return srv
+}

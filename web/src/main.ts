@@ -45,12 +45,20 @@ export async function bootstrap(): Promise<void> {
         const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => {
                 reject(new Error('Connection timed out. JJ View host daemon is unreachable.'));
-            }, 5000);
+            }, 15000);
         });
         await Promise.race([hostSystem.ready, timeoutPromise]);
 
         const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
         if (typeof window !== 'undefined' && urlParams?.has('token')) {
+            const tokenVal = urlParams.get('token');
+            if (tokenVal && window.sessionStorage) {
+                try {
+                    window.sessionStorage.setItem('jj_view_token', tokenVal);
+                } catch {
+                    // Ignore storage access restrictions
+                }
+            }
             const cleanUrl = new URL(window.location.href);
             cleanUrl.searchParams.delete('token');
             window.history.replaceState({}, '', cleanUrl.toString());

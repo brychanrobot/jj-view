@@ -344,6 +344,24 @@ export class RemoteHostSystem implements HostSystem {
                     this._resolvedToken = queryToken;
                 }
             }
+            if (!token && window.sessionStorage) {
+                try {
+                    const stored = window.sessionStorage.getItem('jj_view_token');
+                    if (stored) {
+                        token = stored;
+                        this._resolvedToken = stored;
+                    }
+                } catch {
+                    // Ignore storage access restrictions
+                }
+            }
+            if (token && window.sessionStorage) {
+                try {
+                    window.sessionStorage.setItem('jj_view_token', token);
+                } catch {
+                    // Ignore storage access restrictions
+                }
+            }
             if (window.location?.protocol === 'https:') {
                 protocol = 'wss:';
             }

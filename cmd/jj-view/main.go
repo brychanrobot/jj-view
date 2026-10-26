@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ func main() {
 	userDataDirFlag := flag.String("user-data-dir", "", "Path to user data directory for settings and state")
 	userConfigFlag := flag.String("user-config", "", "Path to custom user configuration JSON file")
 	noOpenFlag := flag.Bool("no-open", false, "Do not open browser automatically")
+	allowedOriginsFlag := flag.String("allowed-origins", "", "Comma-separated extra browser origin hosts to accept, e.g. 'ui.example.com,*.proxy.example.com'. Loopback, the bound host and the request host are always accepted.")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
@@ -90,6 +92,13 @@ func main() {
 		absUserDataDir = resolved
 	}
 
+	var allowedOrigins []string
+	for _, entry := range strings.Split(*allowedOriginsFlag, ",") {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			allowedOrigins = append(allowedOrigins, trimmed)
+		}
+	}
+
 	cfg := server.Config{
 		Host:           *hostFlag,
 		Port:           port,
@@ -99,6 +108,7 @@ func main() {
 		Version:        version,
 		UserDataDir:    absUserDataDir,
 		UserConfigPath: userConfigPath,
+		AllowedOrigins: allowedOrigins,
 	}
 
 	srv, err := server.NewServer(cfg)

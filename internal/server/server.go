@@ -55,6 +55,11 @@ type Config struct {
 	UserConfigPath string
 	UserStatePath  string
 	UserSecretPath string
+	// AllowedOrigins lists extra browser origin hosts accepted in standalone
+	// mode, on top of loopback, the bound host and the request host. An entry
+	// of the form "*.example.com" matches any subdomain of example.com.
+	// Ignored in sidecar mode, where every origin is accepted.
+	AllowedOrigins []string
 }
 
 // Server provides HTTP and WebSocket services for the JJ View web UI.
@@ -384,37 +389,80 @@ func (s *Server) verifyCSRF(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(csrf), []byte(s.cfg.CSRFToken)) == 1
 }
 
-func (s *Server) isOriginAllowed(origin string) bool {
+func (s *Server) isOriginAllowed(origin string, reqHost ...string) bool {
 	if origin == "" {
 		return true
 	}
 	if origin == "null" {
-		return s.cfg.SidecarToken != ""
+		return true
 	}
+	// In sidecar mode, all requests are gated by the sidecar UI token (ANTIGRAVITY_SIDECAR_UI_TOKEN).
+	// Allow any origin so the sidecar works across Antigravity Web, Desktop, proxies, and tunnels.
+	if s.cfg.SidecarToken != "" {
+		return true
+	}
+
 	parsedOrigin, err := url.Parse(origin)
 	if err != nil {
 		return false
 	}
 	scheme := strings.ToLower(parsedOrigin.Scheme)
-	if scheme == "vscode-webview" || scheme == "antigravity-webview" || scheme == "antigravity" {
+	if scheme == "vscode-webview" || scheme == "antigravity-webview" || scheme == "antigravity" || scheme == "vscode-file" {
 		return true
 	}
 	if scheme != "http" && scheme != "https" {
 		return false
 	}
-	host := parsedOrigin.Hostname()
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == s.cfg.Host
+	originHost := strings.ToLower(parsedOrigin.Hostname())
+	if originHost == "localhost" || originHost == "127.0.0.1" || originHost == "::1" || originHost == strings.ToLower(s.cfg.Host) {
+		return true
+	}
+	for _, rh := range reqHost {
+		if rh != "" {
+			h := rh
+			if host, _, err := net.SplitHostPort(rh); err == nil {
+				h = host
+			}
+			if strings.EqualFold(originHost, h) {
+				return true
+			}
+		}
+	}
+	for _, pattern := range s.cfg.AllowedOrigins {
+		if originHostMatches(originHost, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// originHostMatches reports whether a lower-cased origin hostname matches an
+// AllowedOrigins entry. "*.example.com" matches any subdomain of example.com
+// (not example.com itself); any other entry must equal the hostname.
+func originHostMatches(originHost, pattern string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if pattern == "" {
+		return false
+	}
+	if suffix, ok := strings.CutPrefix(pattern, "*."); ok {
+		return strings.HasSuffix(originHost, "."+suffix)
+	}
+	return originHost == pattern
 }
 
 func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	if s.isOriginAllowed(origin) {
+	if s.isOriginAllowed(origin, r.Host) {
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Sidecar-Token, X-CSRF-Token, X-Antigravity-CSRF-Token, Cache-Control")
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400")
 	}
 }
 
@@ -724,6 +772,12 @@ func (s *Server) handleForgeProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if !s.authenticateRequest(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -731,7 +785,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Validate Origin to prevent Cross-Site WebSocket Hijacking (CSWSH)
 	origin := r.Header.Get("Origin")
-	if origin != "" && !s.isOriginAllowed(origin) {
+	if origin != "" && !s.isOriginAllowed(origin, r.Host) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
@@ -746,6 +800,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	_ = conn.UnderlyingConn().SetReadDeadline(time.Time{})
 	_ = conn.UnderlyingConn().SetWriteDeadline(time.Time{})
 
+	const pongWait = 60 * time.Second
+	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	conn.SetReadLimit(maxWSReadLimit)
 
 	client := newWsClient(conn, s)
@@ -753,6 +814,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.clientsMu.Lock()
 	s.clients[client] = true
 	s.clientsMu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-client.done:
+				return
+			case <-ticker.C:
+				if err := client.ping(); err != nil {
+					return
+				}
+			}
+		}
+	}()
 
 	defer func() {
 		s.clientsMu.Lock()
@@ -774,6 +850,7 @@ type wsClient struct {
 	subsMu        sync.Mutex
 	subscriptions map[string]bool
 	closed        bool
+	done          chan struct{}
 }
 
 func newWsClient(conn *websocket.Conn, s *Server) *wsClient {
@@ -782,7 +859,18 @@ func newWsClient(conn *websocket.Conn, s *Server) *wsClient {
 		server:        s,
 		cancelFunc:    make(map[string]context.CancelFunc),
 		subscriptions: make(map[string]bool),
+		done:          make(chan struct{}),
 	}
+}
+
+func (c *wsClient) ping() error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if c.closed {
+		return errors.New("connection closed")
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return c.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 func (c *wsClient) send(v any) error {
@@ -816,6 +904,7 @@ func (c *wsClient) close() {
 	c.writeMu.Lock()
 	if !c.closed {
 		c.closed = true
+		close(c.done)
 		_ = c.conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 		_ = c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		_ = c.conn.Close()
@@ -834,7 +923,12 @@ func (c *wsClient) cleanup() {
 
 	// Clean up all active watcher subscriptions to prevent inotify leaks
 	c.subsMu.Lock()
-	c.closed = true
+	c.writeMu.Lock()
+	if !c.closed {
+		c.closed = true
+		close(c.done)
+	}
+	c.writeMu.Unlock()
 	for subID := range c.subscriptions {
 		c.server.watcherHub.Unwatch(subID)
 	}
