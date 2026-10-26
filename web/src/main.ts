@@ -369,6 +369,16 @@ export async function bootstrap(): Promise<void> {
             logController?.setHighlightedCommit(changeId);
         });
 
+        // Same wiring as the extension host: the SCM pane subscribes to status
+        // changes itself, but the log controller only refreshes on its own
+        // mutations, so watcher-driven and external `jj` changes would otherwise
+        // never reach the graph. The controller coalesces bursts.
+        repo.onDidStatusChange((event) => {
+            logController?.refresh(event.reason).catch((err: unknown) => {
+                NO_OP_LOGGER.error('Log refresh on status change failed', toError(err));
+            });
+        });
+
         registerWebCommands({
             repositoryManager: repoManager,
             hostEnvironment: webHostEnv,
