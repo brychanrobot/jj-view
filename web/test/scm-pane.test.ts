@@ -346,7 +346,8 @@ describe('Web SCM Components (SSR & Rendering)', () => {
         it('renders SplitPane resizable container', () => {
             const result = render(SplitPane, {
                 props: {
-                    initialSize: 300,
+                    size: 300,
+                    onResize: () => {},
                 },
             });
             const html = result.body;

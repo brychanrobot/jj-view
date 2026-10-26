@@ -5,20 +5,84 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 
+/**
+ * Two-pane splitter. Controlled: the parent owns `size` (and `collapsed`) and
+ * receives change requests, so it can persist them or derive the size from
+ * content while the user has not resized yet.
+ */
 interface Props {
     direction?: 'horizontal' | 'vertical';
-    initialSize?: number;
+    /** Which pane has the fixed `size`; the other one fills the remainder. */
+    sizedPane?: 'first' | 'second';
+    /** Size of the sized pane in px (ignored while collapsed). */
+    size: number;
     minSize?: number;
     maxSize?: number;
+    /** When set, dragging the sized pane below this many px snaps it closed. */
+    collapseThreshold?: number;
+    /** Size of the sized pane while collapsed (e.g. just its header). */
+    collapsedSize?: number;
+    collapsed?: boolean;
+    /** Called continuously while dragging / on keyboard steps. */
+    onResize: (size: number) => void;
+    onCollapsedChange?: (collapsed: boolean) => void;
+    /** Called once when a user-initiated resize gesture finishes. */
+    onResizeEnd?: () => void;
     left?: Snippet;
     right?: Snippet;
 }
 
-let { direction = 'horizontal', initialSize = 340, minSize = 180, maxSize = 800, left, right }: Props = $props();
+let {
+    direction = 'horizontal',
+    sizedPane = 'first',
+    size,
+    minSize = 0,
+    maxSize = 800,
+    collapseThreshold,
+    collapsedSize = 0,
+    collapsed = false,
+    onResize,
+    onCollapsedChange,
+    onResizeEnd,
+    left,
+    right,
+}: Props = $props();
 
-// svelte-ignore state_referenced_locally
-let size = $state(initialSize);
 let isDragging = $state(false);
+
+const renderedSize = $derived(collapsed ? collapsedSize : Math.max(minSize, Math.min(maxSize, size)));
+const sizedStyle = $derived(
+    direction === 'horizontal'
+        ? `width: ${renderedSize}px; flex-shrink: 0;`
+        : `height: ${renderedSize}px; flex-shrink: 0;`,
+);
+
+function clamp(value: number): number {
+    return Math.max(minSize, Math.min(maxSize, value));
+}
+
+/**
+ * Applies a size the user asked for, snapping into / out of the collapsed
+ * state when a threshold is configured. `restoreSize` is what the expanded
+ * size should be remembered as if this request collapses the pane, so a
+ * single drag from 300px to closed re-opens at 300px, not at the threshold.
+ */
+function requestSize(requested: number, restoreSize: number): void {
+    const shouldCollapse = collapseThreshold !== undefined && requested < collapseThreshold;
+    if (shouldCollapse) {
+        if (!collapsed) {
+            onCollapsedChange?.(true);
+            if (restoreSize >= collapseThreshold) {
+                onResize(clamp(restoreSize));
+            }
+        }
+        return;
+    }
+    if (collapsed) {
+        onCollapsedChange?.(false);
+    }
+    onResize(clamp(requested));
+}
 
 function handlePointerDown(e: PointerEvent): void {
     if (e.button !== 0) {
@@ -30,12 +94,17 @@ function handlePointerDown(e: PointerEvent): void {
     target.setPointerCapture(e.pointerId);
 
     const startPos = direction === 'horizontal' ? e.clientX : e.clientY;
-    const startSize = size;
+    const startSize = renderedSize;
+    // The remembered expanded size for a collapse that happens in this gesture.
+    const restoreSize = collapsed ? size : startSize;
+    // Moving the handle towards the end of the container grows the first pane
+    // and shrinks the second.
+    const sign = sizedPane === 'first' ? 1 : -1;
 
     function handlePointerMove(moveEvent: PointerEvent): void {
         const currentPos = direction === 'horizontal' ? moveEvent.clientX : moveEvent.clientY;
         const delta = currentPos - startPos;
-        size = Math.max(minSize, Math.min(maxSize, startSize + delta));
+        requestSize(startSize + sign * delta, restoreSize);
     }
 
     function handlePointerUp(upEvent: PointerEvent): void {
@@ -48,6 +117,7 @@ function handlePointerDown(e: PointerEvent): void {
         target.removeEventListener('pointermove', handlePointerMove);
         target.removeEventListener('pointerup', handlePointerUp);
         target.removeEventListener('pointercancel', handlePointerUp);
+        onResizeEnd?.();
     }
 
     target.addEventListener('pointermove', handlePointerMove);
@@ -57,26 +127,33 @@ function handlePointerDown(e: PointerEvent): void {
 
 function handleKeyDown(e: KeyboardEvent): void {
     const step = 10;
+    const sign = sizedPane === 'first' ? 1 : -1;
+    const current = renderedSize;
+    let requested: number | undefined;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        size = Math.max(minSize, size - step);
+        requested = current - sign * step;
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        size = Math.min(maxSize, size + step);
+        requested = current + sign * step;
     } else if (e.key === 'Home') {
-        e.preventDefault();
-        size = minSize;
+        requested = sizedPane === 'first' ? minSize : maxSize;
     } else if (e.key === 'End') {
-        e.preventDefault();
-        size = maxSize;
+        requested = sizedPane === 'first' ? maxSize : minSize;
     }
+    if (requested === undefined) {
+        return;
+    }
+    e.preventDefault();
+    requestSize(requested, collapsed ? size : current);
+    onResizeEnd?.();
 }
 </script>
 
 <div class={`split-container ${direction}`} class:resizing={isDragging} data-testid="split-pane">
     <div
-        class="split-pane left-pane"
-        style={direction === 'horizontal' ? `width: ${size}px; flex-shrink: 0;` : `height: ${size}px; flex-shrink: 0;`}
+        class="split-pane first-pane"
+        class:sized={sizedPane === 'first'}
+        class:fluid={sizedPane !== 'first'}
+        style={sizedPane === 'first' ? sizedStyle : undefined}
     >
         {@render left?.()}
     </div>
@@ -90,14 +167,19 @@ function handleKeyDown(e: KeyboardEvent): void {
         tabindex="0"
         aria-label="Resize panels"
         aria-orientation={direction}
-        aria-valuenow={size}
+        aria-valuenow={renderedSize}
         aria-valuemin={minSize}
         aria-valuemax={maxSize}
         onpointerdown={handlePointerDown}
         onkeydown={handleKeyDown}
     ></div>
 
-    <div class="split-pane right-pane">
+    <div
+        class="split-pane second-pane"
+        class:sized={sizedPane === 'second'}
+        class:fluid={sizedPane !== 'second'}
+        style={sizedPane === 'second' ? sizedStyle : undefined}
+    >
         {@render right?.()}
     </div>
 </div>
@@ -124,28 +206,18 @@ function handleKeyDown(e: KeyboardEvent): void {
     position: relative;
 }
 
-.split-container.horizontal .left-pane {
+.split-container.horizontal .split-pane {
     height: 100%;
     min-width: 0;
 }
 
-.split-container.vertical .left-pane {
+.split-container.vertical .split-pane {
     width: 100%;
     min-height: 0;
 }
 
-.split-container.horizontal .right-pane {
+.split-pane.fluid {
     flex-grow: 1;
-    height: 100%;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.split-container.vertical .right-pane {
-    flex-grow: 1;
-    width: 100%;
-    min-height: 0;
-    overflow: hidden;
 }
 
 .split-handle {
