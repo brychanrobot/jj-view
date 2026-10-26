@@ -30,6 +30,7 @@ import type {
     HostWorkspaceFoldersChangeEvent,
     TextSelectionRange,
 } from '../../../src/core/host/host-environment';
+import type { FuzzyFileMatch } from '../../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { Uri } from '../../../src/core/uri-utils';
 import { Uri as UriImpl } from '../../../src/core/uri-utils';
@@ -831,6 +832,7 @@ export class WebHostWorkspace implements HostWorkspace {
     private readonly _onDidChangeWorkspaceFolders = new EventEmitter<HostWorkspaceFoldersChangeEvent>();
     public readonly onDidChangeWorkspaceFolders = this._onDidChangeWorkspaceFolders.event;
     private _workspaceFolders: readonly HostWorkspaceFolder[];
+    private readonly _gitIgnoreCache = new Map<string, { patterns: string[]; expiresAt: number }>();
 
     constructor(
         workspaceFolders: readonly HostWorkspaceFolder[] = [],
@@ -858,16 +860,7 @@ export class WebHostWorkspace implements HostWorkspace {
         }
     }
 
-    public async findFiles(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]> {
-        if (!this.hostSystem) {
-            return [];
-        }
-
-        const baseDir = baseFolderUri?.fsPath ?? this.workspaceFolders[0]?.uri.fsPath ?? this.hostSystem.repoRoot;
-        if (!baseDir) {
-            return [];
-        }
-
+    private async _resolveExcludes(baseDir: string, includeGitIgnore: boolean): Promise<string[]> {
         const excludes: string[] = [];
 
         // 1. files.exclude from config
@@ -897,28 +890,81 @@ export class WebHostWorkspace implements HostWorkspace {
         }
 
         // 4. Loosely check .gitignore in baseDir (skip when searching for repository markers like .jj)
-        const isRepoDiscovery = pattern.includes('.jj');
-        if (!isRepoDiscovery) {
-            try {
-                const gitIgnorePath = `${baseDir.replace(/[/\\]+$/, '')}/.gitignore`;
-                const content = await this.hostSystem.fs.readTextFile(gitIgnorePath);
-                const lines = content.split(/\r?\n/);
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (trimmed.length > 0 && !trimmed.startsWith('#') && !trimmed.startsWith('!')) {
-                        const clean = trimmed.replace(/^\/+|\/+$/g, '');
-                        if (clean.length > 0 && !excludes.includes(clean)) {
-                            excludes.push(clean);
+        if (includeGitIgnore && this.hostSystem) {
+            const cleanBase = baseDir.replace(/[/\\]+$/, '');
+            const cached = this._gitIgnoreCache.get(cleanBase);
+            let gitIgnorePatterns: string[] = [];
+            if (cached && Date.now() < cached.expiresAt) {
+                gitIgnorePatterns = cached.patterns;
+            } else {
+                try {
+                    const gitIgnorePath = `${cleanBase}/.gitignore`;
+                    const content = await this.hostSystem.fs.readTextFile(gitIgnorePath);
+                    const lines = content.split(/\r?\n/);
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.length > 0 && !trimmed.startsWith('#') && !trimmed.startsWith('!')) {
+                            const isRootAnchored = trimmed.startsWith('/');
+                            const stripped = trimmed.replace(/^\/+|\/+$/g, '');
+                            if (stripped.length > 0) {
+                                const clean = isRootAnchored ? `./${stripped}` : stripped;
+                                if (!gitIgnorePatterns.includes(clean)) {
+                                    gitIgnorePatterns.push(clean);
+                                }
+                            }
                         }
                     }
+                } catch {
+                    // Ignore missing .gitignore
                 }
-            } catch {
-                // Ignore missing .gitignore
+                this._gitIgnoreCache.set(cleanBase, {
+                    patterns: gitIgnorePatterns,
+                    expiresAt: Date.now() + 30_000,
+                });
+            }
+            for (const p of gitIgnorePatterns) {
+                if (!excludes.includes(p)) {
+                    excludes.push(p);
+                }
             }
         }
 
+        return excludes;
+    }
+
+    public async findFiles(pattern: string, baseFolderUri?: Uri, maxResults?: number): Promise<Uri[]> {
+        if (!this.hostSystem) {
+            return [];
+        }
+
+        const baseDir = baseFolderUri?.fsPath ?? this.workspaceFolders[0]?.uri.fsPath ?? this.hostSystem.repoRoot;
+        if (!baseDir) {
+            return [];
+        }
+
+        const isRepoDiscovery = pattern.includes('.jj');
+        const excludes = await this._resolveExcludes(baseDir, !isRepoDiscovery);
         const files = await this.hostSystem.findFiles(pattern, baseDir, maxResults, excludes);
         return files.map((f) => UriImpl.file(f));
+    }
+
+    public async fuzzyFindFiles(
+        query: string,
+        baseFolderUri?: Uri,
+        maxResults?: number,
+        signal?: AbortSignal,
+    ): Promise<FuzzyFileMatch[]> {
+        if (!this.hostSystem) {
+            return [];
+        }
+
+        const baseDir = baseFolderUri?.fsPath ?? this.workspaceFolders[0]?.uri.fsPath ?? this.hostSystem.repoRoot;
+        if (!baseDir) {
+            return [];
+        }
+
+        const excludes = await this._resolveExcludes(baseDir, true);
+        return this.hostSystem.fuzzyFindFiles(query, baseDir, maxResults, excludes, signal);
     }
 }
 

@@ -19,6 +19,7 @@ import (
 const (
 	reloadPortEnvVar         = "JJ_VIEW_RELOAD_PORT"
 	reloadSessionTokenEnvVar = "JJ_VIEW_RELOAD_SESSION_TOKEN"
+	reloadAllowedRootsEnvVar = "JJ_VIEW_RELOAD_ALLOWED_ROOTS"
 )
 
 // runningProcess is one entry from the process table.
@@ -106,14 +107,15 @@ func resolveExecutablePath(arg0 string) string {
 	return arg0
 }
 
-// buildReloadEnv returns a copy of environ with the bound port and session
-// token recorded for the post-exec process image.
-func buildReloadEnv(environ []string, port int, sessionToken string) []string {
+// buildReloadEnv returns a copy of environ with the bound port, session
+// token, and allowed sandbox roots recorded for the post-exec process image.
+func buildReloadEnv(environ []string, port int, sessionToken string, allowedRoots ...string) []string {
 	prefixPort := reloadPortEnvVar + "="
 	prefixToken := reloadSessionTokenEnvVar + "="
-	env := make([]string, 0, len(environ)+2)
+	prefixRoots := reloadAllowedRootsEnvVar + "="
+	env := make([]string, 0, len(environ)+3)
 	for _, entry := range environ {
-		if strings.HasPrefix(entry, prefixPort) || strings.HasPrefix(entry, prefixToken) {
+		if strings.HasPrefix(entry, prefixPort) || strings.HasPrefix(entry, prefixToken) || strings.HasPrefix(entry, prefixRoots) {
 			continue
 		}
 		env = append(env, entry)
@@ -124,13 +126,16 @@ func buildReloadEnv(environ []string, port int, sessionToken string) []string {
 	if sessionToken != "" {
 		env = append(env, fmt.Sprintf("%s=%s", reloadSessionTokenEnvVar, sessionToken))
 	}
+	if len(allowedRoots) > 0 {
+		env = append(env, fmt.Sprintf("%s=%s", reloadAllowedRootsEnvVar, strings.Join(allowedRoots, string(os.PathListSeparator))))
+	}
 	return env
 }
 
 // execInPlace replaces the current process image with execPath while preserving
-// its PID, bound port, and session token.
-func execInPlace(execPath string, args []string, environ []string, port int, sessionToken string) error {
-	env := buildReloadEnv(environ, port, sessionToken)
+// its PID, bound port, session token, and allowed sandbox roots.
+func execInPlace(execPath string, args []string, environ []string, port int, sessionToken string, allowedRoots ...string) error {
+	env := buildReloadEnv(environ, port, sessionToken, allowedRoots...)
 	return syscall.Exec(execPath, args, env)
 }
 

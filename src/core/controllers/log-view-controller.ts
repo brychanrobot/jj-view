@@ -474,6 +474,12 @@ export class LogViewController implements Disposable {
             const maxIterations = 3;
             while (!this._disposed && iterations < maxIterations && lastRunVersion !== this._codeForgeFetchVersion) {
                 iterations++;
+                if (!cf.isEnabled) {
+                    await cf.detectActiveProvider(true);
+                    if (!cf.isEnabled || this._disposed) {
+                        return;
+                    }
+                }
                 lastRunVersion = this._codeForgeFetchVersion;
                 await this._executeCodeForgeRefresh(cf);
             }
@@ -484,13 +490,6 @@ export class LogViewController implements Disposable {
     }
 
     private async _executeCodeForgeRefresh(cf: CodeForgeService): Promise<void> {
-        if (!cf.isEnabled) {
-            await cf.detectActiveProvider(true);
-            if (!cf.isEnabled || this._disposed) {
-                return;
-            }
-        }
-
         try {
             cf.startPolling();
             const start = performance.now();

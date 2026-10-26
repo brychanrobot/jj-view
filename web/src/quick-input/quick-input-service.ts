@@ -14,6 +14,7 @@ export interface CommandPaletteEntry {
 
 export class QuickInputService {
     private currentSession: QuickInputSession | null = null;
+    private nextSessionId = 1;
     private readonly listeners: Set<(session: QuickInputSession | null) => void> = new Set();
 
     public get activeSession(): QuickInputSession | null {
@@ -37,9 +38,11 @@ export class QuickInputService {
 
     public async showInputBox(options?: InputBoxOptions): Promise<string | undefined> {
         this.cancel();
+        const sessionId = this.nextSessionId++;
 
         return new Promise<string | undefined>((resolve) => {
             this.currentSession = {
+                sessionId,
                 type: 'input-box',
                 options: options || {},
                 resolve,
@@ -49,7 +52,16 @@ export class QuickInputService {
     }
 
     public async showQuickPick<
-        T extends { label: string; value?: unknown; description?: string; detail?: string; iconClass?: string },
+        T extends {
+            id?: string;
+            label: string;
+            value?: unknown;
+            description?: string;
+            detail?: string;
+            iconClass?: string;
+            filterText?: string;
+            alwaysShow?: boolean;
+        },
     >(
         items: T[],
         options?: {
@@ -57,6 +69,7 @@ export class QuickInputService {
             placeHolder?: string;
             matchOnDescription?: boolean;
             matchOnDetail?: boolean;
+            preserveOrder?: boolean;
             acceptCustomValue?: boolean;
             activeItem?: T;
             onDidChangeActive?: (items: readonly T[]) => void;
@@ -64,13 +77,16 @@ export class QuickInputService {
         },
     ): Promise<T | undefined> {
         this.cancel();
+        const sessionId = this.nextSessionId++;
 
         const pickItems: QuickPickItem[] = items.map((item, index) => ({
-            id: String(item.value ?? item.label ?? index),
+            id: item.id ?? String(item.value ?? item.label ?? index),
             label: item.label,
             description: item.description,
             detail: item.detail,
             iconClass: item.iconClass,
+            filterText: item.filterText,
+            alwaysShow: item.alwaysShow,
             value: item,
         }));
 
@@ -96,6 +112,7 @@ export class QuickInputService {
                 items: pickItems,
                 matchOnDescription: options?.matchOnDescription,
                 matchOnDetail: options?.matchOnDetail,
+                preserveOrder: options?.preserveOrder,
                 acceptCustomValue: options?.acceptCustomValue,
                 activeItem: activePickItem,
                 onDidChangeActive: options?.onDidChangeActive
@@ -108,6 +125,7 @@ export class QuickInputService {
             };
 
             this.currentSession = {
+                sessionId,
                 type: 'quick-pick',
                 options: pickOptions,
                 resolve: (selected) => {
@@ -127,10 +145,46 @@ export class QuickInputService {
         });
     }
 
+    public updateQuickPickItems<
+        T extends {
+            id?: string;
+            label: string;
+            value?: unknown;
+            description?: string;
+            detail?: string;
+            iconClass?: string;
+            filterText?: string;
+            alwaysShow?: boolean;
+        },
+    >(items: T[]): void {
+        if (!this.currentSession || this.currentSession.type !== 'quick-pick') {
+            return;
+        }
+        const pickItems: QuickPickItem[] = items.map((item, index) => ({
+            id: item.id ?? String(item.value ?? item.label ?? index),
+            label: item.label,
+            description: item.description,
+            detail: item.detail,
+            iconClass: item.iconClass,
+            filterText: item.filterText,
+            alwaysShow: item.alwaysShow,
+            value: item,
+        }));
+        this.currentSession = {
+            ...this.currentSession,
+            options: {
+                ...this.currentSession.options,
+                items: pickItems,
+            },
+        };
+        this.notifyListeners();
+    }
+
     public async showMultiQuickPick<
         T extends { label: string; value?: unknown; description?: string; detail?: string; iconClass?: string },
     >(items: T[], options?: { title?: string; placeHolder?: string }): Promise<T[] | undefined> {
         this.cancel();
+        const sessionId = this.nextSessionId++;
 
         const pickItems: QuickPickItem<T>[] = items.map((item, index) => ({
             id: String(item.value ?? item.label ?? index),
@@ -150,6 +204,7 @@ export class QuickInputService {
             };
 
             this.currentSession = {
+                sessionId,
                 type: 'multi-quick-pick',
                 options: pickOptions,
                 resolve: (selectedList) => {

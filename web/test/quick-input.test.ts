@@ -9,6 +9,7 @@ import type { HostFs } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import { createMock } from '../../src/test/test-utils';
 import { WebHostEnvironment, WebHostUi } from '../src/host/web-host-environment';
+import { filterAndScoreQuickPickItems, scoreFuzzyPath, scoreFuzzyString } from '../src/quick-input/fuzzy-score';
 import QuickInput from '../src/quick-input/QuickInput.svelte';
 import { QuickInputService } from '../src/quick-input/quick-input-service';
 
@@ -283,5 +284,69 @@ describe('QuickInput SSR Component Rendering', () => {
         expect(rendered.html).toContain('src/app.ts:10-12');
         expect(rendered.html).toContain('Working Copy • 3 lines');
         expect(rendered.html).toContain('const a = 1;');
+    });
+
+    it('updates quick-pick items in place while preserving sessionId', async () => {
+        const service = new QuickInputService();
+        const promise = service.showQuickPick([{ id: '1', label: 'initial.ts', fullPath: '/repo/initial.ts' }], {
+            title: 'Go to File',
+            preserveOrder: true,
+        });
+        const initialSessionId = service.activeSession?.sessionId;
+        expect(initialSessionId).toBeDefined();
+
+        service.updateQuickPickItems([
+            { id: '1', label: 'initial.ts', fullPath: '/repo/initial.ts' },
+            { id: '2', label: 'browser_view.cc', fullPath: '/repo/chrome/browser_view.cc' },
+        ]);
+
+        expect(service.activeSession?.sessionId).toBe(initialSessionId);
+        if (service.activeSession?.type === 'quick-pick') {
+            expect(service.activeSession.options.items.length).toBe(2);
+            service.accept(service.activeSession.options.items[1]);
+        }
+
+        const selected = await promise;
+        expect(selected?.fullPath).toBe('/repo/chrome/browser_view.cc');
+    });
+});
+
+describe('Fuzzy Scoring (Quick Open & Command Palette)', () => {
+    it('ranks exact and word-boundary matches above mid-word matches', () => {
+        const exactScore = scoreFuzzyString('browser_view.cc', 'browser_view.cc');
+        const boundaryScore = scoreFuzzyString('browser_view.cc', 'bview.cc');
+        const midWordScore = scoreFuzzyString('begin_frame_source_webview.cc', 'bview.cc');
+
+        expect(exactScore).not.toBeNull();
+        expect(boundaryScore).not.toBeNull();
+        expect(midWordScore).not.toBeNull();
+        if (exactScore !== null && boundaryScore !== null && midWordScore !== null) {
+            expect(exactScore).toBeGreaterThan(boundaryScore);
+            expect(boundaryScore).toBeGreaterThan(midWordScore);
+        }
+    });
+
+    it('matches camelCase acronyms and multi-token file paths', () => {
+        const pdv = scoreFuzzyPath('web/src/diff/PierreDiffViewer.svelte', 'PDV');
+        const pfv = scoreFuzzyPath('web/src/diff/PierreFileViewer.svelte', 'PDV');
+        expect(pdv).not.toBeNull();
+        expect(pfv).toBeNull();
+
+        const pathMatch = scoreFuzzyPath('chrome/browser/ui/views/frame/browser_view.cc', 'chrome views bview.cc');
+        expect(pathMatch).not.toBeNull();
+    });
+
+    it('filters and sorts QuickPickItem entries by fuzzy score or preserves order when requested', () => {
+        const items = [
+            { id: '1', label: 'begin_frame_source_webview.cc', filterText: 'gfx/begin_frame_source_webview.cc' },
+            { id: '2', label: 'browser_view.cc', filterText: 'chrome/browser/ui/views/frame/browser_view.cc' },
+            { id: '3', label: 'unrelated.ts', filterText: 'src/unrelated.ts' },
+        ];
+
+        const ranked = filterAndScoreQuickPickItems(items, 'bview.cc');
+        expect(ranked.map((r) => r.id)).toEqual(['2', '1']);
+
+        const preserved = filterAndScoreQuickPickItems(items, 'bview.cc', { preserveOrder: true });
+        expect(preserved.map((r) => r.id)).toEqual(['1', '2']);
     });
 });

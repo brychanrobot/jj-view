@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 import { onDestroy, onMount, tick } from 'svelte';
+import { filterAndScoreQuickPickItems } from './fuzzy-score';
 import type { QuickInputService } from './quick-input-service';
 import type { QuickInputSession, QuickPickItem } from './quick-input-types';
 
@@ -26,9 +27,23 @@ let inputEl = $state<HTMLInputElement | null>(null);
 let listEl = $state<HTMLDivElement | null>(null);
 
 let unsubscribe: (() => void) | null = null;
+let lastSessionId: number | null = null;
 
 function initSession(newSession: QuickInputSession | null): void {
+    const isSameSessionUpdate =
+        newSession !== null &&
+        newSession.sessionId !== undefined &&
+        lastSessionId !== null &&
+        newSession.sessionId === lastSessionId;
+
     sessionState = newSession;
+    lastSessionId = newSession?.sessionId ?? null;
+
+    if (isSameSessionUpdate) {
+        selectedIndex = 0;
+        return;
+    }
+
     inputOverride = null;
     if (newSession) {
         selectedIndex = 0;
@@ -73,26 +88,10 @@ const filteredItems: QuickPickItem[] = $derived.by(() => {
     }
     const options = session.options;
     const items = options.items || [];
-    const query = inputValue.trim().toLowerCase();
-
-    if (!query) {
-        return items;
-    }
-
-    return items.filter((it) => {
-        if (it.alwaysShow) {
-            return true;
-        }
-        if (it.label.toLowerCase().includes(query)) {
-            return true;
-        }
-        if (options.matchOnDescription && it.description?.toLowerCase().includes(query)) {
-            return true;
-        }
-        if (options.matchOnDetail && it.detail?.toLowerCase().includes(query)) {
-            return true;
-        }
-        return false;
+    return filterAndScoreQuickPickItems(items, inputValue, {
+        matchOnDescription: options.matchOnDescription,
+        matchOnDetail: options.matchOnDetail,
+        preserveOrder: options.preserveOrder,
     });
 });
 
@@ -508,7 +507,6 @@ function handleKeyDown(e: KeyboardEvent): void {
     user-select: none;
     font-size: 13px;
     color: var(--vscode-foreground, #d4d4d4);
-    transition: background-color 0.1s ease;
     gap: 8px;
 }
 
@@ -547,35 +545,46 @@ function handleKeyDown(e: KeyboardEvent): void {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
+    flex-shrink: 0;
+    max-width: 70%;
 }
 
 .item-description {
     font-size: 11px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
     margin-left: auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     padding-left: 8px;
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
 }
 
 .quick-pick-item.active .item-description {
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
     opacity: 0.85;
 }
 
 .item-detail {
     font-size: 11px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
-    padding-left: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--vscode-badge-background, var(--vscode-input-background));
+    color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.item-label + .item-detail {
+    margin-left: auto;
 }
 
 .no-items-message {
     padding: 16px 12px;
     text-align: center;
     font-size: 12px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
     font-style: italic;
 }
 </style>

@@ -136,6 +136,12 @@ export interface HostWatcher {
 
 export type HostPlatform = 'linux' | 'darwin' | 'win32';
 
+export interface FuzzyFileMatch {
+    readonly path: string;
+    readonly relPath: string;
+    readonly score: number;
+}
+
 export interface HostSystem {
     readonly process: HostProcess;
     readonly fs: HostFs;
