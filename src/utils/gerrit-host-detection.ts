@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
+import { join } from 'pathe';
 import type { GitRemote } from '../core/code-forge-provider';
 import type { HostEnvironment } from '../core/host/host-environment';
-import { getGitConfig } from './gerrit-credential-utils';
+import type { HostSystem } from '../core/host/host-system';
+import { getGitConfig } from './git-repo-utils';
 import type { LoggerChannel } from './output-channel';
 
 /**
@@ -52,16 +52,17 @@ function getHostFromSettings(host: HostEnvironment, outputChannel?: LoggerChanne
  * Resolves the Gerrit host from the git configuration.
  */
 async function getHostFromGitConfig(
+    system: HostSystem | undefined,
     gitRoot: string | null,
     outputChannel?: LoggerChannel,
 ): Promise<string | undefined> {
-    if (!gitRoot) {
+    if (!gitRoot || !system) {
         outputChannel?.debug('[GerritDetector] Git root is null, skipping git config check');
         return undefined;
     }
 
     outputChannel?.debug('[GerritDetector] Checking git config for gerrit.gerritserver...');
-    const gerritServer = await getGitConfig(gitRoot, 'gerrit.gerritserver');
+    const gerritServer = await getGitConfig(system, gitRoot, 'gerrit.gerritserver');
     if (gerritServer) {
         if (gerritServer.toLowerCase() === 'true' || gerritServer.toLowerCase() === 'false') {
             outputChannel?.debug(
@@ -73,7 +74,7 @@ async function getHostFromGitConfig(
     }
 
     outputChannel?.debug('[GerritDetector] Checking git config for gerrit.host...');
-    const configHost = await getGitConfig(gitRoot, 'gerrit.host');
+    const configHost = await getGitConfig(system, gitRoot, 'gerrit.host');
     if (configHost) {
         if (configHost.toLowerCase() === 'true' || configHost.toLowerCase() === 'false') {
             outputChannel?.debug(
@@ -86,25 +87,31 @@ async function getHostFromGitConfig(
     return undefined;
 }
 
-async function getHostFromGitReview(repoRoot: string, outputChannel?: LoggerChannel): Promise<string | undefined> {
-    const gitreviewPath = path.join(repoRoot, '.gitreview');
-    outputChannel?.debug(`[GerritDetector] Checking .gitreview file at: ${gitreviewPath}`);
-    try {
-        const content = await fs.readFile(gitreviewPath, 'utf8');
-        const match = content.match(/host=(.+)/);
-        if (match?.[1]) {
-            const host = normalizeHostUrl(match[1].trim());
-            outputChannel?.debug(`[GerritDetector] Found host in .gitreview: ${host}`);
-            return host;
-        }
-        outputChannel?.debug('[GerritDetector] No host entry found in .gitreview');
-    } catch (e) {
-        if ((e as { code?: string }).code !== 'ENOENT') {
-            outputChannel?.error(`[GerritDetector] Failed to parse .gitreview: ${e}`);
-        } else {
-            outputChannel?.debug('[GerritDetector] .gitreview file not found');
-        }
+async function getHostFromGitReview(
+    system: HostSystem | undefined,
+    repoRoot: string,
+    outputChannel?: LoggerChannel,
+): Promise<string | undefined> {
+    if (!system) {
+        return undefined;
     }
+    const gitreviewPath = join(repoRoot, '.gitreview');
+    outputChannel?.debug(`[GerritDetector] Checking .gitreview file at: ${gitreviewPath}`);
+    const [content] = await system.fs.readTextFiles([gitreviewPath]).catch((e: unknown) => {
+        outputChannel?.error(`[GerritDetector] Failed to read .gitreview: ${e}`);
+        return [null];
+    });
+    if (content === null) {
+        outputChannel?.debug('[GerritDetector] .gitreview file not found');
+        return undefined;
+    }
+    const match = content.match(/host=(.+)/);
+    if (match?.[1]) {
+        const host = normalizeHostUrl(match[1].trim());
+        outputChannel?.debug(`[GerritDetector] Found host in .gitreview: ${host}`);
+        return host;
+    }
+    outputChannel?.debug('[GerritDetector] No host entry found in .gitreview');
     return undefined;
 }
 
@@ -260,7 +267,7 @@ export async function detectGerritHost(
     }
 
     // 2. Check git config
-    const gitConfigHost = await getHostFromGitConfig(gitRoot, outputChannel);
+    const gitConfigHost = await getHostFromGitConfig(host.system, gitRoot, outputChannel);
     if (gitConfigHost) {
         outputChannel?.debug(`[GerritDetector] Found git config host candidate: ${gitConfigHost}`);
         if (await probeFn(gitConfigHost)) {
@@ -271,7 +278,7 @@ export async function detectGerritHost(
     }
 
     // 3. Check .gitreview
-    const gitreviewHost = await getHostFromGitReview(repoRoot, outputChannel);
+    const gitreviewHost = await getHostFromGitReview(host.system, repoRoot, outputChannel);
     if (gitreviewHost) {
         outputChannel?.debug(`[GerritDetector] Found .gitreview host candidate: ${gitreviewHost}`);
         if (await probeFn(gitreviewHost)) {

@@ -11,8 +11,6 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
     clearGceEnvironmentCache,
-    clearGitRootCache,
-    getGerritAuthHeader,
     getGitCookies,
     getGitCredential,
     isGceEnvironment,
@@ -20,22 +18,20 @@ import {
     isLoopbackHost,
     matchCookieDomain,
     parseGerritHost,
-    resolveGitRoot,
-} from '../utils/gerrit-credential-utils';
-import { TestRepo } from './test-repo';
+    resolveGitAuthHeader,
+} from '../utils/git-credential-utils';
+import type { TestRepo } from './test-repo';
 
 describe('Credential Utils', () => {
     let tempDir: string;
     let repo: TestRepo | undefined;
 
     beforeEach(async () => {
-        clearGitRootCache();
         repo = undefined;
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-view-cred-test-'));
     });
 
     afterEach(async () => {
-        clearGitRootCache();
         if (repo) {
             await repo.dispose();
         }
@@ -44,45 +40,6 @@ describe('Credential Utils', () => {
         } catch {
             // Ignore
         }
-    });
-
-    describe('resolveGitRoot', () => {
-        test('resolves git directory of a real jj repo', async () => {
-            repo = new TestRepo();
-            repo.init();
-
-            const gitRoot = await resolveGitRoot(repo.path);
-            expect(gitRoot).not.toBeNull();
-            expect(gitRoot).toBeSameFsPath(path.join(repo.path, '.git'));
-        });
-
-        test('caches resolved git root on subsequent calls', async () => {
-            repo = new TestRepo();
-            repo.init();
-
-            const gitRoot1 = await resolveGitRoot(repo.path);
-            const gitRoot2 = await resolveGitRoot(repo.path);
-            expect(gitRoot1).toBe(gitRoot2);
-            expect(gitRoot1).toBeSameFsPath(path.join(repo.path, '.git'));
-        });
-
-        test('clearGitRootCache clears cached results', async () => {
-            repo = new TestRepo();
-            repo.init();
-
-            const gitRoot1 = await resolveGitRoot(repo.path);
-            clearGitRootCache();
-            const gitRoot2 = await resolveGitRoot(repo.path);
-            expect(gitRoot1).toEqual(gitRoot2);
-        });
-
-        test('returns null when not in a jj repo and caches the negative result', async () => {
-            const result1 = await resolveGitRoot(tempDir);
-            expect(result1).toBeNull();
-
-            const result2 = await resolveGitRoot(tempDir);
-            expect(result2).toBeNull();
-        });
     });
 
     describe('matchCookieDomain', () => {
@@ -159,7 +116,7 @@ describe('Credential Utils', () => {
         });
     });
 
-    describe('getGerritAuthHeader', () => {
+    describe('resolveGitAuthHeader', () => {
         test('prioritizes LUCI token if present', async () => {
             const isWindows = process.platform === 'win32';
             const scriptName = isWindows ? 'luci-auth.cmd' : 'luci-auth';
@@ -195,7 +152,7 @@ describe('Credential Utils', () => {
             process.env.LUCI_CONTEXT = '{"some":"context"}';
 
             try {
-                const header = await getGerritAuthHeader('https://chromium-review.googlesource.com', null);
+                const header = await resolveGitAuthHeader('https://chromium-review.googlesource.com', null);
                 expect(header).toEqual({ name: 'Authorization', value: 'Bearer fake_luci_token_123' });
             } finally {
                 process.env.PATH = originalPath;
@@ -238,7 +195,7 @@ describe('Credential Utils', () => {
             process.env.PATH = `${tempDir}${path.delimiter}${originalPath}`;
 
             try {
-                const header = await getGerritAuthHeader('https://chromium-review.googlesource.com', null);
+                const header = await resolveGitAuthHeader('https://chromium-review.googlesource.com', null);
                 expect(header).toEqual({ name: 'Authorization', value: 'Basic c3NvX3VzZXI6c3NvX3Bhc3M=' });
             } finally {
                 process.env.PATH = originalPath;
@@ -263,7 +220,7 @@ describe('Credential Utils', () => {
             process.env.LUCI_CONTEXT = '{"some":"context"}';
 
             try {
-                const header = await getGerritAuthHeader('https://gerrit.example.com', null);
+                const header = await resolveGitAuthHeader('https://gerrit.example.com', null);
                 expect(header).toBeUndefined();
             } finally {
                 process.env.PATH = originalPath;
@@ -298,7 +255,7 @@ describe('Credential Utils', () => {
             process.env.GCE_METADATA_HOST = `http://127.0.0.1:${port}`;
 
             try {
-                const header = await getGerritAuthHeader('https://gerrit.example.com', null);
+                const header = await resolveGitAuthHeader('https://gerrit.example.com', null);
                 expect(header).toEqual({ name: 'Authorization', value: 'Bearer fake_gce_token_789' });
             } finally {
                 process.env.GCE_METADATA_HOST = originalGceHost;
@@ -315,7 +272,7 @@ describe('Credential Utils', () => {
             await fs.writeFile(cookieFile, 'gerrit.example.com\tFALSE\t/\tTRUE\t0\to\tcookieval\n');
             cp.execSync(`git --git-dir="${gitDir}" config http.cookiefile "${cookieFile}"`);
 
-            const header = await getGerritAuthHeader('https://gerrit.example.com', gitDir);
+            const header = await resolveGitAuthHeader('https://gerrit.example.com', gitDir);
             expect(header).toEqual({ name: 'Authorization', value: 'Bearer cookieval' });
         });
 
@@ -327,7 +284,7 @@ describe('Credential Utils', () => {
             await fs.writeFile(cookieFile, 'gerrit.example.com\tFALSE\t/\tTRUE\t0\to\tgit-user=pass123\n');
             cp.execSync(`git --git-dir="${gitDir}" config http.cookiefile "${cookieFile}"`);
 
-            const header = await getGerritAuthHeader('https://gerrit.example.com', gitDir);
+            const header = await resolveGitAuthHeader('https://gerrit.example.com', gitDir);
             const expectedAuth = Buffer.from('git-user:pass123').toString('base64');
             expect(header).toEqual({ name: 'Authorization', value: `Basic ${expectedAuth}` });
         });
@@ -339,7 +296,7 @@ describe('Credential Utils', () => {
                 `git --git-dir="${gitDir}" config credential.helper "!f() { echo username=git-luci; echo password=token123; }; f"`,
             );
 
-            const header = await getGerritAuthHeader('https://gerrit.example.com', gitDir);
+            const header = await resolveGitAuthHeader('https://gerrit.example.com', gitDir);
             const expectedAuth = Buffer.from('git-luci:token123').toString('base64');
             expect(header).toEqual({ name: 'Authorization', value: `Basic ${expectedAuth}` });
         });
@@ -352,7 +309,7 @@ describe('Credential Utils', () => {
             await fs.writeFile(cookieFile, 'gerrit.example.com\tFALSE\t/\tTRUE\t0\to\tcookieval\n');
             cp.execSync(`git --git-dir="${gitDir}" config http.cookiefile "${cookieFile}"`);
 
-            const header = await getGerritAuthHeader('gerrit.example.com', gitDir);
+            const header = await resolveGitAuthHeader('gerrit.example.com', gitDir);
             expect(header).toEqual({ name: 'Authorization', value: 'Bearer cookieval' });
         });
 
@@ -360,7 +317,7 @@ describe('Credential Utils', () => {
             const gitDir = path.join(tempDir, 'git-repo-header-noauth.git');
             cp.execSync(`git init --bare "${gitDir}"`);
 
-            const header = await getGerritAuthHeader('https://gerrit.example.com', gitDir);
+            const header = await resolveGitAuthHeader('https://gerrit.example.com', gitDir);
             expect(header).toBeUndefined();
         });
     });

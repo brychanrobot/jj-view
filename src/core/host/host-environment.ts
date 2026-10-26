@@ -191,6 +191,45 @@ export interface HostViews {
     registerFileDecorationProvider(provider: unknown): HostDisposable;
 }
 
+/**
+ * Selects how the host authenticates an outbound request. The caller names a
+ * credential; it never handles the credential itself.
+ *
+ * - `git`: whatever git would send to the URL's host (git-remote-sso,
+ *   gitcookies, credential helpers). `gitDir` scopes repo-local git config.
+ * - `secret`: a Bearer token the host reads from {@link HostSecrets} under `key`.
+ * - `bearer`: a Bearer token already held by the caller (e.g. an OAuth session).
+ */
+export type HostHttpAuth =
+    | { readonly kind: 'git'; readonly gitDir?: string }
+    | { readonly kind: 'secret'; readonly key: string }
+    | { readonly kind: 'bearer'; readonly token: string };
+
+export interface HostHttpRequest {
+    readonly method?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+    /** Text body. HostHttp targets JSON APIs; binary payloads are not supported. */
+    readonly body?: string;
+    readonly auth?: HostHttpAuth;
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+}
+
+/**
+ * Outbound HTTP performed by the host process rather than the UI. In the web
+ * UI this routes through the daemon, which sidesteps CORS and keeps
+ * credentials out of the page; in VS Code it runs in the extension host.
+ */
+export interface HostHttp {
+    fetch(url: string, request?: HostHttpRequest): Promise<Response>;
+    /**
+     * Whether a `{ kind: 'git' }` request to `url` would carry a credential.
+     * Lets callers choose authenticated endpoints up front (e.g. Gerrit's
+     * `/a/` prefix) without ever seeing the credential.
+     */
+    hasGitCredentials(url: string, gitDir?: string): Promise<boolean>;
+}
+
 export interface HostEnvironment {
     readonly ui: HostUi;
     readonly nav: HostNavigation;
@@ -199,6 +238,7 @@ export interface HostEnvironment {
     readonly storage: HostStorage;
     readonly secrets: HostSecrets;
     readonly auth: HostAuth;
+    readonly http: HostHttp;
     readonly commands: HostCommands;
     readonly views: HostViews;
     readonly workspace: HostWorkspace;

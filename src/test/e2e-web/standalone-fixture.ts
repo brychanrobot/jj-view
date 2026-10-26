@@ -35,6 +35,15 @@ declare global {
         };
     }
 }
+export interface StandaloneServerOptions {
+    /**
+     * Seeds the daemon's user data directory before launch. The daemon runs
+     * with HOME pointed at this directory, so tests can plant files like
+     * `.gitcookies` or `config.json` (user settings) here.
+     */
+    readonly prepareUserData?: (userDataDir: string) => void;
+}
+
 export class StandaloneServer {
     public serverUrl = '';
     public baseUrl = '';
@@ -46,7 +55,10 @@ export class StandaloneServer {
     private _stdout = '';
     private _stderr = '';
 
-    constructor(public readonly repo: TestRepo) {}
+    constructor(
+        public readonly repo: TestRepo,
+        private readonly options: StandaloneServerOptions = {},
+    ) {}
 
     public async start(): Promise<void> {
         const isWin = process.platform === 'win32';
@@ -59,6 +71,7 @@ export class StandaloneServer {
 
         const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-userdata-'));
         this.userDataDir = tempUserDataDir;
+        this.options.prepareUserData?.(tempUserDataDir);
 
         return new Promise<void>((resolve, reject) => {
             const proc = cp.spawn(

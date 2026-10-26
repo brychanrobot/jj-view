@@ -43,6 +43,14 @@ This installs JJ View as an Antigravity plugin with its own Source Control icon,
 
 When the hub launches the daemon it configures it through environment variables (`ANTIGRAVITY_SIDECAR_WEB_PORT`, `ANTIGRAVITY_SIDECAR_UI_TOKEN`, `ANTIGRAVITY_CSRF_TOKEN`) rather than flags; you do not need to set these yourself. In that mode the browser is never opened automatically and the hub, not the daemon, controls which origins may connect.
 
+## Code forges
+
+GitHub, GitLab and Gerrit integrations work the same as in the extension.
+
+Gerrit requests are made by the daemon, not the browser page (Gerrit's API does not allow cross-origin requests), using the credentials git itself would use for the host, in this order: `git-remote-sso` (Google hosts), the git cookie file (`http.cookiefile`, `$GIT_COOKIES_PATH`, or `~/.gitcookies`), then `git credential fill`. The credential never reaches the page. If `git fetch` against the Gerrit host works from your shell, JJ View is authenticated too.
+
+Outbound daemon requests are limited to HTTPS, plus plain HTTP for loopback hosts.
+
 ## Requirements
 
 - **Jujutsu (jj)** on your `PATH`, or a `binaryPath` entry in the settings file. See the [installation guide](https://docs.jj-vcs.dev/latest/install-and-setup).

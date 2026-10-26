@@ -16,6 +16,7 @@ import type {
     HostDocuments,
     HostEnvironment,
     HostExtensions,
+    HostHttp,
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
@@ -32,6 +33,7 @@ import type { HostSystem } from '../core/host/host-system';
 import { NodeHostSystem } from '../core/host/node-host-system';
 import { createCommitDetailsUri, getFsPathFromUri, getUriParams, toFileUri, type Uri } from '../core/uri-utils';
 import { formatCommitTitle } from '../utils/jj-utils';
+import { NodeHostHttp } from '../utils/node-host-http';
 import type { LoggerChannel } from '../utils/output-channel';
 import { getJjViewConfig } from './config-utils';
 
@@ -717,6 +719,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
     readonly storage: HostStorage;
     readonly secrets: HostSecrets;
     readonly auth: HostAuth;
+    readonly http: HostHttp;
     readonly commands: HostCommands;
     readonly views: HostViews;
     readonly workspace: HostWorkspace;
@@ -734,6 +737,7 @@ export class VsCodeHostEnvironment implements HostEnvironment, HostDisposable {
         this.storage = new VsCodeHostStorage(options.context.workspaceState);
         this.secrets = new VsCodeHostSecrets(options.context.secrets);
         this.auth = new VsCodeHostAuth();
+        this.http = new NodeHostHttp(this.secrets, options.logger);
         this.commands = new VsCodeHostCommands();
         this.views = new VsCodeHostViews();
         this.workspace = new VsCodeHostWorkspace();
