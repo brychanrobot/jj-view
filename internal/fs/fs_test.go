@@ -70,6 +70,43 @@ func TestSandboxIsolation(t *testing.T) {
 	}
 }
 
+// Exists uses the non-symlink-resolving validation path, which verifies the
+// parent directory stays inside the sandbox. For an allowed root the parent is
+// outside by definition; that must not make the root itself report as absent,
+// otherwise repository discovery walks every ancestor to "/" on each startup.
+func TestExistsOnAllowedRoot(t *testing.T) {
+	tempRepo, err := os.MkdirTemp("", "jj-view-fs-root-test")
+	if err != nil {
+		t.Fatalf("failed to create temp repo: %v", err)
+	}
+	defer os.RemoveAll(tempRepo)
+
+	extraRoot, err := os.MkdirTemp("", "jj-view-fs-extra-root")
+	if err != nil {
+		t.Fatalf("failed to create extra root: %v", err)
+	}
+	defer os.RemoveAll(extraRoot)
+
+	sm, err := NewSandboxManager(tempRepo)
+	if err != nil {
+		t.Fatalf("failed to create sandbox manager: %v", err)
+	}
+	sm.AddAllowedRoot(extraRoot)
+
+	if !sm.Exists(tempRepo) {
+		t.Fatalf("expected Exists(repoRoot) to be true")
+	}
+	if !sm.Exists(extraRoot) {
+		t.Fatalf("expected Exists(addedRoot) to be true")
+	}
+	if sm.Exists(filepath.Dir(tempRepo)) {
+		t.Fatalf("expected Exists(parent of root) to be false (outside sandbox)")
+	}
+	if _, err := sm.Lstat(tempRepo); err != nil {
+		t.Fatalf("expected Lstat(repoRoot) to succeed, got: %v", err)
+	}
+}
+
 func TestFileOperations(t *testing.T) {
 	tempRepo, err := os.MkdirTemp("", "jj-view-fs-ops-test")
 	if err != nil {

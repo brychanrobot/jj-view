@@ -29,6 +29,7 @@ type SandboxManager struct {
 	repoRoot      string
 	daemonTempDir string
 }
+
 func appendIfMissing(slice []string, val string) []string {
 	clean := filepath.Clean(val)
 	for _, s := range slice {
@@ -150,6 +151,17 @@ func (sm *SandboxManager) isAllowed(p string, roots []string) bool {
 	return false
 }
 
+// isRoot reports whether p is exactly one of the allowed roots (after Clean).
+func (sm *SandboxManager) isRoot(p string, roots []string) bool {
+	cleanP := filepath.Clean(p)
+	for _, root := range roots {
+		if filepath.Clean(root) == cleanP {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidatePath validates that a path is contained within an allowed sandbox directory.
 func (sm *SandboxManager) ValidatePath(path string) (string, error) {
 	return sm.validatePathInternal(path, true)
@@ -219,8 +231,11 @@ func (sm *SandboxManager) validatePathInternal(path string, resolveSymlinks bool
 				parent = filepath.Dir(parent)
 			}
 		}
-	} else {
-		// When not resolving the symlink itself (Lstat/Rm), verify ancestor directory symlinks
+	} else if !sm.isRoot(absPath, roots) {
+		// When not resolving the symlink itself (Lstat/Rm), verify ancestor
+		// directory symlinks. An allowed root's own parent is outside the
+		// sandbox by construction, so the check only applies to paths strictly
+		// below a root; without this guard Exists(<root>) always reports false.
 		parent := filepath.Dir(absPath)
 		if parent != absPath {
 			resolvedParent, err := filepath.EvalSymlinks(parent)
