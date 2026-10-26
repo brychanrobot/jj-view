@@ -262,4 +262,26 @@ describe('QuickInput SSR Component Rendering', () => {
         expect(rendered.html).not.toContain('codicon-chevron-right');
         expect(rendered.html).not.toContain('item-icon-empty');
     });
+
+    it('renders context attachment badge and snippet preview when contextAttachment is provided', () => {
+        const service = new QuickInputService();
+        void service.showInputBox({
+            title: 'Add Selection to Chat',
+            prompt: 'Press Enter to send selection to chat',
+            contextAttachment: {
+                label: 'src/app.ts:10-12',
+                detail: 'Working Copy • 3 lines',
+                snippet: 'const a = 1;\nconst b = 2;\nreturn a + b;',
+            },
+        });
+
+        const rendered = render(QuickInput, {
+            props: { service },
+        });
+
+        expect(rendered.html).toContain('quick-input-context-attachment');
+        expect(rendered.html).toContain('src/app.ts:10-12');
+        expect(rendered.html).toContain('Working Copy • 3 lines');
+        expect(rendered.html).toContain('const a = 1;');
+    });
 });

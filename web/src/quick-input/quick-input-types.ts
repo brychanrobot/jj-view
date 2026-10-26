@@ -15,12 +15,19 @@ export interface QuickPickItem<T = unknown> {
 
 export type InputBoxValidationMessage = string | null | undefined;
 
+export interface InputBoxContextAttachment {
+    label: string;
+    detail?: string;
+    snippet: string;
+}
+
 export interface InputBoxOptions {
     title?: string;
     prompt?: string;
     value?: string;
     placeHolder?: string;
     password?: boolean;
+    contextAttachment?: InputBoxContextAttachment;
     validateInput?: (value: string) => InputBoxValidationMessage | Promise<InputBoxValidationMessage>;
 }
 

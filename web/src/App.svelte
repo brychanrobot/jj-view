@@ -29,6 +29,12 @@ import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-br
 import CommentsPane from './comments/CommentsPane.svelte';
 import { CommentsStore, type CommentThreadHandle, normalizeThreadPath } from './comments/comments-store.svelte';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
+import {
+    type EditorChatContextSelection,
+    formatChatContextMessage,
+    formatSelectionBadgeDetail,
+    formatSelectionBadgeLabel,
+} from './diff/chat-context-selection';
 import { applyAppTheme, loadTheme } from './diff/highlighter-setup';
 import PierreDiffViewer from './diff/PierreDiffViewer.svelte';
 import PierreFileViewer from './diff/PierreFileViewer.svelte';
@@ -115,11 +121,19 @@ const activeStatusBar = $derived(statusBarService ?? webHostEnv?.statusBar ?? fa
 const menuRegistry = new MenuRegistry();
 const rootContext = new ContextKeyService();
 
+interface ChatContextSelectionProvider {
+    getChatContextSelection: () => EditorChatContextSelection | null;
+}
+
 // svelte-ignore state_referenced_locally
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
 let tabs = $state<TabEntry[]>([]);
 let activeTabId = $state<string | undefined>();
 let activeTabSelection = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
+let activeDiffViewerRef = $state<ChatContextSelectionProvider | null>(null);
+let activeFileViewerRef = $state<ChatContextSelectionProvider | null>(null);
+let activeMultiDiffViewerRef = $state<ChatContextSelectionProvider | null>(null);
+let contextMenuSelectionSnapshot = $state<EditorChatContextSelection | null>(null);
 let isSettingsOpen = $state(false);
 let activeTheme = $state('pierre-dark-soft');
 
@@ -949,6 +963,66 @@ async function handleResolveConflict(): Promise<void> {
     await loadDiffContents(activeTab.view.resourceState, { preview: false });
 }
 
+function resolveActiveChatContextSelection(): EditorChatContextSelection | null {
+    if (!activeTab) {
+        return null;
+    }
+    if (activeTab.view.type === 'diff') {
+        return activeDiffViewerRef?.getChatContextSelection() ?? null;
+    }
+    if (activeTab.view.type === 'file') {
+        return activeFileViewerRef?.getChatContextSelection() ?? null;
+    }
+    if (activeTab.view.type === 'multi-diff') {
+        return activeMultiDiffViewerRef?.getChatContextSelection() ?? null;
+    }
+    return null;
+}
+
+async function handleAddSelectionToChat(explicitSelection?: EditorChatContextSelection): Promise<void> {
+    if (!webHostEnv?.sidecar.isAvailable) {
+        void activeNotifications.showInformation('Chat context requires running inside Antigravity sidecar mode.');
+        return;
+    }
+
+    const selection = explicitSelection ?? resolveActiveChatContextSelection() ?? contextMenuSelectionSnapshot;
+    contextMenuSelectionSnapshot = null;
+
+    if (!selection) {
+        void activeNotifications.showInformation('Select lines or text in the diff or file viewer first.');
+        return;
+    }
+
+    const badgeLabel = formatSelectionBadgeLabel(selection);
+    const badgeDetail = formatSelectionBadgeDetail(selection);
+    const promptText = await activeQuickInput.showInputBox({
+        title: 'Add Selection to Chat',
+        prompt: 'Press Enter to send selection to chat (optional message)',
+        placeHolder: 'Ask a question or describe what to do with this selection...',
+        contextAttachment: {
+            label: badgeLabel,
+            detail: badgeDetail,
+            snippet: selection.selectedText,
+        },
+    });
+
+    if (promptText === undefined) {
+        return;
+    }
+
+    const formattedMessage = formatChatContextMessage(selection, promptText);
+    try {
+        const res = await webHostEnv.sidecar.sendMessage(formattedMessage);
+        if (res?.error) {
+            void webHostEnv.ui.showErrorMessage(`Failed to send selection to chat: ${res.error}`);
+            return;
+        }
+        void activeNotifications.showInformation(`Sent ${badgeLabel} to chat.`);
+    } catch (err) {
+        void webHostEnv.ui.showErrorMessage(`Failed to send selection to chat: ${toError(err).message}`);
+    }
+}
+
 async function handleSquashSelection(ranges: { startLine: number; endLine: number }[]): Promise<void> {
     if (!activeTab || activeTab.view.type !== 'diff' || !activeTab.view.rightUri) {
         return;
@@ -1053,6 +1127,7 @@ let contextMenuState = $state<ContextMenuState>({
 });
 
 function closeContextMenu(): void {
+    contextMenuSelectionSnapshot = null;
     contextMenuState = {
         visible: false,
         x: 0,
@@ -1077,6 +1152,11 @@ function handleWindowContextMenu(e: MouseEvent): void {
     }
 
     const menuId = typeof context.menuId === 'string' ? context.menuId : 'webview/context';
+    if (menuId === 'editor/context') {
+        contextMenuSelectionSnapshot = resolveActiveChatContextSelection();
+    } else {
+        contextMenuSelectionSnapshot = null;
+    }
     const scopedCtx = rootContext.createScoped(context);
     const groups = menuRegistry.getContextActions(menuId, scopedCtx);
 
@@ -1241,6 +1321,10 @@ onMount(() => {
         // the host to focus its comments panel; here that is the Comments tab.
         webHostEnv.commands.registerCommand('workbench.action.focusCommentsPanel', async () => {
             openCommentsTab();
+        });
+
+        webHostEnv.commands.registerCommand('jj-view.addSelectionToChat', async () => {
+            await handleAddSelectionToChat();
         });
 
         webHostEnv.commands.setContextKeySetter(rootContext);
@@ -1554,6 +1638,7 @@ onMount(() => {
                     {:else}
                         {#key activeTab.id}
                             <PierreDiffViewer
+                                bind:this={activeDiffViewerRef}
                                 filename={activeTab.title}
                                 resourceUri={activeTab.view.rightUri ?? activeTab.view.resourceState?.resourceUri}
                                 theme={activeTheme}
@@ -1593,23 +1678,27 @@ onMount(() => {
                                     activeTabSelection = ranges;
                                 }}
                                 onSquashSelection={handleSquashSelection}
+                                onAddSelectionToChat={() => handleAddSelectionToChat()}
                             />
                         {/key}
                     {/if}
                 {:else if activeTab && activeTab.view.type === 'multi-diff'}
                     {#key activeTab.id}
                         <PierreMultiDiffViewer
+                            bind:this={activeMultiDiffViewerRef}
                             title={activeTab.title}
                             files={activeTab.view.files}
                             theme={activeTheme}
                             commentThreads={activeMultiDiffThreads}
                             onReplyToThread={replyToThread}
                             onSetThreadResolved={setThreadResolved}
+                            onAddSelectionToChat={() => handleAddSelectionToChat()}
                         />
                     {/key}
                 {:else if activeTab && activeTab.view.type === 'file'}
                     {#key activeTab.id}
                         <PierreFileViewer
+                            bind:this={activeFileViewerRef}
                             filename={activeTab.title}
                             resourceUri={activeTab.view.uri}
                             content={activeTab.view.content ?? ''}
@@ -1634,6 +1723,7 @@ onMount(() => {
                             onSelectionChange={(ranges) => {
                                 activeTabSelection = ranges;
                             }}
+                            onAddSelectionToChat={() => handleAddSelectionToChat()}
                         />
                     {/key}
                 {:else if activeTab && activeTab.view.type === 'commit-details' && activeCommitDetailsSession}

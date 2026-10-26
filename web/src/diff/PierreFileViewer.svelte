@@ -8,6 +8,7 @@ import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
 import { isBinaryFile } from './binary-detection';
+import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 
@@ -23,6 +24,7 @@ interface Props {
     onDirtyChange?: (isDirty: boolean) => void;
     onContentChange?: (newContent: string) => void;
     onSelectionChange?: (ranges: { startLine: number; endLine: number }[] | undefined) => void;
+    onAddSelectionToChat?: () => Promise<void> | void;
 }
 
 let {
@@ -37,6 +39,7 @@ let {
     onDirtyChange,
     onContentChange,
     onSelectionChange,
+    onAddSelectionToChat,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
@@ -225,6 +228,20 @@ function handleRedo(): void {
     }
 }
 
+export function getChatContextSelection(): EditorChatContextSelection | null {
+    return (
+        resolveDiffOrFileSelection({
+            filename,
+            resourceUri,
+            isWorkingCopy,
+            containerEl,
+            modifiedContent: currentContent || content,
+            editorInstance,
+            selectedRanges,
+        }) ?? null
+    );
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
     handleEditorKeyDown(e, {
         isWorkingCopy,
@@ -233,6 +250,7 @@ function handleKeyDown(e: KeyboardEvent): void {
         onSave: handleSave,
         onUndo: handleUndo,
         onRedo: handleRedo,
+        onAddSelectionToChat,
         onEscape: () => {
             if (selectedRanges) {
                 selectedRanges = undefined;

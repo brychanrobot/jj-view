@@ -103,4 +103,50 @@ describe('handleEditorKeyDown', () => {
         handleEditorKeyDown(eventMeta, { isWorkingCopy: true, canRedo: true, onRedo });
         expect(onRedo).toHaveBeenCalledTimes(2);
     });
+
+    it('triggers onAddSelectionToChat on Ctrl/Cmd+L and Ctrl/Cmd+I even when isWorkingCopy is false', () => {
+        const onAddSelectionToChat = vi.fn();
+        const preventDefault = vi.fn();
+
+        const ctrlL = createKeyboardEvent({ key: 'l', ctrlKey: true, preventDefault });
+        handleEditorKeyDown(ctrlL, { isWorkingCopy: false, onAddSelectionToChat });
+        expect(preventDefault).toHaveBeenCalledTimes(1);
+        expect(onAddSelectionToChat).toHaveBeenCalledTimes(1);
+
+        const metaL = createKeyboardEvent({ key: 'L', metaKey: true, preventDefault });
+        handleEditorKeyDown(metaL, { isWorkingCopy: true, onAddSelectionToChat });
+        expect(preventDefault).toHaveBeenCalledTimes(2);
+        expect(onAddSelectionToChat).toHaveBeenCalledTimes(2);
+
+        const ctrlI = createKeyboardEvent({ key: 'i', ctrlKey: true, preventDefault });
+        handleEditorKeyDown(ctrlI, { isWorkingCopy: false, onAddSelectionToChat });
+        expect(preventDefault).toHaveBeenCalledTimes(3);
+        expect(onAddSelectionToChat).toHaveBeenCalledTimes(3);
+
+        const metaI = createKeyboardEvent({ key: 'i', metaKey: true, preventDefault });
+        handleEditorKeyDown(metaI, { isWorkingCopy: true, onAddSelectionToChat });
+        expect(preventDefault).toHaveBeenCalledTimes(4);
+        expect(onAddSelectionToChat).toHaveBeenCalledTimes(4);
+    });
+
+    it('ignores Ctrl/Cmd+L when Shift is held or target is inside quick-input-widget', () => {
+        const onAddSelectionToChat = vi.fn();
+        const shiftCtrlL = createKeyboardEvent({ key: 'l', ctrlKey: true, shiftKey: true });
+        handleEditorKeyDown(shiftCtrlL, { isWorkingCopy: true, onAddSelectionToChat });
+        expect(onAddSelectionToChat).not.toHaveBeenCalled();
+
+        const quickInputTarget = createMock<HTMLElement>({
+            tagName: 'DIV',
+            closest: vi.fn((selector: string) =>
+                selector === '[data-testid="quick-input-widget"]' ? createMock<Element>({}) : null,
+            ),
+        });
+        const eventInQuickInput = createKeyboardEvent({
+            key: 'l',
+            ctrlKey: true,
+            target: quickInputTarget as EventTarget,
+        });
+        handleEditorKeyDown(eventInQuickInput, { isWorkingCopy: true, onAddSelectionToChat });
+        expect(onAddSelectionToChat).not.toHaveBeenCalled();
+    });
 });

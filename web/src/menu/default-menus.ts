@@ -370,6 +370,12 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(key)',
         },
         {
+            command: 'jj-view.addSelectionToChat',
+            title: 'Add Selection to Chat',
+            category: 'JJ View',
+            icon: '$(comment-discussion)',
+        },
+        {
             command: 'jj-view.showComments',
             title: 'Show Comments',
             category: 'JJ View',
@@ -554,6 +560,10 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             {
                 command: 'jj-view.toggleCommitAction.abandon.off',
                 when: 'false',
+            },
+            {
+                command: 'jj-view.addSelectionToChat',
+                when: 'ag.isSidecar',
             },
         ],
         'view/title': [
@@ -891,6 +901,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             },
         ],
         'editor/context': [
+            {
+                command: 'jj-view.addSelectionToChat',
+                group: 'jj-view@0',
+                when: 'ag.isSidecar',
+            },
             {
                 command: 'jj-view.squashSelectionIntoParent',
                 group: 'jj-view@1',

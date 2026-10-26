@@ -226,6 +226,23 @@ function handleKeyDown(e: KeyboardEvent): void {
             </div>
         {/if}
 
+        {#if session.type === 'input-box' && session.options.contextAttachment}
+            <div class="quick-input-context-attachment" data-testid="quick-input-context-attachment">
+                <div class="quick-input-context-header">
+                    <span class="quick-input-context-badge" data-testid="quick-input-context-badge">
+                        <i class="codicon codicon-file-code" aria-hidden="true"></i>
+                        <span>{session.options.contextAttachment.label}</span>
+                    </span>
+                    {#if session.options.contextAttachment.detail}
+                        <span class="quick-input-context-detail" data-testid="quick-input-context-detail">
+                            {session.options.contextAttachment.detail}
+                        </span>
+                    {/if}
+                </div>
+                <pre class="quick-input-context-snippet" data-testid="quick-input-context-snippet">{session.options.contextAttachment.snippet}</pre>
+            </div>
+        {/if}
+
         <div class="quick-input-input-wrapper">
             <input
                 bind:this={inputEl}
@@ -367,6 +384,60 @@ function handleKeyDown(e: KeyboardEvent): void {
 .quick-input-close:hover {
     background-color: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
     color: var(--vscode-foreground);
+}
+
+.quick-input-context-attachment {
+    margin: 8px 10px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--vscode-textCodeBlock-background, var(--vscode-input-background));
+    border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.quick-input-context-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+.quick-input-context-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-editor-font-family, monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quick-input-context-detail {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.quick-input-context-snippet {
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 110px;
+    overflow: auto;
+    border-radius: 4px;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: pre;
 }
 
 .quick-input-input-wrapper {
