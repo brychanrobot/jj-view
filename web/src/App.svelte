@@ -13,6 +13,8 @@ import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-envi
 import type { FuzzyFileMatch } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
+import type { JjRepository } from '../../src/core/jj-repository';
+import type { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import type { JjStatusEntry } from '../../src/core/jj-types';
 import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
@@ -59,6 +61,7 @@ import { scoreFuzzyPath } from './quick-input/fuzzy-score';
 import QuickInput from './quick-input/QuickInput.svelte';
 import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
 import ScmPane from './scm/ScmPane.svelte';
+import type { ScmRepositoryEntry } from './scm/scm-repo-types';
 import SettingsModal from './settings/SettingsModal.svelte';
 import { AVAILABLE_THEMES, THEME_DESCRIPTIONS } from './settings/settings-schema';
 import StatusBar from './status/StatusBar.svelte';
@@ -76,7 +79,9 @@ import {
 interface Props {
     host?: RemoteHostSystem;
     webHostEnv?: WebHostEnvironment;
+    repoManager?: JjRepositoryManager;
     scmModel?: ScmModel;
+    getScmModel?: (repo: JjRepository) => ScmModel;
     initialSnapshot?: ScmSnapshot;
     workspaceRoot?: string;
     viewFs?: JjViewFsService;
@@ -94,7 +99,9 @@ interface Props {
 let {
     host,
     webHostEnv,
+    repoManager,
     scmModel,
+    getScmModel,
     initialSnapshot,
     workspaceRoot: initialWorkspaceRoot = '',
     viewFs,
@@ -130,10 +137,32 @@ interface ChatContextSelectionProvider {
 }
 
 // svelte-ignore state_referenced_locally
+let focusedRepo = $state<JjRepository | undefined>(repoManager?.focusedRepository ?? scmModel?.repo);
+const activeScmModel = $derived(focusedRepo && getScmModel ? getScmModel(focusedRepo) : scmModel);
+// svelte-ignore state_referenced_locally
+let scmRepositories = $state<ScmRepositoryEntry[]>(
+    repoManager && getScmModel
+        ? repoManager.repositories.map((r) => ({
+              workspaceRoot: r.rootUri.fsPath,
+              snapshot: getScmModel(r).snapshot,
+          }))
+        : [],
+);
+// svelte-ignore state_referenced_locally
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
 // svelte-ignore state_referenced_locally
-let currentRepoRoot = $state(scmModel?.repo.rootUri.fsPath ?? '');
+let currentRepoRoot = $state((repoManager?.focusedRepository ?? scmModel?.repo)?.rootUri.fsPath ?? '');
 const workspaceRoot = $derived(currentRepoRoot || initialWorkspaceRoot);
+
+function resolveScmModelForUri(uri?: Uri): ScmModel | undefined {
+    if (uri && repoManager && getScmModel) {
+        const matched = repoManager.getRepositoryForUri(uri);
+        if (matched) {
+            return getScmModel(matched);
+        }
+    }
+    return activeScmModel;
+}
 let tabs = $state<TabEntry[]>([]);
 let activeTabId = $state<string | undefined>();
 let activeTabSelection = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
@@ -309,7 +338,7 @@ function collectPrioritizedQuickOpenFiles(searchRoot: string): QuickOpenFileItem
 
     const modifiedStatusByFullPath = new Map<string, string>();
     const repoRoot = workspaceRoot || searchRoot;
-    const snap = currentSnapshot ?? scmModel?.snapshot;
+    const snap = currentSnapshot ?? activeScmModel?.snapshot;
     if (snap?.conflictedPaths) {
         for (const p of snap.conflictedPaths) {
             const full = path.join(repoRoot, p);
@@ -713,7 +742,7 @@ function ensureCommitDetailsSession(tab: TabEntry): void {
     if (tab.view.type !== 'commit-details') {
         return;
     }
-    const model = scmModel;
+    const model = activeScmModel;
     const hostEnv = webHostEnv;
     if (!model || !hostEnv) {
         return;
@@ -1220,8 +1249,9 @@ async function handleSaveFile(newContent: string): Promise<void> {
     }
     activeTab.isDirty = false;
     webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-    if (scmModel) {
-        await scmModel.refresh({ reason: 'save-file' });
+    const targetScm = resolveScmModelForUri(targetUri);
+    if (targetScm) {
+        await targetScm.refresh({ reason: 'save-file' });
     }
 }
 
@@ -1232,8 +1262,9 @@ async function handleDiscardFile(): Promise<void> {
     if (activeTab.view.type === 'diff' && activeTab.view.resourceState) {
         const state = activeTab.view.resourceState;
         await handleAction('jj-view.restore', state);
-        if (scmModel) {
-            await scmModel.refresh({ reason: 'discard-file' });
+        const targetScm = resolveScmModelForUri(state.resourceUri);
+        if (targetScm) {
+            await targetScm.refresh({ reason: 'discard-file' });
         }
         closeTabById(activeTab.id);
         return;
@@ -1241,8 +1272,9 @@ async function handleDiscardFile(): Promise<void> {
     if (activeTab.view.type === 'file') {
         if (activeTab.view.resourceState) {
             await handleAction('jj-view.restore', activeTab.view.resourceState);
-            if (scmModel) {
-                await scmModel.refresh({ reason: 'discard-file' });
+            const targetScm = resolveScmModelForUri(activeTab.view.resourceState.resourceUri);
+            if (targetScm) {
+                await targetScm.refresh({ reason: 'discard-file' });
             }
         } else if (activeTab.view.uri.scheme === 'file' || activeTab.view.uri.scheme === 'jj-edit') {
             const content = await resolveUriContent(activeTab.view.uri);
@@ -1257,8 +1289,9 @@ async function handleResolveConflict(): Promise<void> {
     if (!activeTab || activeTab.view.type !== 'diff' || !activeTab.view.resourceState) {
         return;
     }
-    if (scmModel) {
-        await scmModel.refresh({ reason: 'resolve-conflict' });
+    const targetScm = resolveScmModelForUri(activeTab.view.resourceState.resourceUri);
+    if (targetScm) {
+        await targetScm.refresh({ reason: 'resolve-conflict' });
     }
     await loadDiffContents(activeTab.view.resourceState, { preview: false });
 }
@@ -1267,9 +1300,10 @@ async function loadConflictPartsForResource(
     conflictPath: string,
     uri: Uri,
 ): Promise<{ base: string; left: string; right: string }> {
-    if (scmModel) {
+    const targetScm = resolveScmModelForUri(uri);
+    if (targetScm) {
         try {
-            return await scmModel.jj.getConflictParts(conflictPath);
+            return await targetScm.jj.getConflictParts(conflictPath);
         } catch {
             // Fall through to conflict marker fallback parser if jj resolve capture fails
         }
@@ -1286,8 +1320,9 @@ async function openMergeEditorForResource(state: JjResourceState, options?: Host
     const uri = state.resourceUri;
     const normPath = state.relativePath || uri.path || uri.fsPath || '';
     const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
-    const conflictPath =
-        currentSnapshot?.conflictedPaths.find((p) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
+    const targetScm = resolveScmModelForUri(uri);
+    const targetSnap = targetScm?.snapshot ?? currentSnapshot;
+    const conflictPath = targetSnap?.conflictedPaths.find((p) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
     const fileName = conflictPath.split('/').filter(Boolean).pop() || conflictPath || 'Merge';
     const mergeTitle = `${fileName} (Merge)`;
 
@@ -1341,8 +1376,9 @@ async function handleCompleteMerge(resolvedContent: string): Promise<void> {
     }
     activeTab.isDirty = false;
     webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-    if (scmModel) {
-        await scmModel.refresh({ reason: 'complete-merge' });
+    const targetScm = resolveScmModelForUri(targetUri);
+    if (targetScm) {
+        await targetScm.refresh({ reason: 'complete-merge' });
     }
     closeTabById(closingTabId);
 }
@@ -1427,6 +1463,91 @@ async function handleSquashSelection(ranges: { startLine: number; endLine: numbe
 }
 
 $effect(() => {
+    if (repoManager && getScmModel) {
+        const modelSubscriptions = new Map<string, { dispose: () => void }>();
+
+        const handleRepoSnapshot = async (repo: JjRepository, snapshot: ScmSnapshot): Promise<void> => {
+            const rootPath = repo.rootUri.fsPath;
+            scmRepositories = repoManager.repositories.map((r) => ({
+                workspaceRoot: r.rootUri.fsPath,
+                snapshot: r.rootUri.fsPath === rootPath ? snapshot : getScmModel(r).snapshot,
+            }));
+            const currentFocused = repoManager.focusedRepository ?? repoManager.repositories[0];
+            if (currentFocused && currentFocused.rootUri.fsPath === rootPath) {
+                focusedRepo = currentFocused;
+                currentRepoRoot = rootPath;
+                currentSnapshot = snapshot;
+            }
+            viewFs?.invalidateCache();
+            editFs?.invalidateCache();
+            if (webHostEnv) {
+                const cleaner = new DiffTabCleaner(
+                    repo.jj,
+                    (uri) => repoManager.getRepositoryForUri(uri) === repo,
+                    webHostEnv,
+                );
+                await cleaner.closeInvalidDiffEditors();
+            }
+            void reloadOpenDocumentTabs();
+        };
+
+        const syncSubscriptions = (): void => {
+            const activeRoots = new Set<string>();
+            for (const repo of repoManager.repositories) {
+                const rootPath = repo.rootUri.fsPath;
+                activeRoots.add(rootPath);
+                if (!modelSubscriptions.has(rootPath)) {
+                    const model = getScmModel(repo);
+                    const sub = model.onDidChangeSnapshot((snap) => {
+                        void handleRepoSnapshot(repo, snap);
+                    });
+                    modelSubscriptions.set(rootPath, sub);
+                }
+            }
+            for (const [rootPath, sub] of modelSubscriptions.entries()) {
+                if (!activeRoots.has(rootPath)) {
+                    sub.dispose();
+                    modelSubscriptions.delete(rootPath);
+                }
+            }
+            scmRepositories = repoManager.repositories.map((r) => ({
+                workspaceRoot: r.rootUri.fsPath,
+                snapshot: getScmModel(r).snapshot,
+            }));
+            const currentFocused = repoManager.focusedRepository ?? repoManager.repositories[0];
+            if (currentFocused) {
+                focusedRepo = currentFocused;
+                currentRepoRoot = currentFocused.rootUri.fsPath;
+                const focusedModel = getScmModel(currentFocused);
+                if (focusedModel.snapshot) {
+                    currentSnapshot = focusedModel.snapshot;
+                }
+            }
+        };
+
+        syncSubscriptions();
+        const reposSub = repoManager.onDidChangeRepositories(() => {
+            syncSubscriptions();
+        });
+        const focusSub = repoManager.onDidChangeFocusedRepository((r) => {
+            focusedRepo = r;
+            if (r) {
+                currentRepoRoot = r.rootUri.fsPath;
+                const focusedModel = getScmModel(r);
+                currentSnapshot = focusedModel.snapshot;
+            }
+        });
+
+        return () => {
+            reposSub.dispose();
+            focusSub.dispose();
+            for (const sub of modelSubscriptions.values()) {
+                sub.dispose();
+            }
+            modelSubscriptions.clear();
+        };
+    }
+
     if (!scmModel) {
         return;
     }
@@ -1621,6 +1742,13 @@ function unpackContextPayload(payload: unknown): unknown {
             resourceUri: Uri.revive(rawUri),
         };
     }
+    if ('rootUri' in record && record.rootUri && typeof record.rootUri === 'object') {
+        const rawUri = record.rootUri as Parameters<typeof Uri.revive>[0];
+        return {
+            ...record,
+            rootUri: Uri.revive(rawUri),
+        };
+    }
     return payload;
 }
 
@@ -1647,11 +1775,25 @@ async function handleOpenResource(state: JjResourceState, options?: { preview?: 
     }
 }
 
-function handleCommit(message: string): void {
+function handleCommit(message: string, targetWorkspaceRoot?: string): void {
+    if (targetWorkspaceRoot) {
+        void handleAction('jj-view.commit', {
+            description: message,
+            rootUri: Uri.file(targetWorkspaceRoot),
+        });
+        return;
+    }
     void handleAction('jj-view.commit', message);
 }
 
-function handleSetDescription(message: string): void {
+function handleSetDescription(message: string, targetWorkspaceRoot?: string): void {
+    if (targetWorkspaceRoot) {
+        void handleAction('jj-view.setDescription', {
+            description: message,
+            rootUri: Uri.file(targetWorkspaceRoot),
+        });
+        return;
+    }
     void handleAction('jj-view.setDescription', message);
 }
 
@@ -1821,8 +1963,9 @@ onMount(() => {
                         }
                         targetTab.isDirty = false;
                         webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-                        if (scmModel) {
-                            await scmModel.refresh({ reason: 'save-file' });
+                        const targetScm = resolveScmModelForUri(targetUri);
+                        if (targetScm) {
+                            await targetScm.refresh({ reason: 'save-file' });
                         }
                     }
                 }
@@ -2013,6 +2156,8 @@ onMount(() => {
         <ScmPane
             snapshot={currentSnapshot}
             {workspaceRoot}
+            repositories={scmRepositories}
+            focusedWorkspaceRoot={currentRepoRoot || workspaceRoot}
             {menuRegistry}
             {rootContext}
             openDiffOnClick={true}
@@ -2038,6 +2183,12 @@ onMount(() => {
             onCommit={handleCommit}
             onSetDescription={handleSetDescription}
             onAction={handleAction}
+            onFocusRepository={(targetRoot) => {
+                const matched = repoManager?.repositories.find((r) => r.rootUri.fsPath === targetRoot);
+                if (matched) {
+                    repoManager?.setFocusedRepository(matched);
+                }
+            }}
         />
     {/snippet}
 

@@ -27,11 +27,14 @@ test.describe('Standalone Web Multirepo Workspace', () => {
         sub1Repo.describe('sub1 commit');
         sub1Repo.new();
 
+        sub1Repo.writeFile('sub1_dirty.txt', 'uncommitted sub1 change\n');
+
         const sub2Repo = new ScopedTestRepo(sub2Path);
         sub2Repo.init();
         sub2Repo.writeFile('sub2_file.txt', 'sub2 content\n');
         sub2Repo.describe('sub2 commit');
         sub2Repo.new();
+        sub2Repo.writeFile('sub2_dirty.txt', 'uncommitted sub2 change\n');
 
         try {
             await page.goto(server.serverUrl);
@@ -61,6 +64,22 @@ test.describe('Standalone Web Multirepo Workspace', () => {
             expect(normDiscovered).toContain(normRoot);
             expect(normDiscovered).toContain(normSub1);
             expect(normDiscovered).toContain(normSub2);
+
+            // Verify multi-repository SCM sections are rendered with each repository's working copy changes
+            const repoSections = page.getByTestId('scm-repository-section');
+            await expect(repoSections).toHaveCount(3);
+            await expect(page.getByTestId('scm-pane')).toContainText('subproject1');
+            await expect(page.getByTestId('scm-pane')).toContainText('subproject2');
+            await expect(page.getByTestId('scm-pane')).toContainText('sub1_dirty.txt');
+            await expect(page.getByTestId('scm-pane')).toContainText('sub2_dirty.txt');
+
+            // Click "Show Repository in JJ Log" on subproject1 and verify focusedRepository updates
+            const sub1Section = page.locator('[data-testid="scm-repository-section"]', {
+                hasText: 'subproject1',
+            });
+            await sub1Section.getByTestId('scm-title-action-jj-view.focusRepository').click();
+            await expect(sub1Section.getByTestId('scm-repository-focused-badge')).toBeVisible();
+            await expect(page.getByTestId('log-pane')).toContainText('sub1 commit');
 
             // Capture screenshot for walkthrough
             await page.screenshot({

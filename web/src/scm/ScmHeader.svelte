@@ -11,10 +11,11 @@ interface Props {
     title?: string;
     menuRegistry: MenuRegistry;
     context: IContextKeyService;
+    showActions?: boolean;
     onAction: (command: string) => void;
 }
 
-let { title = 'SOURCE CONTROL', menuRegistry, context, onAction }: Props = $props();
+let { title = 'SOURCE CONTROL', menuRegistry, context, showActions = true, onAction }: Props = $props();
 
 let version = $state(0);
 
@@ -29,7 +30,7 @@ $effect(() => {
 });
 
 const actions: ResolvedMenuItem[] = $derived.by(() => {
-    if (version < 0) {
+    if (!showActions || version < 0) {
         return [];
     }
     return menuRegistry.getInlineActions('scm/title', context);

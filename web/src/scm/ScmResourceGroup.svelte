@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 import type { JjResourceState } from '../../../src/core/scm-resource-state';
+import { Uri } from '../../../src/core/uri-utils';
 import type { IContextKeyService } from '../menu/context-key-service';
 import type { MenuRegistry } from '../menu/menu-registry';
 import type { ResolvedMenuItem } from '../menu/menu-types';
@@ -85,6 +86,7 @@ const groupVsCodeContext = $derived(
         scmResourceGroupId: id,
         preventDefaultContextMenuItems: true,
         groupId: id,
+        ...(workspaceRoot ? { rootUri: Uri.file(workspaceRoot) } : {}),
         ...(revision ? { revision } : {}),
         ...(changeId ? { changeId } : {}),
         ...(commitId ? { commitId } : {}),
