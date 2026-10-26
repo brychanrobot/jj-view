@@ -7,6 +7,7 @@ import path from 'pathe';
 import { onMount, untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
+import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
@@ -19,7 +20,7 @@ import {
     type ResourceCommand,
     type ResourceDecorations,
 } from '../../src/core/scm-resource-state';
-import { encodeJjViewQuery, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
+import { encodeJjViewQuery, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
@@ -626,6 +627,103 @@ async function loadDiffContents(state: JjResourceState, options?: HostOpenOption
     await loadDiffFromUris(state.leftUri, state.rightUri, state.diffTitle || state.resourceUri.fsPath, state, options);
 }
 
+let documentReloadGeneration = 0;
+
+/**
+ * Re-reads the contents of every open diff and file tab. Called after each
+ * SCM snapshot so that tabs follow the repository the way VS Code editors
+ * follow a FileSystemProvider's change events. Dirty buffers keep the user's
+ * edits on the modified side; only the original side is refreshed for them.
+ */
+async function reloadOpenDocumentTabs(): Promise<void> {
+    const generation = ++documentReloadGeneration;
+    const reloads: Promise<void>[] = [];
+    for (const tab of tabs) {
+        const tabId = tab.id;
+        if (tab.view.type === 'diff' && tab.view.loaded) {
+            const { leftUri, rightUri } = tab.view;
+            reloads.push(
+                (async () => {
+                    const [leftText, rightText] = await Promise.all([
+                        resolveUriContent(leftUri),
+                        resolveUriContent(rightUri),
+                    ]);
+                    if (generation !== documentReloadGeneration) {
+                        return;
+                    }
+                    const target = tabs.find((t) => t.id === tabId);
+                    if (!target || target.view.type !== 'diff') {
+                        return;
+                    }
+                    if (target.view.originalContent !== leftText) {
+                        target.view.originalContent = leftText;
+                    }
+                    if (!target.isDirty && target.view.modifiedContent !== rightText) {
+                        target.view.modifiedContent = rightText;
+                    }
+                })(),
+            );
+            continue;
+        }
+        if (tab.view.type === 'file' && !tab.isDirty) {
+            const { uri } = tab.view;
+            reloads.push(
+                (async () => {
+                    const content = await resolveUriContent(uri);
+                    if (generation !== documentReloadGeneration) {
+                        return;
+                    }
+                    const target = tabs.find((t) => t.id === tabId);
+                    if (!target || target.view.type !== 'file' || target.isDirty || target.view.content === content) {
+                        return;
+                    }
+                    target.view.content = content;
+                })(),
+            );
+            continue;
+        }
+        if (tab.view.type === 'multi-diff') {
+            const files = tab.view.files;
+            reloads.push(
+                (async () => {
+                    const contents = await Promise.all(
+                        files.map(async (file) => {
+                            const [originalContent, modifiedContent] = await Promise.all([
+                                resolveUriContent(file.leftUri),
+                                resolveUriContent(file.rightUri),
+                            ]);
+                            return { originalContent, modifiedContent };
+                        }),
+                    );
+                    if (generation !== documentReloadGeneration) {
+                        return;
+                    }
+                    const target = tabs.find((t) => t.id === tabId);
+                    if (!target || target.view.type !== 'multi-diff' || target.view.files !== files) {
+                        return;
+                    }
+                    const changed = files.some(
+                        (file, i) =>
+                            file.originalContent !== contents[i].originalContent ||
+                            file.modifiedContent !== contents[i].modifiedContent,
+                    );
+                    if (!changed) {
+                        return;
+                    }
+                    // The multi-diff viewer re-renders on array identity, not on
+                    // nested fields, so swap in a new array rather than mutating.
+                    target.view.files = files.map((file, i) => ({ ...file, ...contents[i] }));
+                })(),
+            );
+        }
+    }
+    try {
+        await Promise.all(reloads);
+    } catch (err) {
+        console.error('Failed to reload open documents after repository change:', err);
+    }
+}
+
 async function loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<void> {
     const normPath = uri.path || uri.fsPath || '';
     const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
@@ -756,8 +854,26 @@ $effect(() => {
     if (!scmModel) {
         return;
     }
-    const disposable = scmModel.onDidChangeSnapshot((snapshot) => {
+    // The web app serves a single repository; jj-view/jj-edit URIs carry the
+    // root they were minted for, so anything with a different root is foreign.
+    const repoRoot = scmModel.repo.rootUri.fsPath;
+    const belongsToRepo = (uri: Uri): boolean => {
+        const root = getUriParams(uri).get('root');
+        return !root || root === repoRoot;
+    };
+    const diffTabCleaner = webHostEnv ? new DiffTabCleaner(scmModel.jj, belongsToRepo, webHostEnv) : undefined;
+
+    const disposable = scmModel.onDidChangeSnapshot(async (snapshot) => {
         currentSnapshot = snapshot;
+        // Same order as the extension's SCM provider: drop cached virtual file
+        // contents first, close tabs whose revision no longer exists, then
+        // re-read whatever is still open so the reads miss the cache. Without
+        // the invalidation, JjViewFsService keeps serving the previous diff
+        // for a base|path pair until the page is reloaded.
+        viewFs?.invalidateCache();
+        editFs?.invalidateCache();
+        await diffTabCleaner?.closeInvalidDiffEditors();
+        void reloadOpenDocumentTabs();
     });
     // The initial refresh runs concurrently with mount; pick up a snapshot
     // that completed before this subscription attached.

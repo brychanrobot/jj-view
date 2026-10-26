@@ -97,4 +97,110 @@ test.describe('Standalone Web File Watcher', () => {
 
         await expect(textarea).toHaveValue('details after external change', { timeout: 10000 });
     });
+
+    test('should refresh an open diff when the file changes on disk', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 original\nline 3\n');
+        testRepo.describe('base');
+        testRepo.new();
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 updated\nline 3\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        await page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'tracked.txt' })
+            .click();
+
+        const diffContainer = page.locator('[data-testid="pierre-diff-viewer"] [data-testid="diff-content-container"]');
+        await expect(diffContainer.getByText('line 2 updated')).toBeVisible({ timeout: 10000 });
+
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 final\nline 3\n');
+
+        await expect(diffContainer.getByText('line 2 final')).toBeVisible({ timeout: 10000 });
+        await expect(diffContainer.getByText('line 2 updated')).toHaveCount(0);
+    });
+
+    test('should refresh an open diff after an external squash changes its base', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 original\nline 3\n');
+        testRepo.describe('base');
+        testRepo.new();
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 updated\nline 3\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        await page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'tracked.txt' })
+            .click();
+
+        const diffContainer = page.locator('[data-testid="pierre-diff-viewer"] [data-testid="diff-content-container"]');
+        await expect(diffContainer.getByText('line 2 original')).toBeVisible({ timeout: 10000 });
+        await expect(diffContainer.getByText('line 2 updated')).toBeVisible();
+
+        // Fold the working copy into its parent, then edit again. The diff's
+        // left side (`jj-view` base=@) now resolves to the squashed parent, so
+        // the previously cached "line 2 original" must not survive.
+        testRepo.squash();
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 final\nline 3\n');
+
+        await expect(diffContainer.getByText('line 2 final')).toBeVisible({ timeout: 10000 });
+        await expect(diffContainer.getByText('line 2 updated')).toBeVisible();
+        await expect(diffContainer.getByText('line 2 original')).toHaveCount(0);
+    });
+
+    test('should close a diff tab whose revision is abandoned externally', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('tracked.txt', 'ancestor content\n');
+        testRepo.describe('ancestor commit');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        await page
+            .locator('[data-testid="scm-group-ancestor-0"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'tracked.txt' })
+            .click();
+
+        const tabs = page.locator('[data-testid="tab-bar-container"] .tab');
+        await expect(tabs).toHaveCount(1);
+        await expect(
+            page
+                .locator('[data-testid="pierre-diff-viewer"] [data-testid="diff-content-container"]')
+                .getByText('ancestor content'),
+        ).toBeVisible({ timeout: 10000 });
+
+        testRepo.abandon('@-');
+
+        await expect(tabs).toHaveCount(0, { timeout: 10000 });
+    });
+
+    test('should refresh an open multi-file diff when a file changes on disk', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 original\nline 3\n');
+        testRepo.describe('base');
+        testRepo.new();
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 updated\nline 3\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        await page.evaluate(() => {
+            void window.__JJ_VIEW_ENV__?.commands.executeCommand('jj-view.showMultiFileDiff');
+        });
+
+        const diffContainer = page.locator(
+            '[data-testid="pierre-multi-diff-viewer"] [data-testid="multi-diff-content-container"]',
+        );
+        await expect(diffContainer.getByText('line 2 updated')).toBeVisible({ timeout: 10000 });
+
+        testRepo.writeFile('tracked.txt', 'line 1\nline 2 final\nline 3\n');
+
+        await expect(diffContainer.getByText('line 2 final')).toBeVisible({ timeout: 10000 });
+        await expect(diffContainer.getByText('line 2 updated')).toHaveCount(0);
+    });
 });
