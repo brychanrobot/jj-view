@@ -27,6 +27,13 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "install" || os.Args[1] == "install-sidecar") {
+		if err := runInstall(os.Args[2:]); err != nil {
+			log.Fatalf("Install failed: %v", err)
+		}
+		return
+	}
+
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
 	repoFlag := flag.String("repo", ".", "Path to Jujutsu repository")
