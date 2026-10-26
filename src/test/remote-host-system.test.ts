@@ -12,10 +12,12 @@ import {
     RPC_CODE_INTERNAL_ERROR,
     RPC_CODE_PROCESS_ERROR,
 } from '../core/host/remote-host-system';
+import { type WebSocketLike, WsTransportError } from '../core/host/ws-rpc-channel';
 
 class FakeDaemonTransport implements EventSourceLike {
     public readyState: number = 0; // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
     public sentMessages: string[] = [];
+    public readonly fetchBodies: string[] = [];
     public onopen: ((ev: Event) => void) | null = null;
     public onmessage: ((ev: MessageEvent) => void) | null = null;
     public onerror: ((ev: Event) => void) | null = null;
@@ -80,6 +82,7 @@ class FakeDaemonTransport implements EventSourceLike {
 
     async fetch(_input: string | URL | Request, init?: RequestInit): Promise<Response> {
         const bodyStr = typeof init?.body === 'string' ? init.body : '';
+        this.fetchBodies.push(bodyStr);
         let parsed: Record<string, unknown> = {};
         try {
             parsed = JSON.parse(bodyStr) as Record<string, unknown>;
@@ -138,6 +141,7 @@ function setupRemoteHost(options?: {
         eventSourceFactory: () => fakeWs,
         fetch: fakeWs.fetch,
         reconnect: false,
+        useWebSocket: false,
     });
 
     fakeWs.onClientRequest((msg) => {
@@ -211,6 +215,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     },
                     fetch: fakeWs.fetch,
                     reconnect: false,
+                    useWebSocket: false,
                 });
 
                 expect(connectedUrl).toBe(
@@ -254,6 +259,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     },
                     fetch: fakeWs.fetch,
                     reconnect: false,
+                    useWebSocket: false,
                 });
 
                 expect(connectedUrl).toBe(
@@ -1131,6 +1137,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                 fetch: fakeWs.fetch,
                 requestTimeoutMs: 50,
                 reconnect: false,
+                useWebSocket: false,
             });
 
             fakeWs.onClientRequest((msg) => {
@@ -1167,6 +1174,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     throw new Error('CSP blocked');
                 },
                 reconnect: false,
+                useWebSocket: false,
             });
 
             await expect(host.ready).rejects.toThrow('CSP blocked');
@@ -1180,6 +1188,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                 eventSourceFactory: () => fakeWs,
                 fetch: fakeWs.fetch,
                 reconnect: false,
+                useWebSocket: false,
             });
 
             fakeWs.open();
@@ -1319,6 +1328,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     },
                     fetch: fakeWs.fetch,
                     reconnect: false,
+                    useWebSocket: false,
                 });
 
                 expect(capturedUrl).toContain('token=stored-token-123');
@@ -1344,6 +1354,7 @@ describe('RemoteHostSystem Unit Tests', () => {
                     },
                     fetch: fakeWs2.fetch,
                     reconnect: false,
+                    useWebSocket: false,
                 });
 
                 expect(capturedUrl).toContain('token=query-token-456');
@@ -1353,5 +1364,192 @@ describe('RemoteHostSystem Unit Tests', () => {
                 (globalThis as unknown as { window: unknown }).window = origWindow;
             }
         });
+    });
+});
+
+class FakeRpcSocket implements WebSocketLike {
+    public readyState = 0;
+    public readonly sent: string[] = [];
+    public onopen: ((ev: Event) => void) | null = null;
+    public onmessage: ((ev: MessageEvent) => void) | null = null;
+    public onclose: ((ev: CloseEvent) => void) | null = null;
+    public onerror: ((ev: Event) => void) | null = null;
+
+    send(data: string): void {
+        this.sent.push(data);
+    }
+
+    close(code?: number, reason?: string): void {
+        this.serverClose(code ?? 1005, reason ?? '');
+    }
+
+    open(): void {
+        this.readyState = 1;
+        this.onopen?.(new Event('open'));
+    }
+
+    reply(id: unknown, result: unknown): void {
+        this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ jsonrpc: '2.0', id, result }) }));
+    }
+
+    serverClose(code: number, reason: string): void {
+        if (this.readyState === 3) {
+            return;
+        }
+        this.readyState = 3;
+        this.onclose?.(Object.assign(new Event('close'), { code, reason, wasClean: true }) as CloseEvent);
+    }
+
+    sentFrames(): Array<Record<string, unknown>> {
+        return this.sent.map((s) => JSON.parse(s) as Record<string, unknown>);
+    }
+}
+
+interface SocketHostSetup {
+    host: RemoteHostSystem;
+    daemon: FakeDaemonTransport;
+    socket: FakeRpcSocket;
+    readonly wsUrl: string;
+}
+
+/** request() awaits `ready` before writing the frame; let pending microtasks run. */
+async function settle(): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+function setupHostWithSocket(): SocketHostSetup {
+    const daemon = new FakeDaemonTransport();
+    const socket = new FakeRpcSocket();
+    let wsUrl = '';
+    const host = new RemoteHostSystem({
+        url: 'http://127.0.0.1:8080?token=test-token',
+        clientId: 'mock-client-id',
+        eventSourceFactory: () => daemon,
+        fetch: daemon.fetch,
+        webSocketFactory: (url) => {
+            wsUrl = url;
+            return socket;
+        },
+        reconnect: false,
+    });
+    daemon.onClientRequest((msg) => {
+        if (msg.method === 'system.info') {
+            daemon.simulateMessage({
+                jsonrpc: '2.0',
+                id: msg.id,
+                result: { platform: 'linux', version: '1.0.0', repoRoot: '/mock/repo', tempDir: '/tmp' },
+            });
+        }
+    });
+    daemon.open();
+    return {
+        host,
+        daemon,
+        socket,
+        get wsUrl() {
+            return wsUrl;
+        },
+    };
+}
+
+describe('RemoteHostSystem WebSocket routing', () => {
+    it('opens the socket only after system.info succeeds over HTTP, with clientId and token', async () => {
+        const setup = setupHostWithSocket();
+        expect(setup.wsUrl).toBe('');
+        await setup.host.ready;
+        const url = new URL(setup.wsUrl);
+        expect(url.protocol).toBe('ws:');
+        expect(url.pathname).toBe('/api/ws');
+        expect(url.searchParams.get('clientId')).toBe('mock-client-id');
+        expect(url.searchParams.get('token')).toBe('test-token');
+        setup.host.dispose();
+    });
+
+    it('falls back to HTTP while the socket is not open', async () => {
+        const { host, daemon, socket } = setupHostWithSocket();
+        await host.ready;
+        daemon.onClientRequest((msg) => {
+            if (msg.method === 'fs.exists') {
+                daemon.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { exists: true } });
+            }
+        });
+        const before = daemon.fetchBodies.length;
+        await expect(host.fs.exists('/mock/repo/x')).resolves.toBe(true);
+        expect(socket.sent).toHaveLength(0);
+        expect(daemon.fetchBodies.length).toBe(before + 1);
+        host.dispose();
+    });
+
+    it('routes requests and notifications over the socket once it is open', async () => {
+        const { host, daemon, socket } = setupHostWithSocket();
+        await host.ready;
+        socket.open();
+
+        const httpBefore = daemon.fetchBodies.length;
+        const pending = host.fs.exists('/mock/repo/x');
+        await settle();
+        const [req] = socket.sentFrames();
+        expect(req?.method).toBe('fs.exists');
+        socket.reply(req?.id, { exists: true });
+        await expect(pending).resolves.toBe(true);
+        expect(daemon.fetchBodies.length).toBe(httpBefore);
+
+        host.notify('watcher.unwatch', { subscriptionId: 's1' });
+        expect(socket.sentFrames().at(-1)).toMatchObject({ method: 'watcher.unwatch' });
+        expect(daemon.fetchBodies.length).toBe(httpBefore);
+        host.dispose();
+    });
+
+    it('sends $/cancelRequest over the socket when a socket-routed request is aborted', async () => {
+        const { host, socket } = setupHostWithSocket();
+        await host.ready;
+        socket.open();
+
+        const controller = new AbortController();
+        const pending = host.request('process.execFile', { file: 'jj', args: ['log'] }, controller.signal);
+        await settle();
+        const [req] = socket.sentFrames();
+        expect(req?.method).toBe('process.execFile');
+        controller.abort(new Error('user cancelled'));
+        await expect(pending).rejects.toThrow('Request aborted');
+        expect(socket.sentFrames().at(-1)).toMatchObject({ method: '$/cancelRequest', params: { id: req?.id } });
+        host.dispose();
+    });
+
+    it('fails in-flight socket requests on close and uses HTTP for the next request', async () => {
+        const { host, daemon, socket } = setupHostWithSocket();
+        await host.ready;
+        socket.open();
+
+        const pending = host.fs.exists('/mock/repo/x');
+        await settle();
+        expect(socket.sentFrames()).toHaveLength(1);
+        socket.serverClose(1006, 'network');
+        await expect(pending).rejects.toBeInstanceOf(WsTransportError);
+
+        daemon.onClientRequest((msg) => {
+            if (msg.method === 'fs.exists') {
+                daemon.simulateMessage({ jsonrpc: '2.0', id: msg.id, result: { exists: false } });
+            }
+        });
+        const httpBefore = daemon.fetchBodies.length;
+        await expect(host.fs.exists('/mock/repo/y')).resolves.toBe(false);
+        expect(daemon.fetchBodies.length).toBe(httpBefore + 1);
+        host.dispose();
+    });
+
+    it('delivers notifications received on the socket to the same listeners as SSE', async () => {
+        const { host, socket } = setupHostWithSocket();
+        await host.ready;
+        socket.open();
+        const seen: string[] = [];
+        host.onStateDidChange((key) => seen.push(key));
+        socket.onmessage?.(
+            new MessageEvent('message', {
+                data: JSON.stringify({ jsonrpc: '2.0', method: 'state/didChange', params: { key: 'k' } }),
+            }),
+        );
+        expect(seen).toEqual(['k']);
+        host.dispose();
     });
 });

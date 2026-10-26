@@ -286,6 +286,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/forge-proxy", s.handleForgeProxy)
 	mux.HandleFunc("/api/rpc", s.handleRPC)
 	mux.HandleFunc("/api/events", s.handleEvents)
+	mux.HandleFunc("/api/ws", s.handleWS)
 
 	s.httpServer = &http.Server{
 		Handler:      mux,
