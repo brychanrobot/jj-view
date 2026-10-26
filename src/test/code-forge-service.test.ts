@@ -473,4 +473,74 @@ describe('CodeForgeService Tests', () => {
 
         service.dispose();
     });
+
+    test('populateCodeForgeInfo keeps parentSynced false on auto-rebased child when parent CL is modified locally', async () => {
+        const provider = new MockProvider();
+        registry.register({ id: 'mock-provider', create: () => provider });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        provider.setCachedChangeInfo(
+            'change-parent',
+            createMock<CodeForgeChangeInfo>({
+                id: '1005',
+                number: 1005,
+                displayLabel: 'cl/1005',
+                providerName: 'Custom Forge',
+                status: 'NEW',
+                currentRevision: 'rev-parent-uploaded',
+                remoteParents: ['rev-base'],
+                contentSynced: false,
+                parentSynced: true,
+                synced: false,
+            }),
+        );
+        provider.setCachedChangeInfo(
+            'change-child',
+            createMock<CodeForgeChangeInfo>({
+                id: '1008',
+                number: 1008,
+                displayLabel: 'cl/1008',
+                providerName: 'Custom Forge',
+                status: 'NEW',
+                currentRevision: 'rev-child-uploaded',
+                remoteParents: ['rev-parent-uploaded'],
+                contentSynced: true,
+                parentSynced: false,
+                synced: false,
+            }),
+        );
+
+        const parentCommit = createMock<JjLogEntry>({
+            change_id: 'change-parent',
+            commit_id: 'rev-parent-local',
+            description: 'Parent CL',
+            is_immutable: false,
+            bookmarks: [],
+            parents: [{ commit_id: 'rev-base', change_id: 'change-base', is_immutable: true }],
+        });
+        const childCommit = createMock<JjLogEntry>({
+            change_id: 'change-child',
+            commit_id: 'rev-child-rebased',
+            description: 'Child CL',
+            is_immutable: false,
+            bookmarks: [],
+            parents: [{ commit_id: 'rev-parent-local', change_id: 'change-parent', is_immutable: false }],
+        });
+
+        service.populateCodeForgeInfo([childCommit, parentCommit]);
+
+        expect(parentCommit.codeForgeChange?.contentSynced).toBe(false);
+        expect(parentCommit.codeForgeChange?.parentSynced).toBe(true);
+        expect(parentCommit.codeForgeChange?.synced).toBe(false);
+        expect(parentCommit.codeForgeNeedsUpload).toBe(true);
+
+        expect(childCommit.codeForgeChange?.contentSynced).toBe(true);
+        expect(childCommit.codeForgeChange?.parentSynced).toBe(false);
+        expect(childCommit.codeForgeChange?.synced).toBe(false);
+        expect(childCommit.codeForgeNeedsUpload).toBe(true);
+
+        service.dispose();
+    });
 });

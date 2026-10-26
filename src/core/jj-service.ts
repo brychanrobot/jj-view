@@ -1564,8 +1564,16 @@ export class JjService {
      */
     async getOperationHeads(): Promise<string[]> {
         const storePath = await this.getRepoStorePath();
-        const heads = await this.system.fs.readdir(path.join(storePath, 'op_heads', 'heads'));
-        return heads.sort();
+        try {
+            const heads = await this.system.fs.readdir(path.join(storePath, 'op_heads', 'heads'));
+            return heads.sort();
+        } catch {
+            const checkoutBytes = await this.system.fs.readBinaryFile(
+                path.join(this.workspaceRoot, '.jj', 'working_copy', 'checkout'),
+            );
+            const hex = Array.from(checkoutBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+            return [hex];
+        }
     }
 
     async getChanges(revision: string): Promise<JjFileChangeWithStats[]> {
@@ -1725,6 +1733,22 @@ export class JjService {
             isMutation: true,
             label: 'upload',
             timeout: UPLOAD_TIMEOUT_MS,
+        });
+    }
+
+    async runExternalMutation(
+        executable: string,
+        args: string[],
+        options: { timeout?: number; cwd?: string; label?: string } = {},
+    ): Promise<string> {
+        return this.runMutation(async () => {
+            const result = await this.execTracked(
+                executable,
+                args,
+                { ...options, isMutation: true, timeout: options.timeout ?? UPLOAD_TIMEOUT_MS },
+                (_allArgs, execOptions) => this.system.process.execFile(executable, args, execOptions),
+            );
+            return result.stdout.trim();
         });
     }
 
@@ -1949,30 +1973,13 @@ export class JjService {
         }
 
         try {
-            const gitRoot = await this.getGitRoot();
-            const res = await this.system.process.execFile(
-                'git',
-                [
-                    '--no-pager',
-                    '--no-optional-locks',
-                    ...(gitRoot ? [`--git-dir=${gitRoot}`] : []),
-                    'diff',
-                    '-U0',
-                    '--no-ext-diff',
-                    '--no-color',
-                    fromCommitId,
-                    toCommitId,
-                    '--',
-                    ...missingPaths,
-                ],
-                {
-                    cwd: this.workspaceRoot,
-                    maxBuffer: 10 * 1024 * 1024,
-                    timeout: 10000,
-                },
+            const stdout = await this.run(
+                'diff',
+                ['--git', '--context=0', '--from', fromCommitId, '--to', toCommitId, '--', ...missingPaths],
+                { useCachedSnapshot: true, label: 'getCommitDiffHunks' },
             );
 
-            const parsedByFile = parseMultiFileDiffHunks(res.stdout);
+            const parsedByFile = parseMultiFileDiffHunks(stdout);
             for (const filePath of missingPaths) {
                 const hunks = parsedByFile.get(filePath) ?? [];
                 this._setDiffHunksCache(`commit:${fromCommitId}:${toCommitId}:${filePath}`, hunks);

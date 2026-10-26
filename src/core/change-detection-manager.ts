@@ -244,22 +244,62 @@ export class ChangeDetectionManager implements HostDisposable {
 
                 // Final check that the directory exists and we have a real path
                 const hostFs = this.host.system?.fs;
-                const realOpHeadsPath = hostFs ? await hostFs.realpath(opHeadsPath) : opHeadsPath;
+                const hasOpHeadsSubdir = hostFs ? await hostFs.exists(path.join(opHeadsPath, 'heads')) : true;
+                const watchTargetPath = hasOpHeadsSubdir
+                    ? opHeadsPath
+                    : path.join(this.workspaceRoot, '.jj', 'working_copy');
+                const realWatchPath = hostFs ? await hostFs.realpath(watchTargetPath) : watchTargetPath;
+                const checkoutFilePath = path.join(realWatchPath, 'checkout');
+                let lastCheckoutHex = '';
+                if (!hasOpHeadsSubdir && hostFs) {
+                    try {
+                        const initialBytes = await hostFs.readBinaryFile(checkoutFilePath);
+                        lastCheckoutHex = Buffer.from(initialBytes).toString('hex');
+                    } catch {
+                        // Ignore missing initial checkout file
+                    }
+                }
 
                 if (this._disposed) {
                     return;
                 }
 
+                const handleOpHeadChange = () => {
+                    const writes = this.hasActiveOrRecentWrites;
+                    if (writes) {
+                        this._scheduleDeferredRefresh();
+                        return;
+                    }
+                    this.lastExternalOpTime = Date.now();
+                    this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
+                };
+
                 this._opHeadsWatcher = new DirectoryWatcher(
-                    realOpHeadsPath,
-                    () => {
-                        const writes = this.hasActiveOrRecentWrites;
-                        if (writes) {
-                            this._scheduleDeferredRefresh();
-                            return;
+                    realWatchPath,
+                    (events) => {
+                        if (!hasOpHeadsSubdir) {
+                            const touchesCheckout = events.some((e) => path.basename(e.path) === 'checkout');
+                            if (!touchesCheckout) {
+                                return;
+                            }
+                            if (hostFs) {
+                                void hostFs
+                                    .readBinaryFile(checkoutFilePath)
+                                    .then((bytes) => {
+                                        const hex = Buffer.from(bytes).toString('hex');
+                                        if (hex === lastCheckoutHex) {
+                                            return;
+                                        }
+                                        lastCheckoutHex = hex;
+                                        handleOpHeadChange();
+                                    })
+                                    .catch(() => {
+                                        handleOpHeadChange();
+                                    });
+                                return;
+                            }
                         }
-                        this.lastExternalOpTime = Date.now();
-                        this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
+                        handleOpHeadChange();
                     },
                     this.outputChannel,
                     {
@@ -357,8 +397,15 @@ export class ChangeDetectionManager implements HostDisposable {
         const ignore = ['.git', '.jj', '.vscode-test', 'node_modules', ...gitIgnores, ...gitModules, ...workspaceRoots];
         this.outputChannel.debug(`[ChangeDetectionManager] Watcher ignore list: ${JSON.stringify(ignore)}`);
 
+        const citcModifiedPath = path.join(this.workspaceRoot, '.citc', 'modified');
+        const hasCitcModified = this.host.system?.fs ? await this.host.system.fs.exists(citcModifiedPath) : false;
+        if (this._disposed || this._fileWatcherMode !== 'watch') {
+            return;
+        }
+        const watchRoot = hasCitcModified ? citcModifiedPath : this.workspaceRoot;
+
         this._workingCopyWatcher = new DirectoryWatcher(
-            this.workspaceRoot,
+            watchRoot,
             () => {
                 const writes = this.hasActiveOrRecentWrites;
                 if (writes) {

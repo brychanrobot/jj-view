@@ -15,7 +15,11 @@ export async function deleteBookmarkCommand(ctx: CommandContext, payload?: Delet
     if (!bookmarkName) {
         try {
             const bookmarks = await ctx.host.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
-            const items = bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, value: b.name }));
+            const activeProvider = ctx.repo.codeForge?.activeProvider;
+            const isManaged = activeProvider?.isManagedBookmark;
+            const items = bookmarks
+                .filter((b) => !b.remote && !isManaged?.call(activeProvider, b.name))
+                .map((b) => ({ label: b.name, value: b.name }));
 
             if (items.length === 0) {
                 await ctx.host.ui.showInformation('No local bookmarks to delete.');

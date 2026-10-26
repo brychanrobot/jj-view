@@ -3,11 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as http from 'node:http';
+import type { CommentRange, CommentSide } from '../../core/code-forge-provider';
 import type { GerritChange } from '../../core/gerrit-provider';
 
 export interface FakeGerritComment {
     id: string;
     line?: number;
+    side?: CommentSide;
+    range?: CommentRange;
     message: string;
     updated: string;
     unresolved?: boolean;
@@ -26,6 +29,7 @@ export class FakeGerritServer {
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
+    public draftRequestBodies: Record<string, unknown>[] = [];
     /** Every request with its headers, in arrival order. */
     public requestLog: { url: string; headers: http.IncomingHttpHeaders }[] = [];
     public lastHeaders: http.IncomingHttpHeaders | undefined;
@@ -148,6 +152,7 @@ export class FakeGerritServer {
 
     public clearRequests() {
         this.requests = [];
+        this.draftRequestBodies = [];
         this.requestLog = [];
         this.lastHeaders = undefined;
     }
@@ -157,6 +162,7 @@ export class FakeGerritServer {
         this.comments.clear();
         this.drafts.clear();
         this.requests = [];
+        this.draftRequestBodies = [];
         this.requestLog = [];
         this.lastHeaders = undefined;
         this.failWithStatus = undefined;
@@ -216,10 +222,13 @@ export class FakeGerritServer {
                         const incoming = JSON.parse(body) as {
                             path: string;
                             line?: number;
+                            side?: CommentSide;
+                            range?: CommentRange;
                             message?: string;
                             in_reply_to?: string;
                             unresolved?: boolean;
                         };
+                        this.draftRequestBodies.push(incoming);
 
                         const currentDrafts = this.drafts.get(changeNumber) || {};
                         const filePath = incoming.path;
@@ -229,6 +238,8 @@ export class FakeGerritServer {
                         const newDraft: FakeGerritComment = {
                             id: `draft-${Date.now()}-${Math.random()}`,
                             line: incoming.line,
+                            side: incoming.side,
+                            range: incoming.range,
                             message: incoming.message || '',
                             updated: new Date().toISOString(),
                             unresolved: incoming.unresolved,

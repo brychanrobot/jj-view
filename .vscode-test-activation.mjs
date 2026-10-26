@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import { defineConfig } from '@vscode/test-cli';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-activation-user-data-'));
+process.env.XDG_CONFIG_HOME = path.join(tmpDir, 'xdg-config');
+process.env.APPDATA = path.join(tmpDir, 'appdata');
 const userDir = path.join(tmpDir, 'User');
 const workspaceDir = path.join(tmpDir, 'workspace');
 fs.mkdirSync(userDir, { recursive: true });

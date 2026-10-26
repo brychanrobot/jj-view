@@ -19,6 +19,8 @@ import type {
     CodeForgeComment,
     CodeForgeCommentThread,
     CodeForgeProvider,
+    CommentRange,
+    CommentSide,
     GitRemote,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './host/events';
@@ -81,7 +83,8 @@ interface GerritCommentGql {
     in_reply_to?: string;
     patch_set?: number;
     commit_id?: string;
-    side?: string;
+    side?: CommentSide;
+    range?: CommentRange;
 }
 
 export type GerritCommentWithDraftStatus = GerritCommentGql & {
@@ -142,6 +145,7 @@ export class GerritProvider implements CodeForgeProvider {
     public readonly id = 'gerrit';
     public readonly displayName = 'Gerrit';
     public readonly changeTerm = 'CL' as const;
+    public readonly uploadModel = 'revision' as const;
     public readonly priority = 100;
 
     private cache = new LruCache<string, CodeForgeChangeInfo>({ maxEntries: 1000 });
@@ -1089,6 +1093,7 @@ export class GerritProvider implements CodeForgeProvider {
                         ...(root.commit_id ? { commitId: root.commit_id } : {}),
                         ...(root.line ? { originalLine: root.line } : {}),
                         ...(root.side ? { side: root.side } : {}),
+                        ...(root.range ? { range: root.range } : {}),
                         ...(portedLine !== undefined ? { portedLine } : {}),
                     },
                     comments: threadComments.map((c) => ({
@@ -1161,8 +1166,14 @@ export class GerritProvider implements CodeForgeProvider {
         const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const filePath = thread.filePath || '/PATCHSET_LEVEL';
+        const isPatchsetLevel = filePath === '/PATCHSET_LEVEL';
         const rawLine = typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
-        const line = typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0 ? rawLine : undefined;
+        const line =
+            !isPatchsetLevel && typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0
+                ? rawLine
+                : undefined;
+        const side = !isPatchsetLevel ? thread.metadata?.side : undefined;
+        const range = !isPatchsetLevel ? thread.metadata?.range : undefined;
 
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
@@ -1173,6 +1184,8 @@ export class GerritProvider implements CodeForgeProvider {
             body: JSON.stringify({
                 path: filePath,
                 line,
+                ...(side ? { side } : {}),
+                ...(range ? { range } : {}),
                 message: body,
                 in_reply_to: thread.id,
                 unresolved: resolved !== undefined ? !resolved : !thread.isResolved,
@@ -1262,8 +1275,14 @@ export class GerritProvider implements CodeForgeProvider {
         const revisionId = patchSet ?? 'current';
         const draftUrl = `${this.gerritHost}/changes/${changeInfo.number}/revisions/${revisionId}/drafts`;
         const filePath = thread.filePath || '/PATCHSET_LEVEL';
+        const isPatchsetLevel = filePath === '/PATCHSET_LEVEL';
         const rawLine = typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
-        const line = typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0 ? rawLine : undefined;
+        const line =
+            !isPatchsetLevel && typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0
+                ? rawLine
+                : undefined;
+        const side = !isPatchsetLevel ? thread.metadata?.side : undefined;
+        const range = !isPatchsetLevel ? thread.metadata?.range : undefined;
 
         const response = await this.fetchGerrit(draftUrl, {
             method: 'PUT',
@@ -1274,6 +1293,8 @@ export class GerritProvider implements CodeForgeProvider {
             body: JSON.stringify({
                 path: filePath,
                 line,
+                ...(side ? { side } : {}),
+                ...(range ? { range } : {}),
                 message: resolved ? 'Resolved' : 'Unresolved',
                 in_reply_to: thread.id,
                 unresolved: !resolved,

@@ -441,3 +441,108 @@ func TestConfigStoreFourLayerPrecedenceAndInspect(t *testing.T) {
 	}
 }
 
+func TestWorkspaceConfigCannotOverrideAdapterCommand(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "jj-view-config-forge-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	userConfigPath := filepath.Join(tempDir, "user-config.json")
+	wsRoot := filepath.Join(tempDir, "workspace")
+	if err := os.MkdirAll(filepath.Join(wsRoot, ".jj-view"), 0755); err != nil {
+		t.Fatalf("failed to create workspace dir: %v", err)
+	}
+	wsConfigPath := filepath.Join(wsRoot, ".jj-view", "config.json")
+	if err := os.WriteFile(wsConfigPath, []byte(`{"codeForge.adapterCommand": "/bin/malicious", "codeForge": {"adapterCommand": "/bin/malicious2"}}`), 0644); err != nil {
+		t.Fatalf("failed to write workspace config: %v", err)
+	}
+
+	store, err := NewStore(Options{
+		UserConfigPath: userConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	// 1. InspectForWorkspace should not reveal workspace adapterCommand
+	inspect := store.InspectForWorkspace("codeForge.adapterCommand", wsRoot)
+	if inspect.HasWorkspace || inspect.WorkspaceValue != nil {
+		t.Fatalf("expected workspace adapterCommand to be ignored, got HasWorkspace=%v, val=%v", inspect.HasWorkspace, inspect.WorkspaceValue)
+	}
+
+	// 2. GetAllScopedForWorkspace for ScopeWorkspace must not contain adapterCommand
+	wsScoped := store.GetAllScopedForWorkspace(string(ScopeWorkspace), wsRoot)
+	if _, ok := wsScoped["codeForge.adapterCommand"]; ok {
+		t.Fatalf("expected ScopeWorkspace to not contain codeForge.adapterCommand")
+	}
+	if _, ok := wsScoped["jj-view.codeForge.adapterCommand"]; ok {
+		t.Fatalf("expected ScopeWorkspace to not contain jj-view.codeForge.adapterCommand")
+	}
+
+	// 3. GetAllScopedForWorkspace for ScopeEffective must not contain workspace adapterCommand
+	effective := store.GetAllScopedForWorkspace(string(ScopeEffective), wsRoot)
+	if _, ok := effective["codeForge.adapterCommand"]; ok {
+		t.Fatalf("expected ScopeEffective to not contain workspace adapterCommand")
+	}
+
+	// 4. Set in user config should work and be preserved in ScopeEffective even with a workspace
+	if err := store.Set("codeForge.adapterCommand", "/usr/bin/custom-forge"); err != nil {
+		t.Fatalf("failed to set user adapterCommand: %v", err)
+	}
+	val, found := store.Get("codeForge.adapterCommand")
+	if !found || val != "/usr/bin/custom-forge" {
+		t.Fatalf("expected /usr/bin/custom-forge from user config, got %v", val)
+	}
+	effectiveWithUser := store.GetAllScopedForWorkspace(string(ScopeEffective), wsRoot)
+	if effectiveWithUser["codeForge.adapterCommand"] != "/usr/bin/custom-forge" || effectiveWithUser["jj-view.codeForge.adapterCommand"] != "/usr/bin/custom-forge" {
+		t.Fatalf("expected user adapterCommand to survive workspace merge in ScopeEffective, got %+v", effectiveWithUser)
+	}
+
+	// 5. Nested object form in user config should also work for Get and GetAll with RepoRoot
+	nestedUserPath := filepath.Join(tempDir, "nested-user-config.json")
+	if err := os.WriteFile(nestedUserPath, []byte(`{"codeForge": {"adapterCommand": "/usr/local/bin/nested-adapter"}}`), 0644); err != nil {
+		t.Fatalf("failed to write nested user config: %v", err)
+	}
+	nestedStore, err := NewStore(Options{UserConfigPath: nestedUserPath, RepoRoot: wsRoot})
+	if err != nil {
+		t.Fatalf("failed to create nested store: %v", err)
+	}
+	defer nestedStore.Close()
+
+	nestedVal, nestedFound := nestedStore.Get("codeForge.adapterCommand")
+	if !nestedFound || nestedVal != "/usr/local/bin/nested-adapter" {
+		t.Fatalf("expected /usr/local/bin/nested-adapter from nested user config, got %v", nestedVal)
+	}
+	nestedAll := nestedStore.GetAll()
+	if nestedAll["codeForge.adapterCommand"] != "/usr/local/bin/nested-adapter" || nestedAll["jj-view.codeForge.adapterCommand"] != "/usr/local/bin/nested-adapter" {
+		t.Fatalf("expected nested adapterCommand in GetAll(), got %+v", nestedAll)
+	}
+
+	// 6. GetScoped and SetScoped in workspace scope must reject/ignore codeForge.adapterCommand
+	if val, ok := nestedStore.GetScoped(string(ScopeWorkspace), "codeForge.adapterCommand"); ok || val != nil {
+		t.Fatalf("expected GetScoped(ScopeWorkspace) to return nil/false for codeForge.adapterCommand, got (%v, %v)", val, ok)
+	}
+	if val, ok := nestedStore.GetScoped(string(ScopeVscodeWorkspace), "codeForge.adapterCommand"); ok || val != nil {
+		t.Fatalf("expected GetScoped(ScopeVscodeWorkspace) to return nil/false for codeForge.adapterCommand, got (%v, %v)", val, ok)
+	}
+	if err := nestedStore.SetScoped(string(ScopeWorkspace), "codeForge.adapterCommand", "/evil/bin"); err == nil {
+		t.Fatalf("expected SetScoped(ScopeWorkspace, codeForge.adapterCommand) to fail")
+	}
+
+	// 7. Hybrid dotted-nested key in workspace config ("jj-view.codeForge": {"adapterCommand": ...}) must also be stripped
+	if err := os.WriteFile(wsConfigPath, []byte(`{"jj-view.codeForge": {"adapterCommand": "/evil/hybrid"}}`), 0644); err != nil {
+		t.Fatalf("failed to write hybrid workspace config: %v", err)
+	}
+	hybridStore, err := NewStore(Options{UserConfigPath: userConfigPath, RepoRoot: wsRoot})
+	if err != nil {
+		t.Fatalf("failed to create hybrid store: %v", err)
+	}
+	defer hybridStore.Close()
+	hybridWsAll := hybridStore.GetAllScoped(string(ScopeWorkspace))
+	if _, exists := hybridWsAll["jj-view.codeForge"]; exists {
+		t.Fatalf("expected hybrid jj-view.codeForge.adapterCommand to be stripped from ScopeWorkspace, got %+v", hybridWsAll)
+	}
+}
+

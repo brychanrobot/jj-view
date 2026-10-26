@@ -98,8 +98,12 @@ export async function resolveStackedUploadCommand(
     customCommand?: string,
     preResolvedStackCommits?: JjLogEntry[],
 ): Promise<ResolvedStackedUploadCommand> {
-    if (repo.codeForge.activeProvider?.id === 'gerrit') {
-        throw new Error('Stacked uploads are not supported for Gerrit repositories. Use standard upload instead.');
+    const activeProvider = repo.codeForge.activeProvider;
+    if (activeProvider?.uploadModel === 'revision') {
+        const forgeName = activeProvider.displayName || 'Gerrit';
+        throw new Error(
+            `Stacked uploads are not supported for ${forgeName} repositories. Use standard upload instead.`,
+        );
     }
 
     const matchesTarget = preResolvedStackCommits?.some(
@@ -147,8 +151,12 @@ export async function uploadStackCommand(ctx: CommandContext, payload?: UploadPa
         repo,
         host: { ui, nav, config },
     } = ctx;
-    if (repo.codeForge.activeProvider?.id === 'gerrit') {
-        await ui.showWarning('Stacked uploads are not supported for Gerrit repositories. Use standard upload instead.');
+    const activeProvider = repo.codeForge.activeProvider;
+    if (activeProvider?.uploadModel === 'revision') {
+        const forgeName = activeProvider.displayName || 'Gerrit';
+        await ui.showWarning(
+            `Stacked uploads are not supported for ${forgeName} repositories. Use standard upload instead.`,
+        );
         return;
     }
 

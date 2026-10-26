@@ -45,7 +45,11 @@ export class NodeHostProcess implements HostProcess {
                 maxBuffer: options?.maxBuffer ?? 100 * 1024 * 1024,
             };
 
-            const child = cp.execFile(file, [...args], cpOptions, (err, stdout, stderr) => {
+            const isWinJsScript = process.platform === 'win32' && /\.(?:m|c)?js$/i.test(file);
+            const execTarget = isWinJsScript ? process.execPath : file;
+            const execArgs = isWinJsScript ? [file, ...args] : [...args];
+
+            const child = cp.execFile(execTarget, execArgs, cpOptions, (err, stdout, stderr) => {
                 const stdoutStr = stdout?.toString() ?? '';
                 const stderrStr = stderr?.toString() ?? '';
                 if (err) {

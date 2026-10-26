@@ -20,10 +20,14 @@ export async function setBookmarkCommand(ctx: CommandContext, payload?: SetBookm
         let name = payload?.name?.trim() || undefined;
         if (!name) {
             const bookmarks = await ctx.host.ui.withProgress('Fetching bookmarks...', () => ctx.repo.jj.getBookmarks());
+            const activeProvider = ctx.repo.codeForge?.activeProvider;
+            const isManaged = activeProvider?.isManagedBookmark;
 
             name = await promptSelectOrCreate(ctx.host.ui, {
                 placeHolder: 'Select a bookmark to move, or type a new name to create',
-                items: bookmarks.filter((b) => !b.remote).map((b) => ({ label: b.name, description: 'Move bookmark' })),
+                items: bookmarks
+                    .filter((b) => !b.remote && !isManaged?.call(activeProvider, b.name))
+                    .map((b) => ({ label: b.name, description: 'Move bookmark' })),
             });
 
             if (!name) {

@@ -116,9 +116,9 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
         host: { ui, nav, config },
     } = ctx;
     const revision = payload?.revision;
-    const isGerrit = repo.codeForge.activeProvider?.id === 'gerrit';
-    const alwaysUploadStack = !isGerrit && config.get<boolean>('alwaysUploadStack', false);
-    const mode = isGerrit ? 'single' : alwaysUploadStack ? 'stack' : (payload?.mode ?? 'auto');
+    const isRevisionModel = repo.codeForge.activeProvider?.uploadModel === 'revision';
+    const alwaysUploadStack = !isRevisionModel && config.get<boolean>('alwaysUploadStack', false);
+    const mode = isRevisionModel ? 'single' : alwaysUploadStack ? 'stack' : (payload?.mode ?? 'auto');
 
     let stackCommits = payload?.stackCommits;
 
@@ -138,6 +138,27 @@ export async function uploadCommand(ctx: CommandContext, payload?: UploadPayload
     const customCommand = config.get<string>('uploadCommand');
     const hasCustomCommand = !!(customCommand && customCommand.trim().length > 0);
     try {
+        const activeProvider = repo.codeForge.activeProvider;
+        const providerUploadRevision = activeProvider?.uploadRevision?.bind(activeProvider);
+        if (!hasCustomCommand && providerUploadRevision) {
+            let rev = revision || '@';
+            if (rev === '@') {
+                const currentEntries = await repo.jj.getLog({ revision: '@', omitChanges: true, limit: 1 });
+                const current = currentEntries[0];
+                if (current?.is_empty && (!current.bookmarks || current.bookmarks.length === 0)) {
+                    rev = '@-';
+                }
+            }
+            const displayRev = rev ? (rev.length > 12 ? rev.substring(0, 8) : rev) : undefined;
+            const title = displayRev ? `Uploading revision ${displayRev}...` : 'Uploading...';
+
+            await ui.withProgress(title, () => providerUploadRevision(rev, repo.jj));
+            await repo.refresh();
+            repo.codeForge.requestRefreshWithBackoffs();
+            await ui.showInformation('Upload successful');
+            return;
+        }
+
         const { subcommand, commandArgs, uploadRevision } = await resolveUploadCommand(
             repo,
             revision,

@@ -445,7 +445,7 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
         commandPalette: [
             {
                 command: 'jj-view.uploadStack',
-                when: "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+                when: "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'",
             },
             {
                 command: 'jj-view.killProcess',
@@ -784,7 +784,7 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             },
             {
                 command: 'jj-view.uploadStack',
-                when: "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+                when: "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'",
                 group: '3_bookmark@3',
             },
             {

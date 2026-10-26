@@ -993,6 +993,8 @@ describe('uploadCommand', () => {
 
             const mockGerritProvider = createMock<CodeForgeProvider>({
                 id: 'gerrit',
+                displayName: 'Gerrit',
+                uploadModel: 'revision',
                 prepareStackedChanges: vi.fn(),
                 syncStackedChanges: vi.fn(),
                 getUploadCommand: vi
@@ -1024,6 +1026,8 @@ describe('uploadCommand', () => {
         test('uploadStackCommand shows warning and exits early on Gerrit repositories', async () => {
             const mockGerritProvider = createMock<CodeForgeProvider>({
                 id: 'gerrit',
+                displayName: 'Gerrit',
+                uploadModel: 'revision',
             });
             codeForgeService = createMock<CodeForgeService>({
                 isEnabled: true,

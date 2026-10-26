@@ -36,6 +36,7 @@ export class CommentsManager implements Disposable {
     private explicitChangeId: string | undefined;
     private lastWorkingCopyId: string | undefined;
     private activeLoadController?: AbortController;
+    private explicitLoadCount = 0;
 
     private readonly _onDidChangeThreads = new EventEmitter<CodeForgeCommentThread[]>();
     public readonly onDidChangeThreads: Event<CodeForgeCommentThread[]> = this._onDidChangeThreads.event;
@@ -139,6 +140,9 @@ export class CommentsManager implements Disposable {
             if (!logEntry) {
                 return undefined;
             }
+            if (logEntry.is_current_working_copy || revision === '@') {
+                this.lastWorkingCopyId = logEntry.commit_id;
+            }
             const bookmarks = (logEntry.bookmarks ?? [])
                 .filter((b: JjBookmark) => !b.remote)
                 .map((b: JjBookmark) => b.name);
@@ -215,6 +219,9 @@ export class CommentsManager implements Disposable {
      * Cancels any active load if a new pull is triggered.
      */
     public async pullCommentsAutomatically(): Promise<void> {
+        if (this.explicitLoadCount > 0) {
+            return;
+        }
         const signal = this.startNewLoad();
 
         try {
@@ -386,10 +393,7 @@ export class CommentsManager implements Disposable {
 
             const fullPath = path.isAbsolute(thread.filePath) ? thread.filePath : path.join(repoRoot, thread.filePath);
             const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
-            const threadCommitId =
-                typeof thread.metadata?.commitId === 'string' && thread.metadata.commitId.length > 0
-                    ? thread.metadata.commitId
-                    : undefined;
+            const threadCommitId = thread.metadata?.commitId || undefined;
             const anchorCommitId = threadCommitId ?? remoteCurrentRev;
 
             if (anchorCommitId === localCommitId) {
@@ -402,8 +406,7 @@ export class CommentsManager implements Disposable {
                 continue;
             }
 
-            const originalLine =
-                typeof thread.metadata?.originalLine === 'number' ? thread.metadata.originalLine : thread.line;
+            const originalLine = thread.metadata?.originalLine ?? thread.line;
             threadTargets.set(thread.id, {
                 relPath,
                 anchorCommitId,
@@ -493,27 +496,32 @@ export class CommentsManager implements Disposable {
 
     public async showCommentsForChange(changeId: string): Promise<void> {
         this.explicitChangeId = changeId;
+        this.explicitLoadCount++;
         const signal = this.startNewLoad();
 
-        const repo = this.repositoryManager.focusedRepository;
-        if (!repo) {
-            return;
-        }
-        const { activeProvider } = repo.codeForge;
-        if (!activeProvider) {
-            return;
-        }
+        try {
+            const repo = this.repositoryManager.focusedRepository;
+            if (!repo) {
+                return;
+            }
+            const { activeProvider } = repo.codeForge;
+            if (!activeProvider) {
+                return;
+            }
 
-        const target = await this.resolveChangeInfo(repo, activeProvider, changeId);
-        if (signal.aborted) {
-            return;
-        }
+            const target = await this.resolveChangeInfo(repo, activeProvider, changeId);
+            if (signal.aborted) {
+                return;
+            }
 
-        if (target) {
-            await this.loadCommentsForChange(target, signal);
-        } else {
-            this.clearThreads();
-            this.clearActiveChange();
+            if (target) {
+                await this.loadCommentsForChange(target, signal);
+            } else {
+                this.clearThreads();
+                this.clearActiveChange();
+            }
+        } finally {
+            this.explicitLoadCount--;
         }
     }
 
@@ -662,7 +670,7 @@ export class CommentsManager implements Disposable {
                       : thread.filePath;
                 relativePath = root ? path.relative(root, fullPath) : thread.filePath;
             }
-            const displayPath = relativePath || thread.filePath || 'unknown';
+            const displayPath = relativePath || thread.filePath || 'Change-level';
 
             if (thread.line !== undefined && thread.line > 0) {
                 result += `- **${displayPath}:${thread.line}**\n`;

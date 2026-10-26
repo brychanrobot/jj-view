@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ const (
 	reloadPortEnvVar         = "JJ_VIEW_RELOAD_PORT"
 	reloadSessionTokenEnvVar = "JJ_VIEW_RELOAD_SESSION_TOKEN"
 	reloadAllowedRootsEnvVar = "JJ_VIEW_RELOAD_ALLOWED_ROOTS"
+	reloadShellEnvVar        = "JJ_VIEW_SHELL"
 )
 
 // runningProcess is one entry from the process table.
@@ -132,11 +134,84 @@ func buildReloadEnv(environ []string, port int, sessionToken string, allowedRoot
 	return env
 }
 
+// shellQuote wraps s in single quotes for POSIX and fish shells, escaping any
+// embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// buildShellExecArgs wraps execPath and args in `<shell> -lc "exec ..."` when a
+// valid login shell is configured, so SIGHUP reloads re-evaluate the user's
+// shell environment in-place.
+func buildShellExecArgs(shell string, execPath string, args []string) (string, []string) {
+	shell = strings.TrimSpace(shell)
+	if runtime.GOOS != "windows" && shell != "" && filepath.IsAbs(shell) {
+		if info, err := os.Stat(shell); err == nil && !info.IsDir() {
+			quoted := make([]string, 0, max(1, len(args)))
+			quoted = append(quoted, shellQuote(execPath))
+			if len(args) > 1 {
+				for _, a := range args[1:] {
+					quoted = append(quoted, shellQuote(a))
+				}
+			}
+			return shell, []string{shell, "-lc", "exec " + strings.Join(quoted, " ")}
+		}
+	}
+	return execPath, args
+}
+
+func resolveReloadShell(environ []string) string {
+	prefix := reloadShellEnvVar + "="
+	isAntigravitySidecar := false
+	for _, entry := range environ {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(entry, prefix))
+		}
+		if strings.HasPrefix(entry, "ANTIGRAVITY_SIDECAR_WEB_PORT=") {
+			isAntigravitySidecar = true
+		}
+	}
+	if !isAntigravitySidecar {
+		return ""
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return ""
+	}
+	sidecarPath := filepath.Join(homeDir, ".gemini", "config", "plugins", "jj-view", "sidecars", "jj-view", "sidecar.json")
+	data, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		return ""
+	}
+	var manifest struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(manifest.Env[reloadShellEnvVar])
+}
+
 // execInPlace replaces the current process image with execPath while preserving
 // its PID, bound port, session token, and allowed sandbox roots.
 func execInPlace(execPath string, args []string, environ []string, port int, sessionToken string, allowedRoots ...string) error {
 	env := buildReloadEnv(environ, port, sessionToken, allowedRoots...)
-	return syscall.Exec(execPath, args, env)
+	shell := resolveReloadShell(env)
+	if shell != "" {
+		hasShellVar := false
+		prefix := reloadShellEnvVar + "="
+		for _, entry := range env {
+			if strings.HasPrefix(entry, prefix) {
+				hasShellVar = true
+				break
+			}
+		}
+		if !hasShellVar {
+			env = append(env, prefix+shell)
+		}
+	}
+	targetBin, targetArgs := buildShellExecArgs(shell, execPath, args)
+	return syscall.Exec(targetBin, targetArgs, env)
 }
 
 // restartRunningDaemons signals daemons currently running from binaryPath to

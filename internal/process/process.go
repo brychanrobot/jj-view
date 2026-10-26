@@ -48,6 +48,22 @@ var blockedEnvPrefixes = []string{
 	"PAGER",
 	"SHELL",
 	"IFS",
+	"PYTHONPATH",
+	"PYTHONSTARTUP",
+	"PYTHONHOME",
+	"NODE_OPTIONS",
+	"PERL5OPT",
+	"RUBYOPT",
+	"PATH",
+}
+
+var allowedForgeSubcommands = map[string]bool{
+	"detect":          true,
+	"statuses":        true,
+	"upload":          true,
+	"list-comments":   true,
+	"reply-comment":   true,
+	"resolve-comment": true,
 }
 
 // ExecParams defines the parameters for process execution.
@@ -81,9 +97,18 @@ func (e *ProcessExitError) Error() string {
 
 // Manager handles process execution and helper script management.
 type Manager struct {
-	scriptsDir string
-	initOnce   sync.Once
-	initErr    error
+	scriptsDir        string
+	initOnce          sync.Once
+	initErr           error
+	mu                sync.RWMutex
+	allowedForgeCmdFn func() string
+}
+
+// SetAllowedForgeCommand configures the provider command supplier.
+func (m *Manager) SetAllowedForgeCommand(fn func() string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.allowedForgeCmdFn = fn
 }
 
 // NewManager creates a new process manager with a private script cache.
@@ -217,9 +242,58 @@ func isSafeEnvVar(key string) bool {
 
 // ExecFile executes a whitelisted process with the given parameters and context.
 func (m *Manager) ExecFile(ctx context.Context, params ExecParams) (*ExecResult, error) {
-	binPath, err := m.isAllowedExecutable(params.File)
-	if err != nil {
-		return nil, err
+	m.mu.RLock()
+	forgeFn := m.allowedForgeCmdFn
+	m.mu.RUnlock()
+
+	var isForge bool
+	var binPath string
+	if forgeFn != nil {
+		allowedForgeCmd := forgeFn()
+		if allowedForgeCmd != "" {
+			cleanFile := filepath.Clean(params.File)
+			cleanAllowed := filepath.Clean(allowedForgeCmd)
+			if cleanFile == cleanAllowed {
+				isForge = true
+			} else {
+				absFile, errFile := filepath.Abs(cleanFile)
+				absAllowed, errAllowed := filepath.Abs(cleanAllowed)
+				if errFile == nil && errAllowed == nil && absFile == absAllowed {
+					isForge = true
+				}
+			}
+		}
+	}
+
+	if isForge {
+		if len(params.Args) == 0 || !allowedForgeSubcommands[params.Args[0]] {
+			sub := ""
+			if len(params.Args) > 0 {
+				sub = params.Args[0]
+			}
+			return nil, fmt.Errorf("execution forbidden: subcommand %q is not permitted for code forge adapter", sub)
+		}
+
+		cleanFile := filepath.Clean(params.File)
+		if !strings.ContainsAny(cleanFile, `/\`) && filepath.Base(cleanFile) == cleanFile {
+			p, err := exec.LookPath(cleanFile)
+			if err != nil {
+				return nil, fmt.Errorf("forge adapter not found on PATH: %s", cleanFile)
+			}
+			binPath = p
+		} else {
+			absFile, err := filepath.Abs(cleanFile)
+			if err != nil {
+				return nil, fmt.Errorf("invalid forge adapter path: %w", err)
+			}
+			binPath = absFile
+		}
+	} else {
+		var err error
+		binPath, err = m.isAllowedExecutable(params.File)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	execCtx := ctx
@@ -236,9 +310,11 @@ func (m *Manager) ExecFile(ctx context.Context, params ExecParams) (*ExecResult,
 
 	// Setup environment, filtering out unsafe variables
 	cmd.Env = os.Environ()
-	for k, v := range params.Env {
-		if isSafeEnvVar(k) {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	if !isForge {
+		for k, v := range params.Env {
+			if isSafeEnvVar(k) {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
 		}
 	}
 

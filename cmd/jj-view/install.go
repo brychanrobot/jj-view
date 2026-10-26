@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 const scmIconSVG = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -119,9 +121,10 @@ func runInstallAntigravityPlugin(args []string) error {
 	}
 
 	// 1c. Write sidecar.json inside plugin bundle
+	sidecarCmd, sidecarArgs, sidecarEnv := buildSidecarCommand(opts.binaryPath, os.Getenv("SHELL"))
 	sidecarManifest := map[string]any{
-		"command":        opts.binaryPath,
-		"args":           []string{"--host", "127.0.0.1", "--no-open"},
+		"command":        sidecarCmd,
+		"args":           sidecarArgs,
 		"restart_policy": "always",
 		"has_web_ui":     true,
 		"description":    "jj view Jujutsu (jj) visual interface.",
@@ -141,6 +144,9 @@ func runInstallAntigravityPlugin(args []string) error {
 				},
 			},
 		},
+	}
+	if len(sidecarEnv) > 0 {
+		sidecarManifest["env"] = sidecarEnv
 	}
 	sidecarJSON, err := json.MarshalIndent(sidecarManifest, "", "  ")
 	if err != nil {
@@ -212,3 +218,21 @@ func runInstallAntigravityPlugin(args []string) error {
 	fmt.Printf("[Install] Reloaded %d running daemon(s) in-place %v.\n", len(restarted), restarted)
 	return nil
 }
+
+// buildSidecarCommand configures sidecar.json to launch jj-view through the
+// user's interactive login shell (`<shell> -lc "exec '<binary>' --host 127.0.0.1 --no-open"`)
+// when available on Unix, so the sidecar dynamically inherits the user's shell
+// PATH (such as depot_tools or ~/.local/bin) even when the host daemon runs
+// under a minimal systemd/launchd environment.
+func buildSidecarCommand(binaryPath string, shell string) (command string, args []string, env map[string]string) {
+	defaultArgs := []string{"--host", "127.0.0.1", "--no-open"}
+	shell = strings.TrimSpace(shell)
+	if runtime.GOOS != "windows" && shell != "" && filepath.IsAbs(shell) {
+		if info, err := os.Stat(shell); err == nil && !info.IsDir() {
+			execCmd := fmt.Sprintf("exec %s --host 127.0.0.1 --no-open", shellQuote(binaryPath))
+			return shell, []string{"-lc", execCmd}, map[string]string{reloadShellEnvVar: shell}
+		}
+	}
+	return binaryPath, defaultArgs, nil
+}
+

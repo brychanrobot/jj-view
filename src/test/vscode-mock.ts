@@ -360,6 +360,8 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
             }),
             getConfiguration: vi.fn().mockReturnValue({
                 get: vi.fn().mockImplementation((_key: string, defaultValue: unknown) => defaultValue),
+                inspect: vi.fn().mockReturnValue(undefined),
+                update: vi.fn().mockResolvedValue(undefined),
             }),
             onDidChangeConfiguration: onDidChangeConfigurationEmitter.event,
             onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,

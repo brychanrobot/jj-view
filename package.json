@@ -121,6 +121,12 @@
                     ],
                     "description": "Force the active Code Forge provider to a specific service. If not set, it is auto-detected from git remotes."
                 },
+                "jj-view.codeForge.adapterCommand": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "application",
+                    "description": "Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, list-comments, reply-comment, resolve-comment)."
+                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."
@@ -699,7 +705,7 @@
             "commandPalette": [
                 {
                     "command": "jj-view.uploadStack",
-                    "when": "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'"
+                    "when": "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'"
                 },
                 {
                     "command": "jj-view.killProcess",
@@ -937,7 +943,7 @@
                 },
                 {
                     "command": "jj-view.uploadStack",
-                    "when": "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit'",
+                    "when": "webviewSection == 'commit' && jj.canUpload && !config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'",
                     "group": "3_bookmark@3"
                 },
                 {
