@@ -734,7 +734,7 @@ describe('GerritProvider', () => {
             await fs.rm(tempRepoDir, { recursive: true, force: true });
         });
 
-        test('reuses cached authentication header and clearCache forces recomputation', async () => {
+        test('resolves the git credential once for concurrent requests and re-asks the host after clearCache', async () => {
             const tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-auth-cache-test-'));
             const gitRoot = path.join(tempRepoDir, '.git');
             cp.execSync(`git init --bare "${gitRoot}"`);
@@ -746,21 +746,29 @@ describe('GerritProvider', () => {
 
             setPrivate(provider, 'repoRoot', tempRepoDir);
             setPrivate(provider, 'gitRoot', gitRoot);
+            const hasGitCredentials = vi.spyOn(host.http, 'hasGitCredentials');
 
             server.clearRequests();
             server.registerComments(123, {});
 
-            // First call - should trigger credential helper
+            // getCommentThreads fetches comments and drafts concurrently; both must
+            // wait for the single in-flight credential check and go out authenticated.
             await provider.getCommentThreads('I12345');
+            expect(server.requests.length).toBeGreaterThanOrEqual(2);
+            expect(server.requests.every((url) => url.startsWith('/a/changes/'))).toBe(true);
+            expect(server.requestLog.every((entry) => entry.headers.authorization !== undefined)).toBe(true);
+            expect(hasGitCredentials).toHaveBeenCalledTimes(1);
 
-            // Second call - should use cached credentials
+            // Second call - provider remembers the result within its TTL.
             await provider.getCommentThreads('I12345');
+            expect(hasGitCredentials).toHaveBeenCalledTimes(1);
 
             let logContent = await fs.readFile(logFile, 'utf8');
             let lines = logContent.trim().split('\n').filter(Boolean);
             expect(lines).toHaveLength(1);
 
-            // Clear cache - should force helper invocation on next request
+            // clearCache forgets the provider-side answer; the host is asked again
+            // but serves the credential from its own cache without re-running the helper.
             provider.clearCache();
 
             // Repopulate cache for this changeId so getCommentThreads doesn't exit early
@@ -778,10 +786,11 @@ describe('GerritProvider', () => {
             });
 
             await provider.getCommentThreads('I12345');
+            expect(hasGitCredentials).toHaveBeenCalledTimes(2);
 
             logContent = await fs.readFile(logFile, 'utf8');
             lines = logContent.trim().split('\n').filter(Boolean);
-            expect(lines).toHaveLength(2);
+            expect(lines).toHaveLength(1);
 
             await fs.rm(tempRepoDir, { recursive: true, force: true });
         });

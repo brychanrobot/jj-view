@@ -15,6 +15,8 @@ import type {
     HostDocuments,
     HostEnvironment,
     HostExtensions,
+    HostHttp,
+    HostHttpRequest,
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
@@ -738,6 +740,31 @@ export class WebHostSecrets implements HostSecrets {
     }
 }
 
+/** Statuses for which the Fetch API forbids a response body. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
+/**
+ * {@link HostHttp} backed by the daemon's `http.fetch` RPC. The browser never
+ * contacts the upstream host (no CORS) and never holds the credential.
+ */
+export class WebHostHttp implements HostHttp {
+    constructor(private readonly hostSystem: RemoteHostSystem) {}
+
+    public async fetch(url: string, request: HostHttpRequest = {}): Promise<Response> {
+        const remote = await this.hostSystem.httpFetch(url, request);
+        const body = NULL_BODY_STATUSES.has(remote.status) ? null : remote.body;
+        return new Response(body, {
+            status: remote.status,
+            statusText: remote.statusText,
+            headers: remote.headers,
+        });
+    }
+
+    public hasGitCredentials(url: string, gitDir?: string): Promise<boolean> {
+        return this.hostSystem.httpHasGitCredentials(url, gitDir);
+    }
+}
+
 export class WebHostAuth implements HostAuth {
     public readonly supportsOAuth = false;
 
@@ -916,6 +943,7 @@ export class WebHostEnvironment implements HostEnvironment {
     public readonly storage: WebHostStorage;
     public readonly secrets: WebHostSecrets;
     public readonly auth: HostAuth = new WebHostAuth();
+    public readonly http: WebHostHttp;
     public readonly commands: WebHostCommands = new WebHostCommands();
     public readonly views: HostViews = new WebHostViews();
     public readonly workspace: WebHostWorkspace;
@@ -935,6 +963,7 @@ export class WebHostEnvironment implements HostEnvironment {
         this.sidecar = new SidecarService();
         this.storage = new WebHostStorage(hostSystem);
         this.secrets = new WebHostSecrets(hostSystem);
+        this.http = new WebHostHttp(hostSystem);
         this.nav = new WebHostNavigation(navCallbacks);
         this.config = new WebHostConfig(hostSystem);
         this.documents = new WebHostDocuments(hostSystem);

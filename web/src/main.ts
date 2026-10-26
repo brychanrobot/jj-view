@@ -8,6 +8,7 @@ import { CodeForgeAuthManager } from '../../src/core/code-forge-auth';
 import type { CodeForgeProvider } from '../../src/core/code-forge-provider';
 import { CodeForgeRegistry } from '../../src/core/code-forge-registry';
 import { LogViewController } from '../../src/core/controllers/log-view-controller';
+import { GerritProvider } from '../../src/core/gerrit-provider';
 import { GitHubProvider } from '../../src/core/github-provider';
 import { GitLabProvider } from '../../src/core/gitlab-provider';
 import { RemoteHostSystem } from '../../src/core/host/remote-host-system';
@@ -251,6 +252,10 @@ export async function bootstrap(): Promise<void> {
         codeForgeRegistry.register({
             id: 'gitlab',
             create: (outputChannel, host) => new GitLabProvider(authManager, outputChannel, host),
+        });
+        codeForgeRegistry.register({
+            id: 'gerrit',
+            create: (outputChannel, host) => new GerritProvider(outputChannel, host),
         });
 
         const repoManager = new JjRepositoryManager(codeForgeRegistry, NO_OP_LOGGER, webHostEnv);

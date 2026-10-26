@@ -8,7 +8,6 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import which from 'which';
-import { AsyncCache } from './async-cache';
 import { fetchWithTimeout } from './fetch-utils';
 import type { LoggerChannel } from './output-channel';
 
@@ -36,35 +35,6 @@ function execFilePromise(
             }
             child.stdin.end();
         }
-    });
-}
-
-const gitRootCache = new AsyncCache<string, string | null>({
-    maxEntries: 100,
-});
-
-/**
- * Clears the in-memory cache of resolved git roots.
- */
-export function clearGitRootCache(): void {
-    void gitRootCache.clear();
-}
-
-/**
- * Resolves the backing git directory of a jj repository using `jj git root`.
- */
-export async function resolveGitRoot(repoRoot: string, binaryPath = 'jj'): Promise<string | null> {
-    const normalizedRoot = path.resolve(repoRoot);
-    const cacheKey = `${binaryPath}:${normalizedRoot}`;
-    return gitRootCache.getOrFetch(cacheKey, async () => {
-        const { err, stdout } = await execFilePromise(binaryPath, ['git', 'root'], {
-            cwd: normalizedRoot,
-            timeout: 10000,
-        });
-        if (err || !stdout) {
-            return null;
-        }
-        return stdout.trim();
     });
 }
 
@@ -577,14 +547,17 @@ export async function getGitCredential(
 }
 
 /**
- * Combines cookies and credential helper checks to return authentication headers for Gerrit.
+ * Resolves the HTTP credential git itself would send to `hostUrl`, as an
+ * authorization header. Mirrors depot_tools' gerrit_util.py chain: LUCI,
+ * git-remote-sso, GCE metadata, gitcookies, then `git credential fill`.
+ * Returns undefined when no credential is available.
  */
-export async function getGerritAuthHeader(
-    gerritHost: string,
+export async function resolveGitAuthHeader(
+    hostUrl: string,
     gitDir: string | null,
     outputChannel?: LoggerChannel,
 ): Promise<{ name: string; value: string } | undefined> {
-    const { hostname, protocol, port } = parseGerritHost(gerritHost);
+    const { hostname, protocol, port } = parseGerritHost(hostUrl);
 
     outputChannel?.debug(
         `[GerritAuth] Getting auth header for ${hostname} (protocol=${protocol}, port=${port ?? 'default'}, gitDir=${gitDir})`,

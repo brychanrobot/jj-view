@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostHttpRequest } from './host-environment';
 import {
     type FileStat,
     type HelperScriptName,
@@ -22,6 +23,14 @@ import {
     type WatchOptions,
 } from './host-system';
 import { type WebSocketFactory, type WebSocketLike, WsRpcChannel, WsTransportError } from './ws-rpc-channel';
+
+/** Wire shape of a daemon `http.fetch` result. */
+export interface RemoteHttpResponse {
+    readonly status: number;
+    readonly statusText: string;
+    readonly headers: Record<string, string>;
+    readonly body: string;
+}
 
 export const RPC_CODE_PARSE_ERROR = -32700;
 export const RPC_CODE_INVALID_REQUEST = -32600;
@@ -1200,6 +1209,21 @@ export class RemoteHostSystem implements HostSystem {
 
     public async deleteSecret(key: string): Promise<void> {
         await this.request<{ success: boolean }>('secrets.delete', { key });
+    }
+
+    /**
+     * Performs an HTTP request from the daemon (`http.fetch`). The daemon
+     * attaches credentials named by `auth`; the page only receives the
+     * upstream status, headers and text body.
+     */
+    public async httpFetch(url: string, request: HostHttpRequest = {}): Promise<RemoteHttpResponse> {
+        const { signal, ...rest } = request;
+        return this.request<RemoteHttpResponse>('http.fetch', { url, ...rest }, signal);
+    }
+
+    public async httpHasGitCredentials(url: string, gitDir?: string): Promise<boolean> {
+        const res = await this.request<{ available: boolean }>('http.hasGitCredentials', { url, gitDir });
+        return res.available;
     }
 
     public async findFiles(

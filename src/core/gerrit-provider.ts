@@ -7,10 +7,10 @@ import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
 import { AsyncCache } from '../utils/async-cache';
 import { Duration } from '../utils/duration';
-import { fetchWithTimeout } from '../utils/fetch-utils';
-import { getGerritAuthHeader, resolveGitRoot } from '../utils/gerrit-credential-utils';
+import { toError } from '../utils/error-utils';
 import { detectGerritHost } from '../utils/gerrit-host-detection';
 import { resolveGerritChangeKey, stripGerritTrailers } from '../utils/gerrit-utils';
+import { resolveGitRoot } from '../utils/git-repo-utils';
 import { convertJjChangeIdToHex } from '../utils/jj-utils';
 import { LruCache } from '../utils/lru-cache';
 import type { LoggerChannel } from '../utils/output-channel';
@@ -85,11 +85,15 @@ export type GerritCommentWithDraftStatus = GerritCommentGql & {
     isDraft?: boolean;
 };
 
-interface FetchGerritOptions extends RequestInit {
-    timeoutMs?: number;
+interface FetchGerritOptions {
+    readonly method?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly body?: string;
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
 }
 
-const AUTH_HEADER_TTL = Duration.minutes(5);
+const AUTH_CHECK_TTL = Duration.minutes(5);
 const COMMENTS_CACHE_TTL = Duration.seconds(30);
 const MAX_COMMENTS_CACHE_ENTRIES = 150;
 
@@ -152,9 +156,12 @@ export class GerritProvider implements CodeForgeProvider {
     private gerritHost: string | undefined;
     private repoRoot: string | undefined;
     private gitRoot: string | null = null;
-    private authHeader: { name: string; value: string } | undefined;
+    /** Whether the host can authenticate requests to {@link gerritHost}; drives the `/a/` prefix. */
+    private credentialAvailable = false;
     private authChecked = false;
     private lastAuthTime = 0;
+    /** In-flight credential check, shared by concurrent requests so the host resolves credentials once. */
+    private authCheck: Promise<boolean> | undefined;
 
     private _onDidUpdate = new EventEmitter<void>();
     public readonly onDidUpdate: Event<void> = this._onDidUpdate.event;
@@ -166,7 +173,7 @@ export class GerritProvider implements CodeForgeProvider {
 
     public async detect(repoRoot: string, remotes: GitRemote[]): Promise<boolean> {
         const binaryPath = this.host.config.get<string>('binaryPath', 'jj') || 'jj';
-        const gitRoot = await resolveGitRoot(repoRoot, binaryPath);
+        const gitRoot = this.host.system ? await resolveGitRoot(this.host.system, repoRoot, binaryPath) : null;
 
         if (this.repoRoot !== repoRoot) {
             this.clearCache();
@@ -202,7 +209,7 @@ export class GerritProvider implements CodeForgeProvider {
 
     private async probeGerritHost(host: string): Promise<boolean> {
         try {
-            const response = await fetchWithTimeout(`${host}/config/server/version`, 3000);
+            const response = await this.host.http.fetch(`${host}/config/server/version`, { timeoutMs: 3000 });
             return response.ok;
         } catch (e) {
             this.outputChannel?.error(`[GerritProvider] Probe error for host ${host}: ${e}`);
@@ -210,54 +217,72 @@ export class GerritProvider implements CodeForgeProvider {
         }
     }
 
-    private async getAuthHeader(): Promise<{ name: string; value: string } | undefined> {
+    /**
+     * Whether the host holds a git credential for the Gerrit host. The
+     * credential itself stays in the host; this only decides whether to use
+     * Gerrit's authenticated `/a/` endpoints.
+     */
+    private async canAuthenticate(): Promise<boolean> {
         if (!this.gerritHost || !this.repoRoot) {
-            return undefined;
+            return false;
         }
         const now = Date.now();
-        if (this.authChecked && now - this.lastAuthTime < AUTH_HEADER_TTL.toMilliseconds()) {
-            return this.authHeader;
+        if (this.authChecked && now - this.lastAuthTime < AUTH_CHECK_TTL.toMilliseconds()) {
+            return this.credentialAvailable;
         }
+        if (this.authCheck) {
+            return this.authCheck;
+        }
+        this.authCheck = this.checkCredentials(this.gerritHost).finally(() => {
+            this.authCheck = undefined;
+        });
+        return this.authCheck;
+    }
+
+    private async checkCredentials(gerritHost: string): Promise<boolean> {
         const start = performance.now();
-        this.authChecked = true;
-        this.lastAuthTime = now;
-        this.authHeader = await getGerritAuthHeader(this.gerritHost, this.gitRoot, this.outputChannel);
+        let available = false;
+        try {
+            available = await this.host.http.hasGitCredentials(gerritHost, this.gitRoot ?? undefined);
+        } catch (error: unknown) {
+            this.outputChannel?.warn(`[GerritProvider] Credential check failed: ${toError(error).message}`);
+        }
         const duration = performance.now() - start;
         this.outputChannel?.info(`[timing] [Gerrit] auth resolution took ${duration.toFixed(0)}ms`);
-        return this.authHeader;
+        this.credentialAvailable = available;
+        this.authChecked = true;
+        this.lastAuthTime = Date.now();
+        return available;
     }
 
     private async fetchGerrit(url: string, options?: FetchGerritOptions): Promise<Response> {
-        const auth = await this.getAuthHeader();
+        const authenticated = await this.canAuthenticate();
         let finalUrl = url;
-        const headers = new Headers(options?.headers);
 
-        if (auth) {
-            headers.set(auth.name, auth.value);
+        if (authenticated) {
             // Rewrite /changes/ to /a/changes/ to force Gerrit to authenticate
-            try {
-                const parsedUrl = new URL(url);
-                if (parsedUrl.pathname.startsWith('/changes/') && !parsedUrl.pathname.startsWith('/a/')) {
-                    parsedUrl.pathname = `/a${parsedUrl.pathname}`;
-                    finalUrl = parsedUrl.toString();
-                }
-            } catch {
-                // Handle relative URL (e.g. '/changes/...')
-                if (url.startsWith('/changes/') && !url.startsWith('/a/')) {
-                    finalUrl = `/a${url}`;
-                }
+            const parsedUrl = new URL(url);
+            if (parsedUrl.pathname.startsWith('/changes/') && !parsedUrl.pathname.startsWith('/a/')) {
+                parsedUrl.pathname = `/a${parsedUrl.pathname}`;
+                finalUrl = parsedUrl.toString();
             }
         }
 
-        const timeout = options?.timeoutMs ?? 15000;
-        this.outputChannel?.debug(`[GerritProvider] fetchGerrit: ${finalUrl} (auth: ${!!auth})`);
-        const response = await fetchWithTimeout(finalUrl, timeout, { ...options, headers });
+        this.outputChannel?.debug(`[GerritProvider] fetchGerrit: ${finalUrl} (auth: ${authenticated})`);
+        const response = await this.host.http.fetch(finalUrl, {
+            method: options?.method,
+            headers: options?.headers,
+            body: options?.body,
+            signal: options?.signal,
+            timeoutMs: options?.timeoutMs ?? 15000,
+            auth: { kind: 'git', gitDir: this.gitRoot ?? undefined },
+        });
 
         if (response.status === 401 || response.status === 403) {
             this.outputChannel?.warn(
-                `[GerritProvider] Request to ${finalUrl} failed with status ${response.status}. Invalidating cached auth header.`,
+                `[GerritProvider] Request to ${finalUrl} failed with status ${response.status}. Re-checking credentials on next request.`,
             );
-            this.authHeader = undefined;
+            this.credentialAvailable = false;
             this.authChecked = false;
             this.lastAuthTime = 0;
         }
@@ -1190,7 +1215,7 @@ export class GerritProvider implements CodeForgeProvider {
         this.contentSyncCache.clear();
         void this.commentsCache.clear();
         void this.draftsCache.clear();
-        this.authHeader = undefined;
+        this.credentialAvailable = false;
         this.authChecked = false;
         this.lastAuthTime = 0;
         this._onDidUpdate.fire();

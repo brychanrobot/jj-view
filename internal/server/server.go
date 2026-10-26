@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/brychanrobot/jj-view/internal/config"
 	"github.com/brychanrobot/jj-view/internal/fs"
+	"github.com/brychanrobot/jj-view/internal/gitcred"
 	"github.com/brychanrobot/jj-view/internal/process"
 	"github.com/brychanrobot/jj-view/internal/protocol"
 	"github.com/brychanrobot/jj-view/internal/secret"
@@ -70,10 +72,10 @@ type Server struct {
 	configStore  *config.Store
 	stateStore   *state.Store
 	secretStore  *secret.Store
+	gitCreds     *gitcred.Resolver
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
-	allowedHosts map[string]bool
 	fileServer   http.Handler
 	assetVersion string
 	clientsMu    sync.Mutex
@@ -171,16 +173,12 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:        cfg,
-		fsMgr:      fsMgr,
-		watcherHub: watcher.NewHub(),
-		readyCh:    make(chan struct{}),
-		sseClients: make(map[string]*sseClient),
-		allowedHosts: map[string]bool{
-			"api.github.com": true,
-			"github.com":     true,
-			"gitlab.com":     true,
-		},
+		cfg:          cfg,
+		fsMgr:        fsMgr,
+		watcherHub:   watcher.NewHub(),
+		readyCh:      make(chan struct{}),
+		sseClients:   make(map[string]*sseClient),
+		gitCreds:     gitcred.NewResolver(gitcred.Options{Logf: log.Printf}),
 		fileServer:   http.FileServer(http.FS(web.FS)),
 		assetVersion: computeAssetVersion(cfg.Version),
 	}
@@ -239,13 +237,6 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// AddAllowedHost adds a trusted forge host to the proxy whitelist.
-func (s *Server) AddAllowedHost(host string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.allowedHosts[host] = true
-}
-
 // Ready returns a channel that is closed when the server has bound its port.
 func (s *Server) Ready() <-chan struct{} {
 	return s.readyCh
@@ -283,7 +274,6 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/preload.js", s.handlePreload)
 	mux.HandleFunc("/_sidecar/", s.handleSidecarProxy)
 	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/forge-proxy", s.handleForgeProxy)
 	mux.HandleFunc("/api/rpc", s.handleRPC)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/ws", s.handleWS)
@@ -781,92 +771,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(html))
 }
 
-func (s *Server) handleForgeProxy(w http.ResponseWriter, r *http.Request) {
-	s.applyCORS(w, r)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !s.verifyCSRF(r) {
-		http.Error(w, "Forbidden: invalid CSRF token", http.StatusForbidden)
-		return
-	}
-
-	// Authenticate proxy endpoint
-	if !s.authenticateRequest(r) {
-		http.Error(w, "Unauthorized: invalid session token", http.StatusUnauthorized)
-		return
-	}
-
-	rawTarget := r.URL.Query().Get("url")
-	if rawTarget == "" {
-		http.Error(w, "missing url query parameter", http.StatusBadRequest)
-		return
-	}
-
-	targetURL, err := url.Parse(rawTarget)
-	if err != nil || targetURL.Scheme != "https" {
-		http.Error(w, "target URL must be valid HTTPS", http.StatusBadRequest)
-		return
-	}
-
-	hostname := targetURL.Hostname()
-	s.mu.RLock()
-	allowed := s.allowedHosts[hostname]
-	s.mu.RUnlock()
-
-	if !allowed {
-		http.Error(w, fmt.Sprintf("target host %s not allowed by proxy whitelist", hostname), http.StatusForbidden)
-		return
-	}
-
-	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, rawTarget, r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	for _, h := range []string{"Authorization", "Accept", "Content-Type", "User-Agent"} {
-		if val := r.Header.Get(h); val != "" {
-			proxyReq.Header.Set(h, val)
-		}
-	}
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return errors.New("stopped after 10 redirects")
-			}
-			if req.URL.Scheme != "https" {
-				return fmt.Errorf("insecure redirect scheme: %s", req.URL.Scheme)
-			}
-			s.mu.RLock()
-			isAllowed := s.allowedHosts[req.URL.Hostname()]
-			s.mu.RUnlock()
-			if !isAllowed {
-				return fmt.Errorf("redirect host %s not in allowed list", req.URL.Hostname())
-			}
-			return nil
-		},
-	}
-
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("proxy request failed: %v", err), http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
-}
-
 func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	handlerStart := time.Now()
 	s.applyCORS(w, r)
@@ -1129,6 +1033,31 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 			"repoRoot": s.cfg.RepoRoot,
 			"tempDir":  s.fsMgr.DaemonTempDir(),
 		}, nil
+
+	case "http.fetch":
+		var params httpFetchParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		res, rpcErr := s.httpFetch(ctx, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return res, nil
+
+	case "http.hasGitCredentials":
+		var params struct {
+			URL    string `json:"url"`
+			GitDir string `json:"gitDir"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		available, rpcErr := s.httpHasGitCredentials(ctx, params.URL, params.GitDir)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return map[string]bool{"available": available}, nil
 
 	case "process.execFile":
 		var params process.ExecParams

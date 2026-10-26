@@ -26,6 +26,8 @@ export class FakeGerritServer {
     private server: http.Server | undefined;
     public url = '';
     public requests: string[] = [];
+    /** Every request with its headers, in arrival order. */
+    public requestLog: { url: string; headers: http.IncomingHttpHeaders }[] = [];
     public lastHeaders: http.IncomingHttpHeaders | undefined;
     public failWithStatus: number | undefined;
     public failResponseBody: string | undefined;
@@ -146,6 +148,7 @@ export class FakeGerritServer {
 
     public clearRequests() {
         this.requests = [];
+        this.requestLog = [];
         this.lastHeaders = undefined;
     }
 
@@ -154,6 +157,7 @@ export class FakeGerritServer {
         this.comments.clear();
         this.drafts.clear();
         this.requests = [];
+        this.requestLog = [];
         this.lastHeaders = undefined;
         this.failWithStatus = undefined;
         this.failResponseBody = undefined;
@@ -168,6 +172,7 @@ export class FakeGerritServer {
             res.setHeader('Connection', 'close');
             const urlStr = req.url || '';
             this.requests.push(urlStr);
+            this.requestLog.push({ url: urlStr, headers: req.headers });
             this.lastHeaders = req.headers;
 
             if (this.failWithStatus) {

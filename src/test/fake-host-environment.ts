@@ -18,6 +18,7 @@ import type {
     HostDocuments,
     HostEnvironment,
     HostExtensions,
+    HostHttp,
     HostNavigation,
     HostOpenOptions,
     HostSecrets,
@@ -34,6 +35,7 @@ import type { HostSystem } from '../core/host/host-system';
 import { NodeHostSystem } from '../core/host/node-host-system';
 import type { JjRepository } from '../core/jj-repository';
 import type { Uri } from '../core/uri-utils';
+import { NodeHostHttp } from '../utils/node-host-http';
 import type { LoggerChannel } from '../utils/output-channel';
 
 export class FakeHostUi implements HostUi {
@@ -617,6 +619,7 @@ export class FakeHostEnvironment implements HostEnvironment {
     readonly storage: FakeHostStorage;
     readonly secrets: FakeHostSecrets;
     readonly auth: FakeHostAuth;
+    public http: HostHttp;
     readonly commands: FakeHostCommands;
     readonly views: FakeHostViews;
     readonly workspace: FakeHostWorkspace;
@@ -631,6 +634,7 @@ export class FakeHostEnvironment implements HostEnvironment {
         this.storage = new FakeHostStorage();
         this.secrets = new FakeHostSecrets();
         this.auth = new FakeHostAuth();
+        this.http = new NodeHostHttp(this.secrets);
         this.commands = new FakeHostCommands();
         this.views = new FakeHostViews();
         this.workspace = new FakeHostWorkspace();

@@ -434,44 +434,6 @@ func TestCancelRequestViaContext(t *testing.T) {
 	}
 }
 
-func TestForgeProxySecurity(t *testing.T) {
-	srv, _ := setupTestServer(t)
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", srv.Port())
-
-	// 1. Unauthenticated request should be rejected with 401
-	unauthURL := fmt.Sprintf("%s/api/forge-proxy?url=https://api.github.com/user", baseURL)
-	respUnauth, err := http.Get(unauthURL)
-	if err != nil {
-		t.Fatalf("proxy request failed: %v", err)
-	}
-	defer respUnauth.Body.Close()
-	if respUnauth.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected status 401 for unauth proxy request, got %d", respUnauth.StatusCode)
-	}
-
-	// 2. Untrusted domain should be rejected with 403
-	untrustedURL := fmt.Sprintf("%s/api/forge-proxy?token=%s&url=https://attacker-domain.evil/api", baseURL, srv.SessionToken())
-	resp, err := http.Get(untrustedURL)
-	if err != nil {
-		t.Fatalf("proxy request failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected status 403 for untrusted domain, got %d", resp.StatusCode)
-	}
-
-	// 3. Insecure HTTP scheme should be rejected with 400
-	insecureURL := fmt.Sprintf("%s/api/forge-proxy?token=%s&url=http://api.github.com/user", baseURL, srv.SessionToken())
-	respInsecure, err := http.Get(insecureURL)
-	if err != nil {
-		t.Fatalf("proxy request failed: %v", err)
-	}
-	defer respInsecure.Body.Close()
-	if respInsecure.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected status 400 for insecure scheme, got %d", respInsecure.StatusCode)
-	}
-}
-
 func TestConfigDidChangeNotification(t *testing.T) {
 	srv, tempRepo := setupTestServer(t)
 	eventsURL := fmt.Sprintf("http://127.0.0.1:%d/api/events?token=%s&clientId=test-client-notif", srv.Port(), srv.SessionToken())
