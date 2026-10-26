@@ -12,16 +12,17 @@ import (
 func TestFindRunningDaemons(t *testing.T) {
 	const bin = "/home/u/code/jj-view/dist/bin/jj-view"
 	procs := []runningProcess{
-		{pid: 10, args: []string{bin, "-host", "127.0.0.1", "-no-open"}},  // sidecar daemon
-		{pid: 11, args: []string{bin}},                                    // bare daemon (defaults)
-		{pid: 12, args: []string{bin, "install"}},                         // another install run
-		{pid: 13, args: []string{bin, "-version"}},                        // not a daemon in spirit, but flag-style; tolerated
-		{pid: 14, args: []string{"/other/jj-view", "-host", "127.0.0.1"}}, // different binary
-		{pid: 15, args: []string{"bash", "-c", bin + " -host 127.0.0.1"}}, // shell wrapper, args[0] mismatch
-		{pid: 99, args: []string{bin, "-host", "127.0.0.1"}},              // self
+		{pid: 10, args: []string{bin, "--host", "127.0.0.1", "--no-open"}}, // sidecar daemon
+		{pid: 11, args: []string{bin}},                                     // bare daemon (defaults)
+		{pid: 12, args: []string{bin, installAntigravityPluginCommand}},    // another install run
+		{pid: 13, args: []string{bin, "--version"}},                        // not a daemon in spirit, but flag-style; tolerated
+		{pid: 14, args: []string{"/other/jj-view", "--host", "127.0.0.1"}}, // different binary
+		{pid: 15, args: []string{"bash", "-c", bin + " --host 127.0.0.1"}}, // shell wrapper, args[0] mismatch
+		{pid: 16, args: []string{bin, "-host", "127.0.0.1", "-no-open"}},   // daemon launched from a manifest written before --flags
+		{pid: 99, args: []string{bin, "--host", "127.0.0.1"}},              // self
 	}
 	got := findRunningDaemons(bin, procs, 99)
-	want := []int{10, 11, 13}
+	want := []int{10, 11, 13, 16}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("findRunningDaemons = %v, want %v", got, want)
 	}
@@ -30,9 +31,9 @@ func TestFindRunningDaemons(t *testing.T) {
 func TestRestartRunningDaemonsContinuesOnError(t *testing.T) {
 	const bin = "/x/jj-view"
 	procs := []runningProcess{
-		{pid: 1, args: []string{bin, "-host", "127.0.0.1"}},
-		{pid: 2, args: []string{bin, "-host", "127.0.0.1"}},
-		{pid: 3, args: []string{bin, "-host", "127.0.0.1"}},
+		{pid: 1, args: []string{bin, "--host", "127.0.0.1"}},
+		{pid: 2, args: []string{bin, "--host", "127.0.0.1"}},
+		{pid: 3, args: []string{bin, "--host", "127.0.0.1"}},
 	}
 	var signaled []int
 	terminate := func(pid int) error {
@@ -52,7 +53,7 @@ func TestRestartRunningDaemonsContinuesOnError(t *testing.T) {
 }
 
 func TestRestartRunningDaemonsNoMatches(t *testing.T) {
-	procs := []runningProcess{{pid: 1, args: []string{"/elsewhere/jj-view", "-host", "x"}}}
+	procs := []runningProcess{{pid: 1, args: []string{"/elsewhere/jj-view", "--host", "x"}}}
 	called := false
 	restarted := restartRunningDaemons("/x/jj-view", procs, 0, func(int) error {
 		called = true

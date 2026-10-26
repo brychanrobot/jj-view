@@ -48,8 +48,9 @@ func listProcesses() ([]runningProcess, error) {
 }
 
 // findRunningDaemons returns the pids of jj-view daemons launched from
-// binaryPath. The install subcommand itself and any other non-daemon
-// invocations (install, -version) are excluded.
+// binaryPath. Subcommand invocations (install-antigravity-plugin) are
+// excluded; anything whose first argument is a flag (--host, -host, --version)
+// is treated as a daemon.
 func findRunningDaemons(binaryPath string, procs []runningProcess, selfPid int) []int {
 	var pids []int
 	for _, p := range procs {
