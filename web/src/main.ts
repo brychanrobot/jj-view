@@ -234,6 +234,13 @@ export async function bootstrap(): Promise<void> {
                 NO_OP_LOGGER.warn(`Failed to get initial workspace URIs from sidecar: ${toError(err).message}`);
             }
         }
+        if (repoRoot && repoRoot !== '.' && repoRoot !== hostSystem.repoRoot) {
+            try {
+                await hostSystem.addAllowedRoot(repoRoot);
+            } catch (err) {
+                NO_OP_LOGGER.warn(`Failed to add allowed root for repoRoot: ${toError(err).message}`);
+            }
+        }
         markStartup('workspace roots resolved (sidecar.getWorkspaceUris + addAllowedRoot)');
 
         const webHostEnv = new WebHostEnvironment(hostSystem, repoRoot);

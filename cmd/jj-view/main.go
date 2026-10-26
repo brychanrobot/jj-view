@@ -85,9 +85,19 @@ func main() {
 	execPath := resolveExecutablePath(os.Args[0])
 	reloadPortStr := os.Getenv(reloadPortEnvVar)
 	reloadSessionToken := os.Getenv(reloadSessionTokenEnvVar)
+	reloadAllowedRootsStr := os.Getenv(reloadAllowedRootsEnvVar)
 	_ = os.Unsetenv(reloadPortEnvVar)
 	_ = os.Unsetenv(reloadSessionTokenEnvVar)
+	_ = os.Unsetenv(reloadAllowedRootsEnvVar)
 	isReload := reloadPortStr != "" || reloadSessionToken != ""
+	var reloadAllowedRoots []string
+	if reloadAllowedRootsStr != "" {
+		for _, r := range filepath.SplitList(reloadAllowedRootsStr) {
+			if r != "" {
+				reloadAllowedRoots = append(reloadAllowedRoots, r)
+			}
+		}
+	}
 
 	passedFlags := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) {
@@ -150,16 +160,17 @@ func main() {
 	}
 
 	cfg := server.Config{
-		Host:           *hostFlag,
-		Port:           port,
-		RepoRoot:       absRepo,
-		SessionToken:   reloadSessionToken,
-		SidecarToken:   os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN"),
-		CSRFToken:      os.Getenv("ANTIGRAVITY_CSRF_TOKEN"),
-		Version:        version,
-		UserDataDir:    absUserDataDir,
-		UserConfigPath: userConfigPath,
-		AllowedOrigins: allowedOrigins,
+		Host:              *hostFlag,
+		Port:              port,
+		RepoRoot:          absRepo,
+		SessionToken:      reloadSessionToken,
+		SidecarToken:      os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN"),
+		CSRFToken:         os.Getenv("ANTIGRAVITY_CSRF_TOKEN"),
+		Version:           version,
+		UserDataDir:       absUserDataDir,
+		UserConfigPath:    userConfigPath,
+		AllowedOrigins:    allowedOrigins,
+		ExtraAllowedRoots: reloadAllowedRoots,
 	}
 
 	srv, err := server.NewServer(cfg)
@@ -199,13 +210,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	allowedRoots := srv.AllowedRoots()
 	if err := srv.Close(ctx); err != nil {
 		log.Printf("Error during shutdown: %v", err)
 	}
 
 	if sig == syscall.SIGHUP {
 		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-		if err := execInPlace(execPath, os.Args, os.Environ(), srv.Port(), srv.SessionToken()); err != nil {
+		if err := execInPlace(execPath, os.Args, os.Environ(), srv.Port(), srv.SessionToken(), allowedRoots...); err != nil {
 			log.Fatalf("In-place reload failed: %v", err)
 		}
 	}

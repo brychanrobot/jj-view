@@ -6,6 +6,7 @@
 import type { HostHttpRequest } from './host-environment';
 import {
     type FileStat,
+    type FuzzyFileMatch,
     type HelperScriptName,
     type HostFs,
     type HostPlatform,
@@ -185,6 +186,7 @@ function isWatcherChangeNotification(params: unknown): params is WatcherChangeNo
 interface SystemInfoResult {
     readonly platform: HostPlatform;
     readonly version: string;
+    readonly build?: string;
     readonly repoRoot: string;
     readonly tempDir?: string;
 }
@@ -312,6 +314,8 @@ export class RemoteHostSystem implements HostSystem {
     private _repoRoot: string = '';
     private _workspaceRoot: string = '';
     private _version: string = '';
+    private _build: string = '';
+    private readonly _allowedRoots = new Set<string>();
 
     private readonly _options: RemoteHostSystemOptions;
     private _resolvedToken?: string;
@@ -446,6 +450,9 @@ export class RemoteHostSystem implements HostSystem {
 
     public setWorkspaceRoot(repoRoot: string): void {
         this._workspaceRoot = repoRoot;
+        if (repoRoot) {
+            this._allowedRoots.add(repoRoot);
+        }
     }
 
     public get version(): string {
@@ -699,8 +706,18 @@ export class RemoteHostSystem implements HostSystem {
 
         // Query system info to populate platform, version, repoRoot, and tempDir
         this._sendRequest<unknown>('system.info')
-            .then((info) => {
+            .then(async (info) => {
                 if (isSystemInfoResult(info)) {
+                    if (this._build && info.build && info.build !== this._build) {
+                        this._build = info.build;
+                        if (typeof window !== 'undefined' && typeof window.location?.reload === 'function') {
+                            window.location.reload();
+                            return;
+                        }
+                    }
+                    if (info.build) {
+                        this._build = info.build;
+                    }
                     this._platform = info.platform;
                     this._version = info.version;
                     this._repoRoot = info.repoRoot;
@@ -709,7 +726,8 @@ export class RemoteHostSystem implements HostSystem {
                     }
                 }
                 this._ensureWebSocket();
-                this._reconnectWatchers();
+                await this._reconnectAllowedRoots();
+                void this._reconnectWatchers();
                 if (this._readyResolve) {
                     this._readyResolve();
                     this._readyResolve = null;
@@ -884,6 +902,19 @@ export class RemoteHostSystem implements HostSystem {
         this._reconnectTimer = setTimeout(() => {
             this.connect();
         }, delay);
+    }
+
+    private async _reconnectAllowedRoots(): Promise<void> {
+        for (const root of Array.from(this._allowedRoots)) {
+            if (!root || root === this._repoRoot) {
+                continue;
+            }
+            try {
+                await this._sendRequest('workspace.addAllowedRoot', { path: root });
+            } catch {
+                // Ignore invalid or unreachable roots during reconnect
+            }
+        }
     }
 
     private async _reconnectWatchers(): Promise<void> {
@@ -1263,7 +1294,30 @@ export class RemoteHostSystem implements HostSystem {
         return res.files ?? [];
     }
 
+    public async fuzzyFindFiles(
+        query: string,
+        baseDir?: string,
+        maxResults?: number,
+        excludes?: string[],
+        signal?: AbortSignal,
+    ): Promise<FuzzyFileMatch[]> {
+        const res = await this.request<{ files: FuzzyFileMatch[] }>(
+            'fs.fuzzyFindFiles',
+            {
+                baseDir: baseDir ?? this.repoRoot,
+                query,
+                maxResults,
+                excludes,
+            },
+            signal,
+        );
+        return res.files ?? [];
+    }
+
     public async addAllowedRoot(path: string): Promise<void> {
+        if (path) {
+            this._allowedRoots.add(path);
+        }
         await this.request('workspace.addAllowedRoot', { path });
     }
 

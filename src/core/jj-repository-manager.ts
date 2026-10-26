@@ -278,6 +278,7 @@ export class JjRepositoryManager implements HostDisposable {
                 continue;
             }
             try {
+                await this._host.system?.addAllowedRoot?.(item.rootPath);
                 const stats = await this.fs.stat(item.rootPath);
                 if (!stats.isDirectory()) {
                     continue;

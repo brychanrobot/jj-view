@@ -45,22 +45,19 @@ const (
 
 // Config configures the server instance.
 type Config struct {
-	Host           string
-	Port           int
-	RepoRoot       string
-	SessionToken   string
-	SidecarToken   string
-	CSRFToken      string
-	Version        string
-	UserDataDir    string
-	UserConfigPath string
-	UserStatePath  string
-	UserSecretPath string
-	// AllowedOrigins lists extra browser origin hosts accepted in standalone
-	// mode, on top of loopback, the bound host and the request host. An entry
-	// of the form "*.example.com" matches any subdomain of example.com.
-	// Ignored in sidecar mode, where every origin is accepted.
-	AllowedOrigins []string
+	Host              string
+	Port              int
+	RepoRoot          string
+	SessionToken      string
+	SidecarToken      string
+	CSRFToken         string
+	Version           string
+	UserDataDir       string
+	UserConfigPath    string
+	UserStatePath     string
+	UserSecretPath    string
+	AllowedOrigins    []string
+	ExtraAllowedRoots []string
 }
 
 // Server provides HTTP and WebSocket services for the JJ View web UI.
@@ -76,6 +73,8 @@ type Server struct {
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
+	bgCtx        context.Context
+	bgCancel     context.CancelFunc
 	fileServer   http.Handler
 	assetVersion string
 	clientsMu    sync.Mutex
@@ -167,17 +166,22 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.UserSecretPath != "" {
 		extraRoots = append(extraRoots, filepath.Dir(cfg.UserSecretPath))
 	}
+	extraRoots = append(extraRoots, cfg.ExtraAllowedRoots...)
 
 	fsMgr, err := fs.NewSandboxManager(cfg.RepoRoot, extraRoots...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sandbox: %w", err)
 	}
 
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+
 	s := &Server{
 		cfg:          cfg,
 		fsMgr:        fsMgr,
 		watcherHub:   watcher.NewHub(),
 		readyCh:      make(chan struct{}),
+		bgCtx:        bgCtx,
+		bgCancel:     bgCancel,
 		sseClients:   make(map[string]*sseClient),
 		wsClients:    make(map[*wsConn]struct{}),
 		gitCreds:     gitcred.NewResolver(gitcred.Options{Logf: log.Printf}),
@@ -194,6 +198,7 @@ func NewServer(cfg Config) (*Server, error) {
 		},
 	})
 	if err != nil {
+		bgCancel()
 		return nil, fmt.Errorf("failed to initialize config store: %w", err)
 	}
 	s.configStore = configStore
@@ -208,6 +213,7 @@ func NewServer(cfg Config) (*Server, error) {
 		},
 	})
 	if err != nil {
+		bgCancel()
 		return nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 	s.stateStore = stateStore
@@ -222,10 +228,17 @@ func NewServer(cfg Config) (*Server, error) {
 		},
 	})
 	if err != nil {
+		bgCancel()
 		return nil, fmt.Errorf("failed to initialize secret store: %w", err)
 	}
 	s.secretStore = secretStore
 	s.procMgr = process.NewManager(filepath.Join(fsMgr.DaemonTempDir(), "scripts"))
+
+	s.restoreAllowedRootsFromState()
+	s.maybeWarmRepoRoot(cfg.RepoRoot)
+	for _, r := range cfg.ExtraAllowedRoots {
+		s.maybeWarmRepoRoot(r)
+	}
 
 	_ = mime.AddExtensionType(".woff2", "font/woff2")
 	_ = mime.AddExtensionType(".woff", "font/woff")
@@ -237,6 +250,64 @@ func NewServer(cfg Config) (*Server, error) {
 	}()
 
 	return s, nil
+}
+
+func (s *Server) maybeWarmRepoRoot(dir string) {
+	if dir == "" {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".jj")); err == nil {
+		s.fsMgr.WarmFileIndex(s.bgCtx, dir)
+		return
+	}
+}
+
+func (s *Server) restoreAllowedRootsFromState() {
+	if s.stateStore == nil {
+		return
+	}
+	allState := s.stateStore.GetAll()
+	seen := make(map[string]bool)
+	addCandidate := func(p string) {
+		if p == "" || !filepath.IsAbs(p) || seen[p] {
+			return
+		}
+		seen[p] = true
+		fi, err := os.Stat(filepath.Join(p, ".jj"))
+		if err != nil || !fi.IsDir() {
+			return
+		}
+		resolved, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			resolved = p
+		}
+		s.fsMgr.AddAllowedRoot(p)
+		if resolved != p {
+			s.fsMgr.AddAllowedRoot(resolved)
+		}
+		if s.configStore != nil {
+			s.configStore.WatchWorkspaceRoot(resolved)
+		}
+	}
+
+	for key, raw := range allState {
+		baseKey := strings.TrimPrefix(key, "jj-view.")
+		if strings.HasPrefix(baseKey, "discoveredRepoPaths") {
+			var entries []struct {
+				RootPath string `json:"rootPath"`
+			}
+			if err := json.Unmarshal(raw, &entries); err == nil {
+				for _, e := range entries {
+					addCandidate(e.RootPath)
+				}
+			}
+		} else if strings.HasPrefix(baseKey, "lastFocusedRepoPath") {
+			var rootPath string
+			if err := json.Unmarshal(raw, &rootPath); err == nil {
+				addCandidate(rootPath)
+			}
+		}
+	}
 }
 
 // Ready returns a channel that is closed when the server has bound its port.
@@ -311,8 +382,16 @@ func (s *Server) SessionToken() string {
 	return s.cfg.SessionToken
 }
 
+// AllowedRoots returns the currently allowed sandbox root directories.
+func (s *Server) AllowedRoots() []string {
+	return s.fsMgr.AllowedRoots()
+}
+
 // Close gracefully stops the server and closes all active clients.
 func (s *Server) Close(ctx context.Context) error {
+	if s.bgCancel != nil {
+		s.bgCancel()
+	}
 	s.watcherHub.Close()
 	if s.configStore != nil {
 		_ = s.configStore.Close()
@@ -1313,6 +1392,31 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		}
 		return map[string][]string{"files": files}, nil
 
+	case "fs.fuzzyFindFiles":
+		var params struct {
+			BaseDir    string   `json:"baseDir"`
+			Query      string   `json:"query"`
+			MaxResults int      `json:"maxResults,omitempty"`
+			Excludes   []string `json:"excludes,omitempty"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		matches, err := s.fsMgr.FuzzyFindFiles(fs.FuzzyFindOptions{
+			Context:    ctx,
+			BaseDir:    params.BaseDir,
+			Query:      params.Query,
+			MaxResults: params.MaxResults,
+			Excludes:   params.Excludes,
+		})
+		if err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
+			}
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return map[string][]fs.FuzzyFileMatch{"files": matches}, nil
+
 	case "watcher.watch":
 		var params struct {
 			DirPath string   `json:"dirPath"`
@@ -1526,6 +1630,7 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		if s.configStore != nil {
 			s.configStore.WatchWorkspaceRoot(resolvedPath)
 		}
+		s.maybeWarmRepoRoot(resolvedPath)
 		return map[string]any{"success": true, "path": resolvedPath}, nil
 
 	default:

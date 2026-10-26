@@ -10,6 +10,7 @@ import type { CommentsManager, CommentThread } from '../../src/core/comments-man
 import { CommitDetailsController } from '../../src/core/controllers/commit-details-controller';
 import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
+import type { FuzzyFileMatch } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
 import type { JjStatusEntry } from '../../src/core/jj-types';
@@ -54,6 +55,7 @@ import MergeEditorView from './merge/MergeEditorView.svelte';
 import { parseConflictMarkersFallback } from './merge/three-way-merge';
 import NotificationContainer from './notifications/NotificationContainer.svelte';
 import { NotificationService } from './notifications/notification-service';
+import { scoreFuzzyPath } from './quick-input/fuzzy-score';
 import QuickInput from './quick-input/QuickInput.svelte';
 import { type CommandPaletteEntry, QuickInputService } from './quick-input/quick-input-service';
 import ScmPane from './scm/ScmPane.svelte';
@@ -219,6 +221,12 @@ function openCommandPalette(): void {
 
     const builtIns: CommandPaletteEntry[] = [
         {
+            id: 'workbench.action.quickOpen',
+            title: 'Go to File...',
+            category: 'File',
+            iconClass: 'codicon codicon-go-to-file',
+        },
+        {
             id: 'workbench.action.openSettings',
             title: 'Open Settings',
             category: 'Preferences',
@@ -240,6 +248,10 @@ function openCommandPalette(): void {
     }
 
     void activeQuickInput.openCommandPalette(commands, async (cmdId) => {
+        if (cmdId === 'workbench.action.quickOpen') {
+            await openQuickOpen();
+            return;
+        }
         if (cmdId === 'workbench.action.selectTheme') {
             await openThemePicker();
             return;
@@ -248,6 +260,244 @@ function openCommandPalette(): void {
             await webHostEnv.commands.executeCommand(cmdId);
         }
     });
+}
+
+interface QuickOpenFileItem {
+    id: string;
+    label: string;
+    description?: string;
+    detail?: string;
+    iconClass: string;
+    filterText: string;
+    fullPath: string;
+    priorityBoost: number;
+}
+
+function makeQuickOpenItem(
+    fullPath: string,
+    relPath: string,
+    detail: string | undefined,
+    priorityBoost: number,
+): QuickOpenFileItem {
+    const normRel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const lastSlash = normRel.lastIndexOf('/');
+    const fileName = lastSlash >= 0 ? normRel.slice(lastSlash + 1) : normRel;
+    const dirName = lastSlash > 0 ? normRel.slice(0, lastSlash) : undefined;
+    return {
+        id: normRel || fullPath,
+        label: fileName || normRel,
+        description: dirName,
+        detail,
+        iconClass: 'codicon codicon-file',
+        filterText: normRel,
+        fullPath,
+        priorityBoost,
+    };
+}
+
+function collectPrioritizedQuickOpenFiles(searchRoot: string): QuickOpenFileItem[] {
+    const items: QuickOpenFileItem[] = [];
+    const byFullPath = new Map<string, QuickOpenFileItem>();
+
+    const toRelative = (fullPath: string): string | null => {
+        const rel = path.relative(searchRoot, fullPath);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+            return null;
+        }
+        return rel.replace(/\\/g, '/');
+    };
+
+    const modifiedStatusByFullPath = new Map<string, string>();
+    const repoRoot = workspaceRoot || searchRoot;
+    const snap = currentSnapshot ?? scmModel?.snapshot;
+    if (snap?.conflictedPaths) {
+        for (const p of snap.conflictedPaths) {
+            const full = path.join(repoRoot, p);
+            modifiedStatusByFullPath.set(full, 'Conflicted');
+        }
+    }
+    if (snap?.workingCopyChanges) {
+        for (const c of snap.workingCopyChanges) {
+            if (c.status === 'deleted') {
+                continue;
+            }
+            const full = path.join(repoRoot, c.path);
+            if (!modifiedStatusByFullPath.has(full)) {
+                modifiedStatusByFullPath.set(full, c.status === 'added' ? 'Added' : 'Modified');
+            }
+        }
+    }
+
+    // 1. Open tabs (active tab first, then remaining tabs)
+    const orderedTabs = activeTab ? [activeTab, ...tabs.filter((t) => t.id !== activeTab.id)] : [...tabs];
+    for (const t of orderedTabs) {
+        let fullPath: string | undefined;
+        if ((t.view.type === 'file' || t.view.type === 'merge') && t.view.uri.scheme === 'file') {
+            fullPath = t.view.uri.fsPath;
+        } else if (t.view.type === 'diff') {
+            if (t.view.rightUri?.scheme === 'file') {
+                fullPath = t.view.rightUri.fsPath;
+            } else if (t.view.resourceState?.relativePath) {
+                fullPath = path.join(repoRoot, t.view.resourceState.relativePath);
+            }
+        }
+        if (!fullPath || byFullPath.has(fullPath)) {
+            continue;
+        }
+        const rel = toRelative(fullPath);
+        if (!rel) {
+            continue;
+        }
+        const modBadge = modifiedStatusByFullPath.get(fullPath);
+        const detail = modBadge ? `Open • ${modBadge}` : 'Open';
+        const entry = makeQuickOpenItem(fullPath, rel, detail, 6000);
+        byFullPath.set(fullPath, entry);
+        items.push(entry);
+    }
+
+    // 2. Working-copy modified / added / conflicted files
+    for (const [fullPath, statusLabel] of modifiedStatusByFullPath.entries()) {
+        if (byFullPath.has(fullPath)) {
+            continue;
+        }
+        const rel = toRelative(fullPath);
+        if (!rel) {
+            continue;
+        }
+        const entry = makeQuickOpenItem(fullPath, rel, statusLabel, 4000);
+        byFullPath.set(fullPath, entry);
+        items.push(entry);
+    }
+
+    return items;
+}
+
+function mergeQuickOpenItems(
+    query: string,
+    prioritized: readonly QuickOpenFileItem[],
+    workspaceMatches: readonly FuzzyFileMatch[],
+): QuickOpenFileItem[] {
+    const trimmed = query.trim();
+    if (!trimmed) {
+        const seen = new Set<string>();
+        const merged: QuickOpenFileItem[] = [];
+        for (const p of prioritized) {
+            seen.add(p.fullPath);
+            merged.push(p);
+        }
+        for (const m of workspaceMatches) {
+            if (seen.has(m.path)) {
+                continue;
+            }
+            seen.add(m.path);
+            merged.push(makeQuickOpenItem(m.path, m.relPath, undefined, 0));
+        }
+        return merged;
+    }
+
+    const scoredMap = new Map<string, { item: QuickOpenFileItem; score: number }>();
+
+    for (const p of prioritized) {
+        const s = scoreFuzzyPath(p.filterText, trimmed);
+        if (s !== null) {
+            scoredMap.set(p.fullPath, { item: p, score: s + p.priorityBoost });
+        }
+    }
+
+    for (const m of workspaceMatches) {
+        const existing = scoredMap.get(m.path);
+        if (existing) {
+            const boosted = m.score + existing.item.priorityBoost;
+            if (boosted > existing.score) {
+                existing.score = boosted;
+            }
+            continue;
+        }
+        scoredMap.set(m.path, {
+            item: makeQuickOpenItem(m.path, m.relPath, undefined, 0),
+            score: m.score,
+        });
+    }
+
+    return Array.from(scoredMap.values())
+        .sort((a, b) => {
+            if (b.score !== a.score) {
+                return b.score - a.score;
+            }
+            if (b.item.priorityBoost !== a.item.priorityBoost) {
+                return b.item.priorityBoost - a.item.priorityBoost;
+            }
+            return a.item.filterText.localeCompare(b.item.filterText);
+        })
+        .map((e) => e.item);
+}
+
+async function openQuickOpen(): Promise<void> {
+    const searchRoot = workspaceRoot || webHostEnv?.workspace.workspaceFolders[0]?.uri.fsPath || host?.repoRoot || '';
+    const searchRootUri = searchRoot ? Uri.file(searchRoot) : undefined;
+    const initialPrioritized = searchRoot ? collectPrioritizedQuickOpenFiles(searchRoot) : [];
+
+    if (searchRoot && host && searchRoot !== host.repoRoot) {
+        void host.addAllowedRoot(searchRoot).catch(() => {});
+    }
+
+    let latestRequestId = 0;
+    let activeAbortController: AbortController | null = null;
+    let pickerClosed = false;
+
+    const triggerBackendSearch = async (query: string): Promise<void> => {
+        if (!webHostEnv && !host) {
+            return;
+        }
+        const reqId = ++latestRequestId;
+        if (activeAbortController) {
+            activeAbortController.abort();
+        }
+        const abortController = new AbortController();
+        activeAbortController = abortController;
+
+        try {
+            let matches: FuzzyFileMatch[] = [];
+            if (webHostEnv) {
+                matches = await webHostEnv.workspace.fuzzyFindFiles(query, searchRootUri, 100, abortController.signal);
+            } else if (host && searchRoot) {
+                matches = await host.fuzzyFindFiles(query, searchRoot, 100, undefined, abortController.signal);
+            }
+            if (pickerClosed || reqId !== latestRequestId) {
+                return;
+            }
+            const livePrioritized = searchRoot ? collectPrioritizedQuickOpenFiles(searchRoot) : initialPrioritized;
+            const merged = mergeQuickOpenItems(query, livePrioritized, matches);
+            activeQuickInput.updateQuickPickItems(merged);
+        } catch (err) {
+            if (!abortController.signal.aborted) {
+                console.warn('[QuickOpen] Backend fuzzy search failed:', err);
+            }
+        }
+    };
+
+    const pickPromise = activeQuickInput.showQuickPick(initialPrioritized, {
+        title: 'Go to File',
+        placeHolder: 'Search files by name (append space to match path segments)...',
+        matchOnDescription: true,
+        preserveOrder: true,
+        onDidChangeValue: (val) => {
+            void triggerBackendSearch(val);
+        },
+    });
+
+    void triggerBackendSearch('');
+
+    const selected = await pickPromise;
+    pickerClosed = true;
+    if (activeAbortController) {
+        activeAbortController.abort();
+        activeAbortController = null;
+    }
+
+    if (selected?.fullPath) {
+        await loadFileFromUri(Uri.file(selected.fullPath), { preview: false });
+    }
 }
 
 let themeRequestId = 0;
@@ -309,6 +559,12 @@ function handleWindowKeydown(e: KeyboardEvent): void {
     if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) || e.key === 'F1') {
         e.preventDefault();
         openCommandPalette();
+        return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        void openQuickOpen();
         return;
     }
 
@@ -1390,6 +1646,10 @@ onMount(() => {
                 const newTheme = webHostEnv.config.get<string>('appearance.theme') || 'pierre-dark-soft';
                 void applyTheme(newTheme);
             }
+        });
+
+        webHostEnv.commands.registerCommand('workbench.action.quickOpen', async () => {
+            await openQuickOpen();
         });
 
         webHostEnv.commands.registerCommand('workbench.action.selectTheme', async () => {

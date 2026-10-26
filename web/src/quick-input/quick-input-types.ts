@@ -9,6 +9,7 @@ export interface QuickPickItem<T = unknown> {
     description?: string;
     detail?: string;
     iconClass?: string;
+    filterText?: string;
     value?: T;
     alwaysShow?: boolean;
 }
@@ -38,6 +39,7 @@ export interface QuickPickOptions<T = unknown> {
     canSelectMany?: boolean;
     matchOnDescription?: boolean;
     matchOnDetail?: boolean;
+    preserveOrder?: boolean;
     acceptCustomValue?: boolean;
     activeItem?: QuickPickItem<T>;
     onDidChangeActive?: (items: readonly QuickPickItem<T>[]) => void;
@@ -46,16 +48,19 @@ export interface QuickPickOptions<T = unknown> {
 
 export type QuickInputSession =
     | {
+          sessionId?: number;
           type: 'input-box';
           options: InputBoxOptions;
           resolve: (value: string | undefined) => void;
       }
     | {
+          sessionId?: number;
           type: 'quick-pick';
           options: QuickPickOptions;
           resolve: (value: QuickPickItem | undefined) => void;
       }
     | {
+          sessionId?: number;
           type: 'multi-quick-pick';
           options: QuickPickOptions;
           resolve: (value: QuickPickItem[] | undefined) => void;
