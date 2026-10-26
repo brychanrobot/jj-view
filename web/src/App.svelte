@@ -94,7 +94,7 @@ let {
     webHostEnv,
     scmModel,
     initialSnapshot,
-    workspaceRoot = '',
+    workspaceRoot: initialWorkspaceRoot = '',
     viewFs,
     editFs,
     logTransport,
@@ -129,6 +129,9 @@ interface ChatContextSelectionProvider {
 
 // svelte-ignore state_referenced_locally
 let currentSnapshot: ScmSnapshot | undefined = $state(initialSnapshot ?? scmModel?.snapshot);
+// svelte-ignore state_referenced_locally
+let currentRepoRoot = $state(scmModel?.repo.rootUri.fsPath ?? '');
+const workspaceRoot = $derived(currentRepoRoot || initialWorkspaceRoot);
 let tabs = $state<TabEntry[]>([]);
 let activeTabId = $state<string | undefined>();
 let activeTabSelection = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
@@ -1147,17 +1150,19 @@ $effect(() => {
     if (!scmModel) {
         return;
     }
-    // The web app serves a single repository; jj-view/jj-edit URIs carry the
-    // root they were minted for, so anything with a different root is foreign.
-    const repoRoot = scmModel.repo.rootUri.fsPath;
+    const repoRoot = currentRepoRoot || scmModel.repo.rootUri.fsPath;
     const belongsToRepo = (uri: Uri): boolean => {
         const root = getUriParams(uri).get('root');
         return !root || root === repoRoot;
     };
     const diffTabCleaner = webHostEnv ? new DiffTabCleaner(scmModel.jj, belongsToRepo, webHostEnv) : undefined;
 
+    const repoDisposable = scmModel.onDidChangeRepository((repo) => {
+        currentRepoRoot = repo.rootUri.fsPath;
+    });
     const disposable = scmModel.onDidChangeSnapshot(async (snapshot) => {
         currentSnapshot = snapshot;
+        currentRepoRoot = scmModel.repo.rootUri.fsPath;
         // Same order as the extension's SCM provider: drop cached virtual file
         // contents first, close tabs whose revision no longer exists, then
         // re-read whatever is still open so the reads miss the cache. Without
@@ -1174,6 +1179,7 @@ $effect(() => {
         currentSnapshot = scmModel.snapshot;
     }
     return () => {
+        repoDisposable.dispose();
         disposable.dispose();
     };
 });

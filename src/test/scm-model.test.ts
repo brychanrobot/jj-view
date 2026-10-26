@@ -99,4 +99,105 @@ describe('ScmModel Domain Unit Tests', () => {
             scmModel.dispose();
         }).not.toThrow();
     });
+
+    test('setRepository switches repository, fires onDidChangeRepository, and refreshes snapshot', async () => {
+        const secondTestRepo = new TestRepo();
+        secondTestRepo.init();
+        secondTestRepo.writeFile('second-repo.txt', 'from second repo\n');
+        secondTestRepo.describe('Second repo working copy');
+
+        const registry = new CodeForgeRegistry();
+        const outputChannel = createMockLogOutputChannel({
+            appendLine: () => {},
+        });
+        const host = new FakeHostEnvironment();
+        host.workspace.addFolder(Uri.file(secondTestRepo.path));
+
+        const secondManager = new JjRepositoryManager(registry, outputChannel, host);
+        try {
+            const secondRepo = await secondManager.maybeRegisterRepositoryContainingUri(Uri.file(secondTestRepo.path));
+            if (!secondRepo) {
+                throw new Error('Failed to register second repo');
+            }
+
+            const repoChanges: string[] = [];
+            scmModel.onDidChangeRepository((r) => {
+                repoChanges.push(r.rootUri.fsPath);
+            });
+            scmModel.handleSelectionChange(['commit-a']);
+
+            const snapshotPromise = new Promise<ScmSnapshot>((resolve) => {
+                scmModel.onDidChangeSnapshot((s) => {
+                    if (s.description === 'Second repo working copy') {
+                        resolve(s);
+                    }
+                });
+            });
+
+            scmModel.setRepository(secondRepo);
+
+            expect(scmModel.repo).toBe(secondRepo);
+            expect(scmModel.getSelectedCommitIds()).toEqual([]);
+            expect(repoChanges).toHaveLength(1);
+            expect(repoChanges[0]).toBeSameFsPath(secondRepo.rootUri.fsPath);
+
+            const nextSnapshot = await snapshotPromise;
+            expect(nextSnapshot.description).toBe('Second repo working copy');
+            expect(nextSnapshot.workingCopyChanges.some((c) => c.path.includes('second-repo.txt'))).toBe(true);
+        } finally {
+            await secondManager.dispose();
+        }
+    });
+
+    test('scopes cached and focused repository state per workspace root when sharing storage', async () => {
+        const parentDir = new TestRepo();
+        const carrotRepo = new TestRepo(`${parentDir.path}/carrot`);
+        carrotRepo.init();
+        const jjViewRepo = new TestRepo(`${parentDir.path}/jj-view`);
+        jjViewRepo.init();
+
+        const registry = new CodeForgeRegistry();
+        const outputChannel = createMockLogOutputChannel({
+            appendLine: () => {},
+        });
+
+        // 1. Parent workspace (/code) discovers both carrot and jj-view, focusing carrot (alphabetically first)
+        const parentHost = new FakeHostEnvironment();
+        parentHost.workspace.addFolder(Uri.file(parentDir.path));
+        const parentManager = new JjRepositoryManager(registry, outputChannel, parentHost);
+
+        // 2. Child workspace (/code/jj-view) shares the same backing storage (as in sidecar daemon state.json)
+        const childHost = new FakeHostEnvironment();
+        childHost.storage = parentHost.storage;
+        childHost.workspace.addFolder(Uri.file(jjViewRepo.path));
+        const childManager = new JjRepositoryManager(registry, outputChannel, childHost);
+
+        try {
+            const cRepo = await parentManager.maybeRegisterRepositoryContainingUri(Uri.file(carrotRepo.path));
+            const jRepo = await parentManager.maybeRegisterRepositoryContainingUri(Uri.file(jjViewRepo.path));
+            expect(cRepo).toBeDefined();
+            expect(jRepo).toBeDefined();
+            parentManager.setFocusedRepository(cRepo);
+
+            const childRegistered = await childManager.maybeRegisterRepositoryContainingUri(Uri.file(jjViewRepo.path));
+            expect(childRegistered).toBeDefined();
+            childManager.setFocusedRepository(childRegistered);
+
+            // 3. Reload parent workspace from shared storage: should still focus carrot, not jj-view
+            const reloadedParentHost = new FakeHostEnvironment();
+            reloadedParentHost.storage = parentHost.storage;
+            reloadedParentHost.workspace.addFolder(Uri.file(parentDir.path));
+            const reloadedParentManager = new JjRepositoryManager(registry, outputChannel, reloadedParentHost);
+            try {
+                await reloadedParentManager.restoreCachedRepositories();
+                expect(reloadedParentManager.repositories.length).toBe(2);
+                expect(reloadedParentManager.focusedRepository?.rootUri.fsPath).toBeSameFsPath(carrotRepo.path);
+            } finally {
+                await reloadedParentManager.dispose();
+            }
+        } finally {
+            await childManager.dispose();
+            await parentManager.dispose();
+        }
+    });
 });
