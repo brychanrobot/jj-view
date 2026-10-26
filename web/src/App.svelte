@@ -22,6 +22,7 @@ import {
 } from '../../src/core/scm-resource-state';
 import { encodeJjViewQuery, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
+import { toError } from '../../src/utils/error-utils';
 import { NO_OP_LOGGER } from '../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from './bridge/in-memory-bridge';
 import CommitDetailsView from './details/CommitDetailsView.svelte';
@@ -31,6 +32,7 @@ import PierreFileViewer from './diff/PierreFileViewer.svelte';
 import PierreMultiDiffViewer from './diff/PierreMultiDiffViewer.svelte';
 import type { WebHostEnvironment } from './host/web-host-environment';
 import AppLayout from './layout/AppLayout.svelte';
+import { LAYOUT_STORAGE_KEY, type PersistedLayout } from './layout/layout-state';
 import LogPane from './log/LogPane.svelte';
 import ContextMenu from './menu/ContextMenu.svelte';
 import { ContextKeyService } from './menu/context-key-service';
@@ -69,6 +71,8 @@ interface Props {
     quickInputService?: QuickInputService;
     notificationService?: NotificationService;
     statusBarService?: StatusBarService;
+    /** Panel sizes restored from storage before mount, so the first paint is already right. */
+    initialLayout?: PersistedLayout;
 }
 
 let {
@@ -83,7 +87,14 @@ let {
     quickInputService,
     notificationService,
     statusBarService,
+    initialLayout,
 }: Props = $props();
+
+function persistLayout(layout: PersistedLayout): void {
+    webHostEnv?.storage.update(LAYOUT_STORAGE_KEY, layout).catch((err: unknown) => {
+        console.warn('Failed to persist layout', toError(err));
+    });
+}
 
 const fallbackQuickInput = new QuickInputService();
 const activeQuickInput = $derived(quickInputService ?? webHostEnv?.quickInput ?? fallbackQuickInput);
@@ -1357,6 +1368,8 @@ onMount(() => {
     repoPath={workspaceRoot}
     onRefresh={handleRefresh}
     {activeTabId}
+    layout={initialLayout}
+    onLayoutChange={persistLayout}
 >
     {#snippet scm()}
         <ScmPane
@@ -1390,13 +1403,16 @@ onMount(() => {
         />
     {/snippet}
 
-    {#snippet log()}
+    {#snippet log(logLayout)}
         {#if logTransport}
             <LogPane
                 transport={logTransport}
                 {menuRegistry}
                 {rootContext}
                 onAction={handleAction}
+                collapsed={logLayout.collapsed}
+                onToggleCollapsed={logLayout.onToggleCollapsed}
+                onPreferredHeightChange={logLayout.onPreferredHeightChange}
             />
         {/if}
     {/snippet}

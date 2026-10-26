@@ -23,6 +23,7 @@ import App from './App.svelte';
 import { createInMemoryBridge } from './bridge/in-memory-bridge';
 import { registerWebCommands } from './commands/register-web-commands';
 import { WebHostEnvironment } from './host/web-host-environment';
+import { LAYOUT_STORAGE_KEY, parsePersistedLayout } from './layout/layout-state';
 import './styles/vscode-theme.css';
 import '../../media/themes.generated.css';
 import '../../media/main.css';
@@ -306,6 +307,16 @@ export async function bootstrap(): Promise<void> {
             });
         }
 
+        // Read in parallel with the repository restore so the first paint uses
+        // the persisted panel sizes without adding a round trip to startup.
+        const layoutLoad = webHostEnv.storage
+            .get<unknown>(LAYOUT_STORAGE_KEY)
+            .then(parsePersistedLayout)
+            .catch((err: unknown) => {
+                NO_OP_LOGGER.error('Failed to load persisted layout', toError(err));
+                return parsePersistedLayout(undefined);
+            });
+
         await repoManager.restoreCachedRepositories();
         markStartup('restoreCachedRepositories done');
 
@@ -422,6 +433,8 @@ export async function bootstrap(): Promise<void> {
         });
         updateCodeForgeContext(repo);
 
+        const initialLayout = await layoutLoad;
+
         mount(App, {
             target,
             props: {
@@ -433,6 +446,7 @@ export async function bootstrap(): Promise<void> {
                 viewFs,
                 editFs,
                 logTransport: logBridge.transport,
+                initialLayout,
             },
         });
         markStartup('App mounted (first visible UI)');
