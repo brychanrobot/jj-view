@@ -901,8 +901,11 @@ export class RemoteHostSystem implements HostSystem {
                 this._activeSubscriptions.delete(oldSubId);
                 sub.subscriptionId = res.subscriptionId;
                 this._activeSubscriptions.set(res.subscriptionId, sub);
-            } catch {
-                // Ignore watcher re-subscribe error on reconnect
+            } catch (err) {
+                if (this._activeSubscriptions.has(oldSubId)) {
+                    this._activeSubscriptions.delete(oldSubId);
+                    sub.callback(err instanceof Error ? err : new Error(String(err)), []);
+                }
             }
         }
     }
@@ -1258,6 +1261,10 @@ export class RemoteHostSystem implements HostSystem {
             excludes,
         });
         return res.files ?? [];
+    }
+
+    public async addAllowedRoot(path: string): Promise<void> {
+        await this.request('workspace.addAllowedRoot', { path });
     }
 
     public dispose(): void {

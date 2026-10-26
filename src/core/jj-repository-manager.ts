@@ -255,8 +255,20 @@ export class JjRepositoryManager implements HostDisposable {
 
         this._outputChannel.info(`[RepositoryManager] Loading ${stored.length} cached repositories...`);
 
+        const folders = this._host.workspace.workspaceFolders || [];
         const loaded: JjRepository[] = [];
         for (const item of stored) {
+            const normalizedCandidate = this.normalizePath(item.rootPath);
+            for (const folder of folders) {
+                const normalizedFolder = this.normalizePath(folder.uri.fsPath);
+                if (
+                    normalizedFolder !== normalizedCandidate &&
+                    normalizedFolder.startsWith(`${normalizedCandidate}/`)
+                ) {
+                    await this.findRepoRoot(folder.uri.fsPath);
+                    break;
+                }
+            }
             if (!(await this.isPathInOrAncestorOfWorkspace(item.rootPath))) {
                 continue;
             }
@@ -329,6 +341,7 @@ export class JjRepositoryManager implements HostDisposable {
 
         const candidates: DetectedRepoInfo[] = [];
         const seenRoots = new Set<string>();
+        const initialRepos = new Set(this._repositories.map((r) => this.normalizePath(r.rootUri.fsPath)));
 
         // 1. Resolve ignore list absolute paths
         this.updateIgnoredPaths();
@@ -379,39 +392,22 @@ export class JjRepositoryManager implements HostDisposable {
             }),
         );
 
-        // Discover via auto-detection setting
-        await Promise.all(
-            folders.map(async (folder) => {
-                if (this._disposed) {
-                    return;
-                }
-                const rootPath = folder.uri.fsPath;
-                const rootReal = await this.fs.realpath(rootPath).catch(() => rootPath);
-
-                if (this.shouldScanWorkspaceRoots()) {
+        // 2. Discover workspace roots via jj root (fast)
+        if (this.shouldScanWorkspaceRoots()) {
+            await Promise.all(
+                folders.map(async (folder) => {
+                    if (this._disposed) {
+                        return;
+                    }
+                    const rootPath = folder.uri.fsPath;
+                    const rootReal = await this.fs.realpath(rootPath).catch(() => rootPath);
                     const rootDir = await this.findRepoRoot(rootReal);
                     if (rootDir) {
                         await addCandidate(rootDir);
                     }
-                }
-
-                if (autoDetect === true || autoDetect === 'subFolders') {
-                    const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
-                    if (this._host.workspace.findFiles) {
-                        const files = await this._host.workspace.findFiles(glob, folder.uri, 1000);
-                        await Promise.all(
-                            files.map((file) => {
-                                if (this._disposed) {
-                                    return Promise.resolve();
-                                }
-                                const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
-                                return addCandidate(rootDir);
-                            }),
-                        );
-                    }
-                }
-            }),
-        );
+                }),
+            );
+        }
 
         // 3. Scan explicit paths
         await Promise.all(
@@ -456,8 +452,63 @@ export class JjRepositoryManager implements HostDisposable {
             );
         }
 
-        // 4. Reconcile repositories
-        const filteredInfos = await this.filterRepositoryInfos(candidates);
+        // 4. Reconcile primary/root repositories before potentially slow recursive findFiles
+        // without disposing existing cached/dynamic sub-repositories or overwriting storage prematurely.
+        const shouldScanSubFolders =
+            (autoDetect === true || autoDetect === 'subFolders') && !!this._host.workspace.findFiles;
+        if (shouldScanSubFolders && candidates.length > 0) {
+            await this.reconcileCandidates(candidates, { disposeMissing: false, persist: false });
+        }
+
+        // 5. Discover nested sub-repositories via findFiles
+        if (shouldScanSubFolders && this._host.workspace.findFiles) {
+            const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
+            const findFilesFn = this._host.workspace.findFiles.bind(this._host.workspace);
+            await Promise.all(
+                folders.map(async (folder) => {
+                    if (this._disposed) {
+                        return;
+                    }
+                    const files = await findFilesFn(glob, folder.uri, 1000);
+                    await Promise.all(
+                        files.map((file) => {
+                            if (this._disposed) {
+                                return Promise.resolve();
+                            }
+                            const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
+                            return addCandidate(rootDir);
+                        }),
+                    );
+                }),
+            );
+        }
+
+        // Preserve any repositories dynamically registered while findFiles was in flight
+        await Promise.all(
+            this._repositories.map(async (repo) => {
+                const normRoot = this.normalizePath(repo.rootUri.fsPath);
+                if (!initialRepos.has(normRoot) && !seenRoots.has(normRoot)) {
+                    await addCandidate(repo.rootUri.fsPath);
+                }
+            }),
+        );
+
+        await this.reconcileCandidates(candidates, { disposeMissing: true, persist: true });
+    }
+
+    private async reconcileCandidates(
+        candidates: DetectedRepoInfo[],
+        options: { disposeMissing: boolean; persist: boolean } = { disposeMissing: true, persist: true },
+    ): Promise<void> {
+        if (this._disposed) {
+            return;
+        }
+        this.updateIgnoredPaths();
+        const activeCandidates = candidates.filter((info) => {
+            const norm = this.normalizePath(info.rootPath);
+            return !this._ignoredAbsolutePaths.has(norm) && !this._closingPaths.has(norm);
+        });
+        const filteredInfos = await this.filterRepositoryInfos(activeCandidates);
         const oldRepos = this._repositories;
         const newRepos: JjRepository[] = [];
 
@@ -485,6 +536,19 @@ export class JjRepositoryManager implements HostDisposable {
             }
         }
 
+        if (!options.disposeMissing) {
+            for (const oldRepo of oldRepos) {
+                const normOld = this.normalizePath(oldRepo.rootUri.fsPath);
+                if (
+                    !this._ignoredAbsolutePaths.has(normOld) &&
+                    !this._closingPaths.has(normOld) &&
+                    !newRepos.some((r) => this.isSamePath(r.rootUri.fsPath, oldRepo.rootUri.fsPath))
+                ) {
+                    newRepos.push(oldRepo);
+                }
+            }
+        }
+
         if (this._disposed) {
             // If disposed, dispose all newly created repositories
             for (const repo of newRepos) {
@@ -497,13 +561,19 @@ export class JjRepositoryManager implements HostDisposable {
 
         this._repositories = newRepos;
         this.sortRepositories();
-        this.persistRepositories();
+        if (options.persist) {
+            this.persistRepositories();
+        }
 
         // Any repository in oldRepos that is not in newRepos must be disposed
-        for (const oldRepo of oldRepos) {
-            if (!newRepos.some((r) => this.isSamePath(r.rootUri.fsPath, oldRepo.rootUri.fsPath))) {
-                await oldRepo.dispose();
-                this.fireEvent(this._onDidCloseRepository, oldRepo);
+        let closedCount = 0;
+        if (options.disposeMissing) {
+            for (const oldRepo of oldRepos) {
+                if (!newRepos.some((r) => this.isSamePath(r.rootUri.fsPath, oldRepo.rootUri.fsPath))) {
+                    closedCount++;
+                    await oldRepo.dispose();
+                    this.fireEvent(this._onDidCloseRepository, oldRepo);
+                }
             }
         }
 
@@ -519,10 +589,12 @@ export class JjRepositoryManager implements HostDisposable {
             this.fireEvent(this._onDidOpenRepository, repo);
         }
 
-        this.fireEvent(this._onDidChangeRepositories, this._repositories);
-        this._outputChannel.info(`[RepositoryManager] Total registered repositories: ${this._repositories.length}`);
+        if (options.persist || opened.length > 0 || closedCount > 0) {
+            this.fireEvent(this._onDidChangeRepositories, this._repositories);
+            this._outputChannel.info(`[RepositoryManager] Total registered repositories: ${this._repositories.length}`);
+        }
 
-        // 5. Update focus
+        // Update focus
         if (this._repositories.length > 0) {
             if (
                 !this._focusedRepository ||
@@ -534,7 +606,7 @@ export class JjRepositoryManager implements HostDisposable {
                 const matched = activeUri ? this.getRepositoryForUri(activeUri) : undefined;
                 this.setFocusedRepository(matched ?? this._repositories[0]);
             }
-        } else {
+        } else if (options.disposeMissing) {
             this.setFocusedRepository(undefined);
         }
     }
@@ -651,6 +723,18 @@ export class JjRepositoryManager implements HostDisposable {
             });
             try {
                 const resolvedRoot = await jj.getRepoRoot();
+                this.updateIgnoredPaths();
+                const normResolved = this.normalizePath(resolvedRoot);
+                const isRootFs = normResolved === '/' || /^[a-zA-Z]:(\/)?$/.test(normResolved);
+                if (
+                    this._host.system?.addAllowedRoot &&
+                    !isRootFs &&
+                    !this._ignoredAbsolutePaths.has(normResolved) &&
+                    !this._closingPaths.has(normResolved)
+                ) {
+                    await this._host.system.addAllowedRoot(resolvedRoot).catch(() => {});
+                    this._normalizedWorkspaceFolders = undefined;
+                }
                 const realRoot = await this.fs.realpath(resolvedRoot).catch(() => resolvedRoot);
                 this._dirToRepoRoot.set(normalizedDir, realRoot);
                 return realRoot;
@@ -666,6 +750,38 @@ export class JjRepositoryManager implements HostDisposable {
         } finally {
             this._pendingRepoRoots.delete(normalizedDir);
         }
+    }
+
+    /**
+     * Detects and registers a repository for a workspace root directory URI using `jj root`,
+     * regardless of the open-editor auto-detection setting.
+     */
+    async maybeRegisterWorkspaceRoot(uri: Uri): Promise<JjRepository | undefined> {
+        if (this._disposed || !this.shouldScanWorkspaceRoots()) {
+            return undefined;
+        }
+
+        if (!(await this.isUriInWorkspaceFolder(uri))) {
+            return undefined;
+        }
+
+        const existing = this.getRepositoryForUri(uri);
+        if (existing) {
+            return existing;
+        }
+
+        const fsPath = this.getPathForUri(uri);
+        const realRoot = await this.findRepoRoot(fsPath);
+        if (!realRoot) {
+            return undefined;
+        }
+
+        const info = await this.probeRepository(realRoot);
+        if (!info) {
+            return undefined;
+        }
+
+        return this.registerRepository(info);
     }
 
     /**
@@ -792,16 +908,16 @@ export class JjRepositoryManager implements HostDisposable {
      * @param fsPath The absolute file path to check.
      * @returns True if the path is related to a workspace folder, false otherwise.
      */
-    private getRealNormalizedPath(p: string): Promise<string> {
+    private async getRealNormalizedPath(p: string): Promise<string> {
         const key = this.normalizePath(p);
-        return this._realNormalizedPathCache.getOrFetch(key, async () => {
-            try {
+        try {
+            return await this._realNormalizedPathCache.getOrFetch(key, async () => {
                 const resolved = await this.fs.realpath(p);
                 return this.normalizePath(resolved);
-            } catch {
-                return key;
-            }
-        });
+            });
+        } catch {
+            return key;
+        }
     }
 
     private async getNormalizedWorkspaceFolders(): Promise<string[]> {

@@ -141,4 +141,5 @@ export interface HostSystem {
     readonly fs: HostFs;
     readonly watcher: HostWatcher;
     readonly platform: HostPlatform;
+    addAllowedRoot?(path: string): Promise<void>;
 }

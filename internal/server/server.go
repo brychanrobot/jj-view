@@ -1299,12 +1299,16 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
 		}
 		files, err := s.fsMgr.FindFiles(fs.FindFilesOptions{
+			Context:    ctx,
 			BaseDir:    params.BaseDir,
 			Pattern:    params.Pattern,
 			MaxResults: params.MaxResults,
 			Excludes:   params.Excludes,
 		})
 		if err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
+			}
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		return map[string][]string{"files": files}, nil
@@ -1321,13 +1325,16 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 		if err != nil {
 			return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: err.Error()}
 		}
-		subID, err := s.watcherHub.Watch(validatedDir, watcher.WatchOptions{Ignore: params.Ignore}, func(reportedSubID string, events []watcher.FileEvent) {
+		subID, err := s.watcherHub.Watch(validatedDir, watcher.WatchOptions{Context: ctx, Ignore: params.Ignore}, func(reportedSubID string, events []watcher.FileEvent) {
 			s.notifyClient(clientID, "watcher.change", map[string]any{
 				"subscriptionId": reportedSubID,
 				"events":         events,
 			})
 		})
 		if err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
+			}
 			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
 		}
 		s.trackClientSubscription(clientID, subID)
