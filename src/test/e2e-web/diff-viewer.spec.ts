@@ -126,4 +126,68 @@ test.describe('Standalone Web Diff Viewer', () => {
         const tokenCount = await tokensWithColor.count();
         expect(tokenCount).toBeGreaterThan(0);
     });
+
+    test('should highlight embedded JavaScript inside C++ R"js(...)js" raw string literals', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('bootstrap.cc', '// Bootstrap file\n');
+        testRepo.describe('initial commit');
+        testRepo.new();
+
+        testRepo.writeFile(
+            'bootstrap.cc',
+            `static constexpr char kBootstrapScriptTemplate[] = R"js(
+(function() {
+  window.__webui_bootstrap_active = true;
+  const source = $1;
+  const ping = () => {
+    if (!window.__webui_bootstrap_active) return;
+    setTimeout(ping, 50);
+  };
+  ping();
+})();
+)js";
+`,
+        );
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const item = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'bootstrap.cc' });
+        await expect(item).toBeVisible();
+        await item.click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible({ timeout: 5000 });
+
+        const diffContainer = diffViewer.locator('[data-testid="diff-content-container"]');
+        await expect(diffContainer).toBeVisible();
+        await expect(diffContainer.getByText('__webui_bootstrap_active').first()).toBeVisible({ timeout: 5000 });
+
+        // Wait for syntax highlighting inside the raw string to produce multiple distinct token styles/colors
+        await expect
+            .poll(
+                async () => {
+                    return await diffContainer.evaluate((container) => {
+                        const root = container.querySelector('diffs-container')?.shadowRoot ?? container;
+                        const spans = Array.from(root.querySelectorAll('span'));
+                        const jsTokens = new Set(['function', 'const', 'true', 'return', '50', 'setTimeout']);
+                        const styles = new Set<string>();
+                        for (const span of spans) {
+                            const text = (span.textContent ?? '').trim();
+                            if (jsTokens.has(text)) {
+                                styles.add(span.getAttribute('style') ?? window.getComputedStyle(span).color);
+                            }
+                        }
+                        return styles.size;
+                    });
+                },
+                { timeout: 10000 },
+            )
+            .toBeGreaterThan(2);
+    });
 });
