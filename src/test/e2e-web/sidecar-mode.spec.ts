@@ -161,4 +161,92 @@ test.describe('Antigravity UI Sidecar Mode & Adaptive Auxiliary Layout', () => {
             path: path.join(ARTIFACT_DIR, 'sidecar-agent-drafted-message.png'),
         });
     });
+
+    test('should open Add Selection to Chat prompt on Ctrl+L in diff viewer and send context to sidecar agent', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        await page.setViewportSize({ width: 1100, height: 760 });
+
+        await page.addInitScript(() => {
+            const sentMessages: string[] = [];
+            Object.defineProperty(window, '__sentSidecarMessages', {
+                value: sentMessages,
+                writable: true,
+                configurable: true,
+            });
+            Object.defineProperty(window, 'sidecar', {
+                value: {
+                    getWorkspaceUris: async () => [],
+                    onWorkspaceChange: () => () => {},
+                    agent: {
+                        sendMessage: async (message: string) => {
+                            sentMessages.push(message);
+                            return {
+                                messageId: 'agent-msg-ctx-1',
+                                status: 'delivered',
+                            };
+                        },
+                        startConversation: async () => ({ conversationId: 'c-1' }),
+                        getConversationMetadata: async () => ({ conversationId: 'c-1' }),
+                    },
+                },
+                writable: true,
+                configurable: true,
+            });
+        });
+
+        testRepo.writeFile('calc.ts', 'export function add(a: number, b: number): number {\n    return a + b;\n}\n');
+        testRepo.describe('initial calc');
+        testRepo.new();
+        testRepo.writeFile(
+            'calc.ts',
+            'export function add(a: number, b: number): number {\n    const sum = a + b;\n    return sum;\n}\n',
+        );
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const item = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'calc.ts' });
+        await expect(item).toBeVisible();
+        await item.click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible();
+
+        // Click a line number in the additions gutter inside Pierre's shadow DOM
+        const gutterLineNumber = diffViewer.locator('[data-additions] [data-column-number="2"]').first();
+        await expect(gutterLineNumber).toBeVisible();
+        await gutterLineNumber.click();
+
+        // Press Ctrl+L to trigger Add Selection to Chat
+        await page.keyboard.press('Control+l');
+
+        const quickInput = page.locator('[data-testid="quick-input-widget"]');
+        await expect(quickInput).toBeVisible();
+        await expect(page.locator('[data-testid="quick-input-context-badge"]')).toContainText('calc.ts:2');
+        await expect(page.locator('[data-testid="quick-input-context-snippet"]')).toContainText('const sum = a + b;');
+
+        const input = page.locator('[data-testid="quick-input-text-input"]');
+        await input.fill('Explain why sum was extracted');
+        await input.press('Enter');
+
+        await expect(quickInput).toBeHidden();
+        await expect(page.locator('[data-testid="notification-toast"][data-severity="info"]')).toContainText(
+            'Sent calc.ts:2 to chat.',
+        );
+        await expect(page.locator('[data-testid="notification-toast"][data-severity="error"]')).toHaveCount(0);
+
+        const sentMessages = await page.evaluate(() => {
+            const win = window as Window & { __sentSidecarMessages?: string[] };
+            return win.__sentSidecarMessages ?? [];
+        });
+        expect(sentMessages).toHaveLength(1);
+        expect(sentMessages[0]).toContain('Context from `calc.ts:2`');
+        expect(sentMessages[0]).toContain('const sum = a + b;');
+        expect(sentMessages[0]).toContain('Explain why sum was extracted');
+    });
 });

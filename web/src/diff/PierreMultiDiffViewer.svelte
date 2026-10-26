@@ -17,6 +17,8 @@ import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
 import { isBinaryFile } from './binary-detection';
+import { type EditorChatContextSelection, resolveMultiDiffSelection } from './chat-context-selection';
+import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 
 interface Props {
@@ -29,6 +31,7 @@ interface Props {
     commentThreads?: ReadonlyMap<string, readonly CommentThreadHandle[]>;
     onReplyToThread?: (handle: CommentThreadHandle, text: string, resolve: boolean) => Promise<void>;
     onSetThreadResolved?: (handle: CommentThreadHandle, resolved: boolean) => Promise<void>;
+    onAddSelectionToChat?: () => Promise<void> | void;
 }
 
 let {
@@ -40,6 +43,7 @@ let {
     commentThreads,
     onReplyToThread,
     onSetThreadResolved,
+    onAddSelectionToChat,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
@@ -97,6 +101,7 @@ function buildCodeViewOptions(
         diffStyle,
         expandUnchanged: false,
         disableFileHeader: false,
+        enableLineSelection: true,
         theme: effectiveTheme,
         themeType,
         renderAnnotation: (annotation: LineAnnotation<CommentThreadHandle> | DiffLineAnnotation<CommentThreadHandle>) =>
@@ -199,7 +204,32 @@ function setDiffStyle(style: 'split' | 'unified'): void {
     renderMultiDiff();
 }
 
+export function getChatContextSelection(): EditorChatContextSelection | null {
+    return (
+        resolveMultiDiffSelection({
+            files,
+            containerEl,
+            codeView,
+        }) ?? null
+    );
+}
+
+function handleKeyDown(e: KeyboardEvent): void {
+    handleEditorKeyDown(e, {
+        isWorkingCopy: false,
+        canUndo: false,
+        canRedo: false,
+        onSave: () => {},
+        onUndo: () => {},
+        onRedo: () => {},
+        onAddSelectionToChat,
+    });
+}
+
 onMount(() => {
+    if (typeof window !== 'undefined') {
+        window.addEventListener('keydown', handleKeyDown, true);
+    }
     renderMultiDiff();
     return () => {
         cleanup();
@@ -207,6 +237,9 @@ onMount(() => {
 });
 
 onDestroy(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('keydown', handleKeyDown, true);
+    }
     cleanup();
 });
 
@@ -253,6 +286,11 @@ $effect(() => {
         class="diff-content-container"
         data-testid="multi-diff-content-container"
         bind:this={containerEl}
+        data-vscode-context={JSON.stringify({
+            menuId: 'editor/context',
+            isInDiffEditor: true,
+            preventDefaultContextMenuItems: true,
+        })}
     ></div>
 </div>
 

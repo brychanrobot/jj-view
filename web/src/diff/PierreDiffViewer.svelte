@@ -10,6 +10,7 @@ import type { Uri } from '../../../src/core/uri-utils';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import { isBinaryFile } from './binary-detection';
+import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
 import { startRenderTrace } from './render-perf';
@@ -36,6 +37,7 @@ interface Props {
     onContentChange?: (newContent: string) => void;
     onSelectionChange?: (ranges: { startLine: number; endLine: number }[] | undefined) => void;
     onSquashSelection?: (ranges: { startLine: number; endLine: number }[]) => Promise<void> | void;
+    onAddSelectionToChat?: () => Promise<void> | void;
 }
 
 let {
@@ -59,6 +61,7 @@ let {
     onContentChange,
     onSelectionChange,
     onSquashSelection,
+    onAddSelectionToChat,
 }: Props = $props();
 
 let containerEl: HTMLDivElement | null = $state(null);
@@ -71,6 +74,7 @@ let canUndo = $state(false);
 let canRedo = $state(false);
 let currentContent = $state('');
 let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
+let selectedLineSide = $state<'deletions' | 'additions' | undefined>(undefined);
 
 let fileDiffInstance: FileDiff<CommentThreadHandle> | null = null;
 let editorInstance: Editor<'file-diff', CommentThreadHandle> | null = null;
@@ -142,6 +146,7 @@ $effect(() => {
 function cleanupInstances(): void {
     renderGeneration++;
     selectedRanges = undefined;
+    selectedLineSide = undefined;
     onSelectionChange?.(undefined);
     if (saveDebounceTimer) {
         clearTimeout(saveDebounceTimer);
@@ -166,15 +171,19 @@ function cleanupInstances(): void {
     }
 }
 
-function handleLineSelection(range: { start?: number; end?: number } | null | undefined): void {
+function handleLineSelection(
+    range: { start?: number; end?: number; side?: 'deletions' | 'additions' } | null | undefined,
+): void {
     if (!range || typeof range.start !== 'number' || typeof range.end !== 'number') {
         selectedRanges = undefined;
+        selectedLineSide = undefined;
         onSelectionChange?.(undefined);
         return;
     }
     const startLine = Math.max(0, Math.min(range.start, range.end) - 1);
     const endLine = Math.max(startLine, Math.max(range.start, range.end) - 1);
     selectedRanges = [{ startLine, endLine }];
+    selectedLineSide = range.side;
     onSelectionChange?.(selectedRanges);
 }
 
@@ -439,6 +448,22 @@ function handleRedo(): void {
     }
 }
 
+export function getChatContextSelection(): EditorChatContextSelection | null {
+    return (
+        resolveDiffOrFileSelection({
+            filename,
+            resourceUri,
+            isWorkingCopy,
+            containerEl,
+            modifiedContent: currentContent || modifiedContent,
+            originalContent,
+            editorInstance,
+            selectedRanges,
+            selectedLineSide,
+        }) ?? null
+    );
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
     handleEditorKeyDown(e, {
         isWorkingCopy,
@@ -447,9 +472,11 @@ function handleKeyDown(e: KeyboardEvent): void {
         onSave: handleSave,
         onUndo: handleUndo,
         onRedo: handleRedo,
+        onAddSelectionToChat,
         onEscape: () => {
             if (selectedRanges) {
                 selectedRanges = undefined;
+                selectedLineSide = undefined;
                 onSelectionChange?.(undefined);
             }
         },
