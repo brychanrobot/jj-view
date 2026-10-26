@@ -260,8 +260,12 @@ export class TestRepo {
         this.exec(args);
     }
 
-    init() {
-        this.exec(['--config-file', defaultTestConfigFile, 'git', 'init']);
+    init(options?: { colocate?: boolean }) {
+        const initArgs = ['--config-file', defaultTestConfigFile, 'git', 'init'];
+        if (options?.colocate === false) {
+            initArgs.push('--no-colocate');
+        }
+        this.exec(initArgs);
         const { configPath } = this.ensureRepoConfig();
         if (!fs.existsSync(configPath)) {
             fs.copyFileSync(defaultTestConfigFile, configPath);

@@ -4,13 +4,16 @@
  */
 
 // Matches standard Gerrit Change-Id trailer (e.g. Change-Id: Iabcdef1234567890abcdef1234567890abcdef12)
-const CHANGE_ID_TRAILER_REGEX = /^Change-Id: (I[0-9a-fA-F]{40})\s*$/m;
+const CHANGE_ID_TRAILER_REGEX = /^Change-Id: (I[0-9a-fA-F]{40})[^\S\r\n]*$/m;
+
+// Matches Gerrit Link trailer containing "/id/I..." Change-Id structure (e.g. Link: https://host.com/id/Iabcdef...)
+const LINK_TRAILER_ID_REGEX = /^Link: (.*\/id\/(I[0-9a-fA-F]{40})\/?)[^\S\r\n]*$/m;
 
 // Matches Gerrit Link trailer containing "/+/" change number structure (e.g. Link: https://host.com/c/proj/+/123)
-const LINK_TRAILER_PLUS_REGEX = /^Link: (.*\/\+\/(\d+)(?:\/\d+)?\/?)\s*$/m;
+const LINK_TRAILER_PLUS_REGEX = /^Link: (.*\/\+\/(\d+)(?:\/\d+)?\/?)[^\S\r\n]*$/m;
 
 // Matches Gerrit Link trailer pointing to the change number directly (e.g. Link: https://host.com/123)
-const LINK_TRAILER_DIRECT_REGEX = /^Link: (.*\/(\d+)\/?)\s*$/m;
+const LINK_TRAILER_DIRECT_REGEX = /^Link: (.*\/(\d+)\/?)[^\S\r\n]*$/m;
 
 /**
  * Extracts a Gerrit change number or Change-Id from a commit message description
@@ -28,7 +31,16 @@ export function resolveGerritChangeKey(description: string, gerritHost?: string)
     }
 
     // 2. Try to extract Gerrit Link trailer URLs
-    // Matches formats like Link: https://host.com/c/proj/+/12345 or Link: https://host.com/12345
+    // Matches formats like Link: https://host.com/id/I..., Link: https://host.com/c/proj/+/12345, or Link: https://host.com/12345
+    const linkMatchId = description.match(LINK_TRAILER_ID_REGEX);
+    if (linkMatchId) {
+        const urlStr = linkMatchId[1];
+        const changeId = linkMatchId[2];
+        if (changeId && (!gerritHost || isMatchingGerritHost(urlStr, gerritHost))) {
+            return changeId;
+        }
+    }
+
     const linkMatch1 = description.match(LINK_TRAILER_PLUS_REGEX);
     const linkMatch2 = description.match(LINK_TRAILER_DIRECT_REGEX);
     const linkMatch = linkMatch1 || linkMatch2;
@@ -61,6 +73,7 @@ function isMatchingGerritHost(urlStr: string, gerritHost: string): boolean {
 export function stripGerritTrailers(description: string): string {
     return description
         .replace(new RegExp(CHANGE_ID_TRAILER_REGEX.source, 'gm'), '')
+        .replace(new RegExp(LINK_TRAILER_ID_REGEX.source, 'gm'), '')
         .replace(new RegExp(LINK_TRAILER_PLUS_REGEX.source, 'gm'), '')
         .replace(new RegExp(LINK_TRAILER_DIRECT_REGEX.source, 'gm'), '')
         .trim();

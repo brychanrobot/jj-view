@@ -183,6 +183,7 @@ export class LogViewController implements Disposable {
             }
         });
         const refreshDisposable = cf.onRequestRefresh(() => {
+            this._codeForgeFetchVersion++;
             this.refreshCodeForge().catch((e) => {
                 this._logger?.error('[LogViewController] CodeForge refresh failed', toError(e));
             });
@@ -265,7 +266,7 @@ export class LogViewController implements Disposable {
         if (commits !== this._commits) {
             this._codeForgeFetchVersion++;
         }
-        const enrichedCommits = [...commits];
+        const enrichedCommits = commits.map((c) => ({ ...c }));
         const cf = this._repo?.codeForge;
         if (cf?.isEnabled) {
             cf.populateCodeForgeInfo(enrichedCommits);

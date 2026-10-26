@@ -1664,10 +1664,20 @@ export class JjService {
 
         // We use raw git command because jj doesn't expose ls-tree
         try {
+            const gitRoot = await this.getGitRoot();
             const timeout = 10000; // 10s safety timeout
             const res = await this.system.process.execFile(
                 'git',
-                ['--no-pager', '--no-optional-locks', 'ls-tree', commitId, '--', ...missingPaths],
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    ...(gitRoot ? [`--git-dir=${gitRoot}`] : []),
+                    'ls-tree',
+                    '--full-tree',
+                    commitId,
+                    '--',
+                    ...missingPaths,
+                ],
                 {
                     cwd: this.workspaceRoot,
                     maxBuffer: 10 * 1024 * 1024,
