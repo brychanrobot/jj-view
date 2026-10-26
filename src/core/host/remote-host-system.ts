@@ -941,7 +941,12 @@ export class RemoteHostSystem implements HostSystem {
         }
     }
 
-    public async request<T = unknown>(method: string, params?: unknown, signal?: AbortSignal): Promise<T> {
+    public async request<T = unknown>(
+        method: string,
+        params?: unknown,
+        signal?: AbortSignal,
+        timeoutMs?: number,
+    ): Promise<T> {
         if (this._isDisposed) {
             throw new Error('RemoteHostSystem is disposed');
         }
@@ -951,10 +956,15 @@ export class RemoteHostSystem implements HostSystem {
         }
 
         await this.ready;
-        return this._sendRequest<T>(method, params, signal);
+        return this._sendRequest<T>(method, params, signal, timeoutMs);
     }
 
-    private async _sendRequest<T = unknown>(method: string, params?: unknown, signal?: AbortSignal): Promise<T> {
+    private async _sendRequest<T = unknown>(
+        method: string,
+        params?: unknown,
+        signal?: AbortSignal,
+        requestTimeoutMs?: number,
+    ): Promise<T> {
         if (this._isDisposed) {
             throw new Error('RemoteHostSystem is disposed');
         }
@@ -975,7 +985,7 @@ export class RemoteHostSystem implements HostSystem {
             params,
         };
 
-        const timeoutMs = this._options.requestTimeoutMs ?? 60000;
+        const timeoutMs = requestTimeoutMs ?? this._options.requestTimeoutMs ?? 60000;
         const abortController = new AbortController();
         this._activeRequests.set(id, abortController);
 
@@ -1415,7 +1425,12 @@ class RemoteHostProcess implements HostProcess {
             maxBuffer: options?.maxBuffer,
         };
 
-        const res = await this._host.request<ProcessResult>('process.execFile', params, abortController.signal);
+        const res = await this._host.request<ProcessResult>(
+            'process.execFile',
+            params,
+            abortController.signal,
+            options?.timeout,
+        );
         return {
             stdout: res.stdout ?? '',
             stderr: res.stderr ?? '',
@@ -1444,6 +1459,7 @@ class RemoteHostProcess implements HostProcess {
             'process.execFileInScratchDir',
             params,
             abortController.signal,
+            options?.timeout,
         );
         return {
             scratchDir: res.scratchDir,

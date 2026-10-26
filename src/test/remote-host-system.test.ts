@@ -1167,6 +1167,44 @@ describe('RemoteHostSystem Unit Tests', () => {
             host.dispose();
         });
 
+        it('honors per-process options.timeout in execFile instead of default requestTimeoutMs', async () => {
+            const fakeWs = new FakeDaemonTransport();
+            const host = new RemoteHostSystem({
+                url: 'http://127.0.0.1:8080?token=test-token',
+                eventSourceFactory: () => fakeWs,
+                fetch: fakeWs.fetch,
+                requestTimeoutMs: 30,
+                reconnect: false,
+                useWebSocket: false,
+            });
+
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method === 'system.info') {
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: { platform: 'linux', version: '1.0.0', repoRoot: '/mock/repo' },
+                    });
+                } else if (msg.method === 'process.execFile') {
+                    // Respond after 60ms (longer than requestTimeoutMs=30ms, within options.timeout=200ms)
+                    setTimeout(() => {
+                        fakeWs.simulateMessage({
+                            jsonrpc: '2.0',
+                            id: msg.id,
+                            result: { stdout: 'uploaded\n', stderr: '', exitCode: 0 },
+                        });
+                    }, 60);
+                }
+            });
+            fakeWs.open();
+            await host.ready;
+
+            const result = await host.process.execFile('jj', ['upload'], { timeout: 200 });
+            expect(result.stdout).toBe('uploaded\n');
+
+            host.dispose();
+        });
+
         it('rejects ready promise when eventSourceFactory throws synchronously', async () => {
             const host = new RemoteHostSystem({
                 url: 'http://invalid-url',
