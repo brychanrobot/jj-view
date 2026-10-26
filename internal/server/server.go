@@ -705,7 +705,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			stat, statErr := file.Stat()
 			_ = file.Close()
 			if statErr == nil && !stat.IsDir() {
-				if r.URL.Query().Get("v") != "" {
+				// Versioned assets and content-hashed code-splitting chunks
+				// (/dist/chunks/<name>-<hash>.js) never change in place.
+				if r.URL.Query().Get("v") != "" || strings.HasPrefix(cleanPath, "/dist/chunks/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				} else {
 					w.Header().Set("Cache-Control", "public, max-age=86400")

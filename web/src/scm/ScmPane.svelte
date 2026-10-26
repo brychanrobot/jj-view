@@ -107,7 +107,7 @@ $effect(() => {
 
     <ScmInputBox
         value={snapshot?.description || ''}
-        changeId={currentChangeId}
+        changeId={currentEntry?.change_id}
         {isSidecarAvailable}
         {onDraftWithAgent}
         onCommit={(msg) => {

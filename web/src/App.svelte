@@ -293,8 +293,12 @@ function openOrActivateTab(view: TabViewData, options?: HostOpenOptions): void {
         const existingTab = tabs[existingIndex];
         if (existingTab && view.type === 'diff' && existingTab.view.type === 'diff') {
             if (!existingTab.isDirty) {
-                existingTab.view.originalContent = view.originalContent;
-                existingTab.view.modifiedContent = view.modifiedContent;
+                if (view.originalContent) {
+                    existingTab.view.originalContent = view.originalContent;
+                }
+                if (view.modifiedContent) {
+                    existingTab.view.modifiedContent = view.modifiedContent;
+                }
             }
         }
         if (existingTab && view.type === 'multi-diff' && existingTab.view.type === 'multi-diff') {
@@ -434,18 +438,24 @@ async function resolveUriContent(uri?: Uri): Promise<string> {
     if (!uri) {
         return '';
     }
+    const start = performance.now();
+    let content = '';
     if (uri.scheme === 'file' && host) {
-        return await host.fs.readTextFile(uri.fsPath);
-    }
-    if (uri.scheme === 'jj-view' && viewFs) {
+        content = await host.fs.readTextFile(uri.fsPath);
+    } else if (uri.scheme === 'jj-view' && viewFs) {
         const bytes = await viewFs.readFile(uri);
-        return new TextDecoder().decode(bytes);
-    }
-    if (uri.scheme === 'jj-edit' && editFs) {
+        content = new TextDecoder().decode(bytes);
+    } else if (uri.scheme === 'jj-edit' && editFs) {
         const bytes = await editFs.readFile(uri);
-        return new TextDecoder().decode(bytes);
+        content = new TextDecoder().decode(bytes);
     }
-    return '';
+    const duration = performance.now() - start;
+    if (typeof console !== 'undefined' && console.log) {
+        console.log(
+            `[Perf:App] resolveUriContent(${uri.scheme}://${uri.path || uri.fsPath}) took ${duration.toFixed(1)}ms (${content.length} chars)`,
+        );
+    }
+    return content;
 }
 
 async function loadDiffFromUris(
@@ -455,7 +465,33 @@ async function loadDiffFromUris(
     resourceState?: JjResourceState,
     options?: HostOpenOptions,
 ): Promise<void> {
+    const start = performance.now();
     const diffTitle = title || rightUri?.fsPath || leftUri?.fsPath || 'Diff';
+    if (typeof console !== 'undefined' && console.log) {
+        console.log(`[Perf:App] loadDiffFromUris(${diffTitle}) starting`);
+    }
+    const tabId = getTabId({
+        type: 'diff',
+        leftUri,
+        rightUri,
+        title: diffTitle,
+    });
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (
+        existingTab &&
+        existingTab.view.type === 'diff' &&
+        (existingTab.view.loaded ||
+            existingTab.isDirty ||
+            existingTab.view.originalContent ||
+            existingTab.view.modifiedContent)
+    ) {
+        activeTabId = tabId;
+        if (options?.preview === false && existingTab.preview) {
+            existingTab.preview = false;
+        }
+        return;
+    }
+
     openOrActivateTab(
         {
             type: 'diff',
@@ -465,24 +501,26 @@ async function loadDiffFromUris(
             resourceState,
             originalContent: '',
             modifiedContent: '',
+            loaded: false,
         },
         options,
     );
 
     try {
         const [leftText, rightText] = await Promise.all([resolveUriContent(leftUri), resolveUriContent(rightUri)]);
-        const tabId = getTabId({
-            type: 'diff',
-            leftUri,
-            rightUri,
-            title: diffTitle,
-        });
         const targetTab = tabs.find((t) => t.id === tabId);
         if (targetTab && targetTab.view.type === 'diff') {
             targetTab.view.originalContent = leftText;
             if (!targetTab.isDirty) {
                 targetTab.view.modifiedContent = rightText;
             }
+            targetTab.view.loaded = true;
+        }
+        const totalDuration = performance.now() - start;
+        if (typeof console !== 'undefined' && console.log) {
+            console.log(
+                `[Perf:App] loadDiffFromUris(${diffTitle}) resolved in ${totalDuration.toFixed(1)}ms (left: ${leftText.length} chars, right: ${rightText.length} chars)`,
+            );
         }
     } catch (err) {
         console.error('Failed to load file contents for diff:', err);
@@ -626,6 +664,11 @@ $effect(() => {
     const disposable = scmModel.onDidChangeSnapshot((snapshot) => {
         currentSnapshot = snapshot;
     });
+    // The initial refresh runs concurrently with mount; pick up a snapshot
+    // that completed before this subscription attached.
+    if (scmModel.snapshot && scmModel.snapshot !== currentSnapshot) {
+        currentSnapshot = scmModel.snapshot;
+    }
     return () => {
         disposable.dispose();
     };
@@ -1180,46 +1223,50 @@ onMount(() => {
 
             <div class="editor-body">
                 {#if activeTab && activeTab.view.type === 'diff'}
-                    {#key activeTab.id}
-                        <PierreDiffViewer
-                            filename={activeTab.title}
-                            resourceUri={activeTab.view.rightUri ?? activeTab.view.resourceState?.resourceUri}
-                            theme={activeTheme}
-                            initialDirty={activeTab.isDirty ?? false}
-                            originalContent={activeTab.view.originalContent ?? ''}
-                            modifiedContent={activeTab.view.modifiedContent ?? ''}
-                            fileStatus={activeTab.view.resourceState?.status}
-                            isWorkingCopy={activeTab.view.resourceState
-                                ? isWorkingCopyRevision(
-                                      activeTab.view.resourceState.revision,
-                                      currentSnapshot?.currentEntry?.change_id,
-                                  )
-                                : activeTab.view.rightUri?.scheme === 'file'}
-                            isConflict={activeTab.view.resourceState?.status === 'conflicted' ||
-                                (activeTab.view.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
-                            parentMutable={currentSnapshot?.parentMutable ?? false}
-                            onSave={handleSaveFile}
-                            onDiscard={handleDiscardFile}
-                            onResolveConflict={handleResolveConflict}
-                            onDirtyChange={(d) => {
-                                if (activeTab) {
-                                    activeTab.isDirty = d;
-                                    if (d) {
-                                        activeTab.preview = false;
+                    {#if activeTab.view.loaded === false}
+                        <div class="editor-loading-placeholder"></div>
+                    {:else}
+                        {#key activeTab.id}
+                            <PierreDiffViewer
+                                filename={activeTab.title}
+                                resourceUri={activeTab.view.rightUri ?? activeTab.view.resourceState?.resourceUri}
+                                theme={activeTheme}
+                                initialDirty={activeTab.isDirty ?? false}
+                                originalContent={activeTab.view.originalContent ?? ''}
+                                modifiedContent={activeTab.view.modifiedContent ?? ''}
+                                fileStatus={activeTab.view.resourceState?.status}
+                                isWorkingCopy={activeTab.view.resourceState
+                                    ? isWorkingCopyRevision(
+                                          activeTab.view.resourceState.revision,
+                                          currentSnapshot?.currentEntry?.change_id,
+                                      )
+                                    : activeTab.view.rightUri?.scheme === 'file'}
+                                isConflict={activeTab.view.resourceState?.status === 'conflicted' ||
+                                    (activeTab.view.resourceState?.contextValue?.toLowerCase().includes('allowopenmergeeditor') ?? false)}
+                                parentMutable={currentSnapshot?.parentMutable ?? false}
+                                onSave={handleSaveFile}
+                                onDiscard={handleDiscardFile}
+                                onResolveConflict={handleResolveConflict}
+                                onDirtyChange={(d) => {
+                                    if (activeTab) {
+                                        activeTab.isDirty = d;
+                                        if (d) {
+                                            activeTab.preview = false;
+                                        }
                                     }
-                                }
-                            }}
-                            onContentChange={(text) => {
-                                if (activeTab && activeTab.view.type === 'diff') {
-                                    activeTab.view.modifiedContent = text;
-                                }
-                            }}
-                            onSelectionChange={(ranges) => {
-                                activeTabSelection = ranges;
-                            }}
-                            onSquashSelection={handleSquashSelection}
-                        />
-                    {/key}
+                                }}
+                                onContentChange={(text) => {
+                                    if (activeTab && activeTab.view.type === 'diff') {
+                                        activeTab.view.modifiedContent = text;
+                                    }
+                                }}
+                                onSelectionChange={(ranges) => {
+                                    activeTabSelection = ranges;
+                                }}
+                                onSquashSelection={handleSquashSelection}
+                            />
+                        {/key}
+                    {/if}
                 {:else if activeTab && activeTab.view.type === 'multi-diff'}
                     {#key activeTab.id}
                         <PierreMultiDiffViewer
@@ -1332,6 +1379,12 @@ onMount(() => {
     width: 100%;
     position: relative;
     overflow: hidden;
+}
+
+.editor-loading-placeholder {
+    width: 100%;
+    height: 100%;
+    background-color: var(--vscode-editor-background, #171717);
 }
 
 .empty-editor-message {

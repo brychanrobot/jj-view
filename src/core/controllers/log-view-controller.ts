@@ -194,7 +194,11 @@ export class LogViewController implements Disposable {
             },
         };
 
-        cf.detectActiveProvider(true).catch((e) => {
+        // The service's constructor already ran a forced detection; a
+        // non-forced call joins it if still in flight and is otherwise a no-op
+        // inside the throttle window, instead of spawning `jj git remote list`
+        // again on every attach.
+        cf.detectActiveProvider().catch((e) => {
             this._logger?.error('Code forge detection failed', toError(e));
         });
     }

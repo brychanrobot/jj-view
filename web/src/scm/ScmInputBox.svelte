@@ -42,8 +42,17 @@ let isDrafting = $state(false);
 
 $effect(() => {
     if (changeId !== previousChangeId) {
+        // The app mounts before the first snapshot arrives, so the change id
+        // starts out unknown. Its first real value is the initial load, not a
+        // switch to another working copy: keep anything the user has typed
+        // or drafted in the meantime instead of replacing it.
+        const isInitialLoad = previousChangeId === undefined;
         previousChangeId = changeId;
+        const hasUnsavedEdits = description !== previousValue;
         previousValue = value;
+        if (isInitialLoad && hasUnsavedEdits) {
+            return;
+        }
         description = value;
         setTimeout(() => handleInput(), 0);
         return;

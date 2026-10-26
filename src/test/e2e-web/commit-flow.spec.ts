@@ -92,4 +92,25 @@ test.describe('Standalone Web Commit Flow', () => {
             .poll(() => testRepo.getDescription('@'), { timeout: 10000 })
             .toContain('wip: working on draft feature');
     });
+
+    test('should keep text typed before the first snapshot has loaded', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('early.txt', 'typed early\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        // The pane is visible before the initial `jj` snapshot resolves. Type
+        // immediately, then wait for the snapshot (the working-copy resource
+        // list is populated from it) and check the text was not replaced.
+        const textarea = page.locator('[data-testid="scm-input-textarea"]');
+        await textarea.fill('typed before the snapshot arrived');
+
+        const wcItems = page.locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]');
+        await expect(wcItems).toHaveCount(1);
+
+        await expect(textarea).toHaveValue('typed before the snapshot arrived');
+        // Make sure a later re-render does not reset it either.
+        await page.waitForTimeout(500);
+        await expect(textarea).toHaveValue('typed before the snapshot arrived');
+    });
 });
