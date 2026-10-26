@@ -80,16 +80,26 @@ describe('CommitDetailsController Domain Unit Tests', () => {
 
         await controller.load();
         expect(controller.draftDescription).toBe('persisted description');
+        expect(controller.hasUnsavedDraft).toBe(false);
+        expect(controller.getState()?.unsavedDraft).toBeUndefined();
 
         // User types a draft
         controller.updateDraft('in-progress draft editing');
         expect(controller.draftDescription).toBe('in-progress draft editing');
+        expect(controller.hasUnsavedDraft).toBe(true);
 
         // Background reload happens
         await controller.load();
         expect(controller.draftDescription).toBe('in-progress draft editing');
         expect(controller.persistedDescription).toBe('persisted description');
+        // The state payload keeps the persisted text as the baseline and
+        // carries the draft separately so a remounted view can resume it.
         expect(controller.getState()?.description).toBe('persisted description');
+        expect(controller.getState()?.unsavedDraft).toBe('in-progress draft editing');
+
+        await controller.save();
+        expect(controller.hasUnsavedDraft).toBe(false);
+        expect(controller.getState()?.unsavedDraft).toBeUndefined();
     });
 
     test('saves commit description to real repository', async () => {

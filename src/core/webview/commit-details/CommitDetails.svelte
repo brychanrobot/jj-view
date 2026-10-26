@@ -20,6 +20,8 @@ interface Props {
     changeIdOffset?: number;
     commitId: string;
     description: string;
+    /** In-progress edit held by the host; seeds the editor on mount. */
+    unsavedDraft?: string;
     files: JjStatusEntry[];
     isLoadingFiles?: boolean;
     isImmutable: boolean;
@@ -45,6 +47,7 @@ let {
     changeIdOffset,
     commitId,
     description,
+    unsavedDraft,
     files,
     isLoadingFiles = false,
     isImmutable,
@@ -70,7 +73,9 @@ const displayOffset = $derived(
     offsetPart || (isDivergent && changeIdOffset !== undefined ? String(changeIdOffset) : undefined),
 );
 
-let draftDescription = $state(description);
+// Seed from the host's unsaved draft (if any) so a remounted editor resumes
+// the edit; `description` stays the persisted baseline for isDirty.
+let draftDescription = $state(unsavedDraft ?? description);
 let prevDescription = $state(description);
 let prevChangeId = $state(changeId);
 let isSaving = $state(false);

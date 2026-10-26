@@ -94,6 +94,11 @@ export class CommitDetailsController implements Disposable {
         return this._persistedDescription;
     }
 
+    /** True while the draft differs from the last known persisted description. */
+    public get hasUnsavedDraft(): boolean {
+        return this._draftDescription !== undefined && this._draftDescription !== this._persistedDescription;
+    }
+
     public async getInitialPayload(): Promise<CommitDetailsPayload | undefined> {
         if (!this.repo || this._disposed) {
             return undefined;
@@ -153,6 +158,7 @@ export class CommitDetailsController implements Disposable {
             changeIdOffset: this._logEntry.change_id_offset,
             commitId: this._logEntry.commit_id,
             description: (this._persistedDescription ?? this._logEntry.description ?? '').trim(),
+            unsavedDraft: this.hasUnsavedDraft ? this._draftDescription : undefined,
             files: this._changes ? [...this._changes] : [],
             isImmutable: this._logEntry.is_immutable,
             author: this._logEntry.author,
