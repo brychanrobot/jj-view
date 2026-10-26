@@ -359,6 +359,88 @@ describe('WebHostEnvironment', () => {
             await nav.closeTab(right);
             expect(onCloseTab).toHaveBeenCalledWith(right);
         });
+
+        it('copies text via navigator.clipboard.writeText and falls back to document.execCommand("copy") when blocked by Permissions Policy', async () => {
+            const nav = new WebHostNavigation();
+            const originalNavigator = globalThis.navigator;
+            const originalDocument = globalThis.document;
+
+            const writeTextMock = vi
+                .fn()
+                .mockRejectedValueOnce(
+                    new Error(
+                        "Failed to execute 'writeText' on 'Clipboard': The Clipboard API has been blocked because of a permissions policy applied to the current document.",
+                    ),
+                )
+                .mockRejectedValueOnce(new Error('Clipboard blocked again'));
+
+            let appendedTextareaValue = '';
+            const fakeTextarea = {
+                value: '',
+                style: createMock<CSSStyleDeclaration>({}),
+                setAttribute: vi.fn(),
+                focus: vi.fn(),
+                select: vi.fn(),
+                setSelectionRange: vi.fn(),
+                remove: vi.fn(),
+            };
+            const execCommandMock = vi
+                .fn()
+                .mockImplementationOnce((cmd: string) => {
+                    if (cmd === 'copy') {
+                        appendedTextareaValue = fakeTextarea.value;
+                        return true;
+                    }
+                    return false;
+                })
+                .mockReturnValueOnce(false);
+
+            try {
+                Object.defineProperty(globalThis, 'navigator', {
+                    value: createMock<Navigator>({
+                        clipboard: createMock<Clipboard>({
+                            writeText: writeTextMock,
+                        }),
+                    }),
+                    configurable: true,
+                    writable: true,
+                });
+
+                Object.defineProperty(globalThis, 'document', {
+                    value: createMock<Document>({
+                        body: createMock<HTMLElement>({
+                            appendChild: <T extends Node>(node: T): T => node,
+                        }),
+                        activeElement: null,
+                        createElement: vi.fn(() => createMock<HTMLTextAreaElement>(fakeTextarea)),
+                        execCommand: execCommandMock,
+                    }),
+                    configurable: true,
+                    writable: true,
+                });
+
+                await nav.copyToClipboard('unresolved comment markdown');
+                expect(writeTextMock).toHaveBeenCalledWith('unresolved comment markdown');
+                expect(execCommandMock).toHaveBeenCalledWith('copy');
+                expect(appendedTextareaValue).toBe('unresolved comment markdown');
+                expect(fakeTextarea.remove).toHaveBeenCalled();
+
+                await expect(nav.copyToClipboard('should fail when both fail')).rejects.toThrow(
+                    'Clipboard blocked again',
+                );
+            } finally {
+                Object.defineProperty(globalThis, 'navigator', {
+                    value: originalNavigator,
+                    configurable: true,
+                    writable: true,
+                });
+                Object.defineProperty(globalThis, 'document', {
+                    value: originalDocument,
+                    configurable: true,
+                    writable: true,
+                });
+            }
+        });
     });
 
     describe('WebHostDocuments', () => {

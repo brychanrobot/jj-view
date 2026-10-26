@@ -3,6 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import { writeClipboardText } from '../../../utils/clipboard';
 import {
     type ProcessMonitorActiveTask as ActiveTask,
     type ProcessMonitorHistoryTask as HistoryTask,
@@ -98,19 +99,16 @@ function handleHidePanel() {
 
 function copyToClipboard(text: string, key: string, e: MouseEvent) {
     e.stopPropagation();
-    if (navigator.clipboard) {
-        navigator.clipboard
-            .writeText(text)
-            .then(() => {
-                copiedId = key;
-                setTimeout(() => {
-                    if (copiedId === key) {
-                        copiedId = null;
-                    }
-                }, 2000);
-            })
-            .catch(() => {});
-    }
+    writeClipboardText(text)
+        .then(() => {
+            copiedId = key;
+            setTimeout(() => {
+                if (copiedId === key) {
+                    copiedId = null;
+                }
+            }, 2000);
+        })
+        .catch(() => {});
 }
 
 let filterText = $derived(filter.toLowerCase());
