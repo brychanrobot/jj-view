@@ -5,9 +5,8 @@
 
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
-import { fetchWithTimeout } from '../utils/fetch-utils';
 import type { LoggerChannel } from '../utils/output-channel';
-import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
+import type { AuthCredential, AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
     AuthManageItem,
     ChangeStatusRequest,
@@ -86,8 +85,8 @@ interface GitLabDiscussionGql {
 
 interface GitLabRequestContext {
     apiBaseUrl: string;
-    sharedToken?: string;
-    tokenPromise: Promise<string | undefined> | null;
+    sharedCredential?: AuthCredential;
+    credentialPromise: Promise<AuthCredential | undefined> | null;
     bookmarkToCommitId: Map<string, string>;
 }
 
@@ -105,7 +104,7 @@ export class GitLabProvider implements CodeForgeProvider {
     private allowedProjectIds = new Set<number>();
     private remoteProjectPaths = new Set<string>();
     private forkResolutionPromise: Promise<string> | null = null;
-    private forkResolutionPromiseHasToken = false;
+    private forkResolutionPromiseHasCredential = false;
     private extensionPromptShown = false;
     private projectInfoCache = new Map<string, GitLabProjectInfo>();
     private projectInfoPromiseCache = new Map<string, Promise<GitLabProjectInfo | undefined>>();
@@ -352,18 +351,18 @@ export class GitLabProvider implements CodeForgeProvider {
             return results;
         }
 
-        const sharedToken = await this.getSessionToken(false);
+        const sharedCredential = await this.getSessionCredential(false);
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
 
         // Resolve upstream project path once if fork
         if (!this.resolvedProjectPath) {
-            await this.resolveForkPath(apiBaseUrl, sharedToken);
+            await this.resolveForkPath(apiBaseUrl, sharedCredential);
         }
 
         const context: GitLabRequestContext = {
             apiBaseUrl,
-            sharedToken,
-            tokenPromise: null,
+            sharedCredential,
+            credentialPromise: null,
             bookmarkToCommitId,
         };
 
@@ -387,20 +386,20 @@ export class GitLabProvider implements CodeForgeProvider {
             return undefined;
         }
 
-        const acquireToken = async (): Promise<string | undefined> => {
-            if (context.sharedToken) {
-                return context.sharedToken;
+        const acquireCredential = async (): Promise<AuthCredential | undefined> => {
+            if (context.sharedCredential) {
+                return context.sharedCredential;
             }
-            if (!context.tokenPromise) {
-                context.tokenPromise = (async () => {
-                    const promptToken = await this.getSessionToken(true);
-                    if (promptToken) {
-                        context.sharedToken = promptToken;
+            if (!context.credentialPromise) {
+                context.credentialPromise = (async () => {
+                    const promptCredential = await this.getSessionCredential(true);
+                    if (promptCredential) {
+                        context.sharedCredential = promptCredential;
                     }
-                    return promptToken;
+                    return promptCredential;
                 })();
             }
-            return context.tokenPromise;
+            return context.credentialPromise;
         };
 
         const getUrl = (path: string) =>
@@ -408,21 +407,19 @@ export class GitLabProvider implements CodeForgeProvider {
 
         try {
             let currentPath = this.resolvedProjectPath || projectPath;
-            let response = await fetchWithTimeout(getUrl(currentPath), 15000, {
-                headers: this.getHeaders(context.sharedToken),
-            });
+            let response = await this.gitlabFetch(getUrl(currentPath), context.sharedCredential, {});
 
             const retryResult = await this.tryUnauthenticatedRetry(
                 response,
                 currentPath,
                 getUrl,
                 context,
-                acquireToken,
+                acquireCredential,
             );
             response = retryResult.response;
             currentPath = retryResult.currentPath;
 
-            await this.handleInvalidTokenIfNeeded(response.status, context);
+            await this.handleInvalidCredentialIfNeeded(response.status, context);
 
             if (!response.ok) {
                 this.outputChannel?.error(
@@ -452,7 +449,7 @@ export class GitLabProvider implements CodeForgeProvider {
                         context.apiBaseUrl,
                         currentPath,
                         selectedMr,
-                        context.sharedToken,
+                        context.sharedCredential,
                     );
 
                     return this.parseGitLabMr(detailedMr);
@@ -469,9 +466,9 @@ export class GitLabProvider implements CodeForgeProvider {
         currentPath: string,
         getUrl: (path: string) => string,
         context: GitLabRequestContext,
-        acquireToken: () => Promise<string | undefined>,
+        acquireCredential: () => Promise<AuthCredential | undefined>,
     ): Promise<{ response: Response; currentPath: string }> {
-        if ((response.status === 401 || response.status === 404) && !context.sharedToken) {
+        if ((response.status === 401 || response.status === 404) && !context.sharedCredential) {
             if (this.authManager.isProviderUnavailable(this.id)) {
                 if (!this.extensionPromptShown) {
                     this.extensionPromptShown = true;
@@ -481,12 +478,10 @@ export class GitLabProvider implements CodeForgeProvider {
                 this.outputChannel?.error(
                     `[GitLabProvider] Unauthenticated request failed with status ${response.status}. Prompting for GitLab OAuth...`,
                 );
-                const promptToken = await acquireToken();
-                if (promptToken) {
-                    const resolvedPath = await this.resolveForkPath(context.apiBaseUrl, promptToken);
-                    const retriedResponse = await fetchWithTimeout(getUrl(resolvedPath), 15000, {
-                        headers: this.getHeaders(promptToken),
-                    });
+                const promptCredential = await acquireCredential();
+                if (promptCredential) {
+                    const resolvedPath = await this.resolveForkPath(context.apiBaseUrl, promptCredential);
+                    const retriedResponse = await this.gitlabFetch(getUrl(resolvedPath), promptCredential, {});
                     return { response: retriedResponse, currentPath: resolvedPath };
                 }
             }
@@ -494,24 +489,20 @@ export class GitLabProvider implements CodeForgeProvider {
         return { response, currentPath };
     }
 
-    private async handleInvalidTokenIfNeeded(status: number, context: GitLabRequestContext): Promise<void> {
-        const currentToken = context.sharedToken;
-        if (status === 401 && currentToken) {
-            this.outputChannel?.error(
-                `[GitLabProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
-            );
-            // Reset the in-memory token cache so the next request re-fetches credentials.
-            if (context.sharedToken === currentToken) {
-                context.sharedToken = undefined;
-                context.tokenPromise = null;
-            }
-            await this.authManager.clearInvalidToken({
-                providerId: 'gitlab',
-                secretTokenKey: 'gitlab_token',
-                currentToken,
-                envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
-            });
+    private async handleInvalidCredentialIfNeeded(status: number, context: GitLabRequestContext): Promise<void> {
+        const credential = context.sharedCredential;
+        if (status !== 401 || !credential) {
+            return;
         }
+        this.outputChannel?.error(
+            `[GitLabProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
+        );
+        // Reset the in-memory credential so the next request re-resolves it.
+        if (context.sharedCredential === credential) {
+            context.sharedCredential = undefined;
+            context.credentialPromise = null;
+        }
+        await this.authManager.clearInvalidCredential({ providerId: 'gitlab', credential });
     }
 
     private filterGitLabMrs(
@@ -536,13 +527,11 @@ export class GitLabProvider implements CodeForgeProvider {
         apiBaseUrl: string,
         projectPath: string,
         selectedMr: GitLabMergeRequest,
-        token: string | undefined,
+        credential: AuthCredential | undefined,
     ): Promise<GitLabMergeRequest> {
         const singleMrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${selectedMr.iid}`;
         try {
-            const response = await fetchWithTimeout(singleMrUrl, 15000, {
-                headers: this.getHeaders(token),
-            });
+            const response = await this.gitlabFetch(singleMrUrl, credential, {});
             if (response.ok) {
                 const parsedJson = await response.json();
                 const validation = GitLabMergeRequestSchema.safeParse(parsedJson);
@@ -566,17 +555,29 @@ export class GitLabProvider implements CodeForgeProvider {
         return selectedMr;
     }
 
-    private getHeaders(token: string | undefined): Record<string, string> {
-        const headers: Record<string, string> = {
-            'User-Agent': 'jj-view-vscode-extension',
-        };
-        if (token) {
-            headers.Authorization = `Bearer ${token}`;
-        }
-        return headers;
+    /**
+     * Sends a GitLab API request through the host. The host attaches the
+     * credential (if any), so a stored PAT never passes through this class.
+     */
+    private async gitlabFetch(
+        url: string,
+        credential: AuthCredential | undefined,
+        request: { method?: string; body?: string; signal?: AbortSignal; timeoutMs?: number },
+    ): Promise<Response> {
+        return this.host.http.fetch(url, {
+            method: request.method,
+            headers: {
+                ...(request.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+                'User-Agent': 'jj-view-vscode-extension',
+            },
+            body: request.body,
+            signal: request.signal,
+            timeoutMs: request.timeoutMs ?? 15000,
+            auth: credential,
+        });
     }
 
-    private async resolveForkPath(apiBaseUrl: string, token: string | undefined): Promise<string> {
+    private async resolveForkPath(apiBaseUrl: string, credential: AuthCredential | undefined): Promise<string> {
         const projectPath = this.projectPath;
         if (!projectPath) {
             return '';
@@ -584,17 +585,17 @@ export class GitLabProvider implements CodeForgeProvider {
         if (this.resolvedProjectPath) {
             return this.resolvedProjectPath;
         }
-        if (this.forkResolutionPromise && (this.forkResolutionPromiseHasToken || !token)) {
+        if (this.forkResolutionPromise && (this.forkResolutionPromiseHasCredential || !credential)) {
             return this.forkResolutionPromise;
         }
-        this.forkResolutionPromiseHasToken = !!token;
+        this.forkResolutionPromiseHasCredential = !!credential;
         this.forkResolutionPromise = (async () => {
             // First resolve project IDs for all configured remote project paths
             for (const path of this.remoteProjectPaths) {
                 if (path === projectPath) {
                     continue;
                 }
-                const projectInfo = await this.fetchProjectInfo(apiBaseUrl, path, token);
+                const projectInfo = await this.fetchProjectInfo(apiBaseUrl, path, credential);
                 if (projectInfo) {
                     if (projectInfo.id) {
                         this.allowedProjectIds.add(projectInfo.id);
@@ -605,7 +606,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 }
             }
 
-            const projectInfo = await this.fetchProjectInfo(apiBaseUrl, projectPath, token);
+            const projectInfo = await this.fetchProjectInfo(apiBaseUrl, projectPath, credential);
             if (projectInfo) {
                 if (projectInfo.id) {
                     this.allowedProjectIds.add(projectInfo.id);
@@ -624,7 +625,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 }
             }
             this.forkResolutionPromise = null;
-            this.forkResolutionPromiseHasToken = false;
+            this.forkResolutionPromiseHasCredential = false;
             return this.resolvedProjectPath || projectPath;
         })();
         return this.forkResolutionPromise;
@@ -633,7 +634,7 @@ export class GitLabProvider implements CodeForgeProvider {
     private async fetchProjectInfo(
         apiBaseUrl: string,
         path: string,
-        token: string | undefined,
+        credential: AuthCredential | undefined,
     ): Promise<GitLabProjectInfo | undefined> {
         const cacheKey = `${apiBaseUrl}:${path}`;
         const cached = this.projectInfoCache.get(cacheKey);
@@ -648,9 +649,7 @@ export class GitLabProvider implements CodeForgeProvider {
         const promise = (async () => {
             try {
                 const projectUrl = `${apiBaseUrl}/projects/${encodeURIComponent(path)}`;
-                const response = await fetchWithTimeout(projectUrl, 10000, {
-                    headers: this.getHeaders(token),
-                });
+                const response = await this.gitlabFetch(projectUrl, credential, { timeoutMs: 10000 });
                 if (response.ok) {
                     const parsedJson = await response.json();
                     const validation = GitLabProjectInfoSchema.safeParse(parsedJson);
@@ -737,13 +736,13 @@ export class GitLabProvider implements CodeForgeProvider {
             return;
         }
 
-        const token = await this.getSessionToken(true);
-        if (!token) {
+        const credential = await this.getSessionCredential(true);
+        if (!credential) {
             return;
         }
 
         const targetPath = this.resolvedProjectPath || this.projectPath;
-        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, token);
+        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, credential);
         const defaultBranch = projectInfo?.default_branch || 'main';
 
         const bookmarkIndexMap = new Map<string, number>();
@@ -757,9 +756,7 @@ export class GitLabProvider implements CodeForgeProvider {
             stack.map(async (node, i) => {
                 try {
                     const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
-                    const mrResp = await fetchWithTimeout(mrUrl, 15000, {
-                        headers: this.getHeaders(token),
-                    });
+                    const mrResp = await this.gitlabFetch(mrUrl, credential, {});
                     if (!mrResp.ok) {
                         return;
                     }
@@ -784,12 +781,8 @@ export class GitLabProvider implements CodeForgeProvider {
                             `[GitLabProvider] Preemptively retargeting MR !${existingMr.iid} (${node.bookmark}) from ${existingMr.target_branch} to ${defaultBranch} before push to avoid forge auto-closure`,
                         );
                         const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
-                        const updateResp = await fetchWithTimeout(updateUrl, 15000, {
+                        const updateResp = await this.gitlabFetch(updateUrl, credential, {
                             method: 'PUT',
-                            headers: {
-                                ...this.getHeaders(token),
-                                'Content-Type': 'application/json',
-                            },
                             body: JSON.stringify({ target_branch: defaultBranch }),
                         });
                         if (!updateResp.ok) {
@@ -816,14 +809,14 @@ export class GitLabProvider implements CodeForgeProvider {
             return result;
         }
 
-        const token = await this.getSessionToken(true);
-        if (!token) {
+        const credential = await this.getSessionCredential(true);
+        if (!credential) {
             this.outputChannel?.warn('[GitLabProvider] No session token available for syncStackedChanges');
             return result;
         }
 
         const targetPath = this.resolvedProjectPath || this.projectPath;
-        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, token);
+        const projectInfo = await this.fetchProjectInfo(apiBaseUrl, targetPath, credential);
         const defaultBranch = projectInfo?.default_branch || 'main';
 
         const bookmarkToCommitId = new Map<string, string>();
@@ -837,9 +830,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 try {
                     // Query existing open MR for this bookmark
                     const mrUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests?source_branch=${encodeURIComponent(node.bookmark)}&state=opened`;
-                    const mrResp = await fetchWithTimeout(mrUrl, 15000, {
-                        headers: this.getHeaders(token),
-                    });
+                    const mrResp = await this.gitlabFetch(mrUrl, credential, {});
 
                     if (!mrResp.ok) {
                         this.handle403Warning(mrResp);
@@ -885,12 +876,8 @@ export class GitLabProvider implements CodeForgeProvider {
                 if (existingMr) {
                     if (existingMr.target_branch !== expectedTarget) {
                         const updateUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${existingMr.iid}`;
-                        const updateResp = await fetchWithTimeout(updateUrl, 15000, {
+                        const updateResp = await this.gitlabFetch(updateUrl, credential, {
                             method: 'PUT',
-                            headers: {
-                                ...this.getHeaders(token),
-                                'Content-Type': 'application/json',
-                            },
                             body: JSON.stringify({ target_branch: expectedTarget }),
                         });
                         if (!updateResp.ok) {
@@ -918,12 +905,8 @@ export class GitLabProvider implements CodeForgeProvider {
                 const description = lines.slice(1).join('\n').trim();
 
                 const createUrl = `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests`;
-                const createResp = await fetchWithTimeout(createUrl, 15000, {
+                const createResp = await this.gitlabFetch(createUrl, credential, {
                     method: 'POST',
-                    headers: {
-                        ...this.getHeaders(token),
-                        'Content-Type': 'application/json',
-                    },
                     body: JSON.stringify({
                         source_branch: node.bookmark,
                         target_branch: expectedTarget,
@@ -982,7 +965,7 @@ export class GitLabProvider implements CodeForgeProvider {
         if (!changeInfo) {
             return [];
         }
-        const token = await this.getSessionToken(false);
+        const credential = await this.getSessionCredential(false);
         const { projectPath } = this;
         if (!this.gitlabHost || !projectPath) {
             return [];
@@ -991,10 +974,7 @@ export class GitLabProvider implements CodeForgeProvider {
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
         const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions?per_page=100`;
 
-        const response = await fetchWithTimeout(url, 15000, {
-            headers: this.getHeaders(token),
-            signal,
-        });
+        const response = await this.gitlabFetch(url, credential, { signal });
 
         if (!response.ok) {
             throw new Error(`Failed to fetch GitLab discussions: ${response.statusText}`);
@@ -1043,7 +1023,7 @@ export class GitLabProvider implements CodeForgeProvider {
         if (!changeInfo) {
             throw new Error('Change not found in cache');
         }
-        const token = await this.getSessionToken(false);
+        const credential = await this.getSessionCredential(false);
         const projectPath = this.projectPath;
         if (!this.gitlabHost || !projectPath) {
             throw new Error('GitLab provider not fully configured');
@@ -1052,12 +1032,8 @@ export class GitLabProvider implements CodeForgeProvider {
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
         const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${thread.id}/notes`;
 
-        const response = await fetchWithTimeout(url, 15000, {
+        const response = await this.gitlabFetch(url, credential, {
             method: 'POST',
-            headers: {
-                ...this.getHeaders(token),
-                'Content-Type': 'application/json',
-            },
             body: JSON.stringify({ body }),
         });
 
@@ -1092,7 +1068,7 @@ export class GitLabProvider implements CodeForgeProvider {
         if (!changeInfo) {
             throw new Error('Change not found in cache');
         }
-        const token = await this.getSessionToken(false);
+        const credential = await this.getSessionCredential(false);
         const projectPath = this.projectPath;
         if (!this.gitlabHost || !projectPath) {
             throw new Error('GitLab provider not fully configured');
@@ -1101,10 +1077,7 @@ export class GitLabProvider implements CodeForgeProvider {
         const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
         const url = `${apiBaseUrl}/projects/${encodeURIComponent(projectPath)}/merge_requests/${changeInfo.number}/discussions/${thread.id}`;
 
-        const response = await fetchWithTimeout(`${url}?resolved=${resolved}`, 15000, {
-            method: 'PUT',
-            headers: this.getHeaders(token),
-        });
+        const response = await this.gitlabFetch(`${url}?resolved=${resolved}`, credential, { method: 'PUT' });
 
         if (!response.ok) {
             throw new Error(`Failed to toggle resolved status: ${response.statusText}`);
@@ -1119,7 +1092,7 @@ export class GitLabProvider implements CodeForgeProvider {
         this.allowedProjectIds.clear();
         this.remoteProjectPaths.clear();
         this.forkResolutionPromise = null;
-        this.forkResolutionPromiseHasToken = false;
+        this.forkResolutionPromiseHasCredential = false;
         this.hasWarned403 = false;
         this._onDidUpdate.fire();
     }
@@ -1139,8 +1112,8 @@ export class GitLabProvider implements CodeForgeProvider {
         this._onDidUpdate.dispose();
     }
 
-    private async getSessionToken(prompt = false): Promise<string | undefined> {
-        return this.authManager.getSessionToken(this.id, {
+    private async getSessionCredential(prompt = false): Promise<AuthCredential | undefined> {
+        return this.authManager.getSessionCredential(this.id, {
             scopes: ['api'],
             envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
             secretTokenKey: 'gitlab_token',
@@ -1179,8 +1152,7 @@ export class GitLabProvider implements CodeForgeProvider {
             return true;
         }
         try {
-            const storedToken = await this.authManager.secrets.get('gitlab_token');
-            if (storedToken) {
+            if (await this.authManager.secrets.has('gitlab_token')) {
                 return true;
             }
         } catch {}

@@ -656,7 +656,20 @@ func TestServerStateAndSecretsRPC(t *testing.T) {
 		t.Fatalf("unexpected secrets.get: %+v", secMap)
 	}
 
-	// 7. secrets.delete
+	// 7. secrets.has reports presence without returning the value
+	hasRes := callRPC(10, "secrets.has", map[string]string{"key": "github_token"})
+	if hasRes.Error != nil {
+		t.Fatalf("secrets.has error: %+v", hasRes.Error)
+	}
+	hasMap := hasRes.Result.(map[string]any)
+	if hasMap["found"] != true {
+		t.Fatalf("expected found=true from secrets.has, got %+v", hasMap)
+	}
+	if _, leaked := hasMap["value"]; leaked {
+		t.Fatalf("secrets.has must not return the value: %+v", hasMap)
+	}
+
+	// 8. secrets.delete
 	delSecRes := callRPC(8, "secrets.delete", map[string]string{"key": "github_token"})
 	if delSecRes.Error != nil {
 		t.Fatalf("secrets.delete error: %+v", delSecRes.Error)
@@ -665,6 +678,10 @@ func TestServerStateAndSecretsRPC(t *testing.T) {
 	secAfterDelMap := getSecAfterDel.Result.(map[string]any)
 	if secAfterDelMap["found"] == true {
 		t.Fatalf("expected found=false after delete")
+	}
+	hasAfterDel := callRPC(11, "secrets.has", map[string]string{"key": "github_token"})
+	if hasAfterDel.Result.(map[string]any)["found"] != false {
+		t.Fatalf("expected secrets.has found=false after delete")
 	}
 }
 

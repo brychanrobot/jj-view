@@ -52,33 +52,51 @@ describe('CodeForgeAuthManager', () => {
         expect(await authManager.isAuthSkipped('github')).toBe(false);
     });
 
-    test('getSessionToken checks environment variables first', async () => {
+    test('getSessionCredential checks environment variables first', async () => {
         process.env.TEST_GITHUB_ENV_KEY = 'env-token-123';
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'TEST_GITHUB_ENV_KEY',
             promptMessage: 'test',
             prompt: false,
         });
-        expect(token).toBe('env-token-123');
+        expect(token).toEqual({ kind: 'bearer', token: 'env-token-123' });
     });
 
-    test('getSessionToken checks stored token in secrets', async () => {
+    test('getSessionCredential references a stored PAT without reading its value', async () => {
         await host.secrets.store('gitlab_token', 'stored-secret-pat');
-        const token = await authManager.getSessionToken('gitlab', {
+        const getSpy = vi.spyOn(host.secrets, 'get');
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             secretTokenKey: 'gitlab_token',
             promptMessage: 'test',
             prompt: false,
         });
-        expect(token).toBe('stored-secret-pat');
+        expect(token).toEqual({ kind: 'secret', key: 'gitlab_token' });
+        expect(getSpy).not.toHaveBeenCalled();
     });
 
-    test('getSessionToken returns undefined if auth is skipped', async () => {
+    test('clearInvalidCredential deletes a stored PAT but leaves bearer credentials alone', async () => {
+        await host.secrets.store('gitlab_token', 'stored-secret-pat');
+
+        await authManager.clearInvalidCredential({
+            providerId: 'gitlab',
+            credential: { kind: 'bearer', token: 'oauth-or-env' },
+        });
+        expect(await host.secrets.has('gitlab_token')).toBe(true);
+
+        await authManager.clearInvalidCredential({
+            providerId: 'gitlab',
+            credential: { kind: 'secret', key: 'gitlab_token' },
+        });
+        expect(await host.secrets.has('gitlab_token')).toBe(false);
+    });
+
+    test('getSessionCredential returns undefined if auth is skipped', async () => {
         await authManager.setAuthSkipped('github', true);
         const getSessionSpy = vi.spyOn(host.auth, 'getSession');
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'test',
@@ -88,26 +106,26 @@ describe('CodeForgeAuthManager', () => {
         expect(getSessionSpy).not.toHaveBeenCalled();
     });
 
-    test('getSessionToken silent mode success', async () => {
+    test('getSessionCredential silent mode success', async () => {
         host.auth.setSession('github', {
             id: '1',
             accessToken: 'silent-oauth-token',
             account: { id: 'user1', label: 'User 1' },
             scopes: ['repo'],
         });
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'test',
             prompt: false,
         });
-        expect(token).toBe('silent-oauth-token');
+        expect(token).toEqual({ kind: 'bearer', token: 'silent-oauth-token' });
         expect(authManager.isProviderUnavailable('github')).toBe(false);
     });
 
-    test('getSessionToken silent mode handles unregistered provider error and sets state', async () => {
+    test('getSessionCredential silent mode handles unregistered provider error and sets state', async () => {
         vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('No authentication provider found'));
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'test',
@@ -117,9 +135,9 @@ describe('CodeForgeAuthManager', () => {
         expect(authManager.isProviderUnavailable('github')).toBe(true);
     });
 
-    test('getSessionToken silent mode handles session check timed out error without permanently disabling provider', async () => {
+    test('getSessionCredential silent mode handles session check timed out error without permanently disabling provider', async () => {
         vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('github session check timed out'));
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'test',
@@ -136,7 +154,7 @@ describe('CodeForgeAuthManager', () => {
         expect(authManager.isProviderUnavailable('github')).toBe(false);
     });
 
-    test('getSessionToken prompt mode warning flow choosing OAuth Sign In', async () => {
+    test('getSessionCredential prompt mode warning flow choosing OAuth Sign In', async () => {
         const showWarningSpy = vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In');
         const getSessionSpy = vi
             .spyOn(host.auth, 'getSession')
@@ -152,7 +170,7 @@ describe('CodeForgeAuthManager', () => {
             authManager.onDidAuthenticate(resolve);
         });
 
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitHub authentication required',
@@ -174,11 +192,13 @@ describe('CodeForgeAuthManager', () => {
         expect(getSessionSpy).toHaveBeenNthCalledWith(2, 'github', ['repo'], { createIfNone: true });
     });
 
-    test('getSessionToken prompt mode warning flow choosing alternative choice', async () => {
+    test('getSessionCredential prompt mode warning flow choosing alternative choice', async () => {
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Enter PAT');
-        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'custom-pat-token' });
+        const alternativeExecute = vi
+            .fn()
+            .mockResolvedValue({ status: 'success', credential: { kind: 'secret', key: 'custom-pat-token' } });
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -220,10 +240,10 @@ describe('CodeForgeAuthManager', () => {
         expect(await host.secrets.get('github_token')).toBe('pat-token-123');
     });
 
-    test('getSessionToken prompt mode warning flow choosing Skip', async () => {
+    test('getSessionCredential prompt mode warning flow choosing Skip', async () => {
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue("Don't Sign In (Skip)");
 
-        const token = await authManager.getSessionToken('github', {
+        const token = await authManager.getSessionCredential('github', {
             scopes: ['repo'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitHub authentication required',
@@ -235,11 +255,11 @@ describe('CodeForgeAuthManager', () => {
         expect(await authManager.isAuthSkipped('github')).toBe(true);
     });
 
-    test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension installer prompts to install extension', async () => {
+    test('getSessionCredential prompt mode warning flow choosing OAuth Sign In with missing extension installer prompts to install extension', async () => {
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
         vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Install GitLab Extension');
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -260,15 +280,17 @@ describe('CodeForgeAuthManager', () => {
         expect(host.extensions?.searchedExtensions).toContain('gitlab.gitlab-workflow');
     });
 
-    test('getSessionToken on host without extension support directly falls back to PAT', async () => {
+    test('getSessionCredential on host without extension support directly falls back to PAT', async () => {
         host.extensions = undefined;
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
         vi.spyOn(host.auth, 'getSession')
             .mockResolvedValueOnce(undefined)
             .mockRejectedValueOnce(new Error('No authentication provider found'));
-        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'fallback-pat' });
+        const alternativeExecute = vi
+            .fn()
+            .mockResolvedValue({ status: 'success', credential: { kind: 'secret', key: 'fallback-pat' } });
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -294,14 +316,14 @@ describe('CodeForgeAuthManager', () => {
         expect(host.extensions).toBeUndefined();
     });
 
-    test('getSessionToken on host without extensions and no alternativeChoice returns undefined', async () => {
+    test('getSessionCredential on host without extensions and no alternativeChoice returns undefined', async () => {
         host.extensions = undefined;
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
         vi.spyOn(host.auth, 'getSession')
             .mockResolvedValueOnce(undefined)
             .mockRejectedValueOnce(new Error('No authentication provider found'));
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -317,12 +339,14 @@ describe('CodeForgeAuthManager', () => {
         expect(token).toBeUndefined();
     });
 
-    test('getSessionToken prompt mode warning flow choosing OAuth Sign In with missing extension falls back to PAT', async () => {
+    test('getSessionCredential prompt mode warning flow choosing OAuth Sign In with missing extension falls back to PAT', async () => {
         vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Sign In (OAuth)');
         vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Enter PAT');
-        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'fallback-pat' });
+        const alternativeExecute = vi
+            .fn()
+            .mockResolvedValue({ status: 'success', credential: { kind: 'secret', key: 'fallback-pat' } });
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -347,13 +371,13 @@ describe('CodeForgeAuthManager', () => {
         expect(alternativeExecute).toHaveBeenCalled();
     });
 
-    test('getSessionToken skip prompt check', async () => {
+    test('getSessionCredential skip prompt check', async () => {
         vi.spyOn(host.auth, 'getSession').mockRejectedValue(new Error('No authentication provider found'));
         authManager.setProviderUnavailable('gitlab', true);
 
         const showWarningSpy = vi.spyOn(host.ui, 'showWarning');
 
-        const token = await authManager.getSessionToken('gitlab', {
+        const token = await authManager.getSessionCredential('gitlab', {
             scopes: ['api'],
             envTokenKey: 'NON_EXISTENT_ENV_KEY',
             promptMessage: 'GitLab authentication required',
@@ -391,7 +415,9 @@ describe('CodeForgeAuthManager', () => {
 
     test('handleAuthError unregistered provider with alternativeChoice execute option', async () => {
         vi.spyOn(host.ui, 'showErrorMessage').mockResolvedValue('Enter PAT');
-        const alternativeExecute = vi.fn().mockResolvedValue({ status: 'success', token: 'test-pat' });
+        const alternativeExecute = vi
+            .fn()
+            .mockResolvedValue({ status: 'success', credential: { kind: 'secret', key: 'test-pat' } });
         const result = await authManager.handleAuthError('gitlab', new Error('No authentication provider found'), {
             extensionInstaller: {
                 extensionId: 'gitlab.gitlab-workflow',
@@ -403,7 +429,7 @@ describe('CodeForgeAuthManager', () => {
                 execute: alternativeExecute,
             },
         });
-        expect(result).toBe('test-pat');
+        expect(result).toEqual({ kind: 'secret', key: 'test-pat' });
         expect(alternativeExecute).toHaveBeenCalled();
     });
 
@@ -524,7 +550,9 @@ describe('CodeForgeAuthManager', () => {
         beforeEach(() => {
             hasAuthMock = vi.fn().mockResolvedValue(false);
             clearCacheMock = vi.fn();
-            promptForPatMock = vi.fn().mockResolvedValue({ status: 'success', token: 'pat-token' });
+            promptForPatMock = vi
+                .fn()
+                .mockResolvedValue({ status: 'success', credential: { kind: 'secret', key: 'pat-token' } });
             delete process.env.JJ_VIEW_TEST_TOKEN;
         });
 
@@ -661,7 +689,7 @@ describe('CodeForgeAuthManager', () => {
         test('omits OAuth from prompt choices when host.auth.supportsOAuth is false', async () => {
             host.auth.supportsOAuth = false;
             const showWarningSpy = vi.spyOn(host.ui, 'showWarning').mockResolvedValue('Enter PAT');
-            await authManager.getSessionToken('unsupported-oauth-provider', {
+            await authManager.getSessionCredential('unsupported-oauth-provider', {
                 scopes: ['test-scope'],
                 envTokenKey: 'UNSUPPORTED_ENV_KEY',
                 promptMessage: 'Please authenticate',
@@ -700,7 +728,7 @@ describe('CodeForgeAuthManager', () => {
                 clearCache: clearCacheMock,
             });
 
-            expect(result).toEqual({ status: 'success', token: 'my-new-token' });
+            expect(result).toEqual({ status: 'success', credential: { kind: 'secret', key: 'test_token' } });
             expect(await host.secrets.get('test_token')).toBe('my-new-token');
             expect(clearCacheMock).toHaveBeenCalled();
             expect(outputChannel.info).toHaveBeenCalledWith(

@@ -719,6 +719,18 @@ export class WebHostSecrets implements HostSecrets {
         return this.inMemorySecrets.get(key);
     }
 
+    public async has(key: string): Promise<boolean> {
+        if (this._hostSystem) {
+            try {
+                return await this._hostSystem.hasSecret(key);
+            } catch (err) {
+                console.warn(`[WebHostSecrets] Failed to check secret '${key}':`, err);
+                return false;
+            }
+        }
+        return this.inMemorySecrets.has(key);
+    }
+
     public async store(key: string, value: string): Promise<void> {
         if (this._hostSystem) {
             await this._hostSystem.storeSecret(key, value);

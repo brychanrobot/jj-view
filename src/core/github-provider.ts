@@ -5,9 +5,8 @@
 
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
-import { fetchWithTimeout } from '../utils/fetch-utils';
 import type { LoggerChannel } from '../utils/output-channel';
-import type { AuthResult, CodeForgeAuthManager } from './code-forge-auth';
+import type { AuthCredential, AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
     AuthManageItem,
     ChangeStatusRequest,
@@ -19,6 +18,7 @@ import type {
     StackSyncResult,
 } from './code-forge-provider';
 import { type Event, EventEmitter } from './host/events';
+import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 
@@ -299,8 +299,32 @@ export class GitHubProvider implements CodeForgeProvider {
     constructor(
         private readonly authManager: CodeForgeAuthManager,
         private outputChannel: LoggerChannel,
+        private readonly host: HostEnvironment,
     ) {
         this.authManager.registerProvider(this.id);
+    }
+
+    /**
+     * Sends a GitHub API request through the host. The host attaches the
+     * credential, so a stored PAT never passes through this class.
+     */
+    private async githubFetch(
+        url: string,
+        credential: AuthCredential,
+        request: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
+    ): Promise<Response> {
+        return this.host.http.fetch(url, {
+            method: request.method,
+            headers: {
+                ...(request.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+                'User-Agent': 'jj-view-vscode-extension',
+                ...request.headers,
+            },
+            body: request.body,
+            signal: request.signal,
+            timeoutMs: 15000,
+            auth: credential,
+        });
     }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
@@ -452,8 +476,8 @@ export class GitHubProvider implements CodeForgeProvider {
         bookmarkToCommitId: Map<string, string>,
     ): Promise<Map<string, CodeForgeChangeInfo>> {
         const results = new Map<string, CodeForgeChangeInfo>();
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             return results;
         }
         // Snapshot: detect() can switch repos while the fork check is awaited.
@@ -463,7 +487,7 @@ export class GitHubProvider implements CodeForgeProvider {
         }
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const includeParent = await this.isForkRepo(apiUrl, token, owner, repo);
+        const includeParent = await this.isForkRepo(apiUrl, credential, owner, repo);
 
         const aliasQueries = bookmarkNames.map((name, index) => {
             const alias = `pr_${index}`;
@@ -520,13 +544,8 @@ export class GitHubProvider implements CodeForgeProvider {
         }
         `;
 
-        const response = await fetchWithTimeout(apiUrl, 15000, {
+        const response = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query,
                 variables: {
@@ -536,8 +555,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }),
         });
 
-        if (response.status === 401 && token) {
-            await this.clearInvalidToken(token);
+        if (response.status === 401) {
+            await this.clearInvalidCredential(credential);
         }
 
         if (!response.ok) {
@@ -651,14 +670,14 @@ export class GitHubProvider implements CodeForgeProvider {
             return;
         }
 
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             return;
         }
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const { defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, token);
-        const existingPrs = await this.fetchExistingPrs(apiUrl, token, stack);
+        const { defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, credential);
+        const existingPrs = await this.fetchExistingPrs(apiUrl, credential, stack);
 
         // Map bookmark names to their new positions in the stack
         const bookmarkIndexMap = new Map<string, number>();
@@ -682,7 +701,7 @@ export class GitHubProvider implements CodeForgeProvider {
                     `[GitHubProvider] Preemptively retargeting PR #${existingPr.number} (${node.bookmark}) from ${existingPr.baseRefName} to ${defaultBranch} before push to avoid forge auto-closure`,
                 );
                 try {
-                    await this.retargetPullRequest(apiUrl, token, existingPr.id, defaultBranch);
+                    await this.retargetPullRequest(apiUrl, credential, existingPr.id, defaultBranch);
                 } catch (err: unknown) {
                     const msg = err instanceof Error ? err.message : String(err);
                     this.outputChannel?.warn(
@@ -699,14 +718,14 @@ export class GitHubProvider implements CodeForgeProvider {
             return result;
         }
 
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             return result;
         }
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const { repositoryId, defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, token);
-        const existingPrs = await this.fetchExistingPrs(apiUrl, token, stack);
+        const { repositoryId, defaultBranch } = await this.fetchRepositoryMetadata(apiUrl, credential);
+        const existingPrs = await this.fetchExistingPrs(apiUrl, credential, stack);
 
         const orderedPrNumbers: number[] = [];
         // Process each commit in the stack
@@ -718,7 +737,7 @@ export class GitHubProvider implements CodeForgeProvider {
             try {
                 if (existingPr) {
                     if (existingPr.baseRefName !== expectedBase) {
-                        await this.retargetPullRequest(apiUrl, token, existingPr.id, expectedBase);
+                        await this.retargetPullRequest(apiUrl, credential, existingPr.id, expectedBase);
                         orderedPrNumbers.push(existingPr.number);
                         result.retargeted.push({
                             changeId: node.changeId,
@@ -743,7 +762,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
                 const createdPr = await this.createPullRequest(
                     apiUrl,
-                    token,
+                    credential,
                     repositoryId,
                     expectedBase,
                     node.bookmark,
@@ -772,21 +791,19 @@ export class GitHubProvider implements CodeForgeProvider {
 
         // Only register native stack if the entire stack succeeded without gaps or failures
         if (orderedPrNumbers.length > 1 && orderedPrNumbers.length === stack.length) {
-            await this.registerNativeStack(apiUrl, token, orderedPrNumbers);
+            await this.registerNativeStack(apiUrl, credential, orderedPrNumbers);
         }
 
         return result;
     }
 
-    private async clearInvalidToken(token: string): Promise<void> {
+    private async clearInvalidCredential(credential: AuthCredential): Promise<void> {
         this.outputChannel?.error(
             `[GitHubProvider] Request failed with 401 Unauthorized using token. Stored token may be invalid or expired.`,
         );
-        await this.authManager.clearInvalidToken({
+        await this.authManager.clearInvalidCredential({
             providerId: 'github',
-            secretTokenKey: 'github_token',
-            currentToken: token,
-            envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
+            credential,
         });
     }
 
@@ -794,12 +811,12 @@ export class GitHubProvider implements CodeForgeProvider {
      * Whether the repo is a fork, so PRs may live in its parent. Cached per owner/repo; on failure returns
      * true (without caching) so fork PRs are never missed. A 401 clears the token and rejects instead.
      */
-    private isForkRepo(apiUrl: string, token: string, owner: string, repo: string): Promise<boolean> {
+    private isForkRepo(apiUrl: string, credential: AuthCredential, owner: string, repo: string): Promise<boolean> {
         const key = `${apiUrl} ${owner}/${repo}`;
         if (this.forkCheck?.key !== key) {
             const entry = {
                 key,
-                isFork: this.fetchIsFork(apiUrl, token, owner, repo).catch((err: unknown) => {
+                isFork: this.fetchIsFork(apiUrl, credential, owner, repo).catch((err: unknown) => {
                     if (this.forkCheck === entry) {
                         this.forkCheck = undefined;
                     }
@@ -818,21 +835,21 @@ export class GitHubProvider implements CodeForgeProvider {
         return this.forkCheck.isFork;
     }
 
-    private async fetchIsFork(apiUrl: string, token: string, owner: string, repo: string): Promise<boolean> {
-        const response = await fetchWithTimeout(apiUrl, 15000, {
+    private async fetchIsFork(
+        apiUrl: string,
+        credential: AuthCredential,
+        owner: string,
+        repo: string,
+    ): Promise<boolean> {
+        const response = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query: 'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { isFork } }',
                 variables: { owner, name: repo },
             }),
         });
         if (response.status === 401) {
-            await this.clearInvalidToken(token);
+            await this.clearInvalidCredential(credential);
             throw new GitHubUnauthorizedError('Fork check failed: 401 Unauthorized');
         }
         if (!response.ok) {
@@ -854,7 +871,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     private async fetchRepositoryMetadata(
         apiUrl: string,
-        token: string,
+        credential: AuthCredential,
     ): Promise<{ repositoryId: string; defaultBranch: string }> {
         const repoQuery = `
         query($owner: String!, $name: String!) {
@@ -866,13 +883,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }
         }
         `;
-        const repoResp = await fetchWithTimeout(apiUrl, 15000, {
+        const repoResp = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query: repoQuery,
                 variables: { owner: this.owner, name: this.repo },
@@ -900,7 +912,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     private async fetchExistingPrs(
         apiUrl: string,
-        token: string,
+        credential: AuthCredential,
         stack: StackCommitNode[],
     ): Promise<Map<string, GitHubStackedPrNode>> {
         const aliasQueries = stack
@@ -916,13 +928,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }
         }
         `;
-        const prsResp = await fetchWithTimeout(apiUrl, 15000, {
+        const prsResp = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query: prsQuery,
                 variables: { owner: this.owner, name: this.repo },
@@ -968,7 +975,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     private async retargetPullRequest(
         apiUrl: string,
-        token: string,
+        credential: AuthCredential,
         pullRequestId: string,
         baseRefName: string,
     ): Promise<void> {
@@ -984,13 +991,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }
         }
         `;
-        const updateResp = await fetchWithTimeout(apiUrl, 15000, {
+        const updateResp = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query: updateMutation,
                 variables: {
@@ -1017,7 +1019,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     private async createPullRequest(
         apiUrl: string,
-        token: string,
+        credential: AuthCredential,
         repositoryId: string,
         baseRefName: string,
         headRefName: string,
@@ -1037,13 +1039,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }
         }
         `;
-        const createResp = await fetchWithTimeout(apiUrl, 15000, {
+        const createResp = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query: createMutation,
                 variables: {
@@ -1093,7 +1090,7 @@ export class GitHubProvider implements CodeForgeProvider {
 
     private async findExistingStack(
         restBaseUrl: string,
-        token: string,
+        credential: AuthCredential,
         pullRequestNumbers: number[],
     ): Promise<{ number: number; prNumbers: number[] } | undefined> {
         if (!this.owner || !this.repo) {
@@ -1103,13 +1100,11 @@ export class GitHubProvider implements CodeForgeProvider {
         for (const prNum of pullRequestNumbers) {
             const endpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks?pull_request=${prNum}`;
             try {
-                const response = await fetchWithTimeout(endpoint, 15000, {
+                const response = await this.githubFetch(endpoint, credential, {
                     method: 'GET',
                     headers: {
-                        Authorization: `Bearer ${token}`,
                         Accept: 'application/vnd.github+json',
                         'X-GitHub-Api-Version': '2022-11-28',
-                        'User-Agent': 'jj-view-vscode-extension',
                     },
                 });
                 if (!response.ok) {
@@ -1144,7 +1139,11 @@ export class GitHubProvider implements CodeForgeProvider {
         return undefined;
     }
 
-    private async registerNativeStack(apiUrl: string, token: string, pullRequestNumbers: number[]): Promise<void> {
+    private async registerNativeStack(
+        apiUrl: string,
+        credential: AuthCredential,
+        pullRequestNumbers: number[],
+    ): Promise<void> {
         if (!this.owner || !this.repo || pullRequestNumbers.length <= 1) {
             return;
         }
@@ -1153,14 +1152,11 @@ export class GitHubProvider implements CodeForgeProvider {
         const endpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks`;
 
         try {
-            const response = await fetchWithTimeout(endpoint, 15000, {
+            const response = await this.githubFetch(endpoint, credential, {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${token}`,
                     Accept: 'application/vnd.github+json',
                     'X-GitHub-Api-Version': '2022-11-28',
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'jj-view-vscode-extension',
                 },
                 body: JSON.stringify({
                     pull_requests: pullRequestNumbers,
@@ -1177,7 +1173,7 @@ export class GitHubProvider implements CodeForgeProvider {
             // 422 indicates that one or more pull requests are already part of an existing stack.
             // In that case, look up the existing stack and append the new PR(s) to it via /stacks/{stack_number}/add.
             if (response.status === 422) {
-                const existingStack = await this.findExistingStack(restBaseUrl, token, pullRequestNumbers);
+                const existingStack = await this.findExistingStack(restBaseUrl, credential, pullRequestNumbers);
                 if (existingStack) {
                     const existingSet = new Set(existingStack.prNumbers);
                     const toAdd = pullRequestNumbers.filter((num) => !existingSet.has(num));
@@ -1190,14 +1186,11 @@ export class GitHubProvider implements CodeForgeProvider {
                     }
 
                     const addEndpoint = `${restBaseUrl}/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/stacks/${existingStack.number}/add`;
-                    const addResp = await fetchWithTimeout(addEndpoint, 15000, {
+                    const addResp = await this.githubFetch(addEndpoint, credential, {
                         method: 'POST',
                         headers: {
-                            Authorization: `Bearer ${token}`,
                             Accept: 'application/vnd.github+json',
                             'X-GitHub-Api-Version': '2022-11-28',
-                            'Content-Type': 'application/json',
-                            'User-Agent': 'jj-view-vscode-extension',
                         },
                         body: JSON.stringify({
                             pull_requests: toAdd,
@@ -1233,8 +1226,8 @@ export class GitHubProvider implements CodeForgeProvider {
      * and the first 100 comments per thread. It does not perform cursor-based pagination.
      */
     public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             return [];
         }
 
@@ -1267,13 +1260,8 @@ export class GitHubProvider implements CodeForgeProvider {
         `;
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const response = await fetchWithTimeout(apiUrl, 15000, {
+        const response = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query,
                 variables: { id: changeId },
@@ -1337,8 +1325,8 @@ export class GitHubProvider implements CodeForgeProvider {
         body: string,
         resolved?: boolean,
     ): Promise<CodeForgeComment> {
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             throw new Error('Not authenticated');
         }
 
@@ -1382,13 +1370,8 @@ export class GitHubProvider implements CodeForgeProvider {
             `;
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const response = await fetchWithTimeout(apiUrl, 15000, {
+        const response = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query,
                 variables: { threadId: thread.id, body },
@@ -1426,8 +1409,8 @@ export class GitHubProvider implements CodeForgeProvider {
         thread: CodeForgeCommentThread,
         resolved: boolean,
     ): Promise<void> {
-        const token = await this.getSessionToken();
-        if (!token) {
+        const credential = await this.getSessionCredential();
+        if (!credential) {
             throw new Error('Not authenticated');
         }
 
@@ -1450,13 +1433,8 @@ export class GitHubProvider implements CodeForgeProvider {
             }`;
 
         const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
-        const response = await fetchWithTimeout(apiUrl, 15000, {
+        const response = await this.githubFetch(apiUrl, credential, {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': 'jj-view-vscode-extension',
-            },
             body: JSON.stringify({
                 query,
                 variables: { threadId: thread.id },
@@ -1492,8 +1470,8 @@ export class GitHubProvider implements CodeForgeProvider {
         this._onDidUpdate.dispose();
     }
 
-    private async getSessionToken(): Promise<string | undefined> {
-        return this.authManager.getSessionToken(this.id, {
+    private async getSessionCredential(): Promise<AuthCredential | undefined> {
+        return this.authManager.getSessionCredential(this.id, {
             scopes: ['repo'],
             envTokenKey: 'JJ_VIEW_GITHUB_TOKEN',
             secretTokenKey: 'github_token',
@@ -1523,8 +1501,7 @@ export class GitHubProvider implements CodeForgeProvider {
             return true;
         }
         try {
-            const storedToken = await this.authManager.secrets.get('github_token');
-            if (storedToken) {
+            if (await this.authManager.secrets.has('github_token')) {
                 return true;
             }
         } catch {}

@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
-import type { CodeForgeAuthManager } from '../core/code-forge-auth';
+import type { AuthCredential, CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
 import { GitLabProjectInfoSchema, GitLabProvider } from '../core/gitlab-provider';
 import type { HostSecrets } from '../core/host/host-environment';
@@ -73,13 +73,14 @@ describe('GitLabProvider', () => {
             isProviderUnavailable: vi.fn().mockReturnValue(false),
             setProviderUnavailable: vi.fn(),
             registerProvider: vi.fn(),
-            getSessionToken: vi.fn().mockResolvedValue('test-token'),
+            getSessionCredential: vi.fn().mockResolvedValue({ kind: 'bearer', token: 'test-token' }),
             hasOAuthSession: vi.fn().mockResolvedValue(false),
             performOAuthSignIn: vi.fn(),
             getAuthManageItems: vi.fn(),
             promptForPat: vi.fn(),
             secrets: createMock<HostSecrets>({
                 get: vi.fn(),
+                has: vi.fn().mockResolvedValue(false),
                 store: vi.fn(),
                 delete: vi.fn(),
             }),
@@ -352,16 +353,17 @@ describe('GitLabProvider', () => {
         expect(fetchBatchSpy.mock.calls[2][0].length).toBe(5);
     });
 
-    test('getSessionToken delegates to authManager.getSessionToken', async () => {
-        vi.mocked(mockAuthManager.getSessionToken).mockResolvedValue('delegated-gitlab-token');
-        const getSession = exposePrivate<{ getSessionToken(prompt?: boolean): Promise<string | undefined> }>(
-            provider,
-        ).getSessionToken.bind(provider);
+    test('getSessionCredential delegates to authManager.getSessionCredential', async () => {
+        const delegated: AuthCredential = { kind: 'secret', key: 'gitlab_token' };
+        vi.mocked(mockAuthManager.getSessionCredential).mockResolvedValue(delegated);
+        const getSession = exposePrivate<{
+            getSessionCredential(prompt?: boolean): Promise<AuthCredential | undefined>;
+        }>(provider).getSessionCredential.bind(provider);
 
         // Test default call (silent)
         const tokenDefault = await getSession();
-        expect(tokenDefault).toBe('delegated-gitlab-token');
-        expect(mockAuthManager.getSessionToken).toHaveBeenLastCalledWith('gitlab', {
+        expect(tokenDefault).toEqual(delegated);
+        expect(mockAuthManager.getSessionCredential).toHaveBeenLastCalledWith('gitlab', {
             scopes: ['api'],
             envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
             secretTokenKey: 'gitlab_token',
@@ -375,8 +377,8 @@ describe('GitLabProvider', () => {
 
         // Test with prompting
         const tokenPrompt = await getSession(true);
-        expect(tokenPrompt).toBe('delegated-gitlab-token');
-        expect(mockAuthManager.getSessionToken).toHaveBeenLastCalledWith('gitlab', {
+        expect(tokenPrompt).toEqual(delegated);
+        expect(mockAuthManager.getSessionCredential).toHaveBeenLastCalledWith('gitlab', {
             scopes: ['api'],
             envTokenKey: 'JJ_VIEW_GITLAB_TOKEN',
             secretTokenKey: 'gitlab_token',
@@ -430,12 +432,13 @@ describe('GitLabProvider', () => {
 
     test('hasAuth returns true if stored token is found, false otherwise', async () => {
         delete process.env.JJ_VIEW_GITLAB_TOKEN;
-        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue('stored-pat');
+        vi.mocked(mockAuthManager.secrets.has).mockResolvedValue(true);
         let hasAuth = await provider.hasAuth();
         expect(hasAuth).toBe(true);
-        expect(mockAuthManager.secrets.get).toHaveBeenCalledWith('gitlab_token');
+        expect(mockAuthManager.secrets.has).toHaveBeenCalledWith('gitlab_token');
+        expect(mockAuthManager.secrets.get).not.toHaveBeenCalled();
 
-        vi.mocked(mockAuthManager.secrets.get).mockResolvedValue(undefined);
+        vi.mocked(mockAuthManager.secrets.has).mockResolvedValue(false);
         vi.mocked(mockAuthManager.hasOAuthSession).mockResolvedValue(true);
         hasAuth = await provider.hasAuth();
         expect(hasAuth).toBe(true);
@@ -472,7 +475,7 @@ describe('GitLabProvider', () => {
     });
 
     test('promptForPat delegates to authManager.promptForPat', async () => {
-        const expectedResult = { status: 'success', token: 'mock-token' } as const;
+        const expectedResult = { status: 'success', credential: { kind: 'secret', key: 'gitlab_token' } } as const;
         vi.mocked(mockAuthManager.promptForPat).mockResolvedValue(expectedResult);
 
         const result = await provider.promptForPat();
@@ -771,16 +774,17 @@ describe('GitLabProvider', () => {
 
         test('memoizes fetchProjectInfo across calls and resets on clearCache', async () => {
             const priv = exposePrivate<{
-                fetchProjectInfo(url: string, path: string, token: string | undefined): Promise<unknown>;
+                fetchProjectInfo(url: string, path: string, credential: AuthCredential | undefined): Promise<unknown>;
             }>(provider);
+            const credential: AuthCredential = { kind: 'bearer', token: 'test-token' };
 
-            const info1 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
-            const info2 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
+            const info1 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', credential);
+            const info2 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', credential);
             expect(info1).toEqual(info2);
             expect(info1).toBe(info2);
 
             provider.clearCache();
-            const info3 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', 'test-token');
+            const info3 = await priv.fetchProjectInfo(`${server.url}/api/v4`, 'test-group/test-project', credential);
             expect(info3).toEqual(info1);
             expect(info3).not.toBe(info1);
         });

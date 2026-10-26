@@ -116,7 +116,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
     context.subscriptions.push(
         codeForgeRegistry.register({
             id: 'github',
-            create: (outputChannel) => new GitHubProvider(authManager, outputChannel),
+            create: (outputChannel, host) => new GitHubProvider(authManager, outputChannel, host),
         }),
     );
     context.subscriptions.push(

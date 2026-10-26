@@ -247,7 +247,7 @@ export async function bootstrap(): Promise<void> {
         const authManager = new CodeForgeAuthManager(webHostEnv, NO_OP_LOGGER);
         codeForgeRegistry.register({
             id: 'github',
-            create: (outputChannel) => new GitHubProvider(authManager, outputChannel),
+            create: (outputChannel, host) => new GitHubProvider(authManager, outputChannel, host),
         });
         codeForgeRegistry.register({
             id: 'gitlab',

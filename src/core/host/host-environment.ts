@@ -151,6 +151,12 @@ export interface HostSecretsChangeEvent {
 
 export interface HostSecrets {
     get(key: string): Promise<string | undefined>;
+    /**
+     * Whether a value is stored under `key`. Prefer this over `get` when only
+     * existence matters, so the secret itself never has to leave the host
+     * (e.g. the daemon's credential store in standalone mode).
+     */
+    has(key: string): Promise<boolean>;
     store(key: string, value: string): Promise<void>;
     delete(key: string): Promise<void>;
     readonly onDidChange?: Event<HostSecretsChangeEvent>;

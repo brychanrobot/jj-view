@@ -1203,6 +1203,11 @@ export class RemoteHostSystem implements HostSystem {
         return res.found ? res.value : undefined;
     }
 
+    public async hasSecret(key: string): Promise<boolean> {
+        const res = await this.request<{ found: boolean }>('secrets.has', { key });
+        return res.found;
+    }
+
     public async storeSecret(key: string, value: string): Promise<void> {
         await this.request<{ success: boolean }>('secrets.store', { key, value });
     }
