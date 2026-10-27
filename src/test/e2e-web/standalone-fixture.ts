@@ -31,6 +31,7 @@ declare global {
         __JJ_VIEW_REPO_MANAGER__?: {
             readonly repositories: readonly {
                 readonly rootUri: { readonly fsPath: string };
+                refresh(options?: { forceSnapshot?: boolean; reason?: string }): Promise<void>;
             }[];
         };
     }

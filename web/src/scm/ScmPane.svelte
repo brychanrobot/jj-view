@@ -12,7 +12,7 @@ import type { ResolvedMenuItem } from '../menu/menu-types';
 import ScmHeader from './ScmHeader.svelte';
 import ScmInputBox from './ScmInputBox.svelte';
 import ScmResourceGroup from './ScmResourceGroup.svelte';
-import { formatRepositoryDisplayNames, type ScmRepositoryEntry } from './scm-repo-types';
+import { formatRepositoryDisplayNames, hasOnlyEmptyWorkingCopy, type ScmRepositoryEntry } from './scm-repo-types';
 
 interface Props {
     snapshot: ScmSnapshot | undefined;
@@ -123,6 +123,7 @@ $effect(() => {
 let descriptionsByRoot = $state<Record<string, string>>({});
 let lastSyncedDescriptions = $state<Record<string, string>>({});
 let collapsedByRoot = $state<Record<string, boolean>>({});
+const prevEmptyOnlyByRoot = new Map<string, boolean>();
 
 $effect(() => {
     if (!repositories) {
@@ -146,6 +147,26 @@ $effect(() => {
     }
 });
 
+$effect(() => {
+    if (!repositories) {
+        return;
+    }
+    const activeRoots = new Set(repositories.map((entry) => entry.workspaceRoot));
+    for (const root of prevEmptyOnlyByRoot.keys()) {
+        if (!activeRoots.has(root)) {
+            prevEmptyOnlyByRoot.delete(root);
+        }
+    }
+    for (const entry of repositories) {
+        const isEmptyOnly = hasOnlyEmptyWorkingCopy(entry.snapshot);
+        const prevEmptyOnly = prevEmptyOnlyByRoot.get(entry.workspaceRoot);
+        if (prevEmptyOnly !== undefined && prevEmptyOnly !== isEmptyOnly) {
+            collapsedByRoot[entry.workspaceRoot] = isEmptyOnly;
+        }
+        prevEmptyOnlyByRoot.set(entry.workspaceRoot, isEmptyOnly);
+    }
+});
+
 function getRepoDescription(entry: ScmRepositoryEntry): string {
     return descriptionsByRoot[entry.workspaceRoot] ?? entry.snapshot?.description ?? '';
 }
@@ -154,12 +175,12 @@ function setRepoDescription(root: string, value: string): void {
     descriptionsByRoot[root] = value;
 }
 
-function isRepoExpanded(root: string): boolean {
-    return !(collapsedByRoot[root] ?? false);
+function isRepoExpanded(entry: ScmRepositoryEntry): boolean {
+    return !(collapsedByRoot[entry.workspaceRoot] ?? hasOnlyEmptyWorkingCopy(entry.snapshot));
 }
 
-function toggleRepoExpanded(root: string): void {
-    collapsedByRoot[root] = !collapsedByRoot[root];
+function toggleRepoExpanded(entry: ScmRepositoryEntry): void {
+    collapsedByRoot[entry.workspaceRoot] = isRepoExpanded(entry);
 }
 
 function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
@@ -209,7 +230,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                 {@const display = repoDisplayNames.get(root) ?? { name: root.split(/[/\\]/).pop() || root }}
                 {@const displayLabel = display.qualifier ? `${display.qualifier}/${display.name}` : display.name}
                 {@const isFocused = root === activeFocusedRoot}
-                {@const expanded = isRepoExpanded(root)}
+                {@const expanded = isRepoExpanded(entry)}
                 {@const repoActions = getRepoTitleActions(entry)}
                 {@const repoVsCodeContext = JSON.stringify({
                     menuId: 'scm/title',
@@ -233,11 +254,11 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                         role="button"
                         tabindex="0"
                         aria-expanded={expanded}
-                        onclick={() => toggleRepoExpanded(root)}
+                        onclick={() => toggleRepoExpanded(entry)}
                         onkeydown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
-                                toggleRepoExpanded(root);
+                                toggleRepoExpanded(entry);
                             }
                         }}
                     >
