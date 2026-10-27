@@ -91,4 +91,94 @@ test.describe('Standalone Web Multirepo Workspace', () => {
             sub2Repo.dispose();
         }
     });
+
+    test('should auto-collapse empty repositories and auto-expand on dirty transitions', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        // Create root repo commit and dirty working copy so the workspace is multi-repo
+        testRepo.writeFile('root_file.txt', 'root content\n');
+        testRepo.describe('root commit');
+        testRepo.new();
+        testRepo.writeFile('root_dirty.txt', 'uncommitted root change\n');
+
+        // Create a subproject that has ONLY an empty working copy on root() (no mutable ancestors, no changes)
+        const cleanSubPath = path.join(testRepo.path, 'clean_sub');
+        const cleanSubRepo = new ScopedTestRepo(cleanSubPath);
+        cleanSubRepo.init();
+
+        try {
+            await page.goto(server.serverUrl);
+            await waitForScmReady(page);
+
+            // Wait for repositoryManager to complete recursive scanning and discover both repositories
+            await page.waitForFunction(
+                () => {
+                    const manager = window.__JJ_VIEW_REPO_MANAGER__;
+                    return manager && manager.repositories.length >= 2;
+                },
+                { timeout: 10000 },
+            );
+
+            const cleanSection = page.locator('[data-testid="scm-repository-section"]', {
+                hasText: 'clean_sub',
+            });
+            const cleanHeader = cleanSection.getByTestId('scm-repository-header');
+
+            // 1. Initial state: clean_sub has only an empty working copy, so it should be auto-collapsed
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'false');
+            await expect(cleanSection.locator('[data-testid="scm-group-working-copy"]')).toHaveCount(0);
+
+            // Manually expand clean_sub while it is still empty and verify manual toggle is preserved across refreshes
+            await cleanHeader.click();
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'true');
+
+            await page.evaluate(async () => {
+                const manager = window.__JJ_VIEW_REPO_MANAGER__;
+                if (manager) {
+                    await Promise.all(manager.repositories.map((r) => r.refresh({ forceSnapshot: true })));
+                }
+            });
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'true');
+
+            // Manually collapse clean_sub back before testing the auto-expand dirty transition
+            await cleanHeader.click();
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'false');
+
+            // 2. Add a new file in clean_sub so it becomes dirty
+            cleanSubRepo.writeFile('new_file.txt', 'new sub content\n');
+
+            // Refresh repositories
+            await page.evaluate(async () => {
+                const manager = window.__JJ_VIEW_REPO_MANAGER__;
+                if (manager) {
+                    await Promise.all(manager.repositories.map((r) => r.refresh({ forceSnapshot: true })));
+                }
+            });
+
+            // clean_sub should auto-expand and show the modified/added file
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'true');
+            const cleanWorkingCopy = cleanSection.locator('[data-testid="scm-group-working-copy"]');
+            await expect(cleanWorkingCopy).toBeVisible();
+            await expect(cleanSection.getByTestId('scm-resource-item')).toContainText('new_file.txt');
+
+            // 3. Restore/delete the file so clean_sub returns to only an empty working copy
+            cleanSubRepo.deleteFile('new_file.txt');
+
+            // Refresh repositories
+            await page.evaluate(async () => {
+                const manager = window.__JJ_VIEW_REPO_MANAGER__;
+                if (manager) {
+                    await Promise.all(manager.repositories.map((r) => r.refresh({ forceSnapshot: true })));
+                }
+            });
+
+            // clean_sub should auto-collapse again
+            await expect(cleanHeader).toHaveAttribute('aria-expanded', 'false');
+            await expect(cleanSection.locator('[data-testid="scm-group-working-copy"]')).toHaveCount(0);
+        } finally {
+            cleanSubRepo.dispose();
+        }
+    });
 });

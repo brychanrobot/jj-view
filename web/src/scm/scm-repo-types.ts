@@ -16,6 +16,33 @@ export interface RepositoryDisplayName {
 }
 
 /**
+ * Determines whether a repository snapshot represents an empty working copy and nothing else.
+ * Returns true if the snapshot is undefined or if:
+ * - workingCopyChanges is empty
+ * - conflictedPaths is empty
+ * - ancestors is empty
+ * - description is empty (whitespace trimmed)
+ */
+export function hasOnlyEmptyWorkingCopy(snapshot: ScmSnapshot | undefined): boolean {
+    if (!snapshot) {
+        return true;
+    }
+    if (snapshot.workingCopyChanges.length > 0) {
+        return false;
+    }
+    if (snapshot.conflictedPaths.length > 0) {
+        return false;
+    }
+    if (snapshot.ancestors.length > 0) {
+        return false;
+    }
+    if (snapshot.description.trim().length > 0) {
+        return false;
+    }
+    return true;
+}
+
+/**
  * Computes human-readable display names for a list of repository root paths.
  * Uses the directory basename when unique across all repositories, and includes
  * parent directory segments as a qualifier when multiple repositories share a basename.
