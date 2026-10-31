@@ -18,6 +18,7 @@ class FakeDaemonTransport implements EventSourceLike {
     public readyState: number = 0; // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
     public sentMessages: string[] = [];
     public readonly fetchBodies: string[] = [];
+    public readonly fetchUrls: string[] = [];
     public onopen: ((ev: Event) => void) | null = null;
     public onmessage: ((ev: MessageEvent) => void) | null = null;
     public onerror: ((ev: Event) => void) | null = null;
@@ -81,6 +82,8 @@ class FakeDaemonTransport implements EventSourceLike {
     }
 
     async fetch(_input: string | URL | Request, init?: RequestInit): Promise<Response> {
+        const urlStr = typeof _input === 'string' ? _input : _input.toString();
+        this.fetchUrls.push(urlStr);
         const bodyStr = typeof init?.body === 'string' ? init.body : '';
         this.fetchBodies.push(bodyStr);
         let parsed: Record<string, unknown> = {};
@@ -180,6 +183,7 @@ describe('RemoteHostSystem Unit Tests', () => {
             expect(host.tempDir).toBe('/tmp/private-jj-daemon');
             expect(host.repoRoot).toBe('/workspace/project');
             expect(host.version).toBe('2.5.0');
+            expect(fakeWs.fetchUrls[0]).toContain('/api/rpc?rid=1&token=test-token');
 
             host.dispose();
             expect(fakeWs.readyState).toBe(2);
@@ -442,6 +446,7 @@ describe('RemoteHostSystem Unit Tests', () => {
             const cancelMsg = await cancelPromise;
             expect(cancelMsg.method).toBe('$/cancelRequest');
             expect(cancelMsg.params).toBeDefined();
+            expect(fakeWs.fetchUrls).toContain('http://127.0.0.1:8080/api/rpc?token=test-token');
 
             host.dispose();
         });

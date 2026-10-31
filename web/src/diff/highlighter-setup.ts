@@ -50,6 +50,13 @@ let diffWorkerPoolManager: WorkerPoolManager | undefined;
 let diffWorkerBlobUrl: string | undefined;
 let initWorkerPromise: Promise<void> | null = null;
 
+interface JjViewWorkerWindow extends Window {
+    __JJ_VIEW_CONFIG__?: {
+        sidecarToken?: string;
+        token?: string;
+    };
+}
+
 export async function initPierreWorker(): Promise<void> {
     if (typeof window === 'undefined' || diffWorkerBlobUrl) {
         return;
@@ -59,7 +66,17 @@ export async function initPierreWorker(): Promise<void> {
     }
     initWorkerPromise = (async () => {
         try {
-            const response = await fetch('/dist/pierre-worker.js');
+            const win = window as JjViewWorkerWindow;
+            const token =
+                win.__JJ_VIEW_CONFIG__?.sidecarToken ||
+                win.__JJ_VIEW_CONFIG__?.token ||
+                new URLSearchParams(window.location.search).get('token') ||
+                '';
+            const workerUrl = token
+                ? `/dist/pierre-worker.js?token=${encodeURIComponent(token)}`
+                : '/dist/pierre-worker.js';
+            const headers: Record<string, string> = token ? { 'X-Sidecar-Token': token } : {};
+            const response = await fetch(workerUrl, { headers });
             if (!response.ok) {
                 console.warn('[Pierre Worker] Failed to fetch /dist/pierre-worker.js:', response.statusText);
                 return;
