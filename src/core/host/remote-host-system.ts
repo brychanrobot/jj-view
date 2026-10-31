@@ -393,7 +393,7 @@ export class RemoteHostSystem implements HostSystem {
         }
     }
 
-    private static readonly RPC_URL_RE = /\/api\/rpc\?rid=(\d+)$/;
+    private static readonly RPC_URL_RE = /\/api\/rpc\?rid=(\d+)(?:&|$)/;
 
     private static _parseRequestId(url: string): number | null {
         const match = RemoteHostSystem.RPC_URL_RE.exec(url);
@@ -403,8 +403,14 @@ export class RemoteHostSystem implements HostSystem {
         return Number(match[1]);
     }
 
+    private get _token(): string | undefined {
+        return this._resolveToken();
+    }
+
     private _rpcUrl(id: number): string {
-        return `${this._baseUrl}/api/rpc?rid=${id}`;
+        const token = this._token;
+        const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : '';
+        return `${this._baseUrl}/api/rpc?rid=${id}${tokenQuery}`;
     }
 
     private _logResourceTiming(id: number, entry: PerformanceResourceTiming): void {
@@ -1092,7 +1098,9 @@ export class RemoteHostSystem implements HostSystem {
             return;
         }
 
-        fetchFn(`${this._baseUrl}/api/rpc`, {
+        const token = this._token;
+        const notificationUrl = `${this._baseUrl}/api/rpc${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+        fetchFn(notificationUrl, {
             method: 'POST',
             headers: this._rpcHeaders(),
             body: frame,

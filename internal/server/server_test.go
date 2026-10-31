@@ -120,21 +120,150 @@ func TestServerHealthAndIndex(t *testing.T) {
 		t.Fatalf("index.html missing session token")
 	}
 
-	// 4. Asset URLs must be tagged with the content-derived build id, not the
-	// bare semver (which stays constant across dev builds and would let the
-	// browser keep an "immutable" cached copy of stale JS).
+	// 4. Asset URLs must be tagged with the content-derived build id and the active token.
 	build := srv.AssetVersion()
 	if !strings.HasPrefix(build, "test-version-") || len(build) != len("test-version-")+12 {
 		t.Fatalf("unexpected asset version format: %q", build)
 	}
-	if !strings.Contains(bodyStr, "/dist/app.js?v="+url.QueryEscape(build)) {
-		t.Fatalf("index.html app.js not tagged with build %q: %s", build, bodyStr)
+
+	expectedQuery := fmt.Sprintf("?v=%s&token=%s", url.QueryEscape(build), url.QueryEscape(srv.SessionToken()))
+	for _, asset := range []string{
+		"/dist/app.js",
+		"/dist/app.css",
+		"/dist/codicons/codicon.css",
+		"/dist/custom-icons/jj-view-icons.css",
+		"/preload.js",
+	} {
+		expectedAsset := asset + expectedQuery
+		if !strings.Contains(bodyStr, expectedAsset) {
+			t.Errorf("index.html missing versioned and tokenized asset %q", expectedAsset)
+		}
 	}
-	if strings.Contains(bodyStr, "/dist/app.js?v=test-version\"") {
-		t.Fatalf("index.html app.js tagged with bare semver")
+
+	// 5. Native ESM code-split chunk import map must be injected into <head>
+	if !strings.Contains(bodyStr, `<script type="importmap">`) {
+		t.Errorf("index.html missing <script type=\"importmap\">")
 	}
+	if !strings.Contains(bodyStr, "/dist/chunks/") || !strings.Contains(bodyStr, expectedQuery) {
+		t.Errorf("index.html importmap missing chunk token propagation")
+	}
+
 	if health["build"] != build {
 		t.Fatalf("health build = %v, want %q", health["build"], build)
+	}
+
+	// 6. Static CSS files must have font URLs rewritten with token
+	cssURL := fmt.Sprintf("%s/dist/codicons/codicon.css?token=%s", baseURL, srv.SessionToken())
+	respCSS, err := http.Get(cssURL)
+	if err != nil {
+		t.Fatalf("failed to fetch codicon.css: %v", err)
+	}
+	defer respCSS.Body.Close()
+	if respCSS.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for codicon.css, got %d", respCSS.StatusCode)
+	}
+	contentType := respCSS.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/css") {
+		t.Errorf("expected Content-Type text/css, got %q", contentType)
+	}
+	cacheControl := respCSS.Header.Get("Cache-Control")
+	if !strings.HasPrefix(cacheControl, "private") {
+		t.Errorf("expected Cache-Control to be private for rewritten CSS, got %q", cacheControl)
+	}
+	cssBody, _ := io.ReadAll(respCSS.Body)
+	cssStr := string(cssBody)
+	escapedToken := url.QueryEscape(srv.SessionToken())
+	if !strings.Contains(cssStr, "codicon.ttf?") || !strings.Contains(cssStr, "&token="+escapedToken) {
+		t.Errorf("codicon.css font URL does not contain token %q: %s", escapedToken, cssStr)
+	}
+
+	// Custom icons font URLs with #iefix hash preserved
+	customCSSURL := fmt.Sprintf("%s/dist/custom-icons/jj-view-icons.css?token=%s", baseURL, srv.SessionToken())
+	respCustomCSS, err := http.Get(customCSSURL)
+	if err != nil {
+		t.Fatalf("failed to fetch jj-view-icons.css: %v", err)
+	}
+	defer respCustomCSS.Body.Close()
+	if respCustomCSS.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for jj-view-icons.css, got %d", respCustomCSS.StatusCode)
+	}
+	customCSSBody, _ := io.ReadAll(respCustomCSS.Body)
+	customCSSStr := string(customCSSBody)
+	expectedIeFix := "&token=" + escapedToken + "#iefix"
+	if !strings.Contains(customCSSStr, "jj-view-icons.eot?t=") || !strings.Contains(customCSSStr, expectedIeFix) {
+		t.Errorf("jj-view-icons.css missing #iefix token URL %q: %s", expectedIeFix, customCSSStr)
+	}
+	if !strings.Contains(customCSSStr, "jj-view-icons.woff2?t=") || !strings.Contains(customCSSStr, "&token="+escapedToken) {
+		t.Errorf("jj-view-icons.css missing woff2 token URL %q: %s", escapedToken, customCSSStr)
+	}
+}
+
+func TestRewriteCSSFontURLs(t *testing.T) {
+	token := "my-secret-token"
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "codicon ttf with query",
+			input:    `src: url("./codicon.ttf?721d4c0a96379d0c13d3d5596893c348") format("truetype");`,
+			expected: `src: url("./codicon.ttf?721d4c0a96379d0c13d3d5596893c348&token=my-secret-token") format("truetype");`,
+		},
+		{
+			name:     "single quotes with query and hash iefix",
+			input:    `src: url('jj-view-icons.eot?t=1790256517931#iefix') format('embedded-opentype');`,
+			expected: `src: url('jj-view-icons.eot?t=1790256517931&token=my-secret-token#iefix') format('embedded-opentype');`,
+		},
+		{
+			name:     "unquoted ttf without query",
+			input:    `src: url(my-font.ttf);`,
+			expected: `src: url(my-font.ttf?token=my-secret-token);`,
+		},
+		{
+			name:     "woff2 without query",
+			input:    `url('font.woff2')`,
+			expected: `url('font.woff2?token=my-secret-token')`,
+		},
+		{
+			name:     "trailing bare question mark without query params",
+			input:    `url('font.woff2?')`,
+			expected: `url('font.woff2?token=my-secret-token')`,
+		},
+		{
+			name:     "trailing bare question mark with hash",
+			input:    `url('font.woff2?#iefix')`,
+			expected: `url('font.woff2?token=my-secret-token#iefix')`,
+		},
+		{
+			name:     "already contains token",
+			input:    `url('font.woff2?token=existing')`,
+			expected: `url('font.woff2?token=existing')`,
+		},
+		{
+			name:     "ignore http external font",
+			input:    `url('https://example.com/font.woff2')`,
+			expected: `url('https://example.com/font.woff2')`,
+		},
+		{
+			name:     "ignore data URI",
+			input:    `url('data:font/woff2;base64,d09GRg==')`,
+			expected: `url('data:font/woff2;base64,d09GRg==')`,
+		},
+		{
+			name:     "ignore non-font file",
+			input:    `url('image.png')`,
+			expected: `url('image.png')`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rewriteCSSFontURLs(tt.input, token)
+			if result != tt.expected {
+				t.Errorf("rewriteCSSFontURLs() = %q, want %q", result, tt.expected)
+			}
+		})
 	}
 }
 

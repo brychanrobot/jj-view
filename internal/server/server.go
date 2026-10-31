@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"log"
 	"mime"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -87,7 +89,96 @@ type Server struct {
 // cache-buster. Any change to these files must produce a new ?v= tag;
 // otherwise browsers holding an "immutable" cached copy keep serving the
 // previous build's JS/CSS.
-var versionedAssets = []string{"dist/app.js", "dist/app.css", "dist/preload.js", "preload.js"}
+var versionedAssets = []string{
+	"dist/codicons/codicon.css",
+	"dist/custom-icons/jj-view-icons.css",
+	"dist/app.js",
+	"dist/app.css",
+	"dist/preload.js",
+	"preload.js",
+}
+
+var (
+	cssURLRegex = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)`)
+	fontExtensions = map[string]bool{
+		".ttf":   true,
+		".woff":  true,
+		".woff2": true,
+		".eot":   true,
+		".svg":   true,
+		".otf":   true,
+	}
+)
+
+func rewriteCSSFontURLs(cssContent, token string) string {
+	if token == "" {
+		return cssContent
+	}
+	escapedToken := url.QueryEscape(token)
+	return cssURLRegex.ReplaceAllStringFunc(cssContent, func(match string) string {
+		submatches := cssURLRegex.FindStringSubmatch(match)
+		if len(submatches) < 4 {
+			return match
+		}
+		quote := ""
+		rawURL := ""
+		if submatches[1] != "" {
+			quote = "\""
+			rawURL = submatches[1]
+		} else if submatches[2] != "" {
+			quote = "'"
+			rawURL = submatches[2]
+		} else {
+			rawURL = submatches[3]
+		}
+
+		trimmedURL := strings.TrimSpace(rawURL)
+		if strings.HasPrefix(trimmedURL, "http://") ||
+			strings.HasPrefix(trimmedURL, "https://") ||
+			strings.HasPrefix(trimmedURL, "data:") ||
+			strings.HasPrefix(trimmedURL, "//") {
+			return match
+		}
+
+		var withoutHash, hash string
+		if hashIdx := strings.Index(trimmedURL, "#"); hashIdx != -1 {
+			withoutHash = trimmedURL[:hashIdx]
+			hash = trimmedURL[hashIdx:]
+		} else {
+			withoutHash = trimmedURL
+		}
+
+		var pathPart, queryPart string
+		if queryIdx := strings.Index(withoutHash, "?"); queryIdx != -1 {
+			pathPart = withoutHash[:queryIdx]
+			queryPart = withoutHash[queryIdx+1:]
+		} else {
+			pathPart = withoutHash
+		}
+
+		ext := strings.ToLower(path.Ext(pathPart))
+		if !fontExtensions[ext] {
+			return match
+		}
+
+		if strings.Contains(queryPart, "token=") {
+			return match
+		}
+
+		var newQuery string
+		if queryPart != "" {
+			newQuery = pathPart + "?" + queryPart + "&token=" + escapedToken
+		} else {
+			newQuery = pathPart + "?token=" + escapedToken
+		}
+
+		newURL := newQuery + hash
+		if quote != "" {
+			return fmt.Sprintf("url(%s%s%s)", quote, newURL, quote)
+		}
+		return fmt.Sprintf("url(%s)", newURL)
+	})
+}
 
 // computeAssetVersion returns "<version>-<hash>" where hash is derived from the
 // embedded asset contents. The semver string alone is not a safe cache key:
@@ -111,6 +202,15 @@ func computeAssetVersion(version string) string {
 // AssetVersion returns the cache-busting tag applied to embedded asset URLs.
 func (s *Server) AssetVersion() string {
 	return s.assetVersion
+}
+
+// activeAuthToken returns the token used to authenticate sidecar / web client
+// requests: SidecarToken if non-empty, otherwise SessionToken.
+func (s *Server) activeAuthToken() string {
+	if s.cfg.SidecarToken != "" {
+		return s.cfg.SidecarToken
+	}
+	return s.cfg.SessionToken
 }
 
 // NewServer initializes a new Server.
@@ -818,6 +918,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			stat, statErr := file.Stat()
 			_ = file.Close()
 			if statErr == nil && !stat.IsDir() {
+				token := r.URL.Query().Get("token")
+				if token == "" {
+					token = s.activeAuthToken()
+				}
+				if strings.HasSuffix(cleanPath, ".css") && token != "" {
+					cssBytes, readErr := web.FS.ReadFile(trimmed)
+					if readErr == nil {
+						rewritten := rewriteCSSFontURLs(string(cssBytes), token)
+						if r.URL.Query().Get("v") != "" {
+							w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+						} else {
+							w.Header().Set("Cache-Control", "private, max-age=86400")
+						}
+						w.Header().Set("Content-Type", "text/css; charset=utf-8")
+						_, _ = w.Write([]byte(rewritten))
+						return
+					}
+				}
+
 				// Versioned assets and content-hashed code-splitting chunks
 				// (/dist/chunks/<name>-<hash>.js) never change in place.
 				if r.URL.Query().Get("v") != "" || strings.HasPrefix(cleanPath, "/dist/chunks/") {
@@ -855,10 +974,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activeToken := s.cfg.SessionToken
-	if s.cfg.SidecarToken != "" {
-		activeToken = s.cfg.SidecarToken
-	}
+	activeToken := s.activeAuthToken()
 
 	configPayload := map[string]any{
 		"token":    activeToken,
@@ -873,13 +989,43 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	configJSON, _ := json.Marshal(configPayload)
 
-	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n</head>", string(configJSON))
+	versionTag := s.assetVersion
+	assetQuery := "?v=" + url.QueryEscape(versionTag)
+	if activeToken != "" {
+		assetQuery += "&token=" + url.QueryEscape(activeToken)
+	}
+
+	importMap := map[string]map[string]string{
+		"imports": make(map[string]string),
+	}
+	if entries, err := iofs.ReadDir(web.FS, "dist/chunks"); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".js") {
+				key := "/dist/chunks/" + entry.Name()
+				importMap["imports"][key] = key + assetQuery
+			}
+		}
+	}
+
+	var importMapScript string
+	if len(importMap["imports"]) > 0 {
+		if importMapBytes, err := json.Marshal(importMap); err == nil {
+			importMapScript = fmt.Sprintf("<script type=\"importmap\">\n%s\n</script>\n", string(importMapBytes))
+		}
+	}
+
+	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n%s</head>", string(configJSON), importMapScript)
 	html := strings.Replace(string(content), "</head>", injected, 1)
 
-	versionTag := s.assetVersion
-	html = strings.ReplaceAll(html, "/dist/app.js", fmt.Sprintf("/dist/app.js?v=%s", url.QueryEscape(versionTag)))
-	html = strings.ReplaceAll(html, "/dist/app.css", fmt.Sprintf("/dist/app.css?v=%s", url.QueryEscape(versionTag)))
-	html = strings.ReplaceAll(html, "/preload.js", fmt.Sprintf("/preload.js?v=%s", url.QueryEscape(versionTag)))
+	for _, asset := range []string{
+		"/dist/codicons/codicon.css",
+		"/dist/custom-icons/jj-view-icons.css",
+		"/dist/app.css",
+		"/dist/app.js",
+		"/preload.js",
+	} {
+		html = strings.ReplaceAll(html, asset, asset+assetQuery)
+	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "jj_view_token",
