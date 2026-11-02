@@ -149,6 +149,43 @@ categories:
     scrolling. Host controllers attached via `WeakMap<HTMLElement, Host>` must
     clear cached per-file state when `diffItem.item.fileDiff` changes and remove
     custom child elements when a separator or row becomes inactive.
+-   **Diff Editor Selection & Unlayered Cascade Architecture (`adoptedStyleSheets`)**:
+    `@pierre/diffs/edit` (`Editor`) injects unlayered `<style data-editor-css>`
+    (`::selection { background-color: #0000; }`) and `<style data-editor-theme-css>`
+    (`:host { --diffs-editor-selection-bg: ${colors["editor.selectionBackground"] ?? "var(--diffs-line-bg)"}; }`)
+    into the `<diffs-container>` Shadow DOM. To maintain 100% visible,
+    theme-adaptive text selection highlights across working-copy diffs, single-file
+    views, and read-only commit diffs **without using `!important`**:
+    -   **Populate Selection Background on Shiki Theme Registrations**: All theme
+        loaders in `highlighter-setup.ts` must ensure
+        `colors['editor.selectionBackground']` is populated (and made translucent
+        for 3-digit, 6-digit, or opaque 8-digit hex) before registering themes
+        with `@pierre/diffs`. Built-in Pierre themes (`pierre-dark-soft`,
+        `pierre-light-soft`) rely on `applyAppTheme` + `--diffs-editor-selection-bg`
+        in `adoptedStyleSheets`, while custom Shiki themes natively emit a valid
+        `--diffs-editor-selection-bg` via `EditorTokenizer` instead of falling
+        back to `var(--diffs-line-bg)`.
+    -   **Adopt Custom Stylesheets via `shadowRoot.adoptedStyleSheets`**: Attach
+        custom Shadow DOM stylesheets via `adoptDiffCustomStyles(root)`
+        (`shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet]`).
+        Because `adoptedStyleSheets` is unlayered and evaluated **after** all
+        `<style>` tags in the Shadow DOM by standard CSS Cascade rules, normal
+        rules naturally win by cascade order with **zero `!important`**. Keep
+        `unsafeCSS: HUNK_EXPANSION_CSS` as the fallback for environments without
+        `adoptedStyleSheets`.
+    -   **Prevent `::selection` Double-Painting & Compounding**: Use root
+        `::selection { background-color: var(--diffs-selection-color); }` rather
+        than nested element selectors (`[data-line]::selection`, `*::selection`)
+        to avoid Chromium alpha-compounding on syntax tokens. Pair with
+        `[data-diffs]:has([data-selection-range]) ::selection { background-color: transparent; }`
+        so native `::selection` is suppressed only when `Editor`'s
+        `<div data-selection-range>` overlay is actively rendered, preventing
+        double-painting while keeping `[data-deleted-text-selection]` active on
+        deletions.
+    -   **Translucent Line Decorators**: Row decorators (such as context-expanded
+        diff lines) must set `--diffs-line-bg` and use translucent backgrounds
+        rather than opaque backgrounds on `[data-line]` to prevent occluding
+        `Editor`'s `[data-selection-range]` overlay at `z-index: -10`.
 -   **Deterministic Pointer & Subprocess Cleanup**:
     -   Always pair `pointermove`/`pointerup`/`pointercancel` and Playwright
         `page.mouse.down()` with `try { ... } finally { ... }` cleanup so

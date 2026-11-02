@@ -180,12 +180,36 @@ const SHIKI_THEME_LOADERS: Record<string, ThemeLoader> = {
     'light-plus': () => import('@shikijs/themes/light-plus'),
 };
 
+export function ensureThemeSelectionBackground(theme: ThemeRegistration, themeName?: string): void {
+    const isLight = theme.type === 'light' || isLightTheme(themeName ?? theme.name ?? '');
+    theme.colors ??= {};
+    const raw = theme.colors['editor.selectionBackground'];
+    const existing = typeof raw === 'string' ? raw.trim() : undefined;
+    const isMissingOrTransparent =
+        !existing || existing === 'transparent' || existing === '#0000' || existing === '#00000000';
+
+    if (isMissingOrTransparent) {
+        theme.colors['editor.selectionBackground'] = isLight ? '#009fff2e' : '#69b1ff4d';
+    } else if (/^#[0-9a-fA-F]{6}$/.test(existing)) {
+        theme.colors['editor.selectionBackground'] = `${existing}${isLight ? '38' : '4d'}`;
+    } else if (/^#[0-9a-fA-F]{3}$/.test(existing)) {
+        const r = existing[1];
+        const g = existing[2];
+        const b = existing[3];
+        theme.colors['editor.selectionBackground'] = `#${r}${r}${g}${g}${b}${b}${isLight ? '38' : '4d'}`;
+    } else if (/^#[0-9a-fA-F]{6}[fF]{2}$/.test(existing)) {
+        theme.colors['editor.selectionBackground'] = `${existing.slice(0, 7)}${isLight ? '38' : '4d'}`;
+    }
+}
+
 function toThemeRegistration(theme: RawPierreTheme): ThemeRegistration {
-    return {
+    const isLight = theme.type === 'light' || theme.name.includes('light');
+    const colors = theme.colors ? { ...theme.colors } : {};
+    const reg: ThemeRegistration = {
         name: theme.name,
         displayName: theme.displayName,
-        type: theme.type ?? (theme.name.includes('light') ? 'light' : 'dark'),
-        colors: theme.colors ? { ...theme.colors } : {},
+        type: theme.type ?? (isLight ? 'light' : 'dark'),
+        colors,
         settings: (theme.tokenColors ?? []).map((tc) => {
             let scope: string | string[] | undefined;
             if (typeof tc.scope === 'string') {
@@ -200,6 +224,8 @@ function toThemeRegistration(theme: RawPierreTheme): ThemeRegistration {
             };
         }),
     };
+    ensureThemeSelectionBackground(reg, theme.name);
+    return reg;
 }
 
 /**
@@ -251,6 +277,7 @@ export function ensureHighlighterRegistered(): void {
                 }
                 const mod = await loader();
                 const normalized = normalizeTheme(mod.default);
+                ensureThemeSelectionBackground(normalized, name);
                 normalizedShikiThemes.set(name, normalized);
                 return normalized;
             });
@@ -385,6 +412,7 @@ async function loadShikiTheme(name: string): Promise<ThemeRegistration | undefin
         return undefined;
     }
     const normalized = normalizeTheme(mod.default);
+    ensureThemeSelectionBackground(normalized, name);
     normalizedShikiThemes.set(name, normalized);
     return normalized;
 }
@@ -509,6 +537,7 @@ export function applyAppTheme(theme: ThemeRegistration): void {
         'statusBar.foreground': statusBarFg,
         'statusBar.border': statusBarBorder,
         'widget.border': sideBarBorder,
+        'editor.selectionBackground': colors['editor.selectionBackground'] || (isLight ? '#009fff2e' : '#69b1ff4d'),
         'editorWarning.foreground': colors['editorWarning.foreground'] || (isLight ? '#bf8803' : '#cca700'),
         'editorError.foreground': colors['editorError.foreground'] || (isLight ? '#e51400' : '#f14c4c'),
         'editorInfo.foreground': colors['editorInfo.foreground'] || (isLight ? '#1a85ff' : '#3794ff'),

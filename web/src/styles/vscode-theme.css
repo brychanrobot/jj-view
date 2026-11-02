@@ -365,6 +365,14 @@ body.vscode-light {
     content: "\ec58";
 }
 
+/* Global text selection highlight */
+::selection {
+    background-color: var(
+        --vscode-editor-selectionBackground,
+        color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent)
+    );
+}
+
 body.is-dragging-seam,
 body.is-dragging-seam * {
     cursor: ns-resize !important;
