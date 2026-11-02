@@ -7,11 +7,11 @@ import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { test as baseTest, expect, type Page } from '@playwright/test';
+import { test as baseTest, expect, type Locator, type Page } from '@playwright/test';
 import type { HostEnvironment } from '../../core/host/host-environment';
 import { TestRepo } from '../test-repo';
 
-export { expect, type Page };
+export { expect, type Locator, type Page };
 
 export const ARTIFACT_DIR = process.env.ARTIFACTS_DIR
     ? path.resolve(process.env.ARTIFACTS_DIR)
@@ -263,7 +263,9 @@ export const test = baseTest.extend<{
 });
 
 export async function waitForScmReady(page: Page): Promise<void> {
-    await expect(page.locator('[data-testid="scm-pane"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="scm-pane"]')).toBeVisible({
+        timeout: 15000,
+    });
 }
 
 export const isMac = process.platform === 'darwin';
@@ -302,16 +304,25 @@ export async function recordGifFlow(
         if (frameIndex > 0) {
             fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
             const framerate = options.framerate ?? 1.2;
+            const outFps = Math.max(10, Math.min(24, Math.round(framerate)));
             const scale = options.scale ?? 960;
-            const ffmpegCmd = [
-                'ffmpeg -y',
-                `-framerate ${framerate} -i "${tempDir}/frame-%d.png"`,
-                `-vf "fps=10,scale=${scale}:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"`,
-                `"${options.outputPath}"`,
-            ].join(' ');
+            const vfArg = `fps=${outFps},scale=${scale}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`;
 
             try {
-                cp.execSync(ffmpegCmd, { stdio: 'pipe' });
+                cp.execFileSync(
+                    'ffmpeg',
+                    [
+                        '-y',
+                        '-framerate',
+                        String(framerate),
+                        '-i',
+                        path.join(tempDir, 'frame-%d.png'),
+                        '-vf',
+                        vfArg,
+                        options.outputPath,
+                    ],
+                    { stdio: 'ignore' },
+                );
             } catch (err: unknown) {
                 console.warn(
                     `[recordGifFlow] ffmpeg encoding skipped or failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -319,6 +330,282 @@ export async function recordGifFlow(
             }
         }
     } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+
+export interface RecordInteractionOptions {
+    gifPath: string;
+    mp4Path?: string;
+    fps?: number; // default 24
+    scale?: number; // default 1280
+}
+
+/**
+ * High-speed 24fps interaction recorder that simulates smooth mouse paths,
+ * hover pauses, visual press rings, drag peeling gestures, and HUD titles.
+ */
+export class InteractionRecorder {
+    private frameIndex = 0;
+    private cursorX = 720;
+    private cursorY = 200;
+
+    constructor(
+        private readonly page: Page,
+        private readonly tempDir: string,
+    ) {}
+
+    get frameCount(): number {
+        return this.frameIndex;
+    }
+
+    async captureFrame(): Promise<void> {
+        this.frameIndex++;
+        const filename = `frame_${String(this.frameIndex).padStart(5, '0')}.png`;
+        await this.page.screenshot({ path: path.join(this.tempDir, filename) });
+    }
+
+    async setHud(text: string): Promise<void> {
+        await this.page.evaluate((t: string) => {
+            const el = document.getElementById('jj-hud-text');
+            if (el) {
+                el.textContent = t;
+            }
+        }, text);
+    }
+
+    async setCursorPos(x: number, y: number): Promise<void> {
+        this.cursorX = x;
+        this.cursorY = y;
+        await this.page.evaluate(
+            ({ cx, cy }: { cx: number; cy: number }) => {
+                const cur = document.getElementById('jj-virtual-cursor');
+                if (cur) {
+                    cur.style.transform = `translate(${cx}px, ${cy}px)`;
+                }
+            },
+            { cx: x, cy: y },
+        );
+        await this.page.mouse.move(x, y);
+    }
+
+    async moveTo(target: Locator, frames = 24): Promise<void> {
+        const box = await target.boundingBox();
+        if (!box) {
+            throw new Error('InteractionRecorder.moveTo: target locator has no boundingBox');
+        }
+        await this.moveToPoint(box.x + box.width / 2, box.y + box.height / 2, frames);
+    }
+
+    async moveToPoint(x: number, y: number, frames = 24): Promise<void> {
+        const startX = this.cursorX;
+        const startY = this.cursorY;
+        const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+        const totalFrames = Math.max(1, frames);
+
+        for (let f = 1; f <= totalFrames; f++) {
+            const u = ease(f / totalFrames);
+            await this.setCursorPos(startX + (x - startX) * u, startY + (y - startY) * u);
+            await this.captureFrame();
+        }
+    }
+
+    async hover(frames = 12): Promise<void> {
+        for (let f = 0; f < frames; f++) {
+            await this.captureFrame();
+        }
+    }
+
+    async click(target: Locator, holdFrames = 4): Promise<void> {
+        await this.moveTo(target, 16);
+        try {
+            await this.page.evaluate(() => {
+                const r = document.getElementById('jj-cursor-ring');
+                if (r) {
+                    r.style.transform = 'translate(-50%,-50%) scale(1)';
+                    r.style.opacity = '1';
+                    r.style.background = 'color-mix(in srgb, var(--vscode-focusBorder) 35%, transparent)';
+                }
+            });
+            for (let f = 0; f < holdFrames; f++) {
+                await this.captureFrame();
+            }
+            await target.click({ force: true });
+        } finally {
+            try {
+                await this.page.evaluate(() => {
+                    const r = document.getElementById('jj-cursor-ring');
+                    if (r) {
+                        r.style.transform = 'translate(-50%,-50%) scale(0)';
+                        r.style.opacity = '0';
+                        r.style.background = 'transparent';
+                    }
+                });
+                await this.captureFrame();
+            } catch {
+                // Page may have closed
+            }
+        }
+    }
+
+    async dragBy(
+        target: Locator,
+        deltaY: number,
+        dragFrames = 42,
+        holdStartFrames = 5,
+        holdEndFrames = 6,
+    ): Promise<void> {
+        await this.moveTo(target, 16);
+        await this.hover(holdStartFrames);
+
+        try {
+            await this.page.evaluate(() => {
+                const r = document.getElementById('jj-cursor-ring');
+                if (r) {
+                    r.style.transform = 'translate(-50%,-50%) scale(1)';
+                    r.style.opacity = '1';
+                    r.style.background = 'color-mix(in srgb, var(--vscode-focusBorder) 35%, transparent)';
+                }
+            });
+            await this.page.mouse.down();
+            await this.captureFrame();
+
+            const startX = this.cursorX;
+            const startY = this.cursorY;
+            const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+            const totalFrames = Math.max(1, dragFrames);
+
+            for (let f = 1; f <= totalFrames; f++) {
+                const u = ease(f / totalFrames);
+                await this.setCursorPos(startX, startY + deltaY * u);
+                await this.captureFrame();
+            }
+
+            await this.hover(holdEndFrames);
+        } finally {
+            try {
+                await this.page.mouse.up();
+                await this.page.evaluate(() => {
+                    const r = document.getElementById('jj-cursor-ring');
+                    if (r) {
+                        r.style.transform = 'translate(-50%,-50%) scale(0)';
+                        r.style.opacity = '0';
+                        r.style.background = 'transparent';
+                    }
+                });
+                await this.captureFrame();
+            } catch {
+                // Page may have closed
+            }
+        }
+    }
+}
+
+/**
+ * Automates 24fps interaction recordings with virtual cursor animations,
+ * HUD telemetry pills, and two-pass ffmpeg GIF/MP4 encoding.
+ */
+export async function recordInteractionFlow(
+    page: Page,
+    options: RecordInteractionOptions,
+    flow: (rec: InteractionRecorder) => Promise<void>,
+): Promise<void> {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-interaction-flow-'));
+    const rec = new InteractionRecorder(page, tempDir);
+
+    try {
+        await page.evaluate(() => {
+            document.getElementById('jj-virtual-cursor')?.remove();
+            document.getElementById('jj-interaction-hud')?.remove();
+
+            const cur = document.createElement('div');
+            cur.id = 'jj-virtual-cursor';
+            cur.style.cssText =
+                'position:fixed;left:0;top:0;width:24px;height:24px;pointer-events:none;z-index:2147483647;transform:translate(720px,200px);';
+            cur.innerHTML =
+                '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter:drop-shadow(0 2px 5px rgba(0,0,0,0.85));position:absolute;top:0;left:0;pointer-events:none;"><path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87c.45 0 .67-.54.35-.85L6.35 2.86a.5.5 0 0 0-.85.35z" fill="#ffffff" stroke="#111116" stroke-width="1.5" stroke-linejoin="round"/></svg><div id="jj-cursor-ring" style="position:absolute;top:0;left:0;width:32px;height:32px;border-radius:50%;border:2px solid var(--vscode-focusBorder);box-sizing:border-box;transform:translate(-50%,-50%) scale(0);opacity:0;pointer-events:none;"></div>';
+            document.body.appendChild(cur);
+
+            const hud = document.createElement('div');
+            hud.id = 'jj-interaction-hud';
+            hud.style.cssText =
+                'position:fixed;bottom:24px;right:24px;background:var(--vscode-sideBar-background);border:1px solid var(--vscode-input-border);backdrop-filter:blur(8px);color:var(--vscode-foreground);font-family:var(--vscode-editor-font-family, monospace);font-size:12px;font-weight:500;padding:10px 18px;border-radius:6px;box-shadow:0 4px 18px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 28%, transparent);pointer-events:none;z-index:2147483647;display:flex;align-items:center;gap:10px;';
+            hud.innerHTML =
+                '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--vscode-focusBorder);box-shadow:0 0 8px var(--vscode-focusBorder);"></span><span id="jj-hud-text">JJ View</span>';
+            document.body.appendChild(hud);
+        });
+
+        await flow(rec);
+
+        if (rec.frameCount > 0) {
+            fs.mkdirSync(path.dirname(options.gifPath), { recursive: true });
+            const fps = options.fps ?? 24;
+            const scale = options.scale ?? 1280;
+            const vfGif = `fps=${fps},scale=${scale}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`;
+
+            try {
+                cp.execFileSync(
+                    'ffmpeg',
+                    [
+                        '-y',
+                        '-framerate',
+                        String(fps),
+                        '-i',
+                        path.join(tempDir, 'frame_%05d.png'),
+                        '-vf',
+                        vfGif,
+                        options.gifPath,
+                    ],
+                    { stdio: 'ignore' },
+                );
+            } catch (err: unknown) {
+                console.warn(
+                    `[recordInteractionFlow] ffmpeg GIF encoding failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+            }
+
+            if (options.mp4Path) {
+                fs.mkdirSync(path.dirname(options.mp4Path), { recursive: true });
+                const vfMp4 = `fps=${fps},scale=${scale}:-2:flags=lanczos`;
+                try {
+                    cp.execFileSync(
+                        'ffmpeg',
+                        [
+                            '-y',
+                            '-framerate',
+                            String(fps),
+                            '-i',
+                            path.join(tempDir, 'frame_%05d.png'),
+                            '-vf',
+                            vfMp4,
+                            '-c:v',
+                            'libx264',
+                            '-pix_fmt',
+                            'yuv420p',
+                            '-crf',
+                            '19',
+                            '-movflags',
+                            '+faststart',
+                            options.mp4Path,
+                        ],
+                        { stdio: 'ignore' },
+                    );
+                } catch (err: unknown) {
+                    console.warn(
+                        `[recordInteractionFlow] ffmpeg MP4 encoding failed: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                }
+            }
+        }
+    } finally {
+        try {
+            await page.evaluate(() => {
+                document.getElementById('jj-virtual-cursor')?.remove();
+                document.getElementById('jj-interaction-hud')?.remove();
+            });
+        } catch {
+            // Page may have closed
+        }
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
 }
