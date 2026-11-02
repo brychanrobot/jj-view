@@ -10,6 +10,7 @@
 
 :root,
 body.vscode-dark {
+    color-scheme: dark;
     /* Typography */
     --vscode-font-family:
         -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
@@ -156,6 +157,7 @@ body.vscode-dark {
 }
 
 body.vscode-light {
+    color-scheme: light;
     /* Typography */
     --vscode-font-family:
         -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
@@ -361,4 +363,10 @@ body.vscode-light {
 .jj-icon-workspace-add::before,
 .codicon-jj-icon-workspace-add::before {
     content: "\ec58";
+}
+
+body.is-dragging-seam,
+body.is-dragging-seam * {
+    cursor: ns-resize !important;
+    user-select: none !important;
 }
