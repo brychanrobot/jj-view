@@ -20,6 +20,11 @@ import { isBinaryFile, isImageByExtension } from './binary-detection';
 import { type EditorChatContextSelection, resolveMultiDiffSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
+import {
+    DEFAULT_COLLAPSED_CONTEXT_THRESHOLD,
+    enhanceCodeViewDiffItemSeparators,
+    HUNK_EXPANSION_CSS,
+} from './hunk-expansion';
 import ImageDiffViewer from './ImageDiffViewer.svelte';
 
 interface Props {
@@ -105,10 +110,19 @@ function buildCodeViewOptions(
         expandUnchanged: false,
         disableFileHeader: false,
         enableLineSelection: true,
+        collapsedContextThreshold: DEFAULT_COLLAPSED_CONTEXT_THRESHOLD,
+        expansionLineCount: 10,
+        hunkSeparators: 'line-info',
+        unsafeCSS: HUNK_EXPANSION_CSS,
         theme: effectiveTheme,
         themeType,
         renderAnnotation: (annotation: LineAnnotation<CommentThreadHandle> | DiffLineAnnotation<CommentThreadHandle>) =>
             threadMounts.render(annotation.metadata),
+        onPostRender: (node, _instance, phase, context) => {
+            if (phase !== 'unmount') {
+                enhanceCodeViewDiffItemSeparators(node, context);
+            }
+        },
     };
 }
 
@@ -190,14 +204,12 @@ function setDiffStyle(style: 'split' | 'unified'): void {
     }
     diffStyle = style;
 
-    const isLight =
-        typeof document !== 'undefined' &&
-        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
     const effectiveTheme =
         themeProp ||
         (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
-        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
-    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
+        'pierre-dark-soft';
+    const isLight = isLightTheme(effectiveTheme);
+    const themeType = isLight ? 'light' : 'dark';
 
     if (codeView) {
         codeView.setOptions(buildCodeViewOptions(effectiveTheme, themeType));
@@ -336,10 +348,10 @@ $effect(() => {
     display: inline-flex;
     align-items: center;
     border-radius: 4px;
-    border: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border, #454545));
+    border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
     background: var(--vscode-editor-background);
     padding: 2px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 20%, transparent);
 }
 
 .toggle-btn {
@@ -363,7 +375,7 @@ $effect(() => {
 }
 
 .toggle-btn:hover:not(.active) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+    background: var(--vscode-toolbar-hoverBackground, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
     color: var(--vscode-foreground);
 }
 

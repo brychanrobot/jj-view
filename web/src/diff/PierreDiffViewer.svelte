@@ -3,7 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import { type DiffLineAnnotation, FileDiff, type FileDiffOptions, parseDiffFromFile } from '@pierre/diffs';
+import { type DiffLineAnnotation, type FileDiffOptions, parseDiffFromFile } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
@@ -13,6 +13,7 @@ import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-det
 import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
+import { DEFAULT_COLLAPSED_CONTEXT_THRESHOLD, HUNK_EXPANSION_CSS, JjFileDiff } from './hunk-expansion';
 import ImageDiffViewer from './ImageDiffViewer.svelte';
 import { startRenderTrace } from './render-perf';
 
@@ -79,7 +80,7 @@ let currentContent = $state('');
 let selectedRanges = $state<{ startLine: number; endLine: number }[] | undefined>(undefined);
 let selectedLineSide = $state<'deletions' | 'additions' | undefined>(undefined);
 
-let fileDiffInstance: FileDiff<CommentThreadHandle> | null = null;
+let fileDiffInstance: JjFileDiff<CommentThreadHandle> | null = null;
 let editorInstance: Editor<'file-diff', CommentThreadHandle> | null = null;
 let detachEditor: (() => void) | null = null;
 // Incremented on every render/cleanup so a pending async editor attach can
@@ -133,6 +134,10 @@ function buildFileDiffOptions(
         disableFileHeader: true,
         theme: effectiveTheme,
         themeType,
+        collapsedContextThreshold: DEFAULT_COLLAPSED_CONTEXT_THRESHOLD,
+        expansionLineCount: 10,
+        hunkSeparators: 'line-info',
+        unsafeCSS: HUNK_EXPANSION_CSS,
         enableLineSelection: true,
         onLineSelected: handleLineSelection,
         onLineSelectionChange: handleLineSelection,
@@ -282,7 +287,7 @@ function renderDiff(): void {
     const themeType = isLight ? 'light' : 'dark';
     const workerManager = getOrCreateDiffWorkerPool(effectiveTheme);
 
-    fileDiffInstance = new FileDiff<CommentThreadHandle>(
+    fileDiffInstance = new JjFileDiff<CommentThreadHandle>(
         buildFileDiffOptions(effectiveTheme, themeType),
         workerManager,
     );
@@ -345,7 +350,7 @@ function renderDiff(): void {
  * working-copy diff.
  */
 async function attachEditorWhenHighlighted(
-    instance: FileDiff<CommentThreadHandle>,
+    instance: JjFileDiff<CommentThreadHandle>,
     fileDiff: ReturnType<typeof parseDiffFromFile>,
     workerManager: ReturnType<typeof getOrCreateDiffWorkerPool>,
     label: string,
@@ -401,14 +406,12 @@ function setDiffStyle(style: 'split' | 'unified'): void {
         return;
     }
     diffStyle = style;
-    const isLight =
-        typeof document !== 'undefined' &&
-        (document.body.classList.contains('vscode-light') || themeProp.includes('light'));
     const effectiveTheme =
         themeProp ||
         (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null) ||
-        (isLight ? 'pierre-light-soft' : 'pierre-dark-soft');
-    const themeType = effectiveTheme.includes('light') ? 'light' : 'dark';
+        'pierre-dark-soft';
+    const isLight = isLightTheme(effectiveTheme);
+    const themeType = isLight ? 'light' : 'dark';
 
     if (fileDiffInstance) {
         fileDiffInstance.setOptions(buildFileDiffOptions(effectiveTheme, themeType));
@@ -436,6 +439,7 @@ function setDiffStyle(style: 'split' | 'unified'): void {
             oldFile,
             newFile,
         });
+        fileDiffInstance.enhanceHunkSeparators();
         return;
     }
     renderDiff();
@@ -499,6 +503,8 @@ let lastLoadedModified = modifiedContent;
 let lastLoadedOriginal = originalContent;
 // svelte-ignore state_referenced_locally
 let lastRenderedWorkingCopy = isWorkingCopy;
+// svelte-ignore state_referenced_locally
+let lastRenderedTheme = themeProp;
 
 // Synchronize and re-render when filename, content, or mode change
 $effect(() => {
@@ -507,6 +513,7 @@ $effect(() => {
     const mod = modifiedContent;
     const status = fileStatus;
     const wc = isWorkingCopy;
+    const th = themeProp;
 
     if (fn !== lastRenderedFilename) {
         if (!orig && !mod && status !== 'added' && status !== 'deleted') {
@@ -522,6 +529,7 @@ $effect(() => {
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
         lastRenderedWorkingCopy = wc;
+        lastRenderedTheme = th;
         currentContent = mod;
         isDirty = initialDirty;
         canUndo = false;
@@ -530,7 +538,10 @@ $effect(() => {
         renderDiff();
     } else if (
         !isDirty &&
-        (mod !== lastLoadedModified || orig !== lastLoadedOriginal || wc !== lastRenderedWorkingCopy)
+        (mod !== lastLoadedModified ||
+            orig !== lastLoadedOriginal ||
+            wc !== lastRenderedWorkingCopy ||
+            th !== lastRenderedTheme)
     ) {
         if (typeof console !== 'undefined' && console.log) {
             console.log(
@@ -540,6 +551,7 @@ $effect(() => {
         lastLoadedModified = mod;
         lastLoadedOriginal = orig;
         lastRenderedWorkingCopy = wc;
+        lastRenderedTheme = th;
         currentContent = mod;
         renderDiff();
     } else {
@@ -714,8 +726,8 @@ onDestroy(() => {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-editor-background, #171717);
-    color: var(--vscode-editor-foreground, #d4d4d4);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
     overflow: hidden;
     position: relative;
     --diffs-font-family: var(--vscode-editor-font-family, monospace);
@@ -731,12 +743,12 @@ onDestroy(() => {
     display: inline-flex;
     align-items: stretch;
     height: 24px;
-    border: 1px solid var(--vscode-input-border, #2c2c2c);
+    border: 1px solid var(--vscode-input-border);
     border-radius: 6px;
-    background: var(--vscode-input-background, #262626);
+    background: var(--vscode-input-background);
     overflow: hidden;
     box-sizing: border-box;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 20%, transparent);
 }
 
 .diff-conflict-floating {
@@ -762,7 +774,7 @@ onDestroy(() => {
     font-size: 11px;
     font-weight: 500;
     cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 20%, transparent);
     font-family: inherit;
     transition: background 0.15s ease;
 }
@@ -777,9 +789,9 @@ onDestroy(() => {
     justify-content: center;
     padding: 0 10px;
     border: none;
-    border-right: 1px solid var(--vscode-input-border, #2c2c2c);
+    border-right: 1px solid var(--vscode-input-border);
     background: transparent;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
     font-size: 11px;
     font-weight: 500;
     cursor: pointer;
@@ -795,13 +807,13 @@ onDestroy(() => {
 }
 
 .toggle-btn:hover:not(.active) {
-    background: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
-    color: var(--vscode-foreground, #d4d4d4);
+    background: var(--vscode-toolbar-hoverBackground);
+    color: var(--vscode-foreground);
 }
 
 .toggle-btn.active {
-    background: var(--vscode-button-background, #69b1ff);
-    color: var(--vscode-button-foreground, #171717);
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
     font-weight: 600;
 }
 
@@ -823,12 +835,12 @@ onDestroy(() => {
     gap: 8px;
     padding: 32px;
     text-align: center;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
 }
 
 .binary-icon {
     font-size: 48px;
-    color: var(--vscode-icon-foreground, #8a8a8a);
+    color: var(--vscode-icon-foreground);
     margin-bottom: 8px;
 }
 
@@ -836,7 +848,7 @@ onDestroy(() => {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-foreground);
 }
 
 .binary-filename {
