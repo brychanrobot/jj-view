@@ -54,26 +54,57 @@ export const HUNK_EXPANSION_CSS = `
     --pill-bg: var(--bg-elevated);
     --pill-bg-hover: var(--bg-hover);
     --pill-border: var(--border-subtle);
+    --diffs-selection-color: var(
+      --vscode-editor-selectionBackground,
+      color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent)
+    );
+    --diffs-editor-selection-bg: var(--diffs-selection-color);
+  }
+
+  /* Text Selection Highlights (Adopted StyleSheet sits after all Shadow DOM <style> tags) */
+  ::selection {
+    background-color: var(--diffs-selection-color);
+  }
+
+  [data-diffs]:has([data-selection-range]) ::selection {
+    background-color: transparent;
+  }
+
+  [data-deleted-text-selection] [data-deletions] ::selection,
+  [data-deleted-text-selection] [data-line-type="change-deletion"] ::selection {
+    background-color: var(--diffs-selection-color);
+  }
+
+  [data-selection-range] {
+    background-color: var(--diffs-selection-color);
   }
 
   /* Expanded Context Rows */
-  [data-line][data-line-type="context-expanded"] {
-    background-color: color-mix(in srgb, var(--vscode-focusBorder) 7%, var(--vscode-editor-background)) !important;
+  [data-line][data-line-type="context-expanded"],
+  [data-diffs] [data-line][data-line-type="context-expanded"] {
+    --diffs-line-bg: color-mix(in srgb, var(--vscode-focusBorder) 7%, var(--vscode-editor-background));
+    background-color: color-mix(in srgb, var(--vscode-focusBorder) 7%, transparent);
   }
 
-  [data-column-number][data-line-type="context-expanded"] {
-    background-color: color-mix(in srgb, var(--vscode-focusBorder) 14%, var(--vscode-editor-background)) !important;
-    box-shadow: inset 2px 0 0 var(--vscode-focusBorder) !important;
-    color: var(--vscode-foreground) !important;
+  [data-column-number][data-line-type="context-expanded"],
+  [data-diffs] [data-column-number][data-line-type="context-expanded"] {
+    background-color: color-mix(in srgb, var(--vscode-focusBorder) 14%, var(--vscode-editor-background));
+    box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+    color: var(--vscode-foreground);
   }
 
   /* Ensure containers do not crop the elevated seam bar or tooltips */
+  [data-code],
+  [data-separator],
+  [data-separator="line-info"],
+  [data-separator-wrapper],
+  [data-separator-content],
   [data-diffs] [data-code],
   [data-diffs] [data-separator],
   [data-diffs] [data-separator="line-info"],
   [data-diffs] [data-separator-wrapper],
   [data-diffs] [data-separator-content] {
-    overflow: visible !important;
+    overflow: visible;
   }
 
   /* Single-Row Center Seam Bar */
@@ -83,30 +114,39 @@ export const HUNK_EXPANSION_CSS = `
   [data-column-content]:has([data-separator="line-info"]),
   [data-deletions]:has([data-separator="line-info"]),
   [data-additions]:has([data-separator="line-info"]),
-  [data-separator="line-info"][data-expand-index] {
+  [data-separator="line-info"][data-expand-index],
+  [data-diffs] [data-line]:has([data-separator="line-info"]),
+  [data-diffs] [data-row]:has([data-separator="line-info"]),
+  [data-diffs] [data-content]:has([data-separator="line-info"]),
+  [data-diffs] [data-column-content]:has([data-separator="line-info"]),
+  [data-diffs] [data-deletions]:has([data-separator="line-info"]),
+  [data-diffs] [data-additions]:has([data-separator="line-info"]),
+  [data-diffs] [data-separator="line-info"][data-expand-index] {
     cursor: pointer;
-    overflow: visible !important;
-    contain: none !important;
-    position: relative !important;
-    padding: 0 !important;
-    min-height: 32px !important;
-    height: 32px !important;
-    background: var(--seam-recess-bg) !important;
-    border-top: 1px solid var(--vscode-widget-border) !important;
-    border-bottom: 1px solid var(--vscode-widget-border) !important;
-    box-shadow: var(--seam-shadow) !important;
-    z-index: 50 !important;
+    overflow: visible;
+    contain: none;
+    position: relative;
+    padding: 0;
+    min-height: 32px;
+    height: 32px;
+    background: var(--seam-recess-bg);
+    border-top: 1px solid var(--vscode-widget-border);
+    border-bottom: 1px solid var(--vscode-widget-border);
+    box-shadow: var(--seam-shadow);
+    z-index: 50;
   }
 
-  [data-gutter] [data-separator="line-info"][data-expand-index] {
-    background: var(--seam-recess-bg) !important;
-    box-shadow: var(--seam-shadow) !important;
+  [data-gutter] [data-separator="line-info"][data-expand-index],
+  [data-diffs] [data-gutter] [data-separator="line-info"][data-expand-index] {
+    background: var(--seam-recess-bg);
+    box-shadow: var(--seam-shadow);
   }
 
-  [data-separator="line-info"][data-expand-index] [data-separator-wrapper] {
-    display: none !important;
-    border-top: 1px solid var(--vscode-widget-border) !important;
-    border-bottom: 1px solid var(--vscode-widget-border) !important;
+  [data-separator="line-info"][data-expand-index] [data-separator-wrapper],
+  [data-diffs] [data-separator="line-info"][data-expand-index] [data-separator-wrapper] {
+    display: none;
+    border-top: 1px solid var(--vscode-widget-border);
+    border-bottom: 1px solid var(--vscode-widget-border);
   }
 
   .combo-seam, .combo-seam-half {
@@ -150,7 +190,7 @@ export const HUNK_EXPANSION_CSS = `
 
   .seam-drag-edge:hover,
   .seam-drag-edge.dragging {
-    background: var(--accent-primary) !important;
+    background: var(--accent-primary);
     height: 4px;
   }
 
@@ -337,7 +377,7 @@ export const HUNK_EXPANSION_CSS = `
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.13s ease;
-    z-index: 99999 !important;
+    z-index: 99999;
     text-align: left;
   }
 
@@ -346,11 +386,11 @@ export const HUNK_EXPANSION_CSS = `
 
   .ast-pill-anchor:hover .ast-tooltip,
   .ast-pill-anchor.force-tooltip-open .ast-tooltip {
-    opacity: 1 !important;
-    visibility: visible !important;
-    display: block !important;
-    transition: none !important;
-    pointer-events: auto !important;
+    opacity: 1;
+    visibility: visible;
+    display: block;
+    transition: none;
+    pointer-events: auto;
   }
 
   .ast-tooltip-header {
@@ -399,13 +439,70 @@ export const HUNK_EXPANSION_CSS = `
 
   @media (max-width: 920px) {
     .seam-gutter-tag {
-      display: none !important;
+      display: none;
     }
     .ast-tooltip {
-      width: 280px !important;
+      width: 280px;
     }
   }
 `;
+
+let diffCustomStyleSheet: CSSStyleSheet | undefined;
+
+function isShadowRoot(node: unknown): node is ShadowRoot {
+    if (typeof ShadowRoot !== 'undefined' && node instanceof ShadowRoot) {
+        return true;
+    }
+    return (
+        typeof node === 'object' &&
+        node !== null &&
+        'nodeType' in node &&
+        (node as Node).nodeType === 11 &&
+        'host' in node &&
+        'adoptedStyleSheets' in node
+    );
+}
+
+function getAdoptableShadowRoot(root: ParentNode | null | undefined): ShadowRoot | null {
+    if (!root) {
+        return null;
+    }
+    if (isShadowRoot(root)) {
+        return root;
+    }
+    if ('shadowRoot' in root && isShadowRoot(root.shadowRoot)) {
+        return root.shadowRoot;
+    }
+    if ('querySelector' in root) {
+        const diffsContainer = root.querySelector('diffs-container');
+        if (diffsContainer && 'shadowRoot' in diffsContainer && isShadowRoot(diffsContainer.shadowRoot)) {
+            return diffsContainer.shadowRoot;
+        }
+    }
+    return null;
+}
+
+/**
+ * Adopts HUNK_EXPANSION_CSS into the target's shadowRoot as an unlayered Constructable
+ * CSSStyleSheet. Because adoptedStyleSheets are unlayered and evaluated after all <style>
+ * tags in the Shadow DOM by standard CSS Cascade rules, rules win without !important.
+ */
+export function adoptDiffCustomStyles(root: ParentNode | null | undefined): void {
+    if (!root || typeof CSSStyleSheet === 'undefined') {
+        return;
+    }
+    const targetShadow = getAdoptableShadowRoot(root);
+    if (!targetShadow) {
+        return;
+    }
+    if (!diffCustomStyleSheet && 'replaceSync' in CSSStyleSheet.prototype) {
+        diffCustomStyleSheet = new CSSStyleSheet();
+        diffCustomStyleSheet.replaceSync(HUNK_EXPANSION_CSS);
+    }
+    if (diffCustomStyleSheet && !targetShadow.adoptedStyleSheets.includes(diffCustomStyleSheet)) {
+        targetShadow.adoptedStyleSheets = [...targetShadow.adoptedStyleSheets, diffCustomStyleSheet];
+    }
+}
 
 export interface SeamPointerEventLike {
     button?: number;
@@ -621,6 +718,7 @@ export class HunkExpansionController {
         if (!root || !('querySelectorAll' in root)) {
             return;
         }
+        adoptDiffCustomStyles(root);
         const fileDiff = this.host.getRenderedDiff();
         if (!fileDiff?.hunks || fileDiff.hunks.length === 0) {
             const stale = root.querySelectorAll('.jj-hunk-seam');
@@ -1274,11 +1372,13 @@ export class CodeViewItemControllerHost implements HunkExpansionControllerHost {
     }
 
     getContainer(): HTMLElement | ShadowRoot {
-        return this.containerNode.shadowRoot ?? this.containerNode;
+        const diffsEl = this.containerNode.querySelector('diffs-container');
+        return diffsEl?.shadowRoot ?? this.containerNode.shadowRoot ?? this.containerNode;
     }
 
     getShadowRoot(): HTMLElement | ShadowRoot | null {
-        return this.containerNode.shadowRoot ?? this.containerNode;
+        const diffsEl = this.containerNode.querySelector('diffs-container');
+        return diffsEl?.shadowRoot ?? this.containerNode.shadowRoot ?? this.containerNode;
     }
 }
 

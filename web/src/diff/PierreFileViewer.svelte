@@ -11,6 +11,7 @@ import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-det
 import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
+import { adoptDiffCustomStyles, HUNK_EXPANSION_CSS } from './hunk-expansion';
 import ImageDiffViewer from './ImageDiffViewer.svelte';
 
 interface Props {
@@ -180,6 +181,7 @@ function renderFile(): void {
         theme: effectiveTheme,
         themeType,
         enableLineSelection: true,
+        unsafeCSS: HUNK_EXPANSION_CSS,
         onLineSelected: handleLineSelection,
         onLineSelectionChange: handleLineSelection,
         onLineSelectionEnd: handleLineSelection,
@@ -192,6 +194,8 @@ function renderFile(): void {
         containerWrapper: containerEl,
         file: { name: cleanName, contents: contentToRender },
     });
+
+    adoptDiffCustomStyles(containerEl.querySelector('diffs-container'));
 
     if (isWorkingCopy) {
         try {
@@ -370,8 +374,8 @@ onDestroy(() => {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-editor-background, #171717);
-    color: var(--vscode-editor-foreground, #d4d4d4);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground, var(--vscode-foreground));
     overflow: hidden;
     --diffs-font-family: var(--vscode-editor-font-family, monospace);
     --diffs-font-size: var(--vscode-editor-font-size, 12px);
@@ -394,27 +398,27 @@ onDestroy(() => {
     flex: 1;
     padding: 40px;
     text-align: center;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
 }
 
 .binary-icon {
     font-size: 48px;
     margin-bottom: 16px;
-    color: var(--vscode-disabledForeground, #5a5a5a);
+    color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
 .binary-card h3 {
     margin: 0 0 8px 0;
     font-size: 16px;
     font-weight: 500;
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-foreground);
 }
 
 .binary-filename {
     margin: 0 0 4px 0;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 13px;
-    color: var(--vscode-editor-foreground, #d4d4d4);
+    color: var(--vscode-editor-foreground, var(--vscode-foreground));
 }
 
 .binary-description {

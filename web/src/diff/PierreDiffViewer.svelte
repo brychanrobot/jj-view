@@ -13,7 +13,12 @@ import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-det
 import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
-import { DEFAULT_COLLAPSED_CONTEXT_THRESHOLD, HUNK_EXPANSION_CSS, JjFileDiff } from './hunk-expansion';
+import {
+    adoptDiffCustomStyles,
+    DEFAULT_COLLAPSED_CONTEXT_THRESHOLD,
+    HUNK_EXPANSION_CSS,
+    JjFileDiff,
+} from './hunk-expansion';
 import ImageDiffViewer from './ImageDiffViewer.svelte';
 import { startRenderTrace } from './render-perf';
 
@@ -323,6 +328,7 @@ function renderDiff(): void {
         fileDiff,
         lineAnnotations,
     });
+    adoptDiffCustomStyles(fileDiffInstance.fileContainer);
     const renderDuration = performance.now() - renderStart;
     trace.phase('render');
     const oldLines = oldFile?.contents ? oldFile.contents.split('\n').length : 0;

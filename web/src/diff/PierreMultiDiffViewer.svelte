@@ -21,6 +21,7 @@ import { type EditorChatContextSelection, resolveMultiDiffSelection } from './ch
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 import {
+    adoptDiffCustomStyles,
     DEFAULT_COLLAPSED_CONTEXT_THRESHOLD,
     enhanceCodeViewDiffItemSeparators,
     HUNK_EXPANSION_CSS,
@@ -120,6 +121,7 @@ function buildCodeViewOptions(
             threadMounts.render(annotation.metadata),
         onPostRender: (node, _instance, phase, context) => {
             if (phase !== 'unmount') {
+                adoptDiffCustomStyles(node);
                 enhanceCodeViewDiffItemSeparators(node, context);
             }
         },

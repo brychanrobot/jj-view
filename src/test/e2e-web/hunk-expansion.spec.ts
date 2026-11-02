@@ -159,6 +159,51 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         await expect(additionsSeam).toBeVisible({ timeout: 5000 });
         await expect(deletionsSeam).toBeVisible({ timeout: 5000 });
 
+        // Verify visible text selection highlights (::selection non-transparent in Shadow DOM & outer document)
+        const selectionCheck = await additionsSeam.evaluate((seam) => {
+            const root = seam.getRootNode() as ShadowRoot;
+            const line = root.querySelector('[data-line]') as HTMLElement | null;
+            const lineCs = line ? window.getComputedStyle(line, '::selection') : null;
+            const bodyCs = window.getComputedStyle(document.body, '::selection');
+            const diffsContainer = (root.host || seam.closest('[data-diffs]')) as HTMLElement | null;
+            const hostCs = diffsContainer ? window.getComputedStyle(diffsContainer) : null;
+
+            // Select text in the diff line using DOM Selection API
+            let selectedText = '';
+            if (line) {
+                const range = document.createRange();
+                range.selectNodeContents(line);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                selectedText = sel?.toString() || '';
+            }
+
+            return {
+                lineFound: Boolean(line),
+                selectedTextLength: selectedText.length,
+                lineSelectionBg: lineCs?.backgroundColor,
+                bodySelectionBg: bodyCs?.backgroundColor,
+                editorSelectionBg: hostCs?.getPropertyValue('--diffs-editor-selection-bg')?.trim(),
+                diffsSelectionColor: hostCs?.getPropertyValue('--diffs-selection-color')?.trim(),
+            };
+        });
+
+        expect(selectionCheck.lineFound).toBe(true);
+        expect(selectionCheck.selectedTextLength).toBeGreaterThan(0);
+        expect(selectionCheck.lineSelectionBg).toBeDefined();
+        expect(selectionCheck.lineSelectionBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(selectionCheck.lineSelectionBg).not.toBe('transparent');
+        expect(selectionCheck.bodySelectionBg).toBeDefined();
+        expect(selectionCheck.bodySelectionBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(selectionCheck.bodySelectionBg).not.toBe('transparent');
+        expect(selectionCheck.editorSelectionBg || selectionCheck.diffsSelectionColor).toBeTruthy();
+        expect(selectionCheck.editorSelectionBg).not.toBe('var(--diffs-line-bg)');
+
+        const selectionScreenshotPath = path.join(OUT_DIR, 'selection_highlight_diff.png');
+        await page.screenshot({ path: selectionScreenshotPath });
+        await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
         // 1. Verify Single-Row Recessed Center Seam (32px height)
         const seamBox = await additionsSeam.boundingBox();
         expect(seamBox).not.toBeNull();
@@ -227,6 +272,19 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         // Verify line highlighting has context-expanded
         const expandedLine = page.locator('[data-line-type="context-expanded"]').first();
         await expect(expandedLine).toBeVisible();
+
+        // Verify context-expanded line sets --diffs-line-bg and uses translucent background
+        // so Editor's [data-selection-range] overlay (z-index: -10) is not occluded
+        const expandedLineStyle = await expandedLine.evaluate((el) => {
+            const cs = window.getComputedStyle(el);
+            return {
+                lineBgVar: cs.getPropertyValue('--diffs-line-bg').trim(),
+                bgColor: cs.backgroundColor,
+            };
+        });
+        expect(expandedLineStyle.lineBgVar).toBeTruthy();
+        expect(expandedLineStyle.bgColor).toBeDefined();
+        expect(expandedLineStyle.bgColor).not.toBe('');
 
         // Verify clicking [data-role="ast-down"] a second time automatically steps out to parent block
         const secondAstDownBtn = page.locator('.jj-hunk-seam.additions-half [data-role="ast-down"]').first();
@@ -480,6 +538,32 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         const lightSeam = page.locator('.jj-hunk-seam.additions-half').first();
         await expect(lightSeam).toBeVisible({ timeout: 5000 });
 
+        // Verify visible text selection highlights in light theme
+        const lightSelectionCheck = await lightSeam.evaluate((seam) => {
+            const root = seam.getRootNode() as ShadowRoot;
+            const line = root.querySelector('[data-line]') as HTMLElement | null;
+            const lineCs = line ? window.getComputedStyle(line, '::selection') : null;
+            const bodyCs = window.getComputedStyle(document.body, '::selection');
+            const diffsContainer = (root.host || seam.closest('[data-diffs]')) as HTMLElement | null;
+            const hostCs = diffsContainer ? window.getComputedStyle(diffsContainer) : null;
+            return {
+                lineFound: Boolean(line),
+                lineSelectionBg: lineCs?.backgroundColor,
+                bodySelectionBg: bodyCs?.backgroundColor,
+                editorSelectionBg: hostCs?.getPropertyValue('--diffs-editor-selection-bg')?.trim(),
+                diffsSelectionColor: hostCs?.getPropertyValue('--diffs-selection-color')?.trim(),
+            };
+        });
+        expect(lightSelectionCheck.lineFound).toBe(true);
+        expect(lightSelectionCheck.lineSelectionBg).toBeDefined();
+        expect(lightSelectionCheck.lineSelectionBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(lightSelectionCheck.lineSelectionBg).not.toBe('transparent');
+        expect(lightSelectionCheck.bodySelectionBg).toBeDefined();
+        expect(lightSelectionCheck.bodySelectionBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(lightSelectionCheck.bodySelectionBg).not.toBe('transparent');
+        expect(lightSelectionCheck.editorSelectionBg || lightSelectionCheck.diffsSelectionColor).toBeTruthy();
+        expect(lightSelectionCheck.editorSelectionBg).not.toBe('var(--diffs-line-bg)');
+
         // Hover over +Block to inspect the light-themed tooltip
         const astDownBtn = lightSeam.locator('[data-role="ast-down"]');
         await expect(astDownBtn).toBeVisible();
@@ -529,6 +613,26 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         const seam = multiDiffViewer.locator('.jj-hunk-seam.additions-half').first();
         await expect(seam).toBeVisible({ timeout: 5000 });
         await expect(seam.locator('.seam-center-cluster')).toBeVisible();
+
+        // Verify visible text selection highlights in PierreMultiDiffViewer (CodeView)
+        const multiDiffSelectionCheck = await seam.evaluate((seamEl) => {
+            const root = seamEl.getRootNode() as ShadowRoot | Document;
+            const diffsContainer =
+                seamEl.closest('diffs-container') ??
+                ('querySelector' in root ? root.querySelector('diffs-container') : null) ??
+                document.querySelector('diffs-container');
+            const targetRoot = diffsContainer?.shadowRoot ?? ('querySelector' in root ? (root as ShadowRoot) : null);
+            const line = targetRoot?.querySelector('[data-line]') as HTMLElement | null;
+            const lineCs = line ? window.getComputedStyle(line, '::selection') : null;
+            return {
+                lineFound: Boolean(line),
+                lineSelectionBg: lineCs?.backgroundColor,
+            };
+        });
+        expect(multiDiffSelectionCheck.lineFound).toBe(true);
+        expect(multiDiffSelectionCheck.lineSelectionBg).toBeDefined();
+        expect(multiDiffSelectionCheck.lineSelectionBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(multiDiffSelectionCheck.lineSelectionBg).not.toBe('transparent');
 
         // 5. Expand hunk context via [data-role="expand-all"]
         const expandAllBtn = seam.locator('[data-role="expand-all"]');

@@ -4,8 +4,11 @@
  */
 
 import type { FileDiffMetadata, Hunk } from '@pierre/diffs';
+import type { ThemeRegistration } from 'shiki';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ensureThemeSelectionBackground } from '../src/diff/highlighter-setup';
 import {
+    adoptDiffCustomStyles,
     buildSyntaxBlocks,
     clampExpansionLines,
     cleanBlockHeaderName,
@@ -1314,6 +1317,151 @@ describe('Hunk Expansion & AST +Block Engine', () => {
                 expect(fn.name).toBe('transform()');
                 expect(fn.range).toEqual({ start_line: 1, end_line: 4 });
             });
+        });
+    });
+
+    describe('adoptDiffCustomStyles', () => {
+        let origCSSStyleSheet: unknown;
+
+        class FakeCSSStyleSheet {
+            css = '';
+            replaceSync(text: string) {
+                this.css = text;
+            }
+        }
+
+        beforeEach(() => {
+            origCSSStyleSheet = (globalThis as Record<string, unknown>).CSSStyleSheet;
+            (globalThis as Record<string, unknown>).CSSStyleSheet = FakeCSSStyleSheet;
+        });
+
+        afterEach(() => {
+            (globalThis as Record<string, unknown>).CSSStyleSheet = origCSSStyleSheet;
+        });
+
+        it('safely handles null and undefined roots', () => {
+            expect(() => adoptDiffCustomStyles(null)).not.toThrow();
+            expect(() => adoptDiffCustomStyles(undefined)).not.toThrow();
+        });
+
+        it('safely handles elements without shadowRoot', () => {
+            const div = createMock<HTMLElement>({ shadowRoot: null });
+            expect(() => adoptDiffCustomStyles(div)).not.toThrow();
+        });
+
+        it('adopts stylesheet on element with shadowRoot and is idempotent', () => {
+            const adopted: CSSStyleSheet[] = [];
+            const shadow = createMock<ShadowRoot>({
+                nodeType: 11,
+                host: createMock<Element>(),
+                adoptedStyleSheets: adopted,
+            });
+            const host = createMock<HTMLElement>({ shadowRoot: shadow });
+            adoptDiffCustomStyles(host);
+            expect(shadow.adoptedStyleSheets.length).toBe(1);
+
+            // Calling again must be idempotent
+            adoptDiffCustomStyles(host);
+            expect(shadow.adoptedStyleSheets.length).toBe(1);
+        });
+
+        it('adopts stylesheet directly on shadowRoot and is idempotent', () => {
+            const adopted: CSSStyleSheet[] = [];
+            const shadow = createMock<ShadowRoot>({
+                nodeType: 11,
+                host: createMock<Element>(),
+                adoptedStyleSheets: adopted,
+            });
+            adoptDiffCustomStyles(shadow);
+            expect(shadow.adoptedStyleSheets.length).toBe(1);
+
+            // Calling again must be idempotent
+            adoptDiffCustomStyles(shadow);
+            expect(shadow.adoptedStyleSheets.length).toBe(1);
+        });
+    });
+
+    describe('ensureThemeSelectionBackground', () => {
+        it('populates default selection background when missing or empty', () => {
+            const darkTheme = createMock<ThemeRegistration>({
+                name: 'my-dark',
+                type: 'dark',
+                colors: {},
+                settings: [],
+            });
+            ensureThemeSelectionBackground(darkTheme);
+            expect(darkTheme.colors?.['editor.selectionBackground']).toBe('#69b1ff4d');
+
+            const lightTheme = createMock<ThemeRegistration>({
+                name: 'my-light',
+                type: 'light',
+                colors: {},
+                settings: [],
+            });
+            ensureThemeSelectionBackground(lightTheme);
+            expect(lightTheme.colors?.['editor.selectionBackground']).toBe('#009fff2e');
+        });
+
+        it('treats transparent and #0000 as missing', () => {
+            const theme = createMock<ThemeRegistration>({
+                name: 'trans',
+                type: 'dark',
+                colors: { 'editor.selectionBackground': 'transparent' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(theme);
+            expect(theme.colors?.['editor.selectionBackground']).toBe('#69b1ff4d');
+
+            const theme2 = createMock<ThemeRegistration>({
+                name: 'trans2',
+                type: 'dark',
+                colors: { 'editor.selectionBackground': '#00000000' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(theme2);
+            expect(theme2.colors?.['editor.selectionBackground']).toBe('#69b1ff4d');
+        });
+
+        it('converts opaque 6-digit hex to translucent hex', () => {
+            const theme = createMock<ThemeRegistration>({
+                name: 'opaque-dark',
+                type: 'dark',
+                colors: { 'editor.selectionBackground': '#44475a' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(theme);
+            expect(theme.colors?.['editor.selectionBackground']).toBe('#44475a4d');
+
+            const lightTheme = createMock<ThemeRegistration>({
+                name: 'opaque-light',
+                type: 'light',
+                colors: { 'editor.selectionBackground': '#e5e5e6' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(lightTheme);
+            expect(lightTheme.colors?.['editor.selectionBackground']).toBe('#e5e5e638');
+        });
+
+        it('converts opaque 3-digit hex to translucent hex', () => {
+            const theme = createMock<ThemeRegistration>({
+                name: 'short-dark',
+                type: 'dark',
+                colors: { 'editor.selectionBackground': '#abc' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(theme);
+            expect(theme.colors?.['editor.selectionBackground']).toBe('#aabbcc4d');
+        });
+
+        it('replaces opaque ff alpha with translucent alpha', () => {
+            const theme = createMock<ThemeRegistration>({
+                name: 'ff-dark',
+                type: 'dark',
+                colors: { 'editor.selectionBackground': '#112233ff' },
+                settings: [],
+            });
+            ensureThemeSelectionBackground(theme);
+            expect(theme.colors?.['editor.selectionBackground']).toBe('#1122334d');
         });
     });
 });
