@@ -93,4 +93,7 @@ Please refer to the testing skill located at `.agents/skills/run-tests/SKILL.md`
 
 ### Visual Verification
 - For any UI additions or layout changes, write or update Playwright E2E tests to verify interactive behavior.
-- Capture visual artifacts (screenshots and animated GIFs via the `recordGifFlow` helper) and embed them directly in `walkthrough.md`.
+- Capture visual artifacts (screenshots and animated GIFs/MP4s via the `recordGifFlow` or `recordInteractionFlow` helpers) and embed them directly in `walkthrough.md`.
+
+## Code Review Protocol
+- Before finalizing any commit or multi-commit stack, follow the **Code Review Rubric & Self-Improving Review Protocol** in `.agents/skills/code-review/SKILL.md` (spawning 2 independent review subagents per commit, verifying strict `var(--vscode-...)` theme color usage across dark and light themes, enforcing strict TypeScript rules, and updating `.agents/skills/code-review/SKILL.md` when new codebase-wide positive or negative patterns are discovered).

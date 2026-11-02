@@ -17,12 +17,16 @@ description: End-to-end workflow for implementing web UI features, applying them
 - **Clean Labels**: Keep user-facing titles clean of self-referential app prefixes and raw implementation IDs.
 - **Manifest Filtering**: Evaluate menu contribution `when` conditions to suppress hidden commands.
 
-## 2. Visual E2E Verification & GIF Recording
+## 2. Visual E2E Verification & High-Speed Interaction Recording
 
-Use the `recordGifFlow` test helper from `standalone-fixture.ts` to capture step-by-step UI flows:
+Use `recordGifFlow` or the advanced 24fps `recordInteractionFlow` helper from
+`standalone-fixture.ts` to capture step-by-step UI flows:
+
+### Basic State Capture (`recordGifFlow`)
 
 ```typescript
-import { recordGifFlow } from './standalone-fixture';
+import * as path from 'node:path';
+import { ARTIFACT_DIR, recordGifFlow, test, waitForScmReady } from './standalone-fixture';
 
 test('should demonstrate feature flow', async ({ page, server }) => {
     await page.goto(server.serverUrl);
@@ -38,11 +42,48 @@ test('should demonstrate feature flow', async ({ page, server }) => {
 });
 ```
 
-Embed the resulting GIFs and high-resolution screenshots into `walkthrough.md`.
+### High-Speed 24fps Interaction Flow (`recordInteractionFlow`)
+
+For fluid interactions with visible mouse path animations, hover states, press
+rings, and status HUD telemetry, use `recordInteractionFlow`:
+
+```typescript
+import * as path from 'node:path';
+import { ARTIFACT_DIR, recordInteractionFlow, test, waitForScmReady } from './standalone-fixture';
+
+test('should record 24fps interactive feature flow', async ({ page, server }) => {
+    await page.goto(server.serverUrl);
+    await waitForScmReady(page);
+
+    await recordInteractionFlow(page, {
+        gifPath: path.join(ARTIFACT_DIR, 'feature-flow.gif'),
+        mp4Path: path.join(ARTIFACT_DIR, 'feature-flow.mp4'), // optional MP4
+        fps: 24, // default 24
+        scale: 1280, // default 1280
+    }, async (rec) => {
+        await rec.setHud('Inspect Initial State');
+        await rec.hover(12);
+
+        await rec.setHud('Hover Target Button');
+        await rec.moveTo(page.locator('.action-button'), 16);
+        await rec.hover(8);
+
+        await rec.setHud('Click Action');
+        await rec.click(page.locator('.action-button'));
+
+        await rec.setHud('Drag Resizer');
+        await rec.dragBy(page.locator('.resizer-handle'), 60, 20);
+    });
+});
+```
+
+Embed the resulting GIFs, MP4s, and high-resolution screenshots into
+`walkthrough.md`.
 
 ## 3. Bottom-Up JJ Squash Workflow
 
 When applying changes across existing commits in a stack:
+
 1. Target the earliest commit needing edits: `jj new <commit-id>` (via shell with `BypassSandbox: true`). Never use `jj edit`.
 2. Implement changes in `@`.
 3. Verify all checks pass before squashing:
@@ -53,3 +94,12 @@ When applying changes across existing commits in a stack:
    - `pnpm test:e2e:web <spec-path>`
 4. Squash into target: `jj_squash` with `description_strategy: "use_destination_message"`.
 5. Advance to descendant commits (`jj new <descendant-id>`), resolve downstream updates, verify, and squash until the stack is clean.
+
+## 4. Code Review & Self-Improving Rubric
+
+Before completing any web UI feature stack, run the **Dual-Reviewer Code Review
+Protocol** defined in `.agents/skills/code-review/SKILL.md` (2 independent
+review subagents per commit, auditing `var(--vscode-...)` theme color usage
+across dark and light themes, strict TypeScript compliance, Shadow DOM /
+virtualizer lifecycle, and recording any newly identified codebase-wide positive
+or negative patterns into `.agents/skills/code-review/SKILL.md`).
