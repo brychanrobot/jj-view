@@ -288,8 +288,34 @@ export function cleanBlockHeaderName(text: string): string {
         return ns[1];
     }
 
-    // 7. Generic function calls / signatures
-    const fnMatch = trimmed.match(/(?:[A-Za-z0-9_<>&*:[\],\s]+?\s+)?([A-Za-z0-9_~:]+)\s*\([^)]*\)/);
+    // 7. Arrow function declarations & callback assignments:
+    // const handleClick = () => { or export const Card: React.FC<Props> = () => { or onClick={() => {
+    // or export const List = <T extends Item>(props: Props<T>) => {
+    const arrowMatch = trimmed.match(
+        /(?:(?:export\s+)?(?:const|let|var)\s+|(?:^|\{|\s))([A-Za-z0-9_$]+)(?:\s*:[^=]+)?\s*=\s*\{?\s*(?:async\s*)?(?:<[^>]*>\s*)?(?:\([^)]*\)|[A-Za-z0-9_$]+)?\s*(?::\s*[^=]+)?\s*=>/,
+    );
+    if (arrowMatch) {
+        return `${arrowMatch[1]}()`;
+    }
+
+    // 8. Object property arrow callbacks: onClick: () => {
+    const objArrowMatch = trimmed.match(
+        /(?:^|\{|\s)([A-Za-z0-9_$]+)\s*:\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_$]+)?\s*=>/,
+    );
+    if (objArrowMatch) {
+        return `${objArrowMatch[1]}()`;
+    }
+
+    // 9. Method calls / chains / JSX expressions: {items.map((item) => { or users.filter((u) => {
+    const methodMatch = trimmed.match(/(?:^|\s|\{)([A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)+)\s*\([^)]*\)/);
+    if (methodMatch) {
+        const fullMethod = methodMatch[1];
+        const shortMethod = fullMethod.split('.').slice(-2).join('.');
+        return `${shortMethod}()`;
+    }
+
+    // 10. Generic function calls / signatures
+    const fnMatch = trimmed.match(/(?:[A-Za-z0-9_<>&*:[\],\s]+?\s+)?([A-Za-z0-9_~:]+)(?:<[^>]*>)?\s*\([^)]*\)/);
     if (fnMatch) {
         const raw = fnMatch[1];
         const shortName = raw.includes('::') ? (raw.split('::').pop() ?? raw) : raw;
@@ -302,7 +328,7 @@ export function cleanBlockHeaderName(text: string): string {
     return '{...}';
 }
 
-function parseBraceSyntaxBlocks(lines: readonly string[]): SyntaxBlock[] {
+export function parseBraceSyntaxBlocks(lines: readonly string[]): SyntaxBlock[] {
     interface OpenBlock {
         name: string;
         start_line: number;
@@ -372,8 +398,13 @@ function parseBraceSyntaxBlocks(lines: readonly string[]): SyntaxBlock[] {
                 let declLine = lineNum;
 
                 if (decl.length === 0) {
-                    decl = lastNonEmptyLine.trim();
-                    declLine = lastNonEmptyLineNum;
+                    if (rawLine.trim() === '{') {
+                        decl = lastNonEmptyLine.trim();
+                        declLine = lastNonEmptyLineNum;
+                    } else {
+                        decl = rawLine.trim();
+                        declLine = lineNum;
+                    }
                 }
 
                 let pDepth = 0;
@@ -393,17 +424,24 @@ function parseBraceSyntaxBlocks(lines: readonly string[]): SyntaxBlock[] {
                 // If decl starts with ')' or '):' or '->' or similar multi-line return type,
                 // or contains an unmatched closing ')' from multi-line parameter signatures,
                 // scan backward up to 6 lines to find the matching opening '(' for the function signature
-                if (
+                if (decl.includes('=>') && rawLine.slice(0, charIdx).includes('=>')) {
+                    decl = rawLine.slice(0, charIdx).trim();
+                } else if (
                     decl.startsWith(')') ||
                     /^\)\s*(?:const|override|final|noexcept|mutable|throws|->|:)/.test(decl) ||
                     hasUnmatchedClosingParen
                 ) {
-                    for (let lookback = i - 1; lookback >= Math.max(0, i - 6); lookback--) {
-                        const prevLine = lines[lookback] ?? '';
-                        if (prevLine.includes('(')) {
-                            decl = `${prevLine.trim()} ${decl}`;
-                            declLine = lookback + 1;
-                            break;
+                    const lineBeforeBrace = rawLine.slice(0, charIdx).trim();
+                    if (lineBeforeBrace.includes('(')) {
+                        decl = lineBeforeBrace;
+                    } else {
+                        for (let lookback = i - 1; lookback >= Math.max(0, i - 6); lookback--) {
+                            const prevLine = lines[lookback] ?? '';
+                            if (prevLine.includes('(')) {
+                                decl = `${prevLine.trim()} ${decl}`;
+                                declLine = lookback + 1;
+                                break;
+                            }
                         }
                     }
                 }
@@ -657,8 +695,596 @@ function parseIndentationSyntaxBlocks(lines: readonly string[]): SyntaxBlock[] {
     return rootBlocks;
 }
 
+export const HTML_VOID_ELEMENTS = new Set([
+    'area',
+    'base',
+    'br',
+    'col',
+    'embed',
+    'hr',
+    'img',
+    'input',
+    'link',
+    'meta',
+    'param',
+    'source',
+    'track',
+    'wbr',
+]);
+
+export const XML_EXTENSION_REGEX =
+    /\.(xml|svg|plist|xaml|csproj|vbproj|fsproj|props|targets|wsdl|xsd|xsl|xslt|rss|atom|resx|nuspec|manifest)$/i;
+
+export function truncateTagBadge(formatted: string, maxLen = 28): string {
+    if (formatted.length > maxLen) {
+        return `${formatted.slice(0, maxLen - 4)}...>`;
+    }
+    return formatted;
+}
+
+export function formatXmlHtmlBlockName(rawTag: string): string {
+    const trimmed = rawTag.trim();
+    if (/^<\s*>$/.test(trimmed)) {
+        return '<>';
+    }
+
+    const nameMatch = trimmed.match(/^<([A-Za-z_$][A-Za-z0-9:._$-]*)/);
+    if (!nameMatch) {
+        return '<tag>';
+    }
+    const tagName = nameMatch[1];
+
+    // Check id="..." or id='...' or testID="..." (case-insensitive, whitespace-anchored, supports android:id, quoted or word literals)
+    const idMatch = trimmed.match(
+        /(?:^|\s)(?:[A-Za-z0-9_]+:)?(?:id|testID)\s*=\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_$-]+))/i,
+    );
+    if (idMatch) {
+        let id = (idMatch[1] ?? idMatch[2] ?? idMatch[3] ?? '').trim();
+        id = id.replace(/^@\+?id\//i, '');
+        if (id.length > 0) {
+            return truncateTagBadge(`<${tagName}#${id}>`);
+        }
+    }
+
+    // Check class="..." or className="..." (case-insensitive, whitespace-anchored, quoted or word literals)
+    const classMatch = trimmed.match(
+        /(?:^|\s)(?:[A-Za-z0-9_]+:)?(?:class|className)\s*=\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_$-]+))/i,
+    );
+    if (classMatch) {
+        const classStr = (classMatch[1] ?? classMatch[2] ?? classMatch[3] ?? '').trim();
+        const firstClass = classStr.split(/\s+/)[0];
+        if (firstClass && firstClass.length > 0) {
+            return truncateTagBadge(`<${tagName}.${firstClass}>`);
+        }
+    }
+
+    // Check Svelte class directive class:foo
+    const svelteClassMatch = trimmed.match(/(?:^|\s)class:([A-Za-z0-9_-]+)/i);
+    if (svelteClassMatch) {
+        const firstClass = svelteClassMatch[1];
+        if (firstClass && firstClass.length > 0) {
+            return truncateTagBadge(`<${tagName}.${firstClass}>`);
+        }
+    }
+
+    return truncateTagBadge(`<${tagName}>`);
+}
+
+export interface XmlHtmlParserOptions {
+    isJsx?: boolean;
+    isXml?: boolean;
+}
+
+export function parseXmlHtmlSyntaxBlocks(
+    lines: readonly string[],
+    fileName?: string,
+    options?: XmlHtmlParserOptions,
+): SyntaxBlock[] {
+    const isJsx = options?.isJsx ?? (fileName ? /\.(jsx|tsx)$/i.test(fileName) : false);
+    const isXml = options?.isXml ?? (fileName ? XML_EXTENSION_REGEX.test(fileName) : false);
+
+    interface TagItem {
+        tagName: string;
+        blockName: string;
+        startLine: number;
+        children: SyntaxBlock[];
+    }
+
+    interface PendingTag {
+        rawTag: string;
+        startLine: number;
+        quote: string | null;
+        braceDepth: number;
+    }
+
+    const tagStack: TagItem[] = [];
+    const rootBlocks: SyntaxBlock[] = [];
+
+    let inComment = false;
+    let inCdata = false;
+    let inProcessingInstruction = false;
+    let inDoctype = false;
+    let inJsBlockComment = false;
+    let inJsString: string | null = null;
+    let jsxBraceDepth = 0;
+    let rawTextTag: 'script' | 'style' | null = null;
+    let pendingTag: PendingTag | null = null;
+
+    function handleOpenTagComplete(rawTag: string, startLine: number) {
+        const trimmed = rawTag.trim();
+        const isSelfClosing = trimmed.endsWith('/>');
+        if (isSelfClosing) {
+            return;
+        }
+
+        let tagName = '';
+        if (/^<\s*>$/.test(trimmed)) {
+            tagName = '';
+        } else {
+            const nameMatch = trimmed.match(/^<([A-Za-z_$][A-Za-z0-9:._$-]*)/);
+            if (!nameMatch) {
+                return;
+            }
+            tagName = nameMatch[1];
+        }
+
+        // Void element check: PascalCase components (<Link>, <Input>, <Meta>, <Col>)
+        // must NOT be treated as HTML void elements!
+        const isPascalCase =
+            tagName.length > 0 && tagName[0] === tagName[0].toUpperCase() && tagName[0] !== tagName[0].toLowerCase();
+        if (!isXml && !isPascalCase && HTML_VOID_ELEMENTS.has(tagName.toLowerCase())) {
+            return;
+        }
+
+        const blockName = formatXmlHtmlBlockName(rawTag);
+        const item: TagItem = {
+            tagName,
+            blockName,
+            startLine,
+            children: [],
+        };
+        tagStack.push(item);
+
+        if (!isJsx && (tagName.toLowerCase() === 'script' || tagName.toLowerCase() === 'style')) {
+            rawTextTag = tagName.toLowerCase() as 'script' | 'style';
+        }
+    }
+
+    function offsetBlock(b: SyntaxBlock, offset: number): SyntaxBlock {
+        return {
+            name: b.name,
+            range: {
+                start_line: b.range.start_line + offset,
+                end_line: b.range.end_line + offset,
+            },
+            children: b.children.map((c) => offsetBlock(c, offset)),
+        };
+    }
+
+    function handleCloseTag(closingName: string, lineNum: number) {
+        if (tagStack.length === 0) {
+            return;
+        }
+
+        let matchIdx = -1;
+        for (let i = tagStack.length - 1; i >= 0; i--) {
+            const item = tagStack[i];
+            const isMatch =
+                isXml || isJsx
+                    ? item.tagName === closingName
+                    : item.tagName.toLowerCase() === closingName.toLowerCase();
+            if (isMatch) {
+                matchIdx = i;
+                break;
+            }
+        }
+
+        if (matchIdx === -1) {
+            return;
+        }
+
+        const matched = tagStack[matchIdx];
+
+        for (let i = matchIdx + 1; i < tagStack.length; i++) {
+            matched.children.push(...tagStack[i].children);
+        }
+        tagStack.length = matchIdx;
+
+        if (!isJsx && (matched.tagName.toLowerCase() === 'script' || matched.tagName.toLowerCase() === 'style')) {
+            if (lineNum > matched.startLine + 1) {
+                const internalLines = lines.slice(matched.startLine, lineNum - 1);
+                const braceBlocks = parseBraceSyntaxBlocks(internalLines);
+                const offset = matched.startLine;
+                for (const b of braceBlocks) {
+                    matched.children.push(offsetBlock(b, offset));
+                }
+            }
+        }
+
+        if (lineNum > matched.startLine) {
+            const block: SyntaxBlock = {
+                name: matched.blockName,
+                range: { start_line: matched.startLine, end_line: lineNum },
+                children: matched.children,
+            };
+            if (tagStack.length > 0) {
+                tagStack[tagStack.length - 1].children.push(block);
+            } else {
+                rootBlocks.push(block);
+            }
+        }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        const lineNum = i + 1;
+        const rawLine = lines[i] ?? '';
+        let charIdx = 0;
+
+        while (charIdx < rawLine.length) {
+            if (rawTextTag !== null) {
+                const closeTagRegex = new RegExp(`</${rawTextTag}\\s*>`, isXml ? '' : 'i');
+                const restOfLine = rawLine.slice(charIdx);
+                const closeMatch = restOfLine.match(closeTagRegex);
+                if (!closeMatch || closeMatch.index === undefined) {
+                    break;
+                }
+                charIdx += closeMatch.index;
+                handleCloseTag(rawTextTag, lineNum);
+                charIdx += closeMatch[0].length;
+                rawTextTag = null;
+                continue;
+            }
+
+            if (inComment) {
+                const closeIdx = rawLine.indexOf('-->', charIdx);
+                if (closeIdx === -1) {
+                    break;
+                }
+                charIdx = closeIdx + 3;
+                inComment = false;
+                continue;
+            }
+
+            if (inCdata) {
+                const closeIdx = rawLine.indexOf(']]>', charIdx);
+                if (closeIdx === -1) {
+                    break;
+                }
+                charIdx = closeIdx + 3;
+                inCdata = false;
+                continue;
+            }
+
+            if (inProcessingInstruction) {
+                const closeIdx = rawLine.indexOf('?>', charIdx);
+                if (closeIdx === -1) {
+                    break;
+                }
+                charIdx = closeIdx + 2;
+                inProcessingInstruction = false;
+                continue;
+            }
+
+            if (inDoctype) {
+                const closeIdx = rawLine.indexOf('>', charIdx);
+                if (closeIdx === -1) {
+                    break;
+                }
+                charIdx = closeIdx + 1;
+                inDoctype = false;
+                continue;
+            }
+
+            if (pendingTag !== null) {
+                const ch = rawLine[charIdx];
+                if (pendingTag.quote !== null) {
+                    pendingTag.rawTag += ch;
+                    const isEscaped = (isJsx || pendingTag.braceDepth > 0) && isCharacterEscaped(rawLine, charIdx);
+                    if (ch === pendingTag.quote && !isEscaped) {
+                        pendingTag.quote = null;
+                    }
+                    charIdx++;
+                    continue;
+                }
+
+                if (ch === '"' || ch === "'" || (isJsx && ch === '`')) {
+                    pendingTag.quote = ch;
+                    pendingTag.rawTag += ch;
+                    charIdx++;
+                    continue;
+                }
+
+                if (isJsx || !isXml) {
+                    if (ch === '{') {
+                        pendingTag.braceDepth++;
+                        pendingTag.rawTag += ch;
+                        charIdx++;
+                        continue;
+                    }
+                    if (ch === '}') {
+                        pendingTag.braceDepth = Math.max(0, pendingTag.braceDepth - 1);
+                        pendingTag.rawTag += ch;
+                        charIdx++;
+                        continue;
+                    }
+                }
+
+                if (pendingTag.braceDepth === 0) {
+                    if (isJsx && ch === ';') {
+                        pendingTag = null;
+                        charIdx++;
+                        continue;
+                    }
+                    if (ch === '>') {
+                        if (isJsx && charIdx > 0 && rawLine[charIdx - 1] === '=') {
+                            pendingTag = null;
+                            charIdx++;
+                            continue;
+                        }
+                        if (isJsx) {
+                            const nextChar = charIdx + 1 < rawLine.length ? rawLine[charIdx + 1] : '';
+                            const isGeneric =
+                                /^<[A-Za-z_$][A-Za-z0-9_$]*\s*(?:,|extends\b|=)/.test(pendingTag.rawTag) ||
+                                nextChar === '(';
+                            if (isGeneric) {
+                                pendingTag = null;
+                                charIdx++;
+                                continue;
+                            }
+                        }
+                        pendingTag.rawTag += ch;
+                        handleOpenTagComplete(pendingTag.rawTag, pendingTag.startLine);
+                        pendingTag = null;
+                        charIdx++;
+                        continue;
+                    }
+                }
+
+                pendingTag.rawTag += ch;
+                charIdx++;
+                continue;
+            }
+
+            if (isJsx) {
+                if (inJsBlockComment) {
+                    const closeIdx = rawLine.indexOf('*/', charIdx);
+                    if (closeIdx === -1) {
+                        break;
+                    }
+                    charIdx = closeIdx + 2;
+                    inJsBlockComment = false;
+                    continue;
+                }
+
+                if (inJsString !== null) {
+                    const ch = rawLine[charIdx];
+                    if (ch === inJsString && !isCharacterEscaped(rawLine, charIdx)) {
+                        inJsString = null;
+                    }
+                    charIdx++;
+                    continue;
+                }
+
+                if (rawLine.startsWith('/*', charIdx)) {
+                    inJsBlockComment = true;
+                    charIdx += 2;
+                    continue;
+                }
+
+                if (rawLine.startsWith('//', charIdx)) {
+                    break;
+                }
+
+                if (tagStack.length > 0) {
+                    if (rawLine[charIdx] === '{') {
+                        jsxBraceDepth++;
+                    } else if (rawLine[charIdx] === '}' && jsxBraceDepth > 0) {
+                        jsxBraceDepth--;
+                    }
+                }
+
+                if (tagStack.length === 0 || jsxBraceDepth > 0) {
+                    const ch = rawLine[charIdx];
+                    if (ch === '"' || ch === "'" || ch === '`') {
+                        inJsString = ch;
+                        charIdx++;
+                        continue;
+                    }
+                }
+            }
+
+            if (rawLine[charIdx] !== '<') {
+                charIdx++;
+                continue;
+            }
+
+            if (rawLine.startsWith('<!--', charIdx)) {
+                inComment = true;
+                charIdx += 4;
+                continue;
+            }
+
+            if (rawLine.startsWith('<![CDATA[', charIdx)) {
+                inCdata = true;
+                charIdx += 9;
+                continue;
+            }
+
+            if (rawLine.startsWith('<?', charIdx)) {
+                inProcessingInstruction = true;
+                charIdx += 2;
+                continue;
+            }
+
+            if (/^<!DOCTYPE\b/i.test(rawLine.slice(charIdx))) {
+                inDoctype = true;
+                charIdx += 9;
+                continue;
+            }
+
+            if (rawLine.startsWith('</', charIdx)) {
+                const closeMatch = rawLine.slice(charIdx).match(/^<\/(?:\s*>|([A-Za-z_$][A-Za-z0-9:._$-]*)\s*>)/);
+                if (closeMatch) {
+                    const closingName = closeMatch[1] ?? '';
+                    handleCloseTag(closingName, lineNum);
+                    charIdx += closeMatch[0].length;
+                    continue;
+                }
+            }
+
+            if (isJsx && charIdx > 0 && /[A-Za-z0-9_$]/.test(rawLine[charIdx - 1])) {
+                charIdx++;
+                continue;
+            }
+
+            const openMatch = rawLine.slice(charIdx).match(/^<(?:>|\s*>|([A-Za-z_$][A-Za-z0-9:._$-]*))/);
+            if (openMatch) {
+                pendingTag = {
+                    rawTag: '<',
+                    startLine: lineNum,
+                    quote: null,
+                    braceDepth: 0,
+                };
+                charIdx++;
+                continue;
+            }
+
+            charIdx++;
+        }
+
+        if (pendingTag !== null) {
+            pendingTag.rawTag += ' ';
+        }
+        if (inJsString === '"' || inJsString === "'") {
+            inJsString = null;
+        }
+    }
+
+    if (!isJsx) {
+        while (tagStack.length > 0) {
+            const unclosed = tagStack.pop();
+            if (unclosed && lines.length > unclosed.startLine && unclosed.children.length > 0) {
+                if (unclosed.tagName.toLowerCase() === 'script' || unclosed.tagName.toLowerCase() === 'style') {
+                    const internalLines = lines.slice(unclosed.startLine);
+                    const braceBlocks = parseBraceSyntaxBlocks(internalLines);
+                    const offset = unclosed.startLine;
+                    for (const b of braceBlocks) {
+                        unclosed.children.push(offsetBlock(b, offset));
+                    }
+                }
+                const block: SyntaxBlock = {
+                    name: unclosed.blockName,
+                    range: { start_line: unclosed.startLine, end_line: lines.length },
+                    children: unclosed.children,
+                };
+                if (tagStack.length > 0) {
+                    tagStack[tagStack.length - 1].children.push(block);
+                } else {
+                    rootBlocks.push(block);
+                }
+            }
+        }
+    }
+
+    return rootBlocks;
+}
+
+export function flattenSyntaxBlocks(blocks: readonly SyntaxBlock[]): SyntaxBlock[] {
+    const result: SyntaxBlock[] = [];
+    function traverse(b: SyntaxBlock) {
+        result.push({
+            name: b.name,
+            range: { start_line: b.range.start_line, end_line: b.range.end_line },
+            children: [],
+        });
+        for (const child of b.children) {
+            traverse(child);
+        }
+    }
+    for (const b of blocks) {
+        traverse(b);
+    }
+    return result;
+}
+
+export function mergeSyntaxBlockTrees(
+    braceBlocks: readonly SyntaxBlock[],
+    tagBlocks: readonly SyntaxBlock[],
+): SyntaxBlock[] {
+    const flat = [...flattenSyntaxBlocks(braceBlocks), ...flattenSyntaxBlocks(tagBlocks)];
+    if (flat.length === 0) {
+        return [];
+    }
+
+    flat.sort((a, b) => {
+        if (a.range.start_line !== b.range.start_line) {
+            return a.range.start_line - b.range.start_line;
+        }
+        if (a.range.end_line !== b.range.end_line) {
+            return b.range.end_line - a.range.end_line;
+        }
+        const aIsTag = a.name.startsWith('<') && a.name.endsWith('>');
+        const bIsTag = b.name.startsWith('<') && b.name.endsWith('>');
+        if (aIsTag !== bIsTag) {
+            return aIsTag ? -1 : 1;
+        }
+        return b.name.length - a.name.length;
+    });
+
+    const deduplicated: SyntaxBlock[] = [];
+    for (const block of flat) {
+        if (deduplicated.length > 0) {
+            const prev = deduplicated[deduplicated.length - 1];
+            if (prev.range.start_line === block.range.start_line && prev.range.end_line === block.range.end_line) {
+                if (prev.name === '{...}' && block.name !== '{...}') {
+                    deduplicated[deduplicated.length - 1] = block;
+                }
+                continue;
+            }
+        }
+        deduplicated.push(block);
+    }
+
+    const rootBlocks: SyntaxBlock[] = [];
+    const stack: SyntaxBlock[] = [];
+
+    for (const block of deduplicated) {
+        while (stack.length > 0) {
+            const top = stack[stack.length - 1];
+            if (top.range.start_line <= block.range.start_line && block.range.end_line <= top.range.end_line) {
+                break;
+            }
+            stack.pop();
+        }
+
+        if (stack.length === 0) {
+            rootBlocks.push(block);
+        } else {
+            stack[stack.length - 1].children.push(block);
+        }
+        stack.push(block);
+    }
+
+    return rootBlocks;
+}
+
 /**
- * Builds a hierarchy of SyntaxBlocks across C++, TS, JS, GN, Python, Go, Rust, Java.
+ * Dedicated helper to build SyntaxBlocks directly from FileDiffMetadata
+ * without requiring callers to manually resolve addition/deletion lines.
+ */
+export function buildSyntaxBlocksFromDiff(diff: FileDiffMetadata): SyntaxBlock[] {
+    const lines =
+        diff.additionLines && diff.additionLines.length > 0
+            ? diff.additionLines
+            : diff.deletionLines && diff.deletionLines.length > 0
+              ? diff.deletionLines
+              : [];
+    return buildSyntaxBlocks(lines, diff.name);
+}
+
+/**
+ * Builds a hierarchy of SyntaxBlocks across C++, TS, JS, GN, Python, Go, Rust, Java,
+ * XML, HTML, SVG, Svelte, Vue, and React (JSX/TSX).
  */
 export function buildSyntaxBlocks(lines: readonly string[], fileName?: string): SyntaxBlock[] {
     if (!lines || lines.length === 0) {
@@ -669,8 +1295,21 @@ export function buildSyntaxBlocks(lines: readonly string[], fileName?: string): 
         if (/\.(py|pyi|pyw|star|bzl)$/i.test(fileName)) {
             return parseIndentationSyntaxBlocks(lines);
         }
+        if (/\.(jsx|tsx)$/i.test(fileName)) {
+            const braceBlocks = parseBraceSyntaxBlocks(lines);
+            const jsxBlocks = parseXmlHtmlSyntaxBlocks(lines, fileName, { isJsx: true });
+            return mergeSyntaxBlockTrees(braceBlocks, jsxBlocks);
+        }
         if (
-            /\.(c|cc|cpp|cxx|h|hpp|hh|ino|ts|tsx|mts|cts|js|jsx|mjs|cjs|rs|go|java|kt|swift|cs|gn|gni|css|scss|less|json|jsonc)$/i.test(
+            /\.(html?|xhtml|xml|svg|plist|xaml|csproj|vbproj|fsproj|props|targets|wsdl|xsd|xsl|xslt|rss|atom|resx|nuspec|manifest|svelte|vue)$/i.test(
+                fileName,
+            )
+        ) {
+            const isXml = XML_EXTENSION_REGEX.test(fileName);
+            return parseXmlHtmlSyntaxBlocks(lines, fileName, { isXml });
+        }
+        if (
+            /\.(c|cc|cpp|cxx|h|hpp|hh|ino|ts|mts|cts|js|mjs|cjs|rs|go|java|kt|swift|cs|gn|gni|css|scss|less|json|jsonc)$/i.test(
                 fileName,
             )
         ) {
@@ -682,11 +1321,19 @@ export function buildSyntaxBlocks(lines: readonly string[], fileName?: string): 
         return parseIndentationSyntaxBlocks(lines);
     }
 
+    if (
+        lines.length > 0 &&
+        /^\s*(?:<\?xml\b|<!DOCTYPE\b|<html\b|<svg\b|<script\b|<style\b|<template\b)/i.test(lines[0])
+    ) {
+        return parseXmlHtmlSyntaxBlocks(lines);
+    }
+
     const sampleLimit = Math.min(lines.length, 500);
     let pythonColonHeaders = 0;
     let definitivePythonHeaders = 0;
     let braceHeaders = 0;
     let rawBraceCount = 0;
+    let xmlClosingTags = 0;
 
     // Exclude 'case' from generic regex since C/C++/TS uses switch-case:
     const PYTHON_HEADER_REGEX =
@@ -708,14 +1355,40 @@ export function buildSyntaxBlocks(lines: readonly string[], fileName?: string): 
         if (line.includes('{') || line.includes('}')) {
             rawBraceCount++;
         }
+        if (/<\/[A-Za-z][A-Za-z0-9:._-]*\s*>|<\/>/.test(line)) {
+            xmlClosingTags++;
+        }
     }
 
     if (
-        (definitivePythonHeaders > 0 && braceHeaders === 0) ||
-        (pythonColonHeaders > 0 && braceHeaders === 0) ||
-        (pythonColonHeaders > braceHeaders && pythonColonHeaders >= 2)
+        (definitivePythonHeaders > 0 && braceHeaders === 0 && xmlClosingTags === 0) ||
+        (pythonColonHeaders > 0 && braceHeaders === 0 && xmlClosingTags === 0) ||
+        (pythonColonHeaders > braceHeaders && pythonColonHeaders >= 2 && xmlClosingTags === 0)
     ) {
         return parseIndentationSyntaxBlocks(lines);
+    }
+
+    if (xmlClosingTags > 0) {
+        let hasHtmlIndicators = false;
+        for (let i = 0; i < sampleLimit; i++) {
+            const line = lines[i] ?? '';
+            if (
+                /^\s*(?:<\?xml\b|<!DOCTYPE\b|<html\b|<svg\b|<script\b|<style\b|<template\b)/i.test(line) ||
+                /<\/(?:html|body|head|svg|xml|template|script|style)>/i.test(line)
+            ) {
+                hasHtmlIndicators = true;
+                break;
+            }
+        }
+        if (hasHtmlIndicators) {
+            return parseXmlHtmlSyntaxBlocks(lines);
+        }
+        if (rawBraceCount > 0) {
+            const braceBlocks = parseBraceSyntaxBlocks(lines);
+            const jsxBlocks = parseXmlHtmlSyntaxBlocks(lines, undefined, { isJsx: true });
+            return mergeSyntaxBlockTrees(braceBlocks, jsxBlocks);
+        }
+        return parseXmlHtmlSyntaxBlocks(lines);
     }
 
     if (rawBraceCount > 0) {

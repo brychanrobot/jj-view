@@ -738,6 +738,163 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         });
     });
 
+    test('expands React JSX/TSX tag blocks with progressive AST step-out in browser UI', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        const initialDashboard = [
+            "import React, { useState } from 'react';",
+            '',
+            'export function Dashboard() {',
+            "    const [status, setStatus] = useState<string>('idle');",
+            '',
+            '    return (',
+            '        <div id="dashboard" className="dashboard-grid">',
+            '            <header className="top-bar">',
+            '                <h1>Analytics</h1>',
+            '            </header>',
+            '            <main className="content-area">',
+            '                <section id="metrics" className="metrics-panel">',
+            '                    <p className="status-label">Initial Status</p>',
+            '                    // Metric context line 1',
+            '                    // Metric context line 2',
+            '                    // Metric context line 3',
+            '                    // Metric context line 4',
+            '                    // Metric context line 5',
+            '                    // Metric context line 6',
+            "                    <button onClick={() => setStatus('active')}>Activate</button>",
+            '                </section>',
+            '                <section id="logs" className="logs-panel">',
+            '                    <p>Activity Logs</p>',
+            '                    // Log context line 1',
+            '                    // Log context line 2',
+            '                    // Log context line 3',
+            '                    // Log context line 4',
+            '                    // Log context line 5',
+            '                    // Log context line 6',
+            '                </section>',
+            '                <footer className="footer-bar">',
+            '                    <p className="footer-note">Initial Footer</p>',
+            '                </footer>',
+            '            </main>',
+            '        </div>',
+            '    );',
+            '}',
+        ].join('\n');
+
+        const modifiedDashboard = [
+            "import React, { useState } from 'react';",
+            '',
+            'export function Dashboard() {',
+            "    const [status, setStatus] = useState<string>('idle');",
+            '',
+            '    return (',
+            '        <div id="dashboard" className="dashboard-grid">',
+            '            <header className="top-bar">',
+            '                <h1>Analytics</h1>',
+            '            </header>',
+            '            <main className="content-area">',
+            '                <section id="metrics" className="metrics-panel">',
+            '                    <p className="status-label">Updated Status Live</p>',
+            '                    // Metric context line 1',
+            '                    // Metric context line 2',
+            '                    // Metric context line 3',
+            '                    // Metric context line 4',
+            '                    // Metric context line 5',
+            '                    // Metric context line 6',
+            "                    <button onClick={() => setStatus('active')}>Activate</button>",
+            '                </section>',
+            '                <section id="logs" className="logs-panel">',
+            '                    <p>Activity Logs</p>',
+            '                    // Log context line 1',
+            '                    // Log context line 2',
+            '                    // Log context line 3',
+            '                    // Log context line 4',
+            '                    // Log context line 5',
+            '                    // Log context line 6',
+            '                </section>',
+            '                <footer className="footer-bar">',
+            '                    <p className="footer-note">Updated Footer Live</p>',
+            '                </footer>',
+            '            </main>',
+            '        </div>',
+            '    );',
+            '}',
+        ].join('\n');
+
+        testRepo.writeFile('Dashboard.tsx', initialDashboard);
+        testRepo.describe('feat: initial dashboard component');
+        testRepo.new();
+        testRepo.writeFile('Dashboard.tsx', modifiedDashboard);
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const resourceItem = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'Dashboard.tsx' });
+        await expect(resourceItem).toBeVisible();
+        await resourceItem.click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible({ timeout: 5000 });
+
+        // In Dashboard.tsx, Seam 0 is the leading gap before line 9 (<header.top-bar>),
+        // and Seam 1 is the intermediate gap between line 17 and line 30 (<section#metrics>)
+        const leadingSeam = page.locator('.jj-hunk-seam.additions-half').first();
+        const intermediateSeam = page.locator('.jj-hunk-seam.additions-half').nth(1);
+        await expect(leadingSeam).toBeVisible({ timeout: 5000 });
+        await expect(intermediateSeam).toBeVisible({ timeout: 5000 });
+
+        // 1. Verify leading seam has ast-up target displaying <header.top-bar>
+        const leadingAstUpBtn = leadingSeam.locator('[data-role="ast-up"]');
+        await expect(leadingAstUpBtn).toBeVisible();
+        await expect(leadingAstUpBtn).toContainText('<header.top-bar>');
+
+        // 2. Verify intermediate seam has ast-down target displaying <section#metrics>
+        const astDownBtn = intermediateSeam.locator('[data-role="ast-down"]');
+        await expect(astDownBtn).toBeVisible();
+        await expect(astDownBtn).toContainText('<section#metrics>');
+        await astDownBtn.hover();
+
+        const tooltipBelow = intermediateSeam.locator('.ast-tooltip.tooltip-below');
+        await expect(tooltipBelow).toBeVisible({ timeout: 5000 });
+
+        const tooltipPath = tooltipBelow.locator('.ast-tooltip-path');
+        await expect(tooltipPath).toBeVisible();
+        await expect(tooltipPath).toContainText('Dashboard()');
+        await expect(tooltipPath).toContainText('<div#dashboard>');
+        await expect(tooltipPath).toContainText('<section#metrics>');
+
+        const jsxScreenshotPath = path.join(OUT_DIR, 'jsx_tag_expansion.png');
+        await page.screenshot({ path: jsxScreenshotPath });
+
+        // Click AST +Block button to expand the JSX <section#metrics> block
+        await astDownBtn.click();
+
+        // Verify context lines expand inside PierreDiffViewer
+        const firstExpandedLine = diffViewer.locator('[data-line-type="context-expanded"]').first();
+        await expect(firstExpandedLine).toBeVisible({ timeout: 5000 });
+        const countAfterFirst = await diffViewer.locator('[data-line-type="context-expanded"]').count();
+        expect(countAfterFirst).toBeGreaterThan(0);
+
+        // Verify that the updated intermediate seam's [data-role="ast-down"] button
+        // automatically steps out to the enclosing parent JSX tag <main.content-area>
+        const steppedOutAstDownBtn = page.locator('.jj-hunk-seam.additions-half [data-role="ast-down"]').first();
+        await expect(steppedOutAstDownBtn).toBeVisible({ timeout: 5000 });
+        await expect(steppedOutAstDownBtn).toContainText('<main.content-area>');
+
+        // Click AST +Block a second time to expand <main.content-area>
+        await steppedOutAstDownBtn.click();
+
+        // Verify that the second step-out expands more context lines
+        await expect(async () => {
+            const countAfterSecond = await diffViewer.locator('[data-line-type="context-expanded"]').count();
+            expect(countAfterSecond).toBeGreaterThan(countAfterFirst);
+        }).toPass({ timeout: 5000 });
+    });
+
     test('records 24fps interaction walkthrough of AST +Block expansion and drag peeling', async ({
         page,
         server,
