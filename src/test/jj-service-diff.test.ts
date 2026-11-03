@@ -576,9 +576,9 @@ describe('JjService Diff Tests', () => {
     });
 
     test('getDiffForRevision throws and does not cache when revision is invalid or diff extraction fails', async () => {
-        const countScratchDirs = async (): Promise<number> =>
-            (await fs.readdir(os.tmpdir())).filter((name) => name.startsWith('jj-bulk-diff-')).length;
-        const before = await countScratchDirs();
+        const getScratchDirs = async (): Promise<Set<string>> =>
+            new Set((await fs.readdir(os.tmpdir())).filter((name) => name.startsWith('jj-bulk-diff-')));
+        const before = await getScratchDirs();
 
         await expect(jjService.getDiffForRevision('non-existent-rev-12345')).rejects.toThrow();
 
@@ -587,7 +587,9 @@ describe('JjService Diff Tests', () => {
         expect(invalidCache).toBeNull();
 
         // A failed warm-up (no .complete marker) must not leak its scratch directory
-        expect(await countScratchDirs()).toBe(before);
+        const after = await getScratchDirs();
+        const leaked = Array.from(after).filter((dir) => !before.has(dir));
+        expect(leaked).toEqual([]);
     });
 
     test('setFilesContent handles file paths with potential temp slug collisions', async () => {

@@ -899,7 +899,7 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         page,
         server,
         testRepo,
-    }) => {
+    }, testInfo) => {
         testRepo.writeFile('controller.cc', originalCode);
         testRepo.describe('feat: initial controller');
         testRepo.new();
@@ -917,14 +917,15 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
         await expect(diffViewer).toBeVisible({ timeout: 5000 });
 
-        const additionsSeam = page.locator('.jj-hunk-seam.additions-half').first();
-        await expect(additionsSeam).toBeVisible({ timeout: 5000 });
+        const astDownBtn = page.locator('.jj-hunk-seam.additions-half [data-role="ast-down"]').first();
+        const expandAllHandle = page.locator('.jj-hunk-seam.additions-half [data-role="expand-all"]').first();
 
-        const astDownBtn = additionsSeam.locator('[data-role="ast-down"]');
-        const expandAllHandle = additionsSeam.locator('[data-role="expand-all"]');
+        await expect(expandAllHandle).toBeVisible({ timeout: 5000 });
+        await expect(astDownBtn).toBeVisible({ timeout: 5000 });
 
-        const gifPath = path.join(OUT_DIR, 'hunk_expansion_walkthrough.gif');
-        const mp4Path = path.join(OUT_DIR, 'hunk_expansion_walkthrough.mp4');
+        const targetDir = testInfo.repeatEachIndex > 0 ? testInfo.outputDir : OUT_DIR;
+        const gifPath = path.join(targetDir, 'hunk_expansion_walkthrough.gif');
+        const mp4Path = path.join(targetDir, 'hunk_expansion_walkthrough.mp4');
 
         await recordInteractionFlow(
             page,
@@ -935,25 +936,25 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
                 scale: 1280,
             },
             async (rec) => {
-                rec.setHud('Inspect Recessed Hunk Seam');
+                await rec.setHud('Inspect Recessed Hunk Seam');
                 await rec.moveTo(expandAllHandle, 12);
                 await rec.hover(8);
 
-                rec.setHud('Hover AST +Block Tooltip');
+                await rec.setHud('Hover AST +Block Tooltip');
                 await rec.moveTo(astDownBtn, 12);
                 await rec.hover(14);
 
-                rec.setHud('Click +Block (Expand Inner AST Block)');
+                await rec.setHud('Click +Block (Expand Inner AST Block)');
                 await rec.click(astDownBtn, 8);
                 await rec.hover(12);
 
-                rec.setHud('Step Out to Enclosing AST Block');
+                await rec.setHud('Step Out to Enclosing AST Block');
                 const secondAstBtn = page.locator('.jj-hunk-seam.additions-half [data-role="ast-down"]').first();
                 await expect(secondAstBtn).toBeVisible({ timeout: 5000 });
                 await rec.click(secondAstBtn, 8);
                 await rec.hover(12);
 
-                rec.setHud('1:1 Monotonic Drag Peeling');
+                await rec.setHud('1:1 Monotonic Drag Peeling');
                 const currentHandle = page.locator('.jj-hunk-seam.additions-half [data-role="expand-all"]').first();
                 await rec.dragBy(currentHandle, 80, 16);
                 await rec.hover(10);

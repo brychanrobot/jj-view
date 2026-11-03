@@ -25,19 +25,11 @@ function memoize<T>(fn: () => T): () => T {
 }
 
 const tempDirs = new Set<string>();
-const defaultTestConfigFile = path.join(os.tmpdir(), `jj-view-default-config-${process.pid}.toml`);
-try {
-    fs.writeFileSync(
-        defaultTestConfigFile,
-        `user.name = "Test User"
+const DEFAULT_TEST_CONFIG = `user.name = "Test User"
 user.email = "test@example.com"
 signing.backend = "none"
 ui.merge-editor = "builtin"
-`,
-        'utf-8',
-    );
-    tempDirs.add(defaultTestConfigFile);
-} catch {}
+`;
 
 function getUserJjDir(): string {
     if (process.platform === 'win32') {
@@ -105,7 +97,18 @@ export class TestRepo {
     static readonly getGitBinary = memoize((): string => which.sync('git'));
 
     public readonly path: string;
+    private readonly execTmpDir: string;
     private configId?: string;
+
+    private getSubprocessEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+        return {
+            ...process.env,
+            TMPDIR: this.execTmpDir,
+            TEMP: this.execTmpDir,
+            TMP: this.execTmpDir,
+            ...extra,
+        };
+    }
 
     private ensureRepoConfig(): { configId: string; repoConfigDir: string; configPath: string } {
         const start = process.hrtime.bigint();
@@ -143,6 +146,9 @@ export class TestRepo {
         }
         this.path = fs.realpathSync.native ? fs.realpathSync.native(rawPath) : fs.realpathSync(rawPath);
         tempDirs.add(this.path);
+        this.execTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-test-tmp-'));
+        tempDirs.add(this.execTmpDir);
+        fs.writeFileSync(path.join(this.execTmpDir, 'default-config.toml'), DEFAULT_TEST_CONFIG, 'utf-8');
     }
 
     async dispose(): Promise<void> {
@@ -163,8 +169,18 @@ export class TestRepo {
                 maxRetries: 5,
                 retryDelay: 50,
             });
+            tempDirs.delete(repoPath);
         } catch {}
-        tempDirs.delete(repoPath);
+
+        try {
+            await fs.promises.rm(this.execTmpDir, {
+                recursive: true,
+                force: true,
+                maxRetries: 5,
+                retryDelay: 50,
+            });
+            tempDirs.delete(this.execTmpDir);
+        } catch {}
 
         if (this.configId) {
             const userJjDir = getUserJjDir();
@@ -172,10 +188,10 @@ export class TestRepo {
             const gcStart = process.hrtime.bigint();
             try {
                 await fs.promises.rm(repoConfigDir, { recursive: true, force: true });
+                tempDirs.delete(repoConfigDir);
                 const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
                 recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
             } catch {}
-            tempDirs.delete(repoConfigDir);
         }
     }
 
@@ -183,7 +199,7 @@ export class TestRepo {
     // Instead, create specific methods for each operation to ensure strictly typed usage
     // and prevent arbitrary command execution in tests.
     private exec(args: string[], options: { trim?: boolean } = {}): { stdout: string; stderr: string } {
-        const env = { ...process.env, JJ_CONFIG: '' };
+        const env = this.getSubprocessEnv({ JJ_CONFIG: '' });
         const jjBinary = TestRepo.getJjBinary();
         const start = process.hrtime.bigint();
         const res = cp.spawnSync(jjBinary, args, {
@@ -261,17 +277,18 @@ export class TestRepo {
     }
 
     init(options?: { colocate?: boolean }) {
-        const initArgs = ['--config-file', defaultTestConfigFile, 'git', 'init'];
+        const defaultConfigFile = path.join(this.execTmpDir, 'default-config.toml');
+        const initArgs = ['--config-file', defaultConfigFile, 'git', 'init'];
         if (options?.colocate === false) {
             initArgs.push('--no-colocate');
         }
         this.exec(initArgs);
         const { configPath } = this.ensureRepoConfig();
         if (!fs.existsSync(configPath)) {
-            fs.copyFileSync(defaultTestConfigFile, configPath);
+            fs.copyFileSync(defaultConfigFile, configPath);
         } else {
             const existing = fs.readFileSync(configPath, 'utf-8');
-            const defaultContent = fs.readFileSync(defaultTestConfigFile, 'utf-8');
+            const defaultContent = fs.readFileSync(defaultConfigFile, 'utf-8');
             fs.writeFileSync(configPath, `${defaultContent}\n${existing}`, 'utf-8');
         }
     }
@@ -627,6 +644,7 @@ export class TestRepo {
         try {
             cp.execFileSync(gitBinary, ['show-ref', '--verify', ref], {
                 cwd: this.path,
+                env: this.getSubprocessEnv(),
                 stdio: 'ignore',
                 windowsHide: true,
             });
@@ -641,6 +659,7 @@ export class TestRepo {
         const output = cp.execFileSync(gitBinary, ['rev-parse', ref], {
             cwd: this.path,
             encoding: 'utf-8',
+            env: this.getSubprocessEnv(),
             windowsHide: true,
         });
         return output.trim();
@@ -652,6 +671,7 @@ export class TestRepo {
             const output = cp.execFileSync(gitBinary, ['show-ref'], {
                 cwd: this.path,
                 encoding: 'utf-8',
+                env: this.getSubprocessEnv(),
                 windowsHide: true,
             });
             const refs = output

@@ -51,15 +51,32 @@ export class StandaloneServer {
     public port = 0;
     public sessionToken = '';
     public userDataDir = '';
+    public serverTmpDir = '';
 
     private _process: cp.ChildProcess | null = null;
     private _stdout = '';
     private _stderr = '';
+    private _spawnErrored = false;
+    private _stopPromise: Promise<void> | null = null;
 
     constructor(
         public readonly repo: TestRepo,
         private readonly options: StandaloneServerOptions = {},
     ) {}
+
+    private cleanupTempDirs(): void {
+        for (const dir of [this.userDataDir, this.serverTmpDir]) {
+            if (dir) {
+                try {
+                    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+                } catch {
+                    // Ignore cleanup error
+                }
+            }
+        }
+        this.userDataDir = '';
+        this.serverTmpDir = '';
+    }
 
     public async start(): Promise<void> {
         const isWin = process.platform === 'win32';
@@ -70,12 +87,21 @@ export class StandaloneServer {
             throw new Error(`jj-view binary not found at ${binaryPath}. Did you run 'pnpm build:all'?`);
         }
 
-        const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-userdata-'));
-        this.userDataDir = tempUserDataDir;
-        this.options.prepareUserData?.(tempUserDataDir);
+        if (this.userDataDir || this.serverTmpDir) {
+            this.cleanupTempDirs();
+        }
 
-        return new Promise<void>((resolve, reject) => {
-            const proc = cp.spawn(
+        const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-userdata-'));
+        const tempServerTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jj-view-e2e-tmp-'));
+        this.userDataDir = tempUserDataDir;
+        this.serverTmpDir = tempServerTmpDir;
+        this._spawnErrored = false;
+        this._stopPromise = null;
+
+        let proc: cp.ChildProcess;
+        try {
+            this.options.prepareUserData?.(tempUserDataDir);
+            proc = cp.spawn(
                 binaryPath,
                 [
                     '--host',
@@ -98,12 +124,20 @@ export class StandaloneServer {
                         APPDATA: tempUserDataDir,
                         LOCALAPPDATA: tempUserDataDir,
                         HOME: tempUserDataDir,
+                        TMPDIR: tempServerTmpDir,
+                        TEMP: tempServerTmpDir,
+                        TMP: tempServerTmpDir,
                     },
                 },
             );
+        } catch (err) {
+            this.cleanupTempDirs();
+            throw err;
+        }
 
-            this._process = proc;
+        this._process = proc;
 
+        return new Promise<void>((resolve, reject) => {
             const timeoutTimer = setTimeout(() => {
                 proc.kill('SIGTERM');
                 reject(new Error(`Timed out waiting for jj-view server startup after 15s.\nStderr: ${this._stderr}`));
@@ -128,6 +162,7 @@ export class StandaloneServer {
             });
 
             proc.on('error', (err) => {
+                this._spawnErrored = true;
                 clearTimeout(timeoutTimer);
                 reject(err);
             });
@@ -146,38 +181,29 @@ export class StandaloneServer {
     }
 
     public async stop(): Promise<void> {
+        if (this._stopPromise) {
+            return this._stopPromise;
+        }
+
         const proc = this._process;
         if (!proc) {
+            this.cleanupTempDirs();
             return;
         }
 
-        if (proc.exitCode !== null || proc.killed) {
+        if (proc.exitCode !== null || proc.signalCode !== null || proc.pid === undefined || this._spawnErrored) {
             this._process = null;
-            if (this.userDataDir) {
-                try {
-                    fs.rmSync(this.userDataDir, { recursive: true, force: true });
-                } catch {
-                    // Ignore cleanup error
-                }
-                this.userDataDir = '';
-            }
+            this.cleanupTempDirs();
             return;
         }
 
-        return new Promise<void>((resolve) => {
+        this._stopPromise = new Promise<void>((resolve) => {
             let resolved = false;
             const complete = () => {
                 if (!resolved) {
                     resolved = true;
                     this._process = null;
-                    if (this.userDataDir) {
-                        try {
-                            fs.rmSync(this.userDataDir, { recursive: true, force: true });
-                        } catch {
-                            // Ignore cleanup error
-                        }
-                        this.userDataDir = '';
-                    }
+                    this.cleanupTempDirs();
                     resolve();
                 }
             };
@@ -203,6 +229,8 @@ export class StandaloneServer {
                 complete();
             }
         });
+
+        return this._stopPromise;
     }
 }
 
@@ -390,11 +418,24 @@ export class InteractionRecorder {
     }
 
     async moveTo(target: Locator, frames = 24): Promise<void> {
-        const box = await target.boundingBox();
-        if (!box) {
+        const resolved: { box: { x: number; y: number; width: number; height: number } | null } = { box: null };
+        await expect(async () => {
+            await target.waitFor({ state: 'visible', timeout: 2000 });
+            await target.scrollIntoViewIfNeeded({ timeout: 2000 });
+            const box = await target.boundingBox();
+            if (!box) {
+                throw new Error('InteractionRecorder.moveTo: target locator has no boundingBox');
+            }
+            resolved.box = box;
+        }).toPass({ timeout: 10000 });
+        if (!resolved.box) {
             throw new Error('InteractionRecorder.moveTo: target locator has no boundingBox');
         }
-        await this.moveToPoint(box.x + box.width / 2, box.y + box.height / 2, frames);
+        await this.moveToPoint(
+            resolved.box.x + resolved.box.width / 2,
+            resolved.box.y + resolved.box.height / 2,
+            frames,
+        );
     }
 
     async moveToPoint(x: number, y: number, frames = 24): Promise<void> {
@@ -430,7 +471,9 @@ export class InteractionRecorder {
             for (let f = 0; f < holdFrames; f++) {
                 await this.captureFrame();
             }
-            await target.click({ force: true });
+            await expect(async () => {
+                await target.click({ force: true, timeout: 2000 });
+            }).toPass({ timeout: 5000 });
         } finally {
             try {
                 await this.page.evaluate(() => {
