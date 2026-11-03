@@ -11,7 +11,7 @@ import { type ExpansionDirections, FileDiff, type FileDiffMetadata } from '@pier
 import {
     type AstBlockTarget,
     type AstBlockTargets,
-    buildSyntaxBlocks,
+    buildSyntaxBlocksFromDiff,
     clampExpansionLines,
     computeAstBlockTargets,
     createSvgIcon,
@@ -759,7 +759,7 @@ export class HunkExpansionController {
         ) {
             return this.syntaxBlocksCache.blocks;
         }
-        const blocks = buildSyntaxBlocks(lines, fileDiff.name);
+        const blocks = buildSyntaxBlocksFromDiff(fileDiff);
         this.syntaxBlocksCache = {
             diff: fileDiff,
             linesCount: lines.length,

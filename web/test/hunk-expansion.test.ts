@@ -11,6 +11,7 @@ import {
     type AstBlockTarget,
     adoptDiffCustomStyles,
     buildSyntaxBlocks,
+    buildSyntaxBlocksFromDiff,
     clampExpansionLines,
     cleanBlockHeaderName,
     computeAstBlockTargets,
@@ -18,12 +19,16 @@ import {
     type ExpandedHunkRegion,
     enhanceCodeViewDiffItemSeparators,
     findBlockTreePathForLine,
+    flattenSyntaxBlocks,
     formatBreadcrumbPathHtml,
     formatLineRangeTag,
+    formatXmlHtmlBlockName,
     getHunkGapLineRanges,
     HunkExpansionController,
     type HunkExpansionControllerHost,
     JjFileDiff,
+    mergeSyntaxBlockTrees,
+    parseXmlHtmlSyntaxBlocks,
     type SyntaxBlock,
     startSeamInteraction,
 } from '../src/diff/hunk-expansion';
@@ -1278,6 +1283,21 @@ describe('Hunk Expansion & AST +Block Engine', () => {
                 expect(cleanBlockHeaderName('match status:')).toBe('match (status)');
                 expect(cleanBlockHeaderName('case 200:')).toBe('case (200)');
             });
+
+            it('formats arrow function declarations cleanly', () => {
+                expect(cleanBlockHeaderName('const handleClick = () => {')).toBe('handleClick()');
+                expect(cleanBlockHeaderName('export const Card: React.FC<Props> = ({ title }) => {')).toBe('Card()');
+                expect(cleanBlockHeaderName('let renderItem = async (item: Item) => {')).toBe('renderItem()');
+                expect(cleanBlockHeaderName('onClick: () => {')).toBe('onClick()');
+                expect(cleanBlockHeaderName('onClick={() => {')).toBe('onClick()');
+            });
+
+            it('formats method calls, chains, and JSX expressions cleanly', () => {
+                expect(cleanBlockHeaderName('{items.map((item) => {')).toBe('items.map()');
+                expect(cleanBlockHeaderName('items.map((x) => {')).toBe('items.map()');
+                expect(cleanBlockHeaderName('const filtered = users.filter((u) => {')).toBe('users.filter()');
+                expect(cleanBlockHeaderName('data.slice(0, 10).forEach((entry) => {')).toBe('data.slice()');
+            });
         });
 
         describe('buildSyntaxBlocks with Python files', () => {
@@ -1597,6 +1617,709 @@ describe('Hunk Expansion & AST +Block Engine', () => {
             });
             ensureThemeSelectionBackground(theme);
             expect(theme.colors?.['editor.selectionBackground']).toBe('#1122334d');
+        });
+    });
+
+    describe('XML, HTML, SVG, Svelte/Vue, and React (JSX/TSX) Syntax Blocks', () => {
+        describe('mergeSyntaxBlockTrees', () => {
+            it('merges flat and nested blocks with interval containment and prefers JSX tags over generic braces', () => {
+                const braceBlocks: SyntaxBlock[] = [
+                    {
+                        name: 'App()',
+                        range: { start_line: 1, end_line: 20 },
+                        children: [
+                            {
+                                name: '{...}',
+                                range: { start_line: 5, end_line: 15 },
+                                children: [],
+                            },
+                        ],
+                    },
+                ];
+                const tagBlocks: SyntaxBlock[] = [
+                    {
+                        name: '<div.container>',
+                        range: { start_line: 5, end_line: 15 },
+                        children: [
+                            {
+                                name: '<button>',
+                                range: { start_line: 8, end_line: 12 },
+                                children: [],
+                            },
+                        ],
+                    },
+                ];
+                const merged = mergeSyntaxBlockTrees(braceBlocks, tagBlocks);
+                expect(merged.length).toBe(1);
+                expect(merged[0].name).toBe('App()');
+                expect(merged[0].children.length).toBe(1);
+                expect(merged[0].children[0].name).toBe('<div.container>');
+                expect(merged[0].children[0].children.length).toBe(1);
+                expect(merged[0].children[0].children[0].name).toBe('<button>');
+            });
+
+            it('returns empty array when both inputs are empty', () => {
+                expect(mergeSyntaxBlockTrees([], [])).toEqual([]);
+            });
+        });
+
+        describe('formatXmlHtmlBlockName', () => {
+            it('formats React shorthand fragment', () => {
+                expect(formatXmlHtmlBlockName('<>')).toBe('<>');
+                expect(formatXmlHtmlBlockName('< >')).toBe('<>');
+            });
+
+            it('formats element with ID taking precedence over class', () => {
+                expect(formatXmlHtmlBlockName('<div id="hero" class="container">')).toBe('<div#hero>');
+                expect(formatXmlHtmlBlockName("<section id='main-section'>")).toBe('<section#main-section>');
+            });
+
+            it('formats element with class or className', () => {
+                expect(formatXmlHtmlBlockName('<div className="card shadow-lg">')).toBe('<div.card>');
+                expect(formatXmlHtmlBlockName("<div class='btn btn-primary'>")).toBe('<div.btn>');
+                expect(formatXmlHtmlBlockName('<aside class=sidebar>')).toBe('<aside.sidebar>');
+            });
+
+            it('formats Svelte class directive', () => {
+                expect(formatXmlHtmlBlockName('<div class:active={isActive}>')).toBe('<div.active>');
+            });
+
+            it('formats Android resource IDs cleanly', () => {
+                expect(formatXmlHtmlBlockName('<LinearLayout android:id="@+id/main_layout">')).toBe(
+                    '<LinearLayout#main_layout>',
+                );
+            });
+
+            it('formats dotted component names in React', () => {
+                expect(formatXmlHtmlBlockName('<React.Fragment>')).toBe('<React.Fragment>');
+                expect(formatXmlHtmlBlockName('<Modal.Body className="p-4">')).toBe('<Modal.Body.p-4>');
+            });
+
+            it('truncates formatted names exceeding 28 characters cleanly with ...>', () => {
+                const longTag = '<div className="very-long-class-name-that-is-way-too-long">';
+                const formatted = formatXmlHtmlBlockName(longTag);
+                expect(formatted.length).toBeLessThanOrEqual(28);
+                expect(formatted).toBe('<div.very-long-class-nam...>');
+            });
+        });
+
+        describe('parseXmlHtmlSyntaxBlocks for HTML', () => {
+            it('parses nested HTML elements and ignores void elements', () => {
+                const htmlLines = [
+                    '<!DOCTYPE html>', // L1
+                    '<html>', // L2
+                    '  <head>', // L3
+                    '    <meta charset="utf-8">', // L4 (void)
+                    '    <title>Test Page</title>', // L5
+                    '  </head>', // L6
+                    '  <body>', // L7
+                    '    <div id="app" class="wrapper">', // L8
+                    '      <img src="logo.png" alt="logo">', // L9 (void)
+                    '      <p class="intro">', // L10
+                    '        Hello World', // L11
+                    '      </p>', // L12
+                    '    </div>', // L13
+                    '  </body>', // L14
+                    '</html>', // L15
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(htmlLines, 'index.html');
+                expect(blocks.length).toBe(1);
+                const htmlBlock = blocks[0];
+                expect(htmlBlock.name).toBe('<html>');
+                expect(htmlBlock.range).toEqual({ start_line: 2, end_line: 15 });
+
+                expect(htmlBlock.children.length).toBe(2);
+                const [headBlock, bodyBlock] = htmlBlock.children;
+                expect(headBlock.name).toBe('<head>');
+                expect(headBlock.range).toEqual({ start_line: 3, end_line: 6 });
+
+                expect(bodyBlock.name).toBe('<body>');
+                expect(bodyBlock.range).toEqual({ start_line: 7, end_line: 14 });
+
+                expect(bodyBlock.children.length).toBe(1);
+                const appBlock = bodyBlock.children[0];
+                expect(appBlock.name).toBe('<div#app>');
+                expect(appBlock.range).toEqual({ start_line: 8, end_line: 13 });
+
+                expect(appBlock.children.length).toBe(1);
+                const pBlock = appBlock.children[0];
+                expect(pBlock.name).toBe('<p.intro>');
+                expect(pBlock.range).toEqual({ start_line: 10, end_line: 12 });
+            });
+
+            it('skips multi-line comments and CDATA sections', () => {
+                const htmlLines = [
+                    '<main>', // L1
+                    '  <!--', // L2
+                    '    <div class="ignore-me">', // L3
+                    '      Unclosed comment content', // L4
+                    '    </div>', // L5
+                    '  -->', // L6
+                    '  <section class="content">', // L7
+                    '    <![CDATA[ <not-a-tag> inside cdata ]]>', // L8
+                    '    <p>Actual content</p>', // L9
+                    '  </section>', // L10
+                    '</main>', // L11
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(htmlLines, 'page.html');
+                expect(blocks.length).toBe(1);
+                const mainBlock = blocks[0];
+                expect(mainBlock.name).toBe('<main>');
+                expect(mainBlock.children.length).toBe(1);
+                const secBlock = mainBlock.children[0];
+                expect(secBlock.name).toBe('<section.content>');
+                expect(secBlock.range).toEqual({ start_line: 7, end_line: 10 });
+            });
+
+            it('handles multi-line opening tags with attributes across lines', () => {
+                const htmlLines = [
+                    '<div', // L1
+                    '  id="main-container"', // L2
+                    '  class="container fluid"', // L3
+                    '  data-test="hero"', // L4
+                    '>', // L5
+                    '  <span>Inside</span>', // L6
+                    '</div>', // L7
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(htmlLines, 'index.html');
+                expect(blocks.length).toBe(1);
+                expect(blocks[0].name).toBe('<div#main-container>');
+                expect(blocks[0].range).toEqual({ start_line: 1, end_line: 7 });
+            });
+
+            it('parses embedded <script> with JS functions and <style> with CSS rules as child blocks', () => {
+                const htmlLines = [
+                    '<html>', // L1
+                    '  <head>', // L2
+                    '    <style>', // L3
+                    '      .card {', // L4
+                    '        padding: 16px;', // L5
+                    '      }', // L6
+                    '    </style>', // L7
+                    '  </head>', // L8
+                    '  <body>', // L9
+                    '    <script>', // L10
+                    '      function initializeApp() {', // L11
+                    '        if (ready) {', // L12
+                    '          console.log("ready");', // L13
+                    '        }', // L14
+                    '      }', // L15
+                    '    </script>', // L16
+                    '  </body>', // L17
+                    '</html>', // L18
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(htmlLines, 'app.html');
+                expect(blocks.length).toBe(1);
+                const htmlBlock = blocks[0];
+                const [headBlock, bodyBlock] = htmlBlock.children;
+
+                const styleBlock = headBlock.children[0];
+                expect(styleBlock.name).toBe('<style>');
+                expect(styleBlock.range).toEqual({ start_line: 3, end_line: 7 });
+                expect(styleBlock.children.length).toBe(1);
+                expect(styleBlock.children[0].name).toBe('.card');
+                expect(styleBlock.children[0].range).toEqual({ start_line: 4, end_line: 6 });
+
+                const scriptBlock = bodyBlock.children[0];
+                expect(scriptBlock.name).toBe('<script>');
+                expect(scriptBlock.range).toEqual({ start_line: 10, end_line: 16 });
+                expect(scriptBlock.children.length).toBe(1);
+                const fnBlock = scriptBlock.children[0];
+                expect(fnBlock.name).toBe('initializeApp()');
+                expect(fnBlock.range).toEqual({ start_line: 11, end_line: 15 });
+                expect(fnBlock.children.length).toBe(1);
+                expect(fnBlock.children[0].name).toBe('if (ready)');
+                expect(fnBlock.children[0].range).toEqual({ start_line: 12, end_line: 14 });
+            });
+        });
+
+        describe('parseXmlHtmlSyntaxBlocks for XML & SVG', () => {
+            it('parses SVG with nested <g> and self-closing tags', () => {
+                const svgLines = [
+                    '<?xml version="1.0" encoding="utf-8"?>', // L1
+                    '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">', // L2
+                    '  <g id="layer-bg" class="background">', // L3
+                    '    <rect width="100" height="100" fill="#fff" />', // L4 (self-closing)
+                    '    <circle cx="50" cy="50" r="40" />', // L5 (self-closing)
+                    '  </g>', // L6
+                    '  <g id="layer-fg">', // L7
+                    '    <path d="M 10 10 L 90 90" />', // L8
+                    '  </g>', // L9
+                    '</svg>', // L10
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(svgLines, 'graphic.svg');
+                expect(blocks.length).toBe(1);
+                const svgBlock = blocks[0];
+                expect(svgBlock.name).toBe('<svg>');
+                expect(svgBlock.range).toEqual({ start_line: 2, end_line: 10 });
+                expect(svgBlock.children.length).toBe(2);
+                expect(svgBlock.children[0].name).toBe('<g#layer-bg>');
+                expect(svgBlock.children[0].range).toEqual({ start_line: 3, end_line: 6 });
+                expect(svgBlock.children[1].name).toBe('<g#layer-fg>');
+                expect(svgBlock.children[1].range).toEqual({ start_line: 7, end_line: 9 });
+            });
+
+            it('treats <link> as container element in XML (not HTML void element)', () => {
+                const rssLines = [
+                    '<rss version="2.0">', // L1
+                    '  <channel>', // L2
+                    '    <title>Blog Feed</title>', // L3
+                    '    <link>', // L4
+                    '      https://example.com/rss-feed', // L5
+                    '    </link>', // L6
+                    '  </channel>', // L7
+                    '</rss>', // L8
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(rssLines, 'feed.rss');
+                expect(blocks.length).toBe(1);
+                const rssBlock = blocks[0];
+                const channelBlock = rssBlock.children[0];
+                expect(channelBlock.name).toBe('<channel>');
+                expect(channelBlock.children.length).toBe(1);
+                const linkBlock = channelBlock.children[0];
+                expect(linkBlock.name).toBe('<link>');
+                expect(linkBlock.range).toEqual({ start_line: 4, end_line: 6 });
+            });
+        });
+
+        describe('Svelte and Vue SFCs', () => {
+            it('parses Svelte component with script, template tags, and style', () => {
+                const svelteLines = [
+                    '<script lang="ts">', // L1
+                    '  let count = 0;', // L2
+                    '  function increment() {', // L3
+                    '    count += 1;', // L4
+                    '  }', // L5
+                    '</script>', // L6
+                    '', // L7
+                    '<main class="counter-container">', // L8
+                    '  <button on:click={increment}>', // L9
+                    '    Clicks: {count}', // L10
+                    '  </button>', // L11
+                    '</main>', // L12
+                    '', // L13
+                    '<style>', // L14
+                    '  button {', // L15
+                    '    color: blue;', // L16
+                    '  }', // L17
+                    '</style>', // L18
+                ];
+                const blocks = buildSyntaxBlocks(svelteLines, 'Counter.svelte');
+                expect(blocks.length).toBe(3);
+
+                const scriptBlock = blocks[0];
+                expect(scriptBlock.name).toBe('<script>');
+                expect(scriptBlock.range).toEqual({ start_line: 1, end_line: 6 });
+                expect(scriptBlock.children.length).toBe(1);
+                expect(scriptBlock.children[0].name).toBe('increment()');
+
+                const mainBlock = blocks[1];
+                expect(mainBlock.name).toBe('<main.counter-container>');
+                expect(mainBlock.range).toEqual({ start_line: 8, end_line: 12 });
+                expect(mainBlock.children.length).toBe(1);
+                expect(mainBlock.children[0].name).toBe('<button>');
+                expect(mainBlock.children[0].range).toEqual({ start_line: 9, end_line: 11 });
+
+                const styleBlock = blocks[2];
+                expect(styleBlock.name).toBe('<style>');
+                expect(styleBlock.range).toEqual({ start_line: 14, end_line: 18 });
+                expect(styleBlock.children.length).toBe(1);
+                expect(styleBlock.children[0].name).toBe('button');
+            });
+        });
+
+        describe('React JSX and TSX Tag Block Expansion', () => {
+            it('guards against TypeScript generics and comparison operators', () => {
+                const tsxLines = [
+                    'export function DataViewer<T extends object>() {', // L1
+                    '  const [items, setItems] = useState<string[]>([]);', // L2
+                    '  const ref = useRef<HTMLDivElement | null>(null);', // L3
+                    '  if (items.length < 5) {', // L4
+                    '    return <p>Loading</p>;', // L5
+                    '  }', // L6
+                    '  return (', // L7
+                    '    <div className="viewer-grid">', // L8
+                    '      <span>Item</span>', // L9
+                    '    </div>', // L10
+                    '  );', // L11
+                    '}', // L12
+                ];
+                const blocks = buildSyntaxBlocks(tsxLines, 'DataViewer.tsx');
+                expect(blocks.length).toBe(1);
+                const fnBlock = blocks[0];
+                expect(fnBlock.name).toBe('DataViewer()');
+                expect(fnBlock.range).toEqual({ start_line: 1, end_line: 12 });
+
+                expect(fnBlock.children.length).toBe(2);
+                expect(fnBlock.children[0].name).toBe('if (items.length < 5)');
+                expect(fnBlock.children[0].range).toEqual({ start_line: 4, end_line: 6 });
+
+                expect(fnBlock.children[1].name).toBe('<div.viewer-grid>');
+                expect(fnBlock.children[1].range).toEqual({ start_line: 8, end_line: 10 });
+            });
+
+            it('supports React shorthand fragments <>...</> in JSX', () => {
+                const jsxLines = [
+                    'function PageHeader() {', // L1
+                    '  return (', // L2
+                    '    <>', // L3
+                    '      <nav className="navbar">', // L4
+                    '        <a href="/">Home</a>', // L5
+                    '      </nav>', // L6
+                    '      <div className="hero-banner">', // L7
+                    '        <h1>Welcome</h1>', // L8
+                    '      </div>', // L9
+                    '    </>', // L10
+                    '  );', // L11
+                    '}', // L12
+                ];
+                const blocks = buildSyntaxBlocks(jsxLines, 'Header.jsx');
+                expect(blocks.length).toBe(1);
+                const fnBlock = blocks[0];
+                expect(fnBlock.name).toBe('PageHeader()');
+
+                expect(fnBlock.children.length).toBe(1);
+                const fragBlock = fnBlock.children[0];
+                expect(fragBlock.name).toBe('<>');
+                expect(fragBlock.range).toEqual({ start_line: 3, end_line: 10 });
+
+                expect(fragBlock.children.length).toBe(2);
+                expect(fragBlock.children[0].name).toBe('<nav.navbar>');
+                expect(fragBlock.children[0].range).toEqual({ start_line: 4, end_line: 6 });
+                expect(fragBlock.children[1].name).toBe('<div.hero-banner>');
+                expect(fragBlock.children[1].range).toEqual({ start_line: 7, end_line: 9 });
+            });
+
+            it('merges JS functions, method chains, and JSX elements in proper hierarchy and steps out progressively', () => {
+                const tsxLines = [
+                    'export const UserDirectory = ({ orgId }: Props) => {', // L1
+                    '  const [users, setUsers] = useState<User[]>([]);', // L2
+                    '  return (', // L3
+                    '    <div id="directory" className="directory-view">', // L4
+                    '      <header className="header-bar">', // L5
+                    '        <h2>Staff</h2>', // L6
+                    '      </header>', // L7
+                    '      <ul className="user-list">', // L8
+                    '        {users.map((user) => {', // L9
+                    '          return (', // L10
+                    '            <li key={user.id} className="user-card">', // L11
+                    '              <span className="name">{user.name}</span>', // L12
+                    '              <button onClick={() => alert(user.id)}>View</button>', // L13
+                    '            </li>', // L14
+                    '          );', // L15
+                    '        })}', // L16
+                    '      </ul>', // L17
+                    '    </div>', // L18
+                    '  );', // L19
+                    '};', // L20
+                ];
+                const blocks = buildSyntaxBlocks(tsxLines, 'UserDirectory.tsx');
+                expect(blocks.length).toBe(1);
+                const compBlock = blocks[0];
+                expect(compBlock.name).toBe('UserDirectory()');
+                expect(compBlock.range).toEqual({ start_line: 1, end_line: 20 });
+
+                expect(compBlock.children.length).toBe(1);
+                const divBlock = compBlock.children[0];
+                expect(divBlock.name).toBe('<div#directory>');
+                expect(divBlock.range).toEqual({ start_line: 4, end_line: 18 });
+
+                expect(divBlock.children.length).toBe(2);
+                const headerBlock = divBlock.children[0];
+                expect(headerBlock.name).toBe('<header.header-bar>');
+                expect(headerBlock.range).toEqual({ start_line: 5, end_line: 7 });
+
+                const ulBlock = divBlock.children[1];
+                expect(ulBlock.name).toBe('<ul.user-list>');
+                expect(ulBlock.range).toEqual({ start_line: 8, end_line: 17 });
+
+                expect(ulBlock.children.length).toBe(1);
+                const mapBlock = ulBlock.children[0];
+                expect(mapBlock.name).toBe('users.map()');
+                expect(mapBlock.range).toEqual({ start_line: 9, end_line: 16 });
+
+                expect(mapBlock.children.length).toBe(1);
+                const liBlock = mapBlock.children[0];
+                expect(liBlock.name).toBe('<li.user-card>');
+                expect(liBlock.range).toEqual({ start_line: 11, end_line: 14 });
+
+                // Progressive AST step-out from line 12:
+                const pathAtL12 = findBlockTreePathForLine(12, blocks);
+                const namesAtL12 = pathAtL12.map((b) => b.name);
+                expect(namesAtL12).toEqual([
+                    'UserDirectory()',
+                    '<div#directory>',
+                    '<ul.user-list>',
+                    'users.map()',
+                    '<li.user-card>',
+                ]);
+
+                // Boundary of <li.user-card> (line 14) steps out to enclosing users.map():
+                const pathAtL14 = findBlockTreePathForLine(14, blocks);
+                const namesAtL14 = pathAtL14.map((b) => b.name);
+                expect(namesAtL14).toEqual(['UserDirectory()', '<div#directory>', '<ul.user-list>', 'users.map()']);
+            });
+
+            it('auto-detects XML and JSX content without fileName', () => {
+                const xmlLines = [
+                    '<?xml version="1.0"?>',
+                    '<root>',
+                    '  <child id="1">',
+                    '    Content',
+                    '  </child>',
+                    '</root>',
+                ];
+                const xmlBlocks = buildSyntaxBlocks(xmlLines);
+                expect(xmlBlocks.length).toBe(1);
+                expect(xmlBlocks[0].name).toBe('<root>');
+                expect(xmlBlocks[0].children[0].name).toBe('<child#1>');
+
+                const jsxLines = [
+                    'const App = () => {',
+                    '  return (',
+                    '    <main className="app-shell">',
+                    '      <section>Body</section>',
+                    '    </main>',
+                    '  );',
+                    '};',
+                ];
+                const jsxBlocks = buildSyntaxBlocks(jsxLines);
+                expect(jsxBlocks.length).toBe(1);
+                expect(jsxBlocks[0].name).toBe('App()');
+                expect(jsxBlocks[0].children.length).toBe(1);
+                expect(jsxBlocks[0].children[0].name).toBe('<main.app-shell>');
+            });
+
+            it('enforces raw-text mode inside <script> and <style> ignoring nested comparisons and HTML strings', () => {
+                const svelteLines = [
+                    '<script lang="ts">', // L1
+                    '  function compute(a: number, count: number, b: number) {', // L2
+                    '    if (a < count && b > 0) {', // L3
+                    '      const tpl = "<div>\\n</div>";', // L4
+                    '      return tpl;', // L5
+                    '    }', // L6
+                    '  }', // L7
+                    '</script>', // L8
+                    '',
+                    '<main class="container">', // L10
+                    '  <p>Hello</p>', // L11
+                    '</main>', // L12
+                ];
+                const blocks = buildSyntaxBlocks(svelteLines, 'App.svelte');
+                expect(blocks.length).toBe(2);
+                expect(blocks[0].name).toBe('<script>');
+                expect(blocks[0].range).toEqual({ start_line: 1, end_line: 8 });
+                // Check internal brace blocks: compute() and if (a < count...)
+                expect(blocks[0].children.length).toBe(1);
+                expect(blocks[0].children[0].name).toBe('compute()');
+                expect(blocks[0].children[0].children.length).toBe(1);
+                expect(blocks[0].children[0].children[0].name).toBe('if (a < count && b > 0)');
+
+                expect(blocks[1].name).toBe('<main.container>');
+                expect(blocks[1].range).toEqual({ start_line: 10, end_line: 12 });
+            });
+
+            it('tracks quotes at all brace depths inside multi-line JSX tags', () => {
+                const lines = [
+                    'export const Button = () => {', // L1
+                    '  return (', // L2
+                    '    <button', // L3
+                    '      type="button"', // L4
+                    '      className="btn primary"', // L5
+                    '      onClick={() => alert("}") && a > b}', // L6
+                    '    >', // L7
+                    '      <span>', // L8
+                    '        Click Me', // L9
+                    '      </span>', // L10
+                    '    </button>', // L11
+                    '  );', // L12
+                    '};', // L13
+                ];
+                const blocks = buildSyntaxBlocks(lines, 'Button.tsx');
+                expect(blocks.length).toBe(1);
+                expect(blocks[0].name).toBe('Button()');
+                const btnBlock = blocks[0].children[0];
+                expect(btnBlock.name).toBe('<button.btn>');
+                expect(btnBlock.range).toEqual({ start_line: 3, end_line: 11 });
+                expect(btnBlock.children[0].name).toBe('<span>');
+                expect(btnBlock.children[0].range).toEqual({ start_line: 8, end_line: 10 });
+            });
+
+            it('preserves PascalCase components and does not treat them as HTML void elements', () => {
+                const lines = [
+                    'export const Nav = () => {', // L1
+                    '  return (', // L2
+                    '    <nav className="navbar">', // L3
+                    '      <Link to="/home">', // L4
+                    '        <span>Home</span>', // L5
+                    '      </Link>', // L6
+                    '      <Input placeholder="Search">', // L7
+                    '        <kbd>Ctrl+K</kbd>', // L8
+                    '      </Input>', // L9
+                    '      <input type="text" />', // L10 (void element)
+                    '    </nav>', // L11
+                    '  );', // L12
+                    '};', // L13
+                ];
+                const blocks = buildSyntaxBlocks(lines, 'Nav.tsx');
+                expect(blocks.length).toBe(1);
+                const navBlock = blocks[0].children[0];
+                expect(navBlock.name).toBe('<nav.navbar>');
+                expect(navBlock.children.length).toBe(2);
+                expect(navBlock.children[0].name).toBe('<Link>');
+                expect(navBlock.children[0].range).toEqual({ start_line: 4, end_line: 6 });
+                expect(navBlock.children[1].name).toBe('<Input>');
+                expect(navBlock.children[1].range).toEqual({ start_line: 7, end_line: 9 });
+            });
+
+            it('guards TypeScript generic arrow functions and does not emit <T> tags', () => {
+                const lines = [
+                    'export const List = <T extends { id: string }>(props: Props<T>) => {', // L1
+                    '  const lt = a < b;', // L2
+                    '  return (', // L3
+                    '    <div className="list-wrapper">', // L4
+                    '      <ul>', // L5
+                    '        {props.items.map((item) => (', // L6
+                    '          <li key={item.id}>', // L7
+                    '            {item.id}', // L8
+                    '          </li>', // L9
+                    '        ))}', // L10
+                    '      </ul>', // L11
+                    '    </div>', // L12
+                    '  );', // L13
+                    '};', // L14
+                ];
+                const blocks = buildSyntaxBlocks(lines, 'List.tsx');
+                expect(blocks.length).toBe(1);
+                expect(blocks[0].name).toBe('List()');
+                expect(blocks[0].range).toEqual({ start_line: 1, end_line: 14 });
+                // Should not contain any block named '<T>'
+                const allNames = flattenSyntaxBlocks(blocks).map((b) => b.name);
+                expect(allNames).not.toContain('<T>');
+                expect(allNames).toContain('<div.list-wrapper>');
+                expect(allNames).toContain('<ul>');
+                expect(allNames).toContain('<li>');
+            });
+
+            it('formats XML/HTML block names cleanly with case-insensitivity and quoted-attribute matching', () => {
+                // Should ignore ?id=42 inside href and unquoted expressions
+                expect(formatXmlHtmlBlockName('<a href="/item?id=42" className={styles.btn}>')).toBe('<a>');
+                // Should match case-insensitive ID and className
+                expect(formatXmlHtmlBlockName('<DIV ID="Main-Content" ClassName="hero banner">')).toBe(
+                    '<DIV#Main-Content>',
+                );
+                expect(formatXmlHtmlBlockName('<section CLASS="hero-section">')).toBe('<section.hero-section>');
+                // Should handle Android resource IDs
+                expect(formatXmlHtmlBlockName('<TextView android:id="@+id/title_text" />')).toBe(
+                    '<TextView#title_text>',
+                );
+            });
+
+            it('parses Vue single-file components (.vue)', () => {
+                const vueLines = [
+                    '<template>', // L1
+                    '  <div id="app" class="vue-container">', // L2
+                    '    <header.nav-bar>', // L3 (dotted component)
+                    '      <h1>Title</h1>', // L4
+                    '    </header.nav-bar>', // L5
+                    '  </div>', // L6
+                    '</template>', // L7
+                    '',
+                    '<script setup lang="ts">', // L9
+                    'import { ref } from "vue";', // L10
+                    'const count = ref(0);', // L11
+                    'function increment() {', // L12
+                    '  count.value++;', // L13
+                    '}', // L14
+                    '</script>', // L15
+                    '',
+                    '<style scoped>', // L17
+                    '.vue-container {', // L18
+                    '  padding: 1rem;', // L19
+                    '}', // L20
+                    '</style>', // L21
+                ];
+                const blocks = buildSyntaxBlocks(vueLines, 'App.vue');
+                expect(blocks.length).toBe(3);
+                expect(blocks[0].name).toBe('<template>');
+                expect(blocks[0].children[0].name).toBe('<div#app>');
+                expect(blocks[0].children[0].children[0].name).toBe('<header.nav-bar>');
+
+                expect(blocks[1].name).toBe('<script>');
+                expect(blocks[1].children.length).toBe(1);
+                expect(blocks[1].children[0].name).toBe('increment()');
+
+                expect(blocks[2].name).toBe('<style>');
+                expect(blocks[2].children.length).toBe(1);
+                expect(blocks[2].children[0].name).toBe('.vue-container');
+            });
+
+            it('enforces strict upper-bound containment in mergeSyntaxBlockTrees for overlapping intervals', () => {
+                // Two blocks where B starts inside A but ends after A (overhang):
+                // A: [10, 20]
+                // B: [15, 25]
+                // B must NOT be attached as a child of A!
+                const blockA: SyntaxBlock = {
+                    name: 'BlockA',
+                    range: { start_line: 10, end_line: 20 },
+                    children: [],
+                };
+                const blockB: SyntaxBlock = {
+                    name: 'BlockB',
+                    range: { start_line: 15, end_line: 25 },
+                    children: [],
+                };
+                const merged = mergeSyntaxBlockTrees([blockA], [blockB]);
+                expect(merged.length).toBe(2);
+                expect(merged[0].name).toBe('BlockA');
+                expect(merged[0].children.length).toBe(0);
+                expect(merged[1].name).toBe('BlockB');
+                expect(merged[1].children.length).toBe(0);
+            });
+
+            it('recovers from mismatched inner tags and handles multi-line DOCTYPE and XML processing instructions', () => {
+                const xmlLines = [
+                    '<?xml version="1.0"', // L1
+                    '      encoding="UTF-8"?>', // L2
+                    '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"', // L3
+                    '          "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">', // L4
+                    '<html xmlns="http://www.w3.org/1999/xhtml">', // L5
+                    '  <body>', // L6
+                    '    <p>', // L7
+                    '      <span>Text', // L8 (unclosed span)
+                    '    </p>', // L9 (closes p, popping span gracefully)
+                    '  </body>', // L10
+                    '</html>', // L11
+                ];
+                const blocks = parseXmlHtmlSyntaxBlocks(xmlLines, 'document.xhtml');
+                expect(blocks.length).toBe(1);
+                expect(blocks[0].name).toBe('<html>');
+                expect(blocks[0].children.length).toBe(1);
+                const bodyBlock = blocks[0].children[0];
+                expect(bodyBlock.name).toBe('<body>');
+                expect(bodyBlock.children.length).toBe(1);
+                expect(bodyBlock.children[0].name).toBe('<p>');
+                expect(bodyBlock.children[0].range).toEqual({ start_line: 7, end_line: 9 });
+            });
+
+            it('builds syntax blocks directly from FileDiffMetadata via buildSyntaxBlocksFromDiff', () => {
+                const diff = createMock<FileDiffMetadata>({
+                    name: 'Component.tsx',
+                    additionLines: [
+                        'export function Component() {',
+                        '  return (',
+                        '    <div id="root">',
+                        '      <span>Hello</span>',
+                        '    </div>',
+                        '  );',
+                        '}',
+                    ],
+                });
+                const blocks = buildSyntaxBlocksFromDiff(diff);
+                expect(blocks.length).toBe(1);
+                expect(blocks[0].name).toBe('Component()');
+                expect(blocks[0].children[0].name).toBe('<div#root>');
+            });
         });
     });
 });

@@ -106,6 +106,31 @@ categories:
     border radii; never prefix standalone labels with `"JJ View: ..."`, never
     expose raw `jj-view.*` command IDs in user-facing rows, and use crisp inline
     `<svg>` vector icons instead of Unicode emoji or dingbats.
+-   **Segmented Control Clipping via `overflow: hidden` Container + Sibling Tooltip Wrapper (Positive Pattern)**:
+    When building compact segmented controls (such as dock-pair pill clusters),
+    clip child hover backgrounds cleanly by wrapping the button pair in
+    `.dock-pair { overflow: hidden; padding: 0; }`. Never nest floating tooltips
+    inside an `overflow: hidden` container; place the tooltip as an absolute sibling
+    inside an outer `.ast-pill-anchor` wrapper and trigger visibility via
+    `.ast-pill-anchor:has(.pill-ast:hover) .ast-tooltip`. For keyboard accessibility
+    inside clipped controls, set
+    `.dock-pair .seam-pill:focus-visible { outline-offset: -2px }` so the focus
+    outline draws inward rather than being clipped by the parent.
+-   **CSS Overlapping Curves Distortion from Mixing Pill Radii with Small Pixel Radii (Anti-Pattern)**:
+    Never mix `border-radius: 999px` on three corners with a small pixel radius
+    (e.g., `4px`) on the fourth corner of a fixed-height container. Per CSS
+    Backgrounds & Borders Level 3 §4.5 ("Overlapping Curves"), when the sum of
+    adjacent radii exceeds the container height (`4px + 999px = 1003px > 24px`),
+    browsers proportionally scale down all radii by `24 / 1003`, flattening the
+    `4px` corner to `0.09px` and the `999px` corners to `23.9px`. Use non-overlapping,
+    explicit pixel radii matching container height (`border-radius: 12px` with
+    `border-top-left-radius: 4px` on a `24px` container).
+-   **Assuming Container Query Units (`cqi`) Query the Viewport (Anti-Pattern)**:
+    In `@pierre/diffs`, each diff column defines `container-type: inline-size` on
+    `<code data-container-size>`. Therefore, `100cqi` represents the width of that
+    single column, NOT the whole editor viewport. In split mode, `100cqi` on
+    `.combo-seam-half` correctly spans the visible half-column width; do NOT divide
+    by 2 (`50cqi`), which would shrink half-seams to a quarter of the container width.
 
 ### 2. Strict TypeScript & Code Style (`GEMINI.md`)
 
@@ -130,6 +155,24 @@ categories:
     -   Check error/boundary conditions first and return early rather than
         nesting 4–5 levels of `if` statements.
     -   Place all imports at the top of the file.
+-   **Interval-Stack AST Tree Merging with Strict Upper-Bound Containment (Positive Pattern)**:
+    When merging distinct syntax hierarchies (e.g. JS/TS function braces and
+    JSX/HTML tag trees) via interval containment (`mergeSyntaxBlockTrees`), maintain
+    an ancestor stack sorted by `start_line` ascending and `end_line` descending.
+    When evaluating the next block, pop stack entries until
+    `top.range.start_line <= block.range.start_line && block.range.end_line <= top.range.end_line`.
+    Never pop solely on `top.range.end_line < block.range.start_line`: every
+    attached child must satisfy `child.range.end_line <= parent.range.end_line`
+    so hierarchical breadcrumbs and progressive step-out algorithms never
+    encounter overhanging child blocks.
+-   **Gating Quote Tracking on `braceDepth === 0` Inside Embedded Expression Lexers (Anti-Pattern)**:
+    When parsing tags with embedded code expressions (such as JSX, Svelte, or Vue
+    attributes), never gate quote entry on `braceDepth === 0`. Quotes (`"`, `'`,
+    `` ` ``) must be tracked at ALL brace depth levels; otherwise a closing
+    brace `}` inside a string literal within an expression (e.g.
+    `onClick={() => alert("}") && a > b}`) prematurely decrements `braceDepth`
+    to 0, corrupts the outer lexer state, and causes subsequent operators (`>`)
+    to terminate the opening tag prematurely.
 
 ### 3. Component Lifecycle, Shadow DOM & Virtualized Rendering
 
