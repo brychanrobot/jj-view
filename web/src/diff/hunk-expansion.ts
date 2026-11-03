@@ -17,7 +17,6 @@ import {
     createSvgIcon,
     DEFAULT_LINE_HEIGHT_PX,
     type ExpandedHunkRegion,
-    formatLineRangeTag,
     getHunkGapLineRanges,
     type HunkGapLineRanges,
     MINIMUM_LINES_TO_HIDE,
@@ -54,6 +53,7 @@ export const HUNK_EXPANSION_CSS = `
     --pill-bg: var(--bg-elevated);
     --pill-bg-hover: var(--bg-hover);
     --pill-border: var(--border-subtle);
+    --diffs-column-number-width: 48px;
     --diffs-selection-color: var(
       --vscode-editor-selectionBackground,
       color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent)
@@ -150,8 +150,10 @@ export const HUNK_EXPANSION_CSS = `
   }
 
   .combo-seam, .combo-seam-half {
-    position: relative;
-    width: 100%;
+    position: sticky;
+    left: var(--diffs-column-number-width, 48px);
+    width: calc(100cqi - var(--diffs-column-number-width, 48px));
+    max-width: 100%;
     height: 32px;
     min-height: 32px;
     display: flex;
@@ -163,9 +165,12 @@ export const HUNK_EXPANSION_CSS = `
     color: var(--text-primary);
   }
 
-  .combo-seam { padding: 0 12px; }
-  .combo-seam-half.deletions-half { padding-left: 12px; padding-right: 4px; justify-content: flex-start; }
-  .combo-seam-half.additions-half { padding-left: 4px; padding-right: 12px; justify-content: flex-end; }
+  .combo-seam {
+    padding: 0 12px;
+  }
+
+  .combo-seam-half.deletions-half { justify-content: flex-start; }
+  .combo-seam-half.additions-half { justify-content: flex-end; }
 
   /* Top & Bottom Interactive Drag-to-Peel Edge Strips */
   .seam-drag-edge {
@@ -197,7 +202,7 @@ export const HUNK_EXPANSION_CSS = `
   .seam-main-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     width: 100%;
     gap: 8px;
     position: relative;
@@ -212,27 +217,8 @@ export const HUNK_EXPANSION_CSS = `
     z-index: 4;
   }
 
-  .seam-main-left {
-    justify-content: flex-start;
-  }
-
   .seam-main-right {
     justify-content: flex-end;
-  }
-
-  .seam-gutter-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-secondary);
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--bg-elevated) 75%, transparent);
-    border: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
-    flex-shrink: 0;
   }
 
   .seam-center-cluster {
@@ -251,13 +237,20 @@ export const HUNK_EXPANSION_CSS = `
     z-index: 10;
   }
 
+  .dock-pair-group {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .dock-pair {
     display: inline-flex;
     align-items: center;
     background: var(--pill-bg);
     border: 1px solid var(--pill-border);
-    border-radius: 999px;
-    padding: 1px;
+    border-radius: 12px;
+    padding: 0;
+    overflow: hidden;
     box-shadow: 0 2px 6px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 18%, transparent);
   }
 
@@ -273,6 +266,11 @@ export const HUNK_EXPANSION_CSS = `
 
   .dock-pair.dock-top:hover, .dock-pair.dock-bottom:hover {
     border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
+  }
+
+  .dock-pair .seam-pill:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: -2px;
   }
 
   .seam-pill {
@@ -297,24 +295,24 @@ export const HUNK_EXPANSION_CSS = `
 
   .dock-pair .seam-pill {
     border: none;
-    height: 20px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 0;
     box-shadow: none;
     background: transparent;
   }
 
-  .dock-pair .seam-pill + .seam-pill,
-  .dock-pair .ast-pill-anchor {
+  .dock-pair .seam-pill + .seam-pill {
     border-left: 1px solid var(--border-subtle);
-  }
-
-  .dock-pair .ast-pill-anchor .seam-pill {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
   }
 
   .seam-pill:hover {
     background: var(--pill-bg-hover);
     border-color: var(--accent-primary);
+  }
+
+  .dock-pair .seam-pill:hover {
+    background: var(--pill-bg-hover);
   }
 
   .seam-pill.pill-all {
@@ -352,6 +350,17 @@ export const HUNK_EXPANSION_CSS = `
     color: var(--vscode-foreground);
   }
 
+  .dock-pair .seam-pill.pill-ast {
+    color: var(--vscode-textLink-foreground, var(--accent-primary));
+    font-weight: 600;
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  }
+
+  .dock-pair .seam-pill.pill-ast:hover {
+    background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+    color: var(--vscode-foreground);
+  }
+
   .ast-fn-token {
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -384,8 +393,9 @@ export const HUNK_EXPANSION_CSS = `
   .ast-tooltip.tooltip-below { top: calc(100% + 7px); }
   .ast-tooltip.tooltip-above { bottom: calc(100% + 7px); }
 
-  .ast-pill-anchor:hover .ast-tooltip,
-  .ast-pill-anchor.force-tooltip-open .ast-tooltip {
+  .ast-pill-anchor:has(.pill-ast:hover) > .ast-tooltip,
+  .ast-pill-anchor:has(.pill-ast:focus-visible) > .ast-tooltip,
+  .ast-pill-anchor.force-tooltip-open > .ast-tooltip {
     opacity: 1;
     visibility: visible;
     display: block;
@@ -438,9 +448,6 @@ export const HUNK_EXPANSION_CSS = `
   }
 
   @media (max-width: 920px) {
-    .seam-gutter-tag {
-      display: none;
-    }
     .ast-tooltip {
       width: 280px;
     }
@@ -646,6 +653,55 @@ export function startSeamInteraction(params: StartSeamInteractionOptions): void 
 /**
  * Controller that injects the single-row center seam UI into Pierre's separator elements.
  */
+interface StyleCarrier {
+    style: CSSStyleDeclaration;
+}
+
+function isStyleCarrier(node: unknown): node is StyleCarrier {
+    return (
+        typeof node === 'object' &&
+        node !== null &&
+        'style' in node &&
+        typeof (node as StyleCarrier).style === 'object' &&
+        (node as StyleCarrier).style !== null
+    );
+}
+
+function getStyleCarrier(root: ParentNode | null | undefined): StyleCarrier | null {
+    if (!root) {
+        return null;
+    }
+    if ('host' in root && isStyleCarrier(root.host)) {
+        return root.host;
+    }
+    if (isStyleCarrier(root)) {
+        return root;
+    }
+    return null;
+}
+
+export function syncHostColumnNumberWidth(root: ParentNode | null | undefined, clearOnly = false): void {
+    const hostEl = getStyleCarrier(root);
+    if (!hostEl || typeof hostEl.style.removeProperty !== 'function') {
+        return;
+    }
+    if (clearOnly || !root || !('querySelector' in root)) {
+        hostEl.style.removeProperty('--diffs-column-number-width');
+        return;
+    }
+    const gutterEl = root.querySelector<HTMLElement>(
+        '[data-additions] [data-gutter], [data-additions] [data-column-number], [data-gutter], [data-column-number]',
+    );
+    if (gutterEl && typeof gutterEl.getBoundingClientRect === 'function') {
+        const measuredWidth = gutterEl.getBoundingClientRect().width;
+        if (measuredWidth > 0 && typeof hostEl.style.setProperty === 'function') {
+            hostEl.style.setProperty('--diffs-column-number-width', `${Math.round(measuredWidth)}px`);
+            return;
+        }
+    }
+    hostEl.style.removeProperty('--diffs-column-number-width');
+}
+
 export class HunkExpansionController {
     private syntaxBlocksCache: {
         diff: FileDiffMetadata;
@@ -721,12 +777,14 @@ export class HunkExpansionController {
         adoptDiffCustomStyles(root);
         const fileDiff = this.host.getRenderedDiff();
         if (!fileDiff?.hunks || fileDiff.hunks.length === 0) {
+            syncHostColumnNumberWidth(root, true);
             const stale = root.querySelectorAll('.jj-hunk-seam');
             for (const el of Array.from(stale)) {
                 el.remove();
             }
             return;
         }
+        syncHostColumnNumberWidth(root, false);
 
         const diffStyle = this.host.getDiffStyle();
         const blocks = this.getSyntaxBlocks(fileDiff);
@@ -819,9 +877,6 @@ export class HunkExpansionController {
             container.appendChild(seam);
         }
 
-        const oldTag = formatLineRangeTag('Old', gap.firstHiddenOld, gap.lastHiddenOld);
-        const newTag = formatLineRangeTag('New', gap.firstHiddenNew, gap.lastHiddenNew);
-
         seam.replaceChildren();
 
         if (isUnified) {
@@ -829,30 +884,14 @@ export class HunkExpansionController {
             const mainRow = document.createElement('div');
             mainRow.className = 'seam-main-row';
 
-            const leftTag = document.createElement('span');
-            leftTag.className = 'seam-gutter-tag';
-            leftTag.textContent = oldTag;
-
             const cluster = this.createClusterFragment(hunkIndex, gap.remaining, targets);
 
-            const rightTag = document.createElement('span');
-            rightTag.className = 'seam-gutter-tag';
-            rightTag.textContent = newTag;
-
-            mainRow.append(leftTag, cluster, rightTag);
+            mainRow.append(cluster);
             seam.append(this.createDragEdge('top'), mainRow, this.createDragEdge('bottom'));
             this.bindSeamEvents(seam, hunkIndex, targets);
         } else if (isDeletions) {
             seam.className = 'combo-seam-half deletions-half jj-hunk-seam';
-            const mainRow = document.createElement('div');
-            mainRow.className = 'seam-main-row-half seam-main-left';
-
-            const leftTag = document.createElement('span');
-            leftTag.className = 'seam-gutter-tag';
-            leftTag.textContent = oldTag;
-
-            mainRow.appendChild(leftTag);
-            seam.append(this.createDragEdge('top'), mainRow, this.createDragEdge('bottom'));
+            seam.append(this.createDragEdge('top'), this.createDragEdge('bottom'));
             this.bindDragEdgeEvents(seam, hunkIndex);
         } else if (isAdditions) {
             seam.className = 'combo-seam-half additions-half jj-hunk-seam';
@@ -862,11 +901,7 @@ export class HunkExpansionController {
             const cluster = this.createClusterFragment(hunkIndex, gap.remaining, targets);
             cluster.classList.add('seam-straddle');
 
-            const rightTag = document.createElement('span');
-            rightTag.className = 'seam-gutter-tag';
-            rightTag.textContent = newTag;
-
-            mainRow.append(cluster, rightTag);
+            mainRow.append(cluster);
             seam.append(this.createDragEdge('top'), mainRow, this.createDragEdge('bottom'));
             this.bindSeamEvents(seam, hunkIndex, targets);
         }
@@ -884,6 +919,9 @@ export class HunkExpansionController {
         const canExpandBelow = hunkIndex < hunksCount;
 
         if (canExpandAbove) {
+            const dockGroup = document.createElement('div');
+            dockGroup.className = 'dock-pair-group ast-pill-anchor';
+
             const topDock = document.createElement('div');
             topDock.className = 'dock-pair dock-top';
 
@@ -902,10 +940,13 @@ export class HunkExpansionController {
 
             const below = targets.below;
             if (below) {
-                const anchor = this.createAstBlockButton('below', below);
-                topDock.appendChild(anchor);
+                const { astBtn, tooltip } = this.createAstBlockElements('below', below);
+                topDock.appendChild(astBtn);
+                dockGroup.append(topDock, tooltip);
+            } else {
+                dockGroup.appendChild(topDock);
             }
-            cluster.appendChild(topDock);
+            cluster.appendChild(dockGroup);
         }
 
         const middleBtn = document.createElement('button');
@@ -923,6 +964,9 @@ export class HunkExpansionController {
         cluster.appendChild(middleBtn);
 
         if (canExpandBelow) {
+            const dockGroup = document.createElement('div');
+            dockGroup.className = 'dock-pair-group ast-pill-anchor';
+
             const bottomDock = document.createElement('div');
             bottomDock.className = 'dock-pair dock-bottom';
 
@@ -941,19 +985,25 @@ export class HunkExpansionController {
 
             const above = targets.above;
             if (above) {
-                const anchor = this.createAstBlockButton('above', above);
-                bottomDock.appendChild(anchor);
+                const { astBtn, tooltip } = this.createAstBlockElements('above', above);
+                bottomDock.appendChild(astBtn);
+                dockGroup.append(bottomDock, tooltip);
+            } else {
+                dockGroup.appendChild(bottomDock);
             }
-            cluster.appendChild(bottomDock);
+            cluster.appendChild(dockGroup);
         }
 
         return cluster;
     }
 
-    createAstBlockButton(direction: 'above' | 'below', target: AstBlockTarget): HTMLElement {
-        const anchor = document.createElement('div');
-        anchor.className = 'ast-pill-anchor';
-
+    createAstBlockElements(
+        direction: 'above' | 'below',
+        target: AstBlockTarget,
+    ): {
+        astBtn: HTMLButtonElement;
+        tooltip: HTMLElement;
+    } {
         const astBtn = document.createElement('button');
         astBtn.type = 'button';
         astBtn.className = 'seam-pill pill-ast';
@@ -972,7 +1022,6 @@ export class HunkExpansionController {
         astLabel.appendChild(token);
         astLabel.append(` · +${target.count})`);
         astBtn.appendChild(astLabel);
-        anchor.appendChild(astBtn);
 
         const tooltip = document.createElement('div');
         tooltip.className = `ast-tooltip tooltip-${direction}`;
@@ -1004,8 +1053,7 @@ export class HunkExpansionController {
         codeDiv.textContent = `L${target.targetLine}: ${target.codePreview}`;
 
         tooltip.append(header, pathDiv, codeDiv);
-        anchor.appendChild(tooltip);
-        return anchor;
+        return { astBtn, tooltip };
     }
 
     bindDragEdgeEvents(seam: HTMLElement, hunkIndex: number): void {
@@ -1391,6 +1439,7 @@ const codeViewControllers = new WeakMap<HTMLElement, CodeViewControllerEntry>();
 
 export function enhanceCodeViewDiffItemSeparators(node: HTMLElement, renderedItem: unknown): void {
     if (!isCodeViewDiffItem(renderedItem)) {
+        syncHostColumnNumberWidth(node, true);
         return;
     }
     let entry = codeViewControllers.get(node);

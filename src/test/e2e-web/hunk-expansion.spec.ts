@@ -215,11 +215,9 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
         const seamText = (await additionsSeam.textContent()) || '';
         expect(seamText).not.toMatch(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/u);
 
-        // Verify outer range badges (Old and New)
-        const oldTag = deletionsSeam.locator('.seam-gutter-tag').filter({ hasText: 'Old' }).first();
-        const newTag = additionsSeam.locator('.seam-gutter-tag').filter({ hasText: 'New' }).first();
-        await expect(oldTag).toBeVisible();
-        await expect(newTag).toBeVisible();
+        // Verify outer range badges (Old and New) are removed
+        await expect(additionsSeam.locator('.seam-gutter-tag')).toHaveCount(0);
+        await expect(deletionsSeam.locator('.seam-gutter-tag')).toHaveCount(0);
 
         // In Split Mode, verify .seam-center-cluster.seam-straddle straddles the 50% split boundary
         const cluster = additionsSeam.locator('.seam-center-cluster.seam-straddle');
@@ -234,29 +232,120 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
             expect(Math.abs(clusterCenterX - additionsBox.x)).toBeLessThan(40);
         }
 
+        // Verify dock-pair container has overflow: hidden, padding: 0px, and non-overlapping corner radii
+        const stepDownBtn = additionsSeam.locator('[data-role="step-down"]');
+        await expect(stepDownBtn).toBeVisible();
+        const dockProperties = await additionsSeam.evaluate((seam) => {
+            const topDock = seam.querySelector<HTMLElement>('.dock-pair.dock-top');
+            const bottomDock = seam.querySelector<HTMLElement>('.dock-pair.dock-bottom');
+            const stepBtn = seam.querySelector<HTMLElement>('[data-role="step-down"]');
+            const astBtn = seam.querySelector<HTMLElement>('[data-role="ast-down"]');
+            const topDockCs = topDock ? window.getComputedStyle(topDock) : null;
+            const bottomDockCs = bottomDock ? window.getComputedStyle(bottomDock) : null;
+            const stepCs = stepBtn ? window.getComputedStyle(stepBtn) : null;
+            const astCs = astBtn ? window.getComputedStyle(astBtn) : null;
+            return {
+                dockOverflow: topDockCs?.overflow,
+                dockPadding: topDockCs?.padding,
+                topDockTopLeft: topDockCs?.borderTopLeftRadius,
+                topDockTopRight: topDockCs?.borderTopRightRadius,
+                topDockBottomLeft: topDockCs?.borderBottomLeftRadius,
+                topDockBottomRight: topDockCs?.borderBottomRightRadius,
+                bottomDockTopLeft: bottomDockCs?.borderTopLeftRadius,
+                bottomDockTopRight: bottomDockCs?.borderTopRightRadius,
+                bottomDockBottomLeft: bottomDockCs?.borderBottomLeftRadius,
+                bottomDockBottomRight: bottomDockCs?.borderBottomRightRadius,
+                stepBorderRadius: stepCs?.borderRadius,
+                astBorderRadius: astCs?.borderRadius,
+            };
+        });
+        expect(dockProperties.dockOverflow).toBe('hidden');
+        expect(dockProperties.dockPadding).toBe('0px');
+        expect(dockProperties.topDockTopLeft).toBe('4px');
+        expect(dockProperties.topDockTopRight).toBe('4px');
+        expect(dockProperties.topDockBottomLeft).toBe('12px');
+        expect(dockProperties.topDockBottomRight).toBe('12px');
+        expect(dockProperties.bottomDockTopLeft).toBe('12px');
+        expect(dockProperties.bottomDockTopRight).toBe('12px');
+        expect(dockProperties.bottomDockBottomLeft).toBe('4px');
+        expect(dockProperties.bottomDockBottomRight).toBe('4px');
+        expect(dockProperties.stepBorderRadius).toBe('0px');
+        expect(dockProperties.astBorderRadius).toBe('0px');
+
+        // Verify buttons sit flush on hover
+        await stepDownBtn.hover();
+        const stepHoverFlush = await additionsSeam.evaluate((seam) => {
+            const stepBtn = seam.querySelector<HTMLElement>('[data-role="step-down"]');
+            return stepBtn ? window.getComputedStyle(stepBtn).borderRadius : null;
+        });
+        expect(stepHoverFlush).toBe('0px');
+
         // 2. AST +Block Hover Tooltip & Progressive Step-Out
         const astDownBtn = additionsSeam.locator('[data-role="ast-down"]');
         await expect(astDownBtn).toBeVisible();
 
         // Hover over the +Block button to reveal the tooltip
         await astDownBtn.hover();
+        const astHoverFlush = await additionsSeam.evaluate((seam) => {
+            const astBtn = seam.querySelector<HTMLElement>('[data-role="ast-down"]');
+            return astBtn ? window.getComputedStyle(astBtn).borderRadius : null;
+        });
+        expect(astHoverFlush).toBe('0px');
+
+        const topDock = additionsSeam.locator('.dock-pair.dock-top');
+        const dockBox = await topDock.boundingBox();
+        const stepBox = await stepDownBtn.boundingBox();
+        const astBox = await astDownBtn.boundingBox();
+        expect(dockBox).not.toBeNull();
+        expect(stepBox).not.toBeNull();
+        expect(astBox).not.toBeNull();
+        if (dockBox && stepBox && astBox) {
+            expect(Math.abs(stepBox.y - (dockBox.y + 1))).toBeLessThanOrEqual(1.5);
+            expect(Math.abs(stepBox.height - (dockBox.height - 2))).toBeLessThanOrEqual(1.5);
+            expect(Math.abs(stepBox.x - (dockBox.x + 1))).toBeLessThanOrEqual(1.5);
+            expect(Math.abs(astBox.x + astBox.width - (dockBox.x + dockBox.width - 1))).toBeLessThanOrEqual(1.5);
+            expect(Math.abs(astBox.x - (stepBox.x + stepBox.width))).toBeLessThanOrEqual(1.5);
+        }
+
         const tooltip = additionsSeam.locator('.ast-tooltip.tooltip-below');
         await expect(tooltip).toBeVisible();
 
         const tooltipBox = await tooltip.boundingBox();
         expect(tooltipBox).not.toBeNull();
-        if (tooltipBox) {
+        if (dockBox && tooltipBox) {
             expect(tooltipBox.width).toBeGreaterThanOrEqual(300);
             expect(tooltipBox.height).toBeGreaterThanOrEqual(50);
+            expect(tooltipBox.y).toBeGreaterThan(dockBox.y + dockBox.height);
+        }
+
+        await expect(tooltip).toContainText('BLOCK_BELOW');
+        await expect(tooltip.locator('.ast-tooltip-path')).toBeVisible();
+        await expect(tooltip.locator('.ast-tooltip-code')).toBeVisible();
+
+        // Hover [data-role="ast-up"] on bottomDock and verify .ast-tooltip.tooltip-above is visible and unclipped
+        const bottomDock = additionsSeam.locator('.dock-pair.dock-bottom');
+        const astUpBtn = bottomDock.locator('[data-role="ast-up"]');
+        await expect(astUpBtn).toBeVisible();
+        await astUpBtn.hover();
+        const tooltipAbove = additionsSeam.locator('.ast-tooltip.tooltip-above');
+        await expect(tooltipAbove).toBeVisible();
+        const bottomDockBox = await bottomDock.boundingBox();
+        const tooltipAboveBox = await tooltipAbove.boundingBox();
+        expect(bottomDockBox).not.toBeNull();
+        expect(tooltipAboveBox).not.toBeNull();
+        if (bottomDockBox && tooltipAboveBox) {
+            expect(tooltipAboveBox.width).toBeGreaterThanOrEqual(300);
+            expect(tooltipAboveBox.height).toBeGreaterThanOrEqual(50);
+            expect(tooltipAboveBox.y + tooltipAboveBox.height).toBeLessThan(bottomDockBox.y);
         }
 
         await page.screenshot({
             path: path.join(OUT_DIR, 'hunk_seam_split_dark.png'),
         });
 
-        await expect(tooltip).toContainText('BLOCK_BELOW');
-        await expect(tooltip.locator('.ast-tooltip-path')).toBeVisible();
-        await expect(tooltip.locator('.ast-tooltip-code')).toBeVisible();
+        // Re-hover astDownBtn to proceed with expansion click
+        await astDownBtn.hover();
+        await expect(tooltip).toBeVisible();
 
         // Verify click once expands to the end of the inner if block
         const countBeforeClick = await page.locator('[data-line-type="context-expanded"]').count();
@@ -339,11 +428,15 @@ test.describe('Hidden Line (Unchanged Context) Expansion', () => {
             path: path.join(OUT_DIR, 'hunk_seam_unified_dark.png'),
         });
 
-        // Narrow viewport test (<= 900px hides .seam-gutter-tag)
-        await page.setViewportSize({ width: 880, height: 800 });
+        // Verify outer range badges (Old and New) are removed in unified mode
+        await expect(comboSeam.locator('.seam-gutter-tag')).toHaveCount(0);
 
-        const gutterTag = comboSeam.locator('.seam-gutter-tag').first();
-        await expect(gutterTag).not.toBeVisible();
+        // Viewport resizing tests: seam remains visible and centered across mid and narrow widths
+        await page.setViewportSize({ width: 880, height: 800 });
+        await expect(comboSeam).toBeVisible();
+
+        await page.setViewportSize({ width: 500, height: 800 });
+        await expect(comboSeam).toBeVisible();
 
         // Restore viewport
         await page.setViewportSize({ width: 1280, height: 800 });

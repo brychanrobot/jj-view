@@ -8,6 +8,7 @@ import type { ThemeRegistration } from 'shiki';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureThemeSelectionBackground } from '../src/diff/highlighter-setup';
 import {
+    type AstBlockTarget,
     adoptDiffCustomStyles,
     buildSyntaxBlocks,
     clampExpansionLines,
@@ -141,8 +142,12 @@ function createFakeDom() {
                 data.parentElement = p;
             },
             get style() {
+                const styleObj: Partial<CSSStyleDeclaration> = {};
                 return createMock<CSSStyleDeclaration>(
-                    new Proxy(data.styleProps, {
+                    new Proxy(styleObj, {
+                        has(_target, _prop) {
+                            return true;
+                        },
                         set(_target, prop, value) {
                             if (typeof prop === 'string') {
                                 data.styleProps[prop] = String(value);
@@ -150,6 +155,20 @@ function createFakeDom() {
                             return true;
                         },
                         get(_target, prop) {
+                            if (prop === 'setProperty') {
+                                return (key: string, val: string) => {
+                                    data.styleProps[key] = val;
+                                };
+                            }
+                            if (prop === 'removeProperty') {
+                                return (key: string) => {
+                                    delete data.styleProps[key];
+                                    return '';
+                                };
+                            }
+                            if (prop === 'getPropertyValue') {
+                                return (key: string) => data.styleProps[key] ?? '';
+                            }
                             if (typeof prop === 'string') {
                                 return data.styleProps[prop] ?? '';
                             }
@@ -998,7 +1017,7 @@ describe('Hunk Expansion & AST +Block Engine', () => {
             }
         });
 
-        it('renders custom seam bar with seam pills and line range tags', () => {
+        it('renders custom seam bar with seam pills and no range tags', () => {
             const mockDiff = createMockFileDiff({
                 name: 'example.ts',
                 additionLines: Array.from({ length: 50 }, (_, i) => `line ${i + 1}`),
@@ -1047,6 +1066,122 @@ describe('Hunk Expansion & AST +Block Engine', () => {
             expect(seamBar.classList.contains('jj-hunk-seam')).toBe(true);
             expect(seamBar.querySelector('.seam-pill.pill-all')).not.toBeNull();
             expect(seamBar.textContent).toContain('+20 lines');
+            expect(seamBar.querySelectorAll('.seam-gutter-tag').length).toBe(0);
+        });
+
+        it('wraps dock-pair inside ast-pill-anchor with unclipped ast-tooltip sibling and renders zero range tags', () => {
+            const mockDiff = createMockFileDiff({
+                name: 'example.ts',
+                additionLines: Array.from({ length: 50 }, (_, i) => `line ${i + 1}`),
+                deletionLines: Array.from({ length: 50 }, (_, i) => `line ${i + 1}`),
+                hunks: [
+                    createMockHunk({
+                        collapsedBefore: 0,
+                        additionStart: 1,
+                        additionCount: 5,
+                        deletionStart: 1,
+                        deletionCount: 5,
+                    }),
+                    createMockHunk({
+                        collapsedBefore: 20,
+                        additionStart: 26,
+                        additionCount: 5,
+                        deletionStart: 26,
+                        deletionCount: 5,
+                    }),
+                ],
+            });
+
+            const host: HunkExpansionControllerHost = {
+                getRenderedDiff: () => mockDiff,
+                getExpandedHunk: () => ({ fromStart: 0, fromEnd: 0 }),
+                expandHunk: () => {},
+                getDiffStyle: () => 'unified',
+            };
+
+            const controller = new HunkExpansionController(host);
+            const container = makeEl('div');
+            const targetBelow: AstBlockTarget = {
+                block: {
+                    name: 'testFuncBelow',
+                    range: { start_line: 6, end_line: 25 },
+                    children: [],
+                },
+                targetLine: 15,
+                count: 10,
+                refLine: 6,
+                codePreview: 'function testFuncBelow() {',
+                path: [{ name: 'testFuncBelow', range: { start_line: 6, end_line: 25 }, children: [] }],
+            };
+
+            const targetAbove: AstBlockTarget = {
+                block: {
+                    name: 'testFuncAbove',
+                    range: { start_line: 26, end_line: 45 },
+                    children: [],
+                },
+                targetLine: 35,
+                count: 10,
+                refLine: 45,
+                codePreview: 'function testFuncAbove() {',
+                path: [{ name: 'testFuncAbove', range: { start_line: 26, end_line: 45 }, children: [] }],
+            };
+
+            const seamBar = controller.renderCustomSeamBar({
+                container,
+                hunkIndex: 1,
+                diffStyle: 'unified',
+                isDeletions: false,
+                isAdditions: false,
+                isUnified: true,
+                gap: {
+                    rangeSize: 20,
+                    remaining: 20,
+                    firstHiddenNew: 6,
+                    lastHiddenNew: 25,
+                    firstHiddenOld: 6,
+                    lastHiddenOld: 25,
+                    fromStart: 0,
+                    fromEnd: 0,
+                },
+                targets: { above: targetAbove, below: targetBelow },
+            });
+
+            // Zero .seam-gutter-tag elements rendered
+            expect(seamBar.querySelectorAll('.seam-gutter-tag').length).toBe(0);
+
+            // topDock is wrapped inside .dock-pair-group.ast-pill-anchor with unclipped tooltip-below
+            const topDock = seamBar.querySelector<HTMLElement>('.dock-pair.dock-top');
+            expect(topDock).not.toBeNull();
+            const topGroup = topDock?.parentElement;
+            expect(topGroup?.className).toBe('dock-pair-group ast-pill-anchor');
+            const tooltipBelow = topGroup?.querySelector<HTMLElement>('.ast-tooltip.tooltip-below');
+            expect(tooltipBelow).not.toBeNull();
+            expect(topDock?.querySelector('.ast-tooltip')).toBeNull();
+            expect(tooltipBelow?.parentElement).toBe(topGroup);
+            expect(topDock?.querySelector('[data-role="step-down"]')).not.toBeNull();
+            expect(topDock?.querySelector('[data-role="ast-down"]')).not.toBeNull();
+
+            // bottomDock is wrapped inside .dock-pair-group.ast-pill-anchor with unclipped tooltip-above
+            const bottomDock = seamBar.querySelector<HTMLElement>('.dock-pair.dock-bottom');
+            expect(bottomDock).not.toBeNull();
+            const bottomGroup = bottomDock?.parentElement;
+            expect(bottomGroup?.className).toBe('dock-pair-group ast-pill-anchor');
+            const tooltipAbove = bottomGroup?.querySelector<HTMLElement>('.ast-tooltip.tooltip-above');
+            expect(tooltipAbove).not.toBeNull();
+            expect(bottomDock?.querySelector('.ast-tooltip')).toBeNull();
+            expect(tooltipAbove?.parentElement).toBe(bottomGroup);
+            expect(bottomDock?.querySelector('[data-role="step-up"]')).not.toBeNull();
+            expect(bottomDock?.querySelector('[data-role="ast-up"]')).not.toBeNull();
+        });
+
+        it('clears --diffs-column-number-width when enhanceCodeViewDiffItemSeparators is called with non-diff item', () => {
+            const container = makeEl('div');
+            container.style.setProperty('--diffs-column-number-width', '48px');
+            expect(container.style.getPropertyValue('--diffs-column-number-width')).toBe('48px');
+
+            enhanceCodeViewDiffItemSeparators(container, { type: 'file', name: 'image.png' });
+            expect(container.style.getPropertyValue('--diffs-column-number-width')).toBe('');
         });
 
         it('enhances CodeView diff item separators via enhanceCodeViewDiffItemSeparators', () => {
