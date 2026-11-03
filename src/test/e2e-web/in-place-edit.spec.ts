@@ -30,7 +30,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
 
         // Verify Pierre Diff Viewer mounts
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
-        await expect(diffViewer).toBeVisible({ timeout: 5000 });
+        await expect(diffViewer).toBeVisible({ timeout: 15000 });
 
         // Discard changes via SCM resource action
         await resourceItem.hover();
@@ -41,7 +41,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         // Working copy should now be clean and file restored on disk
         await expect(
             page.locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]'),
-        ).toHaveCount(0, { timeout: 5000 });
+        ).toHaveCount(0, { timeout: 15000 });
 
         const diskContent = testRepo.getFileContent('@', 'notes.txt');
         expect(diskContent).toBe('original line 1\noriginal line 2\n');
@@ -93,7 +93,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
 
         // Verify Diff Viewer is mounted with conflict resolution button
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
-        await expect(diffViewer).toBeVisible({ timeout: 5000 });
+        await expect(diffViewer).toBeVisible({ timeout: 15000 });
 
         const resolveBtn = diffViewer.locator('[data-testid="diff-resolve-conflict-btn"]');
         await expect(resolveBtn).toBeVisible();
@@ -113,22 +113,27 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         const item = page
             .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
             .filter({ hasText: 'editable.txt' });
-        await item.click();
+        await item.locator('.file-name').click();
 
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
-        await expect(diffViewer).toBeVisible();
+        await expect(diffViewer).toBeVisible({ timeout: 15000 });
 
         const editor = diffViewer.getByRole('textbox');
-        await expect(editor).toBeVisible();
-        await editor.click();
-        await page.waitForTimeout(200);
-        await page.keyboard.type('\nappended edit', { delay: 50 });
-        await page.waitForTimeout(200);
+        await expect(editor).toBeVisible({ timeout: 15000 });
+        const editableLine = editor.locator('[data-line]').last();
+        await expect(async () => {
+            await editableLine.click();
+            await expect(editor).toBeFocused({ timeout: 500 });
+        }).toPass({ timeout: 10000 });
+        await editor.pressSequentially('\nappended edit', { delay: 15 });
+        await expect(editor).toContainText('appended edit', { timeout: 5000 });
 
         // Save via keyboard shortcut
         await save(page);
 
-        await expect.poll(() => testRepo.getFileContent('@', 'editable.txt'), { timeout: 5000 }).toContain('edit');
+        await expect
+            .poll(() => testRepo.getFileContent('@', 'editable.txt'), { timeout: 15000 })
+            .toContain('appended edit');
     });
 
     test('should allow editing jj-edit files in diffs for mutable parent commits', async ({
@@ -152,22 +157,25 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
             .locator('[data-testid="scm-group-ancestor-0"] [data-testid="scm-resource-item"]')
             .filter({ hasText: 'parent-file.txt' });
         await expect(ancestorItem).toBeVisible();
-        await ancestorItem.click();
+        await ancestorItem.locator('.file-name').click();
 
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
-        await expect(diffViewer).toBeVisible();
+        await expect(diffViewer).toBeVisible({ timeout: 30000 });
 
         const editor = diffViewer.getByRole('textbox');
-        await expect(editor).toBeVisible();
-        await editor.click();
-        await page.waitForTimeout(200);
-        await page.keyboard.type('\nparent edit via diff', { delay: 50 });
-        await page.waitForTimeout(200);
+        await expect(editor).toBeVisible({ timeout: 15000 });
+        const editableLine = editor.locator('[data-line]').last();
+        await expect(async () => {
+            await editableLine.click();
+            await expect(editor).toBeFocused({ timeout: 500 });
+        }).toPass({ timeout: 10000 });
+        await editor.pressSequentially('\nparent edit via diff', { delay: 15 });
+        await expect(editor).toContainText('parent edit via diff', { timeout: 5000 });
 
-        await page.keyboard.press('ControlOrMeta+s');
+        await save(page);
 
         await expect
-            .poll(() => testRepo.getFileContent(parentChangeId, 'parent-file.txt'), { timeout: 5000 })
+            .poll(() => testRepo.getFileContent(parentChangeId, 'parent-file.txt'), { timeout: 15000 })
             .toContain('parent edit via diff');
     });
 
@@ -193,19 +201,22 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await fileRow.locator('.file-name').click();
 
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
-        await expect(diffViewer).toBeVisible();
+        await expect(diffViewer).toBeVisible({ timeout: 30000 });
 
         const editor = diffViewer.getByRole('textbox');
-        await expect(editor).toBeVisible();
-        await editor.click();
-        await page.waitForTimeout(200);
-        await page.keyboard.type('\nedited from commit details diff', { delay: 50 });
-        await page.waitForTimeout(200);
+        await expect(editor).toBeVisible({ timeout: 15000 });
+        const editableLine = editor.locator('[data-line]').last();
+        await expect(async () => {
+            await editableLine.click();
+            await expect(editor).toBeFocused({ timeout: 500 });
+        }).toPass({ timeout: 10000 });
+        await editor.pressSequentially('\nedited from commit details diff', { delay: 15 });
+        await expect(editor).toContainText('edited from commit details diff', { timeout: 5000 });
 
-        await page.keyboard.press('ControlOrMeta+s');
+        await save(page);
 
         await expect
-            .poll(() => testRepo.getFileContent(ancestorChangeId, 'details-edit.txt'), { timeout: 5000 })
+            .poll(() => testRepo.getFileContent(ancestorChangeId, 'details-edit.txt'), { timeout: 15000 })
             .toContain('edited from commit details diff');
     });
 });

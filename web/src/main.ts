@@ -292,7 +292,7 @@ export async function bootstrap(): Promise<void> {
             if (!model) {
                 model = new ScmModel(r, outputChannel);
                 scmModels.set(key, model);
-                model.refresh({ reason: 'initial' }).catch((err: unknown) => {
+                model.refresh({ reason: 'initial', forceSnapshot: true }).catch((err: unknown) => {
                     outputChannel.error(`Initial SCM refresh failed for ${key}`, toError(err));
                 });
             }

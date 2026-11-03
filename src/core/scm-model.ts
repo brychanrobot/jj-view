@@ -83,7 +83,7 @@ export class ScmModel implements Disposable {
             await this.updateSnapshot(event);
         });
         this._onDidChangeRepository.fire(repo);
-        void this.refresh({ reason: 'repository-changed' });
+        void this.refresh({ forceSnapshot: true, reason: 'repository-changed' });
     }
 
     get jj(): JjService {
