@@ -106,6 +106,50 @@ describe('showMultiFileDiffCommand', () => {
         expect(ctx.host.nav.multiDiffsOpened).toHaveLength(0);
     });
 
+    it('uses fallback title when commit description is empty', async () => {
+        repo.writeFile('file.txt', 'content');
+        const changeId = repo.getChangeId('@');
+        const shortId = changeId.slice(0, 8);
+
+        await showMultiFileDiffCommand(ctx, { revision: changeId });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        expect(ctx.host.nav.multiDiffsOpened[0].title).toBe(`Changes in ${shortId}`);
+    });
+
+    it('does not truncate titles up to 100 characters', async () => {
+        repo.writeFile('file.txt', 'content');
+        // shortId (8) + ': ' (2) + 90 chars = 100 chars total
+        const subject = 'a'.repeat(90);
+        repo.describe(`${subject}\n\nExtra body text that should be ignored`);
+        const changeId = repo.getChangeId('@');
+        const shortId = changeId.slice(0, 8);
+
+        await showMultiFileDiffCommand(ctx, { revision: changeId });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const { title } = ctx.host.nav.multiDiffsOpened[0];
+        expect(title).toBe(`${shortId}: ${subject}`);
+        expect(title).toHaveLength(100);
+    });
+
+    it('truncates multi-diff title to 100 characters when subject line exceeds limit', async () => {
+        repo.writeFile('file.txt', 'content');
+        const longSubject = 'a very very long subject line '.repeat(7).trim(); // > 188 chars
+        repo.describe(longSubject);
+        const changeId = repo.getChangeId('@');
+        const shortId = changeId.slice(0, 8);
+
+        await showMultiFileDiffCommand(ctx, { revision: changeId });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const { title } = ctx.host.nav.multiDiffsOpened[0];
+        const expectedRaw = `${shortId}: ${longSubject}`;
+        expect(title).toHaveLength(100);
+        expect(title).toBe(`${expectedRaw.slice(0, 97)}...`);
+        expect(title.endsWith('...')).toBe(true);
+    });
+
     it('declares resourceLabelFormatters in package.json to strip leading path separator for custom schemes', async () => {
         const pkgPath = path.resolve(__dirname, '../../../package.json');
         const pkgContent = JSON.parse(await fs.readFile(pkgPath, 'utf8')) as {
