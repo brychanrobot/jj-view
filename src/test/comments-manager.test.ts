@@ -850,4 +850,75 @@ describe('CommentsManager Tests', () => {
         expect(commentsManager.threads[0].line).toBe(7);
         expect(commentsManager.threads[0].metadata?.originalLine).toBe(2);
     });
+
+    test('does not fetch or display comments when codeForge.enableComments is false', async () => {
+        fakeHost.config.set('codeForge.enableComments', false);
+
+        const getThreadsSpy = vi.spyOn(provider, 'getCommentThreads');
+        provider.setThreads([
+            {
+                id: 'thread-disabled',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [],
+            },
+        ]);
+
+        await commentsManager.showCommentsForChange('@');
+        expect(getThreadsSpy).not.toHaveBeenCalled();
+        expect(commentsManager.threads).toHaveLength(0);
+        expect(commentsProvider.getThreads().size).toBe(0);
+
+        await commentsManager.pullCommentsAutomatically();
+        expect(getThreadsSpy).not.toHaveBeenCalled();
+        expect(commentsManager.threads).toHaveLength(0);
+    });
+
+    test('clears loaded threads when codeForge.enableComments is disabled and reloads when re-enabled', async () => {
+        provider.setThreads([
+            {
+                id: 'thread-toggle',
+                filePath: 'file.txt',
+                line: 10,
+                isResolved: false,
+                comments: [
+                    {
+                        id: 'c1',
+                        author: { name: 'Reviewer' },
+                        body: 'Initial comment',
+                        createdAt: '2026-06-30T12:00:00Z',
+                    },
+                ],
+            },
+        ]);
+
+        await commentsManager.showCommentsForChange('@');
+        expect(commentsManager.threads).toHaveLength(1);
+        expect(commentsProvider.getThreads().size).toBe(1);
+
+        // Disable comments integration and verify synchronous listeners see activeChange already cleared
+        let activeChangeDuringClear: unknown = 'unset';
+        const sub = commentsManager.onDidChangeThreads((threads) => {
+            if (threads.length === 0) {
+                activeChangeDuringClear = commentsManager.activeChange;
+            }
+        });
+        fakeHost.config.set('codeForge.enableComments', false);
+        sub.dispose();
+        expect(activeChangeDuringClear).toBeUndefined();
+        expect(commentsManager.threads).toHaveLength(0);
+        expect(commentsManager.activeChange).toBeUndefined();
+        expect(commentsProvider.getThreads().size).toBe(0);
+
+        // Re-enable comments integration and wait for automatic reload
+        const pullWaiter = provider.createCommentThreadsWaiter();
+        fakeHost.config.set('codeForge.enableComments', true);
+        await pullWaiter.waitNext();
+
+        await vi.waitFor(() => {
+            expect(commentsManager.threads).toHaveLength(1);
+            expect(commentsProvider.getThreads().size).toBe(1);
+        });
+    });
 });

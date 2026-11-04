@@ -623,7 +623,7 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             {
                 command: 'jj-view.copyUnresolvedComments',
                 group: 'navigation',
-                when: 'view == workbench.panel.comments && jj.codeForgeActive',
+                when: 'view == workbench.panel.comments && jj.codeForgeActive && config.jj-view.codeForge.enableComments',
             },
         ],
         'scm/title': [

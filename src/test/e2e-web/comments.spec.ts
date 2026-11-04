@@ -300,4 +300,103 @@ test.describe('Standalone Web Review Comments', () => {
             await server.stop();
         }
     });
+
+    test('disables and re-enables Gerrit comments via codeForge.enableComments setting', async ({ page, testRepo }) => {
+        testRepo.writeFile('service.ts', 'export function computeValue(): number {\n    return 42;\n}\n');
+        const changeId = `I${'6'.repeat(40)}`;
+        testRepo.describe(`Configurable comments change\n\nChange-Id: ${changeId}`);
+        const clNumber = gerrit.registerChange(changeId);
+        gerrit.updateChange(changeId, { unresolved_comment_count: 1 });
+        gerrit.registerComments(clNumber, {
+            'service.ts': [
+                {
+                    id: 'toggle-thread',
+                    line: 2,
+                    message: 'Consider extracting a constant here',
+                    updated: '2023-01-02T10:00:00.000Z',
+                    unresolved: true,
+                    author: { name: 'Gerrit Reviewer', username: 'reviewer' },
+                },
+            ],
+        });
+
+        const server = new StandaloneServer(testRepo, {
+            prepareUserData: (userDataDir) => {
+                fs.writeFileSync(path.join(userDataDir, 'config.json'), JSON.stringify({ 'gerrit.host': gerrit.url }));
+            },
+        });
+        await server.start();
+        try {
+            await page.goto(server.serverUrl);
+            await waitForScmReady(page);
+
+            const gifPath = path.join(ARTIFACT_DIR, 'disable-comments-flow.gif');
+            await recordGifFlow(
+                page,
+                async (captureFrame) => {
+                    const row = page
+                        .locator('[data-testid="log-content"] .commit-row')
+                        .filter({ hasText: 'Configurable comments change' });
+                    const commentsButton = row.locator('.comments-button');
+                    await expect(commentsButton).toBeVisible({ timeout: 20000 });
+
+                    // Open the working copy diff to see the inline Gerrit comment thread.
+                    await page
+                        .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+                        .filter({ hasText: 'service.ts' })
+                        .first()
+                        .click();
+                    await expect(page.locator('[data-testid="pierre-diff-viewer"]')).toBeVisible({ timeout: 20000 });
+                    const inlineThread = page.locator(
+                        '[data-testid="diff-comment-annotation"][data-thread-id="toggle-thread"]',
+                    );
+                    await expect(inlineThread).toBeVisible({ timeout: 20000 });
+                    await expect(inlineThread).toContainText('Consider extracting a constant here');
+                    await captureFrame();
+
+                    // Open Settings modal and search for enableComments.
+                    await page.locator('[data-testid="scm-settings-button"]').click();
+                    const modal = page.locator('[data-testid="settings-modal"]');
+                    await expect(modal).toBeVisible();
+                    const searchInput = modal.locator('[data-testid="settings-search-input"]');
+                    await searchInput.fill('enableComments');
+
+                    const settingItem = modal.locator('[data-testid="setting-item-codeForge.enableComments"]');
+                    const checkbox = modal.locator('[data-testid="setting-control-codeForge.enableComments"]');
+                    await expect(settingItem).toBeVisible();
+                    await expect(checkbox).toBeChecked();
+                    await captureFrame();
+
+                    // Toggle codeForge.enableComments off.
+                    await checkbox.click();
+                    await expect(checkbox).not.toBeChecked();
+                    await expect(settingItem.locator('.toggle-label')).toHaveText('Disabled');
+                    await captureFrame();
+
+                    // Close Settings modal and verify inline comments and log comment bubble are hidden.
+                    await page.keyboard.press('Escape');
+                    await expect(modal).toHaveCount(0);
+                    await expect(inlineThread).toHaveCount(0);
+                    await expect(commentsButton).toHaveCount(0);
+                    await captureFrame();
+
+                    // Re-enable codeForge.enableComments and verify comments are restored.
+                    await page.locator('[data-testid="scm-settings-button"]').click();
+                    await expect(modal).toBeVisible();
+                    await searchInput.fill('enableComments');
+                    await checkbox.click();
+                    await expect(checkbox).toBeChecked();
+                    await page.keyboard.press('Escape');
+                    await expect(modal).toHaveCount(0);
+
+                    await expect(commentsButton).toBeVisible({ timeout: 20000 });
+                    await expect(inlineThread).toBeVisible({ timeout: 20000 });
+                    await captureFrame();
+                },
+                { outputPath: gifPath },
+            );
+        } finally {
+            await server.stop();
+        }
+    });
 });

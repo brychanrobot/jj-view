@@ -77,11 +77,18 @@ export class CodeForgeService implements Disposable {
         if (this.host.config.onDidChangeConfiguration) {
             this.disposables.push(
                 this.host.config.onDidChangeConfiguration((e) => {
+                    if (e.affectsConfiguration('jj-view.codeForge.enableComments')) {
+                        this._onDidUpdate.fire();
+                        if (this.host.config.get<boolean>('codeForge.enableComments', true) ?? true) {
+                            this.forceRefresh();
+                        }
+                    }
                     if (
                         e.affectsConfiguration('jj-view.gerrit') ||
                         e.affectsConfiguration('jj-view.github') ||
                         e.affectsConfiguration('jj-view.gitlab') ||
-                        e.affectsConfiguration('jj-view.codeForge')
+                        e.affectsConfiguration('jj-view.codeForge.provider') ||
+                        e.affectsConfiguration('jj-view.codeForge.adapterCommand')
                     ) {
                         this.detectActiveProvider(true);
                     }
@@ -360,6 +367,7 @@ export class CodeForgeService implements Disposable {
             return;
         }
 
+        const commentsEnabled = this.host.config.get<boolean>('codeForge.enableComments', true) ?? true;
         const isManagedBookmark = activeProvider.isManagedBookmark;
         const commitMap = new Map<string, JjLogEntry>();
         for (const commit of commits) {
@@ -372,7 +380,20 @@ export class CodeForgeService implements Disposable {
                     (commit.bookmarks ?? []).filter((b) => !b.remote).map((b) => b.name),
                     commit.commit_id,
                 );
-                commit.codeForgeChange = info ? { ...info } : undefined;
+                if (info) {
+                    commit.codeForgeChange = commentsEnabled
+                        ? { ...info }
+                        : {
+                              ...info,
+                              unresolvedComments: 0,
+                              draftComments: undefined,
+                              draftResponses: undefined,
+                              addressedThreads: undefined,
+                              hasDraftResponses: undefined,
+                          };
+                } else {
+                    commit.codeForgeChange = undefined;
+                }
             }
         }
 

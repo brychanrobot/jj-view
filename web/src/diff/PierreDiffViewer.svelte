@@ -159,6 +159,7 @@ $effect(() => {
     }
     const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !untrack(() => currentContent));
     instance.setLineAnnotations(buildLineAnnotations(handles, isDeleted));
+    instance.rerender();
     threadMounts.retainOnly(new Set(handles.map((h) => h.id)));
 });
 

@@ -83,6 +83,15 @@ export const PACKAGE_SETTINGS: readonly SettingDefinition[] = [
         default: '',
     },
     {
+        key: 'codeForge.enableComments',
+        title: 'Code Forge Enable Comments',
+        description:
+            'Controls whether code forge review comments (GitHub, GitLab, Gerrit) are fetched and displayed in the editor and Comments panel.',
+        category: 'General',
+        type: 'boolean',
+        default: true,
+    },
+    {
         key: 'gerrit.host',
         title: 'Gerrit Host',
         description:
