@@ -118,6 +118,18 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(redo)',
         },
         {
+            command: 'jj-view.prev',
+            title: 'Previous Change',
+            category: 'JJ View',
+            icon: '$(arrow-down)',
+        },
+        {
+            command: 'jj-view.next',
+            title: 'Next Change',
+            category: 'JJ View',
+            icon: '$(arrow-up)',
+        },
+        {
             command: 'jj-view.duplicate',
             title: 'Duplicate',
             category: 'JJ View',

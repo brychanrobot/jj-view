@@ -129,6 +129,8 @@ The extension automatically refreshes the view when:
 - `JJ View: New`: Create a new empty change at the current head.
 - `JJ View: New Before`: Create a new change _before_ the current revisions (inserts a new parent).
 - `JJ View: New After`: Create a new change _after_ the current revisions (inserts a new child).
+- `JJ View: Previous Change`: Move the working copy to the previous change (`jj prev`).
+- `JJ View: Next Change`: Move the working copy to the next change (`jj next`).
 - `JJ View: Edit`: Edit a specific revision.
 - `JJ View: Duplicate`: Duplicate a change.
 - `JJ View: Abandon`: Abandon (delete) a change.
