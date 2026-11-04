@@ -53,6 +53,9 @@ export interface UnresolveCommentThreadPayload {
 }
 
 export async function showCommentsCommand(ctx: CommandContext, payload?: ShowCommentsPayload): Promise<void> {
+    if ((ctx.host.config.get<boolean>('codeForge.enableComments', true) ?? true) === false) {
+        return;
+    }
     const commentsManager = ctx.services?.commentsManager;
     const changeId = payload?.changeId;
     if (!commentsManager || !changeId) {

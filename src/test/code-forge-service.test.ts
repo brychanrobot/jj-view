@@ -543,4 +543,57 @@ describe('CodeForgeService Tests', () => {
 
         service.dispose();
     });
+
+    test('populateCodeForgeInfo suppresses comment counts when codeForge.enableComments is false', async () => {
+        const provider = new MockProvider();
+        registry.register({ id: 'mock-provider', create: () => provider });
+
+        const service = new CodeForgeService(repo1.path, jjService1, registry, host, NO_OP_LOGGER);
+        await service.awaitReady();
+
+        provider.setCachedChangeInfo(
+            'change-1',
+            createMock<CodeForgeChangeInfo>({
+                id: 'change-1',
+                number: 1,
+                displayLabel: 'CL/1',
+                providerName: 'Gerrit',
+                status: 'NEW',
+                currentRevision: 'rev-1',
+                unresolvedComments: 4,
+                draftComments: 2,
+                draftResponses: 1,
+                addressedThreads: 1,
+                hasDraftResponses: true,
+            }),
+        );
+
+        const commits: JjLogEntry[] = [
+            createMock<JjLogEntry>({
+                change_id: 'change-1',
+                commit_id: 'rev-1',
+                description: 'Commit 1',
+                is_immutable: false,
+                bookmarks: [],
+            }),
+        ];
+
+        const detectSpy = vi.spyOn(service, 'detectActiveProvider');
+
+        host.config.set('codeForge.enableComments', false);
+        expect(detectSpy).not.toHaveBeenCalled();
+        service.populateCodeForgeInfo(commits);
+        expect(commits[0].codeForgeChange?.unresolvedComments).toBe(0);
+        expect(commits[0].codeForgeChange?.draftComments).toBeUndefined();
+        expect(commits[0].codeForgeChange?.draftResponses).toBeUndefined();
+
+        host.config.set('codeForge.enableComments', true);
+        expect(detectSpy).not.toHaveBeenCalled();
+        service.populateCodeForgeInfo(commits);
+        expect(commits[0].codeForgeChange?.unresolvedComments).toBe(4);
+        expect(commits[0].codeForgeChange?.draftComments).toBe(2);
+        expect(commits[0].codeForgeChange?.draftResponses).toBe(1);
+
+        service.dispose();
+    });
 });

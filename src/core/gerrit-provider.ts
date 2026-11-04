@@ -568,7 +568,8 @@ export class GerritProvider implements CodeForgeProvider {
             number,
             { draftComments: number; draftResponses: number; addressedThreads: number; hasDraftResponses: boolean }
         >();
-        const newChanges = Array.from(uniqueChanges.values()).filter((c) => c.status === 'NEW');
+        const commentsEnabled = this.host.config.get<boolean>('codeForge.enableComments', true) ?? true;
+        const newChanges = commentsEnabled ? Array.from(uniqueChanges.values()).filter((c) => c.status === 'NEW') : [];
         const DRAFT_FETCH_CONCURRENCY = 4;
         let cursor = 0;
         const worker = async () => {
@@ -1018,6 +1019,9 @@ export class GerritProvider implements CodeForgeProvider {
     }
 
     public async getCommentThreads(changeId: string, signal?: AbortSignal): Promise<CodeForgeCommentThread[]> {
+        if ((this.host.config.get<boolean>('codeForge.enableComments', true) ?? true) === false) {
+            return [];
+        }
         const changeInfo = Array.from(this.cache.values()).find((info) => info.id === changeId);
         if (!changeInfo) {
             return [];

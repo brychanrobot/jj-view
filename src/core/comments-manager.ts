@@ -48,15 +48,37 @@ export class CommentsManager implements Disposable {
         // Clear comments when active repository changes
         this.disposables.push(
             this.repositoryManager.onDidChangeFocusedRepository(() => {
-                this.clearThreads();
                 this.clearActiveChange();
+                this.clearThreads();
                 this.explicitChangeId = undefined;
                 this.lastWorkingCopyId = undefined;
                 this.updateRepoSubscriptions();
             }),
         );
 
+        if (this.host.config.onDidChangeConfiguration) {
+            this.disposables.push(
+                this.host.config.onDidChangeConfiguration((e) => {
+                    if (e.affectsConfiguration('jj-view.codeForge.enableComments')) {
+                        if (this.isCommentsEnabled()) {
+                            this.pullCommentsAutomatically().catch(() => {});
+                        } else {
+                            if (this.activeLoadController) {
+                                this.activeLoadController.abort();
+                            }
+                            this.clearActiveChange();
+                            this.clearThreads();
+                        }
+                    }
+                }),
+            );
+        }
+
         this.updateRepoSubscriptions();
+    }
+
+    private isCommentsEnabled(): boolean {
+        return this.host.config.get<boolean>('codeForge.enableComments', true) ?? true;
     }
 
     public get threads(): readonly CodeForgeCommentThread[] {
@@ -219,6 +241,14 @@ export class CommentsManager implements Disposable {
      * Cancels any active load if a new pull is triggered.
      */
     public async pullCommentsAutomatically(): Promise<void> {
+        if (!this.isCommentsEnabled()) {
+            if (this.activeLoadController) {
+                this.activeLoadController.abort();
+            }
+            this.clearActiveChange();
+            this.clearThreads();
+            return;
+        }
         if (this.explicitLoadCount > 0) {
             return;
         }
@@ -227,8 +257,8 @@ export class CommentsManager implements Disposable {
         try {
             const repo = this.repositoryManager.focusedRepository;
             if (!repo) {
-                this.clearThreads();
                 this.clearActiveChange();
+                this.clearThreads();
                 return;
             }
             if (signal.aborted) {
@@ -237,8 +267,8 @@ export class CommentsManager implements Disposable {
 
             const { activeProvider } = repo.codeForge;
             if (!activeProvider?.getCommentThreads) {
-                this.clearThreads();
                 this.clearActiveChange();
+                this.clearThreads();
                 return;
             }
 
@@ -276,8 +306,8 @@ export class CommentsManager implements Disposable {
             if (target) {
                 await this.loadCommentsForChange(target, signal);
             } else {
-                this.clearThreads();
                 this.clearActiveChange();
+                this.clearThreads();
             }
         } catch {
             // Ignore
@@ -289,6 +319,9 @@ export class CommentsManager implements Disposable {
      * Avoids running any slow jj CLI queries.
      */
     public async refreshActiveChangeComments(): Promise<void> {
+        if (!this.isCommentsEnabled()) {
+            return;
+        }
         const repo = this.repositoryManager.focusedRepository;
         if (!repo || !this.activeChangeInfo || !this.activeJjChangeId) {
             return;
@@ -308,6 +341,11 @@ export class CommentsManager implements Disposable {
      * Loads comment threads from the forge provider for a specific revision.
      */
     private async loadCommentsForChange(target: ResolvedChange, signal: AbortSignal): Promise<void> {
+        if (!this.isCommentsEnabled()) {
+            this.clearActiveChange();
+            this.clearThreads();
+            return;
+        }
         const repo = this.repositoryManager.focusedRepository;
         if (!repo) {
             return;
@@ -325,19 +363,19 @@ export class CommentsManager implements Disposable {
 
         // Clear existing threads immediately if switching to a different change to avoid stale state
         if (this.activeChangeId !== providerChangeId) {
-            this.clearThreads();
             this.clearActiveChange();
+            this.clearThreads();
         }
 
         const provider = activeProvider as Required<Pick<CodeForgeProvider, 'getCommentThreads'>> & CodeForgeProvider;
 
         try {
             const rawThreadsList = await provider.getCommentThreads(providerChangeId, signal);
-            if (signal.aborted) {
+            if (signal.aborted || !this.isCommentsEnabled()) {
                 return;
             }
             const threadsList = await this.applyDriftCorrection(repo, target, rawThreadsList, signal);
-            if (signal.aborted) {
+            if (signal.aborted || !this.isCommentsEnabled()) {
                 return;
             }
             this.activeChangeId = providerChangeId;
@@ -495,6 +533,14 @@ export class CommentsManager implements Disposable {
     }
 
     public async showCommentsForChange(changeId: string): Promise<void> {
+        if (!this.isCommentsEnabled()) {
+            if (this.activeLoadController) {
+                this.activeLoadController.abort();
+            }
+            this.clearActiveChange();
+            this.clearThreads();
+            return;
+        }
         this.explicitChangeId = changeId;
         this.explicitLoadCount++;
         const signal = this.startNewLoad();
@@ -517,8 +563,8 @@ export class CommentsManager implements Disposable {
             if (target) {
                 await this.loadCommentsForChange(target, signal);
             } else {
-                this.clearThreads();
                 this.clearActiveChange();
+                this.clearThreads();
             }
         } finally {
             this.explicitLoadCount--;
@@ -720,6 +766,7 @@ export class CommentsManager implements Disposable {
         if (this.activeLoadController) {
             this.activeLoadController.abort();
         }
+        this.clearActiveChange();
         this.clearThreads();
         for (const d of this.repoDisposables) {
             d.dispose();

@@ -1194,5 +1194,42 @@ describe('GerritProvider', () => {
             expect(draftsCache.peek(6)).toBeDefined();
             expect(draftsCache.peek(155)).toBeDefined();
         });
+
+        test('skips fetching comment threads and drafts when codeForge.enableComments is false', async () => {
+            host.config.set('codeForge.enableComments', false);
+
+            server.registerComments(123, {
+                'file.txt': [
+                    {
+                        id: 'comment-1',
+                        line: 10,
+                        message: 'Should not be fetched',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                        author: { name: 'Reviewer A', username: 'rev_a' },
+                    },
+                ],
+            });
+            const changeNum = server.registerChange('I99999');
+            server.registerDrafts(changeNum, {
+                'file.txt': [
+                    {
+                        id: 'draft-999',
+                        line: 5,
+                        message: 'Draft should not be fetched',
+                        updated: '2026-06-30T12:00:00Z',
+                        unresolved: true,
+                    },
+                ],
+            });
+            server.clearRequests();
+
+            const threads = await provider.getCommentThreads('I12345');
+            expect(threads).toEqual([]);
+            expect(server.requests.some((req) => req.includes('/comments'))).toBe(false);
+
+            await provider.fetchStatuses([{ commitId: 'c-999', changeId: 'I99999' }], mockJjService);
+            expect(server.requests.some((req) => req.includes('/drafts'))).toBe(false);
+        });
     });
 });

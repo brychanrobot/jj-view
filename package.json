@@ -127,6 +127,11 @@
                     "scope": "application",
                     "description": "Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, list-comments, reply-comment, resolve-comment)."
                 },
+                "jj-view.codeForge.enableComments": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Controls whether code forge review comments (GitHub, GitLab, Gerrit) are fetched and displayed in the editor and Comments panel."
+                },
                 "jj-view.gerrit.host": {
                     "type": "string",
                     "description": "Gerrit host URL (e.g., https://gerrit-review.googlesource.com). If not set, extension attempts to detect it from .gitreview or git remotes."
@@ -879,7 +884,7 @@
                 {
                     "command": "jj-view.copyUnresolvedComments",
                     "group": "navigation",
-                    "when": "view == workbench.panel.comments && jj.codeForgeActive"
+                    "when": "view == workbench.panel.comments && jj.codeForgeActive && config.jj-view.codeForge.enableComments"
                 }
             ],
             "webview/context": [
