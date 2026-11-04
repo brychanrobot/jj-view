@@ -8,6 +8,7 @@ import { showJjError } from '../host/ui-helpers';
 import { createDiffUris } from '../uri-utils';
 
 const SHORT_CHANGE_ID_LENGTH = 8;
+const MAX_TITLE_LENGTH = 100;
 
 export interface ShowMultiFileDiffPayload {
     revision?: string;
@@ -44,7 +45,9 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
 
             const firstLine = description.split('\n')[0].trim();
             const shortId = changeId.slice(0, SHORT_CHANGE_ID_LENGTH);
-            const title = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
+            const rawTitle = firstLine ? `${shortId}: ${firstLine}` : `Changes in ${shortId}`;
+            const title =
+                rawTitle.length > MAX_TITLE_LENGTH ? `${rawTitle.slice(0, MAX_TITLE_LENGTH - 3)}...` : rawTitle;
             await ctx.host.nav.openMultiDiff(title, resources);
         });
     } catch (err: unknown) {
