@@ -152,6 +152,8 @@ describe('registerWebCommands', () => {
             'jj-view.showDetails',
             'jj-view.openChanges',
             'jj-view.sync',
+            'jj-view.prev',
+            'jj-view.next',
         ];
 
         for (const cmd of commands) {

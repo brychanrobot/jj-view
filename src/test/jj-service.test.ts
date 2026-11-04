@@ -2027,4 +2027,20 @@ log = "none()"
             await jjService.upload(undefined, 'git', 'push');
         });
     });
+
+    describe('prev and next', () => {
+        test('prev and next move working copy along linear history', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'c1', description: 'commit 1' },
+                { label: 'c2', parents: ['c1'], description: 'commit 2' },
+                { label: 'wc', parents: ['c2'], description: '', isCurrentWorkingCopy: true },
+            ]);
+
+            await jjService.prev();
+            expect(repo.getParents('@')).toEqual([ids.c1.changeId]);
+
+            await jjService.next();
+            expect(repo.getParents('@')).toEqual([ids.c2.changeId]);
+        });
+    });
 });

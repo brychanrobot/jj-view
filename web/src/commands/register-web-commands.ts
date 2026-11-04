@@ -36,7 +36,9 @@ import { showMultiFileDiffCommand } from '../../../src/core/commands/multi-diff'
 import { newCommand } from '../../../src/core/commands/new';
 import { newAfterCommand } from '../../../src/core/commands/new-after';
 import { newBeforeCommand } from '../../../src/core/commands/new-before';
+import { nextCommand } from '../../../src/core/commands/next';
 import { openChangesCommand, openFileCommand } from '../../../src/core/commands/open';
+import { prevCommand } from '../../../src/core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../../../src/core/commands/rebase';
 import { redoCommand } from '../../../src/core/commands/redo';
 import { refreshCommand } from '../../../src/core/commands/refresh';
@@ -262,10 +264,12 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         setDescriptionCommand,
     );
 
-    // 3. Status, Refresh, Undo, Redo
+    // 3. Status, Refresh, Undo, Redo, Prev, Next
     registerDirect('jj-view.refresh', refreshCommand);
     registerDirect('jj-view.undo', undoCommand);
     registerDirect('jj-view.redo', redoCommand);
+    registerDirect('jj-view.prev', prevCommand);
+    registerDirect('jj-view.next', nextCommand);
 
     // 4. Working Copy File Operations
     registerWithPayload('jj-view.restore', createRestorePayload, restoreCommand);

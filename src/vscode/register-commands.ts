@@ -35,7 +35,9 @@ import { showMultiFileDiffCommand } from '../core/commands/multi-diff';
 import { newCommand } from '../core/commands/new';
 import { newAfterCommand } from '../core/commands/new-after';
 import { newBeforeCommand } from '../core/commands/new-before';
+import { nextCommand } from '../core/commands/next';
 import { openChangesCommand, openFileCommand } from '../core/commands/open';
+import { prevCommand } from '../core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../core/commands/rebase';
 import { redoCommand } from '../core/commands/redo';
 import { refreshCommand } from '../core/commands/refresh';
@@ -272,6 +274,8 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommandWithPayload('jj-view.openChanges', createOpenChangesPayload, openChangesCommand),
         registerCommand('jj-view.undo', undoCommand),
         registerCommand('jj-view.redo', redoCommand),
+        registerCommand('jj-view.prev', prevCommand),
+        registerCommand('jj-view.next', nextCommand),
         registerCommandWithPayload('jj-view.duplicate', createDuplicatePayload, duplicateCommand),
         registerCommandWithPayload('jj-view.edit', createEditPayload, editCommand),
         registerCommandWithPayload('jj-view.newBefore', createNewBeforePayload, newBeforeCommand),

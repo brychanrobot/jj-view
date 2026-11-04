@@ -1286,6 +1286,14 @@ export class JjService {
         return this.run('redo', [], { isMutation: true, label: 'redo' });
     }
 
+    async prev(): Promise<string> {
+        return this.run('prev', [], { isMutation: true, label: 'prev' });
+    }
+
+    async next(): Promise<string> {
+        return this.run('next', [], { isMutation: true, label: 'next' });
+    }
+
     async getGitRemotes(): Promise<{ name: string; url: string }[]> {
         try {
             const output = await this.run('git', ['remote', 'list'], {
