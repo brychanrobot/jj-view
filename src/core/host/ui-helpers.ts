@@ -19,6 +19,8 @@ export interface PromptRevisionOptions {
     emptyPrompt?: string;
     repoRoot?: Uri;
     nav?: HostNavigation;
+    log?: LoggerChannel;
+    throwOnError?: boolean;
     onActiveRevisionChange?: (revision: string | undefined) => void;
 }
 
@@ -114,20 +116,24 @@ export async function promptForRevision(
 ): Promise<string | undefined> {
     const placeHolder = options?.placeHolder ?? 'Select target revision';
     const emptyPrompt = options?.emptyPrompt ?? 'Enter revision';
+    const query = options?.revisionQuery ?? 'visible()';
 
     try {
-        const query = options?.revisionQuery ?? 'visible()';
         const entries = await jj.getLog({
             revision: query,
             omitChanges: true,
         });
 
         const items = entries.map((entry) => {
-            const baseId = entry.change_id.split('/')[0].substring(0, 8);
-            const shortId =
-                entry.is_divergent && entry.change_id_offset !== undefined
-                    ? `${baseId}/${entry.change_id_offset}`
-                    : baseId;
+            const baseShortId = entry.change_id.split('/')[0].substring(0, 8);
+            const slashIndex = entry.change_id.indexOf('/');
+            const offsetSuffix =
+                slashIndex !== -1
+                    ? entry.change_id.substring(slashIndex)
+                    : (entry.is_divergent || entry.is_hidden) && entry.change_id_offset !== undefined
+                      ? `/${entry.change_id_offset}`
+                      : '';
+            const shortId = `${baseShortId}${offsetSuffix}`;
             const desc = entry.description || '(no description set)';
             const shortDesc = desc.split('\n')[0].substring(0, 50);
 
@@ -145,7 +151,7 @@ export async function promptForRevision(
 
         if (items.length === 0) {
             return await ui.showInputBox({
-                prompt: `${emptyPrompt} (no ancestors found)`,
+                prompt: `${emptyPrompt} (no matching revisions)`,
                 placeHolder: 'e.g. main, @-',
             });
         }
@@ -170,7 +176,13 @@ export async function promptForRevision(
         } finally {
             tracker.cleanup();
         }
-    } catch {
+    } catch (error: unknown) {
+        if (options?.throwOnError) {
+            throw error;
+        }
+        (options?.log ?? jj.logger).warn(
+            `[promptForRevision] Failed to load revisions for revset "${query}": ${getErrorMessage(error)}`,
+        );
         return await ui.showInputBox({
             prompt: emptyPrompt,
             placeHolder: 'e.g. main, @-',

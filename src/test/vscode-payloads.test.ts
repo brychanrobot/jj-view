@@ -27,6 +27,7 @@ import { createShowMultiFileDiffPayload } from '../vscode/payloads/multi-diff.pa
 import { createNewPayload } from '../vscode/payloads/new.payload';
 import { createNewAfterPayload } from '../vscode/payloads/new-after.payload';
 import { createNewBeforePayload } from '../vscode/payloads/new-before.payload';
+import { createPickChangePayload } from '../vscode/payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from '../vscode/payloads/rebase.payload';
 import { createRestorePayload } from '../vscode/payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from '../vscode/payloads/restore-file-from-revision.payload';
@@ -274,6 +275,27 @@ describe('vscode payloads', () => {
         it('createNewBeforePayload extracts revision', () => {
             const payload = createNewBeforePayload([{ commitId: 'c1' }]);
             expect(payload.revisions).toEqual(['c1']);
+        });
+    });
+
+    describe('pick change payload', () => {
+        it('extracts valid revset string from first argument object', () => {
+            expect(createPickChangePayload([{ revset: 'mutable()' }])).toEqual({ revset: 'mutable()' });
+        });
+
+        it('returns empty payload for missing, null, array, or non-object args', () => {
+            expect(createPickChangePayload([])).toEqual({});
+            expect(createPickChangePayload([undefined])).toEqual({});
+            expect(createPickChangePayload([null])).toEqual({});
+            expect(createPickChangePayload([['mutable()']])).toEqual({});
+            expect(createPickChangePayload(['mutable()'])).toEqual({});
+        });
+
+        it('ignores non-string revset fields', () => {
+            expect(createPickChangePayload([{ revset: 123 }])).toEqual({});
+            expect(createPickChangePayload([{ revset: true }])).toEqual({});
+            expect(createPickChangePayload([{ revset: {} }])).toEqual({});
+            expect(createPickChangePayload([{ revset: null }])).toEqual({});
         });
     });
 

@@ -123,6 +123,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(diff)',
         },
         {
+            command: 'jj-view.pickChange',
+            title: 'Pick Change',
+            category: 'JJ View',
+        },
+        {
             command: 'jj-view.undo',
             title: 'Undo',
             category: 'JJ View',
@@ -557,6 +562,10 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             },
             {
                 command: 'jj-view.openMergeEditor',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.pickChange',
                 when: 'false',
             },
             {

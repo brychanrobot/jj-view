@@ -168,6 +168,41 @@ The extension automatically refreshes the view when:
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.
 - `JJ View: Simplify Parents`: Remove redundant parent edges that are also indirect ancestors through other parents.
 
+### 🧩 Task Variables
+
+- `${command:jj-view.pickChange}`: Shows the change picker and returns the selected ID.
+
+  Optional arguments:
+  - `revset`: The set to pick from. Defaults to `visible()`.
+
+  Example:
+
+  ```json
+  {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Show a change",
+        "type": "shell",
+        "command": "jj show ${command:jj-view.pickChange}"
+      },
+      {
+        "label": "Show a mutable change",
+        "type": "shell",
+        "command": "jj show ${input:mutableChange}"
+      }
+    ],
+    "inputs": [
+      {
+        "id": "mutableChange",
+        "type": "command",
+        "command": "jj-view.pickChange",
+        "args": { "revset": "mutable()" }
+      }
+    ]
+  }
+  ```
+
 ## Configuration
 
 ### Extension Settings

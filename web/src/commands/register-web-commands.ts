@@ -39,6 +39,7 @@ import { newAfterCommand } from '../../../src/core/commands/new-after';
 import { newBeforeCommand } from '../../../src/core/commands/new-before';
 import { nextCommand } from '../../../src/core/commands/next';
 import { openChangesCommand, openFileCommand } from '../../../src/core/commands/open';
+import { pickChangeCommand } from '../../../src/core/commands/pick-change';
 import { prevCommand } from '../../../src/core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../../../src/core/commands/rebase';
 import { redoCommand } from '../../../src/core/commands/redo';
@@ -117,6 +118,7 @@ import { createNewPayload } from './payloads/new.payload';
 import { createNewAfterPayload } from './payloads/new-after.payload';
 import { createNewBeforePayload } from './payloads/new-before.payload';
 import { createOpenChangesPayload, createOpenFilePayload } from './payloads/open.payload';
+import { createPickChangePayload } from './payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
@@ -188,6 +190,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         commandId: string,
         payloadCreator: (args: unknown[], hostEnvironment?: HostEnvironment, activeScmModel?: ScmModel) => TPayload,
         handler: (ctx: CommandContext, payload: TPayload) => Promise<TReturn>,
+        commandOptions?: { refresh?: boolean },
     ): void {
         hostEnvironment.commands.registerCommand(commandId, async (...args: unknown[]) => {
             const repo = getActiveRepo(args);
@@ -201,7 +204,9 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
             const ctx = createCmdContext(repo);
             const payload = payloadCreator(args, hostEnvironment, activeScm);
             const result = await handler(ctx, payload);
-            await repo.refresh();
+            if (commandOptions?.refresh !== false) {
+                await repo.refresh();
+            }
             return result;
         });
     }
@@ -284,6 +289,7 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     registerWithPayload('jj-view.discardChange', createDiscardChangePayload, discardChangeCommand);
     registerWithPayload('jj-view.openFile', createOpenFilePayload, openFileCommand);
     registerWithPayload('jj-view.openChanges', createOpenChangesPayload, openChangesCommand);
+    registerWithPayload('jj-view.pickChange', createPickChangePayload, pickChangeCommand, { refresh: false });
     registerWithPayload('vscode.diff', createOpenChangesPayload, openChangesCommand);
     registerWithPayload('jj-view.openMergeEditor', createOpenMergeEditorPayload, openMergeEditorCommand);
 
