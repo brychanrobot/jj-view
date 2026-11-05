@@ -409,6 +409,11 @@
                 "icon": "$(diff)"
             },
             {
+                "command": "jj-view.pickChange",
+                "title": "Pick Change",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.undo",
                 "title": "Undo",
                 "category": "JJ View",
@@ -870,6 +875,10 @@
                 },
                 {
                     "command": "jj-view.toggleCommitAction.abandon.off",
+                    "when": "false"
+                },
+                {
+                    "command": "jj-view.pickChange",
                     "when": "false"
                 }
             ],

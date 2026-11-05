@@ -20,6 +20,7 @@ import { createSquashRevisionIntoParentPayload } from '../src/commands/payloads/
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
 import { WebHostEnvironment } from '../src/host/web-host-environment';
+import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from '../src/menu/default-menus';
 import { createMock } from './test-mock';
 
 describe('registerWebCommands', () => {
@@ -538,5 +539,138 @@ describe('registerWebCommands', () => {
 
         const emptyPayload = createRestoreFileFromRevisionPayload([]);
         expect(emptyPayload).toEqual({ fileUri: undefined, revision: undefined });
+    });
+
+    describe('jj-view.pickChange web command and menu parity', () => {
+        async function withRealRepoEnv(
+            fn: (env: {
+                repo: TestRepo;
+                hostEnvironment: WebHostEnvironment;
+                repoRefreshSpy: ReturnType<typeof vi.fn<() => Promise<void>>>;
+            }) => Promise<void>,
+        ) {
+            const repo = new TestRepo();
+            let hostEnvironment: WebHostEnvironment | undefined;
+            try {
+                repo.init();
+                const jj = new JjService(repo.path, NO_OP_LOGGER);
+
+                const mockRemoteHost = createMock<RemoteHostSystem>({
+                    fs: createMock<HostFs>({
+                        readTextFile: vi.fn(),
+                        writeTextFile: vi.fn(),
+                    }),
+                    platform: 'linux',
+                });
+                hostEnvironment = new WebHostEnvironment(mockRemoteHost, repo.path);
+                const repoRefreshSpy = vi.fn(async () => {});
+                const mockRepo = createMock<JjRepository>({
+                    jj,
+                    rootUri: Uri.file(repo.path),
+                    refresh: repoRefreshSpy,
+                });
+
+                const mockLogger = createMock<LoggerChannel>({
+                    info: vi.fn(),
+                    error: vi.fn(),
+                    debug: vi.fn(),
+                    warn: vi.fn(),
+                });
+
+                const mockRepoManager = createMock<JjRepositoryManager>({
+                    repositories: [mockRepo],
+                    focusedRepository: mockRepo,
+                    outputChannel: mockLogger,
+                });
+                const mockScmModel = createMock<ScmModel>({
+                    jj,
+                    repo: mockRepo,
+                    getSelectedCommitIds: () => [],
+                });
+
+                registerWebCommands({
+                    repositoryManager: mockRepoManager,
+                    hostEnvironment,
+                    logger: mockLogger,
+                    scmModel: mockScmModel,
+                });
+
+                await fn({ repo, hostEnvironment, repoRefreshSpy });
+            } finally {
+                hostEnvironment?.notifications.clearAll();
+                hostEnvironment?.dispose();
+                await repo.dispose();
+            }
+        }
+
+        it('registers jj-view.pickChange and marks it hidden in commandPalette', () => {
+            const { hostEnvironment } = setupTestEnvironment();
+
+            expect(hostEnvironment.commands.hasCommand('jj-view.pickChange')).toBe(true);
+            const commandDef = DEFAULT_PACKAGE_JSON_CONTRIBUTES.commands?.find(
+                (cmd) => cmd.command === 'jj-view.pickChange',
+            );
+            expect(commandDef).toEqual({
+                command: 'jj-view.pickChange',
+                title: 'Pick Change',
+                category: 'JJ View',
+            });
+            const paletteRule = DEFAULT_PACKAGE_JSON_CONTRIBUTES.menus?.commandPalette?.find(
+                (rule) => rule.command === 'jj-view.pickChange',
+            );
+            expect(paletteRule).toEqual({
+                command: 'jj-view.pickChange',
+                when: 'false',
+            });
+        });
+
+        it('lists matching changes, returns selected ID, and skips repo.refresh', async () => {
+            await withRealRepoEnv(async ({ repo, hostEnvironment, repoRefreshSpy }) => {
+                repo.new(undefined, 'other');
+
+                const quickPickSpy = vi
+                    .spyOn(hostEnvironment.ui, 'showQuickPick')
+                    .mockImplementation(async (items) => items[0]);
+
+                const result = await hostEnvironment.commands.executeCommand<string | undefined>('jj-view.pickChange', {
+                    revset: 'root()',
+                });
+
+                expect(quickPickSpy).toHaveBeenCalledTimes(1);
+                const passedItems = quickPickSpy.mock.calls[0][0];
+                expect(passedItems).toHaveLength(1);
+                expect(result).toBe(String(passedItems[0].value));
+                expect(repoRefreshSpy).not.toHaveBeenCalled();
+            });
+        });
+
+        it('returns undefined when prompt is cancelled', async () => {
+            await withRealRepoEnv(async ({ repo, hostEnvironment, repoRefreshSpy }) => {
+                repo.new(undefined, 'candidate');
+
+                vi.spyOn(hostEnvironment.ui, 'showQuickPick').mockResolvedValue(undefined);
+
+                const result = await hostEnvironment.commands.executeCommand<string | undefined>('jj-view.pickChange');
+
+                expect(result).toBeUndefined();
+                expect(repoRefreshSpy).not.toHaveBeenCalled();
+            });
+        });
+
+        it('trims custom revision accepted through hostEnvironment.quickInput', async () => {
+            await withRealRepoEnv(async ({ repo, hostEnvironment }) => {
+                repo.new(undefined, 'candidate');
+
+                const commandPromise = hostEnvironment.commands.executeCommand<string | undefined>(
+                    'jj-view.pickChange',
+                );
+                await vi.waitFor(() => {
+                    expect(hostEnvironment.quickInput.activeSession?.type).toBe('quick-pick');
+                });
+                hostEnvironment.quickInput.acceptCustomValue('  @-  ');
+
+                expect(await commandPromise).toBe('@-');
+            });
+        });
     });
 });

@@ -123,13 +123,79 @@ describe('ui-helpers', () => {
             expect(result).toBeUndefined();
         });
 
-        it('falls back to showInputBox if jj getLog throws', async () => {
+        it('falls back to showInputBox if jj getLog throws and logs a warning', async () => {
+            const log = createMockLogOutputChannel();
             ui.showInputBox = vi.fn().mockResolvedValue('fallback-rev');
 
-            const result = await promptForRevision(ui, jj, { revisionQuery: 'invalid(syntax' });
+            const result = await promptForRevision(ui, jj, { revisionQuery: 'invalid(syntax', log });
 
             expect(result).toBe('fallback-rev');
             expect(ui.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Enter revision' }));
+            expect(log.warn).toHaveBeenCalledWith(
+                expect.stringContaining('[promptForRevision] Failed to load revisions for revset "invalid(syntax"'),
+            );
+        });
+
+        it('rethrows jj getLog errors without falling back when throwOnError is true', async () => {
+            ui.showInputBox = vi.fn();
+
+            await expect(
+                promptForRevision(ui, jj, { revisionQuery: 'invalid(syntax', throwOnError: true }),
+            ).rejects.toThrow();
+            expect(ui.showInputBox).not.toHaveBeenCalled();
+        });
+
+        it('shows matching-revisions prompt when revset produces zero entries', async () => {
+            ui.showInputBox = vi.fn().mockResolvedValue('main');
+
+            const result = await promptForRevision(ui, jj, { revisionQuery: 'none()' });
+
+            expect(result).toBe('main');
+            expect(ui.showInputBox).toHaveBeenCalledWith(
+                expect.objectContaining({ prompt: 'Enter revision (no matching revisions)' }),
+            );
+
+            await promptForRevision(ui, jj, { revisionQuery: 'none()', emptyPrompt: 'Pick base' });
+            expect(ui.showInputBox).toHaveBeenCalledWith(
+                expect.objectContaining({ prompt: 'Pick base (no matching revisions)' }),
+            );
+        });
+
+        it('includes divergent change offset in quick pick labels', async () => {
+            repo.describe('version 1');
+            const commitIdV1 = repo.getCommitId('@');
+            repo.describe('version 2');
+            repo.bookmark('old-version', commitIdV1);
+
+            let labels: string[] = [];
+            ui.showQuickPick = vi.fn().mockImplementation((items) => {
+                labels = items.map((item: { label: string }) => item.label);
+                return Promise.resolve(items[0]);
+            });
+
+            await promptForRevision(ui, jj, { revisionQuery: 'all() ~ root()' });
+
+            expect(labels.some((label) => /\/0\b/.test(label))).toBe(true);
+            expect(labels.some((label) => /\/1\b/.test(label))).toBe(true);
+        });
+
+        it('includes hidden change offset in quick pick labels and returned id', async () => {
+            repo.describe('version 1');
+            const hiddenCommitId = repo.getCommitId('@');
+            repo.describe('version 2');
+
+            let labels: string[] = [];
+            ui.showQuickPick = vi.fn().mockImplementation((items) => {
+                labels = items.map((item: { label: string }) => item.label);
+                return Promise.resolve(items[0]);
+            });
+
+            const picked = await promptForRevision(ui, jj, {
+                revisionQuery: `commit_id("${hiddenCommitId}")`,
+            });
+
+            expect(picked).toMatch(/\/\d+$/);
+            expect(labels.some((label) => /\/\d+\b/.test(label))).toBe(true);
         });
 
         it('supports RevisionQuery expressions', async () => {

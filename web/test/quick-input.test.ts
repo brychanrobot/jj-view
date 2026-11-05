@@ -7,6 +7,9 @@ import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { HostFs } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
+import { promptForRevision } from '../../src/core/host/ui-helpers';
+import { JjService, NO_OP_LOGGER } from '../../src/core/jj-service';
+import { TestRepo } from '../../src/test/test-repo';
 import { createMock } from '../../src/test/test-utils';
 import { WebHostEnvironment, WebHostUi } from '../src/host/web-host-environment';
 import { filterAndScoreQuickPickItems, scoreFuzzyPath, scoreFuzzyString } from '../src/quick-input/fuzzy-score';
@@ -357,6 +360,26 @@ describe('QuickInput SSR Component Rendering', () => {
 
         const selected = await promise;
         expect(selected?.fullPath).toBe('/repo/chrome/browser_view.cc');
+    });
+
+    it('preserves customValue object shape with promptForRevision via acceptCustomValue', async () => {
+        const service = new QuickInputService();
+        const ui = new WebHostUi(service);
+        const repo = new TestRepo();
+        try {
+            repo.init();
+            repo.new(undefined, 'existing');
+            const jj = new JjService(repo.path, NO_OP_LOGGER);
+
+            const promptPromise = promptForRevision(ui, jj);
+            await vi.waitFor(() => {
+                expect(service.activeSession?.type).toBe('quick-pick');
+            });
+            service.acceptCustomValue('  main  ');
+            expect(await promptPromise).toBe('main');
+        } finally {
+            await repo.dispose();
+        }
     });
 });
 
