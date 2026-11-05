@@ -1311,7 +1311,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "^2.4.12",
-        "@playwright/test": "^1.58.0",
+        "@playwright/test": "^1.64.1",
         "@sveltejs/vite-plugin-svelte": "^7.3.0",
         "@types/adm-zip": "^0.5.8",
         "@types/mocha": "^10.0.10",
@@ -1330,7 +1330,7 @@
         "jsonc-parser": "^3.3.1",
         "npm-run-all": "^4.1.5",
         "ovsx": "^0.10.8",
-        "playwright": "^1.58.0",
+        "playwright": "^1.64.1",
         "rimraf": "^6.1.2",
         "sinon": "^21.0.1",
         "svelte-check": "^4.7.6",
