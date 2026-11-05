@@ -49,8 +49,8 @@ importers:
         specifier: ^2.4.12
         version: 2.4.12
       '@playwright/test':
-        specifier: ^1.58.0
-        version: 1.58.0
+        specifier: ^1.64.1
+        version: 1.64.1
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.0
         version: 7.3.0(svelte@5.57.0)(vite@7.3.0(@types/node@22.19.3)(jiti@2.6.1)(lightningcss@1.33.0)(yaml@2.8.2))
@@ -106,8 +106,8 @@ importers:
         specifier: ^0.10.8
         version: 0.10.8(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
       playwright:
-        specifier: ^1.58.0
-        version: 1.58.0
+        specifier: ^1.64.1
+        version: 1.64.1
       rimraf:
         specifier: ^6.1.2
         version: 6.1.2
@@ -722,9 +722,9 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
-  '@playwright/test@1.58.0':
-    resolution: {integrity: sha512-fWza+Lpbj6SkQKCrU6si4iu+fD2dD3gxNHFhUPxsfXBPhnv3rRSQVd0NtBUT9Z/RhF/boCBcuUaMUSTRTopjZg==}
-    engines: {node: '>=18'}
+  '@playwright/test@1.64.1':
+    resolution: {integrity: sha512-IaYGml/nSOiZWROfPtuIL7neuu9qDOZ3TNvNljUIrhDMxiGTgPjzj/g9p9RxpS2tSepPDRY+UwAaEeiKtUvIAg==}
+    engines: {node: '>=20'}
     hasBin: true
 
   '@rollup/rollup-android-arm-eabi@4.54.0':
@@ -1843,11 +1843,6 @@ packages:
     resolution: {integrity: sha512-XUBA9XClHbnJWSfBzjkm6RvPsyg3sryZt06BEQoXcF7EK/xpGaQYJgQKDJSUH5SGZ76Y7pFx1QBnXz09rU5Fbw==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
-  fsevents@2.3.2:
-    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
-    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
-    os: [darwin]
-
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -2856,14 +2851,14 @@ packages:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
 
-  playwright-core@1.58.0:
-    resolution: {integrity: sha512-aaoB1RWrdNi3//rOeKuMiS65UCcgOVljU46At6eFcOFPFHWtd2weHRRow6z/n+Lec0Lvu0k9ZPKJSjPugikirw==}
-    engines: {node: '>=18'}
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
     hasBin: true
 
-  playwright@1.58.0:
-    resolution: {integrity: sha512-2SVA0sbPktiIY/MCOPX8e86ehA/e+tDNq+e5Y8qjKYti2Z/JG7xnronT/TXTIkKbYGWlCbuucZ6dziEgkoEjQQ==}
-    engines: {node: '>=18'}
+  playwright@1.64.1:
+    resolution: {integrity: sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==}
+    engines: {node: '>=20'}
     hasBin: true
 
   pluralize@2.0.0:
@@ -2979,7 +2974,7 @@ packages:
     engines: {node: '>= 0.4'}
 
   renderdag-ts@https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c}
+    resolution: {gitHosted: true, integrity: sha512-74HJuc8hhEfWcvRewI56BK/aYtFn+Ng5Ng6aGb/t24st299LrLmKqCHeJO9TT31Kqgzz+SB7kkp7ANpQq4j7RA==, tarball: https://codeload.github.com/brychanrobot/renderdag-ts/tar.gz/22ba007b7ae2a08cef781070d441fa19ba5f197c}
     version: 1.0.0
 
   require-directory@2.1.1:
@@ -4262,9 +4257,9 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
-  '@playwright/test@1.58.0':
+  '@playwright/test@1.64.1':
     dependencies:
-      playwright: 1.58.0
+      playwright: 1.64.1
 
   '@rollup/rollup-android-arm-eabi@4.54.0':
     optional: true
@@ -5513,9 +5508,6 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  fsevents@2.3.2:
-    optional: true
-
   fsevents@2.3.3:
     optional: true
 
@@ -6580,13 +6572,11 @@ snapshots:
 
   pirates@4.0.7: {}
 
-  playwright-core@1.58.0: {}
+  playwright-core@1.64.1: {}
 
-  playwright@1.58.0:
+  playwright@1.64.1:
     dependencies:
-      playwright-core: 1.58.0
-    optionalDependencies:
-      fsevents: 2.3.2
+      playwright-core: 1.64.1
 
   pluralize@2.0.0: {}
 
