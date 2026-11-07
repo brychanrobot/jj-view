@@ -23,10 +23,14 @@ Use this skill when the user wants to cut a new release of the extension. It req
     - Analyze the commit messages to determine the correct next version (patch, minor, or major bump) based on standard conventions (e.g., `feat:` is minor, `fix:` is patch).
     - Update the `version` field in `package.json` with the new version.
 5.  **Fetch Commits (If No Match):** If they _do not match_, assume the version in `package.json` was already bumped manually and is correct. Fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
-6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., Features, Fixes, Chores) from the commits. **CRITICAL:** Adopt the canonical style for changelog entries by starting each bullet with a bolded component or feature name:
-    - **User-Centric Organization:** Focus on presenting changes in a way that is most helpful to users. Do not group or combine different logical improvements or bug fixes together just because they happened to be committed in the same change. Instead, split them into separate logical bullet points under their respective component/feature headings.
-    - Always group changes as nested bullets under the component/feature name, even if there is only a single change for that component:
+6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., `### Features`, `### Fixes`, `### Performance`, `### Chores & Internal`) from the commits. **CRITICAL:**
+    - **Separate Scopes with Explicit Sub-Headings (`#### Common`, `#### VS Code`, `#### Web`):** Within user-facing sections (`### Features`, `### Fixes`, `### Performance`), group entries under `#### Common` (shared across both VS Code and Web, e.g., `src/core/`, `src/webview/`), `#### VS Code` (`src/vscode/`, extension-only changes), and `#### Web` (`web/`, `cmd/`, `internal/`). Omit any scope sub-heading that has no entries in that section. Never mix Web-only changes (such as `@pierre/diffs` viewer features, standalone web tabs, or Go daemon changes) into `#### Common` or `#### VS Code`.
+    - **Consolidate Multi-Commit Features & Pre-Release Fixes:** When a new feature is developed and polished across multiple commits within the same release cycle, consolidate it into a high-level summary of the capability rather than narrating every incremental commit. Do not list bug fixes in `### Fixes` for a feature that was introduced in the same release (never previously released).
+    - **User-Centric Organization:** Focus on presenting changes in a way that is most helpful to users. Do not group or combine unrelated logical improvements or bug fixes together just because they happened to be committed in the same change. Instead, split them into separate logical bullet points under their respective component/feature headings.
+    - Adopt the canonical style for changelog entries by starting each bullet with a bolded component or feature name, with changes as nested bullets even if there is only a single change for that component:
       ```markdown
+      #### Common
+
       - **[Component/Feature Name]**:
           - [Description of change]
       ```
